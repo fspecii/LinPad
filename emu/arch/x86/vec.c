@@ -1,7 +1,7 @@
 #include <math.h>
 #include <string.h>
 
-#include "emu/vec.h"
+#include "emu/arch/x86/vec.h"
 #include "emu/cpu.h"
 
 union vec {

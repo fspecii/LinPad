@@ -76,7 +76,7 @@ dword_t sys_clock_gettime(dword_t clock, addr_t tp) {
     t.nsec = ts.tv_nsec;
     if (user_put(tp, t))
         return _EFAULT;
-    STRACE(" {%lds %ldns}", t.sec, t.nsec);
+    STRACE(" {%llds %lldns}", (long long)t.sec, (long long)t.nsec);
     return 0;
 }
 
@@ -128,7 +128,11 @@ int_t sys_setitimer(int_t which, addr_t new_val_addr, addr_t old_val_addr) {
     struct itimerval_ val;
     if (user_get(new_val_addr, val))
         return _EFAULT;
-    STRACE("setitimer(%d, {%ds %dus, %ds %dus}, 0x%x)", which, val.value.sec, val.value.usec, val.interval.sec, val.interval.usec, old_val_addr);
+    STRACE("setitimer(%d, {%llds %lldus, %llds %lldus}, 0x%x)",
+        which,
+        (long long)val.value.sec, (long long)val.value.usec,
+        (long long)val.interval.sec, (long long)val.interval.usec,
+        old_val_addr);
 
     struct timer_spec spec = {
         .interval.tv_sec = val.interval.sec,
@@ -185,7 +189,7 @@ dword_t sys_nanosleep(addr_t req_addr, addr_t rem_addr) {
     struct timespec_ req_ts;
     if (user_get(req_addr, req_ts))
         return _EFAULT;
-    STRACE("nanosleep({%d, %d}, 0x%x", req_ts.sec, req_ts.nsec, rem_addr);
+    STRACE("nanosleep({%lld, %lld}, 0x%x", (long long)req_ts.sec, (long long)req_ts.nsec, rem_addr);
     struct timespec req;
     req.tv_sec = req_ts.sec;
     req.tv_nsec = req_ts.nsec;

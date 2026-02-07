@@ -1,4 +1,4 @@
-#include "../gadgets-generic.h"
+#include "../../gadgets-generic.h"
 #include "cpu-offsets.h"
 
 # register assignments

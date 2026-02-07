@@ -29,7 +29,20 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
     unsigned cpus = sysconf(_SC_NPROCESSORS_ONLN);
     for (unsigned i = 0; i < cpus; i++) {
         proc_printf(buf, "processor\t: %u\n", i);
+#ifdef GUEST_ARM64
+        // ARM64 format
+        proc_printf(buf, "BogoMIPS\t: 48.00\n");
+        // Include crypto features that iSH ARM64 emulates
+        proc_printf(buf, "Features\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics\n");
+        proc_printf(buf, "CPU implementer\t: 0x00\n");
+        proc_printf(buf, "CPU architecture: 8\n");
+        proc_printf(buf, "CPU variant\t: 0x0\n");
+        proc_printf(buf, "CPU part\t: 0x000\n");
+        proc_printf(buf, "CPU revision\t: 0\n");
+#else
+        // x86 format
         proc_printf(buf, "vendor_id\t: iSH\n");
+#endif
         proc_printf(buf, "\n");
     }
     return 0;

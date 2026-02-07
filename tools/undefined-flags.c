@@ -1,4 +1,4 @@
-#include "emu/modrm.h"
+#include "emu/arch/x86/modrm.h"
 #include "undefined-flags.h"
 #include "ptutil.h"
 

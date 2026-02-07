@@ -22,6 +22,9 @@ endforeach
 add_project_arguments('-DLOG_HANDLER_' + get_option('log_handler').to_upper() + '=1', language: 'c')
 add_project_arguments('-DENGINE_' + get_option('engine').to_upper() + '=1', language: 'c')
 
+guest_arch = get_option('guest_arch')
+add_project_arguments('-DGUEST_' + guest_arch.to_upper() + '=1', language: 'c')
+
 if get_option('no_crlf')
     add_project_arguments('-DNO_CRLF', language: 'c')
 endif
@@ -37,34 +40,71 @@ libdl = cc.find_library('dl', required: false)
 sqlite3 = cc.find_library('sqlite3')
 dependencies = [librt, libm, libdl, threads, sqlite3]
 
-subdir('vdso') # ish depends on the vdso
+# vdso is arch-specific
+if guest_arch == 'x86'
+    subdir('vdso/x86')
+    vdso_inc = include_directories('vdso/x86')
+elif guest_arch == 'arm64'
+    subdir('vdso/arm64')
+    vdso_inc = include_directories('vdso/arm64')
+endif
+includes += vdso_inc
 
 offsets = custom_target('offsets',
     output: 'cpu-offsets.h', input: 'asbestos/offsets.c', depfile: 'cpu-offsets.h.d',
     command: [find_program('tools/staticdefine.sh'), '@OUTDIR@/compile_commands.json', '@INPUT@', '@OUTPUT@', '@DEPFILE@'])
 
+# Common emu sources
 emu_src = [
     'emu/tlb.c',
-    'emu/fpu.c',
-    'emu/vec.c',
-    'emu/mmx.c',
-    'emu/float80.c',
+]
 
-]
-gadgets = 'asbestos/gadgets-' + host_machine.cpu_family()
-emu_src += [
-    'asbestos/asbestos.c',
-    'asbestos/gen.c',
-    'asbestos/helpers.c',
-    gadgets+'/entry.S',
-    gadgets+'/memory.S',
-    gadgets+'/control.S',
-    gadgets+'/math.S',
-    gadgets+'/bits.S',
-    gadgets+'/string.S',
-    gadgets+'/misc.S',
-    offsets,
-]
+# Architecture-specific emu sources
+if guest_arch == 'x86'
+    emu_src += [
+        'emu/arch/x86/fpu.c',
+        'emu/arch/x86/vec.c',
+        'emu/arch/x86/mmx.c',
+        'emu/arch/x86/float80.c',
+    ]
+    gadgets_base = 'asbestos/guest-x86/gadgets-'
+elif guest_arch == 'arm64'
+    emu_src += [
+        'emu/arch/arm64/fpu.c',
+    ]
+    gadgets_base = 'asbestos/guest-arm64/gadgets-'
+endif
+
+gadgets = gadgets_base + host_machine.cpu_family()
+if guest_arch == 'x86'
+    emu_src += [
+        'asbestos/asbestos.c',
+        'asbestos/guest-x86/gen.c',
+        'asbestos/helpers.c',
+        gadgets+'/entry.S',
+        gadgets+'/memory.S',
+        gadgets+'/control.S',
+        gadgets+'/math.S',
+        gadgets+'/bits.S',
+        gadgets+'/string.S',
+        gadgets+'/misc.S',
+        offsets,
+    ]
+elif guest_arch == 'arm64'
+    emu_src += [
+        'asbestos/asbestos.c',
+        'asbestos/guest-arm64/gen.c',
+        'asbestos/guest-arm64/crypto_helpers.c',
+        'asbestos/helpers.c',
+        gadgets+'/entry.S',
+        gadgets+'/memory.S',
+        gadgets+'/control.S',
+        gadgets+'/math.S',
+        gadgets+'/bits.S',
+        gadgets+'/crypto.S',
+        offsets,
+    ]
+endif
 
 libish_emu = library('ish_emu', emu_src, include_directories: includes)
 
@@ -80,11 +120,18 @@ if get_option('kernel') == 'ish'
         error('Only asbestos is supported with ish kernel')
     endif
 
+    # Architecture-specific kernel sources
+    if guest_arch == 'x86'
+        arch_kernel_src = ['kernel/arch/x86/calls.c']
+    elif guest_arch == 'arm64'
+        arch_kernel_src = ['kernel/arch/arm64/calls.c']
+    endif
+
     src = [
         'kernel/init.c',
         'kernel/errno.c',
 
-        'kernel/calls.c',
+        'kernel/calls.c',] + arch_kernel_src + [
         'kernel/memory.c',
         'kernel/user.c',
         'kernel/vdso.c', vdso,
@@ -209,9 +256,9 @@ foreach script : gdb_scripts
         build_by_default: true)
 endforeach
 
-if not meson.is_cross_build()
-    # test for floating point library
-    float80_test = executable('float80_test', ['emu/float80.c', 'emu/float80-test.c'], dependencies: [libm])
+if not meson.is_cross_build() and guest_arch == 'x86'
+    # test for floating point library (x86 only)
+    float80_test = executable('float80_test', ['emu/arch/x86/float80.c', 'emu/arch/x86/float80-test.c'], dependencies: [libm])
     test('float80', float80_test)
 endif
 

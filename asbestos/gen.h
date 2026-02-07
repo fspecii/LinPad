@@ -1,6 +1,8 @@
 #ifndef EMU_GEN_H
 #define EMU_GEN_H
 
+#include <stdint.h>
+
 #include "asbestos/asbestos.h"
 #include "emu/tlb.h"
 
@@ -13,6 +15,8 @@ struct gen_state {
     unsigned capacity;
     unsigned jump_ip[2];
     unsigned block_patch_ip; // for call/call_indir gadgets
+    uint32_t last_insn;
+    struct tlb *tlb; // for peephole optimization (peek at next instruction)
 };
 
 void gen_start(addr_t addr, struct gen_state *state);

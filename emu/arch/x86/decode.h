@@ -1,6 +1,6 @@
 #include "misc.h"
 #include "emu/cpu.h"
-#include "emu/modrm.h"
+#include "emu/arch/x86/modrm.h"
 #include "emu/interrupt.h"
 
 #undef oz

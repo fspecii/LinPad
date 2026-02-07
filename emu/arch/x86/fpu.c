@@ -2,8 +2,8 @@
 #include <math.h>
 #include <string.h>
 #include "emu/cpu.h"
-#include "emu/float80.h"
-#include "emu/fpu.h"
+#include "emu/arch/x86/float80.h"
+#include "emu/arch/x86/fpu.h"
 
 #define ST(i) cpu->fp[(cpu->top + i) % 8]
 

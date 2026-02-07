@@ -9,6 +9,8 @@
 #include "fs/path.h"
 #include "fs/dev.h"
 
+#define IO_DEBUG 0
+
 static struct fd *at_fd(fd_t f) {
     if (f == AT_FDCWD_)
         return AT_PWD;
@@ -74,11 +76,13 @@ fd_t sys_openat(fd_t at_f, addr_t path_addr, dword_t flags, mode_t_ mode) {
         apply_umask(&mode);
 
     struct fd *at = at_fd(at_f);
-    if (at == NULL)
+    if (at == NULL) {
         return _EBADF;
+    }
     struct fd *fd = generic_openat(at, path, flags, mode);
-    if (IS_ERR(fd))
+    if (IS_ERR(fd)) {
         return PTR_ERR(fd);
+    }
     return f_install(fd, flags);
 }
 
@@ -278,6 +282,38 @@ dword_t sys_write(fd_t fd_no, addr_t buf_addr, dword_t size) {
     if (user_read(buf_addr, buf, size))
         goto out;
 
+#if IO_DEBUG
+    // Temporary debug: dump small stdout/stderr writes to inspect applet name issues.
+    static int debug_write1_count = 0;
+    static int debug_write2_count = 0;
+    if (fd_no == 1 && size <= 128 && debug_write1_count < 12) {
+        fprintf(stderr, "[WRITE1 DEBUG #%d] size=%u bytes:", debug_write1_count, size);
+        for (dword_t i = 0; i < size; i++) {
+            fprintf(stderr, " %02x", (unsigned char)buf[i]);
+        }
+        fprintf(stderr, " |");
+        for (dword_t i = 0; i < size; i++) {
+            unsigned char c = (unsigned char)buf[i];
+            fputc((c >= 32 && c < 127) ? (char)c : '.', stderr);
+        }
+        fprintf(stderr, "|\n");
+        debug_write1_count++;
+    }
+    if (fd_no == 2 && size <= 64 && debug_write2_count < 8) {
+        fprintf(stderr, "[WRITE2 DEBUG #%d] size=%u bytes:", debug_write2_count, size);
+        for (dword_t i = 0; i < size; i++) {
+            fprintf(stderr, " %02x", (unsigned char)buf[i]);
+        }
+        fprintf(stderr, " |");
+        for (dword_t i = 0; i < size; i++) {
+            unsigned char c = (unsigned char)buf[i];
+            fputc((c >= 32 && c < 127) ? (char)c : '.', stderr);
+        }
+        fprintf(stderr, "|\n");
+        debug_write2_count++;
+    }
+#endif
+
     size_t print_size = size;
     if (print_size > 100) print_size = 100;
     STRACE("write(%d, \"%.*s\", %d)", fd_no, print_size, buf, size);
@@ -296,6 +332,44 @@ out:
 // by the inefficiency of the emulator.
 
 static struct iovec_ *read_iovec(addr_t iovec_addr, unsigned iovec_count) {
+#ifdef GUEST_ARM64
+    // ARM64 uses 64-bit iovec structure (16 bytes per entry)
+    // We read the 64-bit version and convert to 32-bit for internal use
+    size_t iovec64_size = sizeof(struct iovec64_) * iovec_count;
+    struct iovec64_ *iovec64 = malloc(iovec64_size);
+    if (iovec64 == NULL)
+        return ERR_PTR(_ENOMEM);
+    if (user_read(iovec_addr, iovec64, iovec64_size)) {
+        free(iovec64);
+        return ERR_PTR(_EFAULT);
+    }
+
+    // Debug: print raw iovec64 data
+#if IO_DEBUG
+    static int iovec_debug_count = 0;
+    iovec_debug_count++;
+    if (iovec_debug_count < 20) {
+        fprintf(stderr, "[IOVEC64 DEBUG #%d] addr=0x%x count=%u\n", iovec_debug_count, iovec_addr, iovec_count);
+        for (unsigned i = 0; i < iovec_count && i < 4; i++) {
+            fprintf(stderr, "  iovec64[%d]: base=0x%llx len=0x%llx\n", i,
+                    (unsigned long long)iovec64[i].base, (unsigned long long)iovec64[i].len);
+        }
+    }
+#endif
+
+    // Convert to 32-bit iovec for internal processing
+    struct iovec_ *iovec = malloc(sizeof(struct iovec_) * iovec_count);
+    if (iovec == NULL) {
+        free(iovec64);
+        return ERR_PTR(_ENOMEM);
+    }
+    for (unsigned i = 0; i < iovec_count; i++) {
+        iovec[i].base = (addr_t)iovec64[i].base;
+        iovec[i].len = (uint_t)iovec64[i].len;
+    }
+    free(iovec64);
+    return iovec;
+#else
     dword_t iovec_size = sizeof(struct iovec_) * iovec_count;
     struct iovec_ *iovec = malloc(iovec_size);
     if (iovec == NULL)
@@ -305,6 +379,7 @@ static struct iovec_ *read_iovec(addr_t iovec_addr, unsigned iovec_count) {
         return ERR_PTR(_EFAULT);
     }
     return iovec;
+#endif
 }
 
 static ssize_t iovec_size(struct iovec_ *iovec, unsigned iovec_count) {
@@ -350,10 +425,29 @@ error:
 
 dword_t sys_writev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
     STRACE("writev(%d, %#x, %d)", fd_no, iovec_addr, iovec_count);
+#if IO_DEBUG
+    static int writev_call_count = 0;
+    writev_call_count++;
+#endif
+
     struct iovec_ *iovec = read_iovec(iovec_addr, iovec_count);
-    if (IS_ERR(iovec))
+    if (IS_ERR(iovec)) {
+#if IO_DEBUG
+        if (writev_call_count < 20) {
+            fprintf(stderr, "[WRITEV #%d] read_iovec failed: %d\n", writev_call_count, (int)PTR_ERR(iovec));
+        }
+#endif
         return PTR_ERR(iovec);
+    }
     size_t io_size = iovec_size(iovec, iovec_count);
+#if IO_DEBUG
+    if (writev_call_count < 20) {
+        fprintf(stderr, "[WRITEV #%d] fd=%d iovec_count=%d io_size=%zu\n", writev_call_count, fd_no, iovec_count, io_size);
+        for (unsigned i = 0; i < iovec_count && i < 4; i++) {
+            fprintf(stderr, "[WRITEV #%d]   iovec[%d]: base=0x%x len=%u\n", writev_call_count, i, iovec[i].base, iovec[i].len);
+        }
+    }
+#endif
     char *buf = malloc(io_size);
     if (buf == NULL) {
         free(iovec);
@@ -364,6 +458,11 @@ dword_t sys_writev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
     size_t offset = 0;
     for (unsigned i = 0; i < iovec_count; i++) {
         if (user_read(iovec[i].base, buf + offset, iovec[i].len)) {
+#if IO_DEBUG
+            if (writev_call_count < 20) {
+                fprintf(stderr, "[WRITEV #%d] user_read failed for iovec[%d]\n", writev_call_count, i);
+            }
+#endif
             res = _EFAULT;
             goto error;
         }
@@ -374,6 +473,11 @@ dword_t sys_writev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
         offset += iovec[i].len;
     }
     res = sys_write_buf(fd_no, buf, io_size);
+#if IO_DEBUG
+    if (writev_call_count < 20) {
+        fprintf(stderr, "[WRITEV #%d] sys_write_buf returned %d\n", writev_call_count, (int)res);
+    }
+#endif
 
 error:
     free(buf);
@@ -411,6 +515,22 @@ dword_t sys_lseek(fd_t f, dword_t off, dword_t whence) {
     unlock(&fd->lock);
     if ((dword_t) res != res)
         return _EOVERFLOW;
+    return res;
+}
+
+// 64-bit lseek for ARM64
+// Returns the new file position directly (not via pointer like _llseek)
+qword_t sys_lseek64(fd_t f, sqword_t off, dword_t whence) {
+    struct fd *fd = f_get(f);
+    if (fd == NULL)
+        return _EBADF;
+    if (!fd->ops->lseek)
+        return _ESPIPE;
+    lock(&fd->lock);
+    STRACE("lseek64(%d, %lld, %d)", f, (long long)off, whence);
+    off_t_ res = fd->ops->lseek(fd, off, whence);
+    STRACE(" -> %lld", (long long)res);
+    unlock(&fd->lock);
     return res;
 }
 
@@ -721,6 +841,56 @@ dword_t sys_fstatfs64(fd_t f, addr_t buf_addr) {
     return statfs64_mount(f_get(f)->mount, buf_addr);
 }
 
+#if defined(GUEST_ARM64)
+// ARM64 uses statfs (not statfs64) with a different structure layout
+// The structure uses 64-bit fields throughout (LP64 ABI)
+static int_t statfs_arm64_mount(struct mount *mount, addr_t buf_addr) {
+    struct statfsbuf buf = {};
+    int err = mount_statfs(mount, &buf);
+    if (err < 0)
+        return err;
+    struct statfs_arm64_ out_buf = {
+        .type = buf.type,
+        .bsize = buf.bsize,
+        .blocks = buf.blocks,
+        .bfree = buf.bfree,
+        .bavail = buf.bavail,
+        .files = buf.files,
+        .ffree = buf.ffree,
+        .fsid = {buf.fsid & 0xFFFFFFFF, buf.fsid >> 32},
+        .namelen = buf.namelen,
+        .frsize = buf.frsize,
+        .flags = buf.flags,
+    };
+    if (user_put(buf_addr, out_buf))
+        return _EFAULT;
+    return 0;
+}
+
+dword_t sys_statfs_arm64(addr_t path_addr, addr_t buf_addr) {
+    char path_raw[MAX_PATH];
+    if (user_read_string(path_addr, path_raw, sizeof(path_raw)))
+        return _EFAULT;
+    STRACE("statfs(\"%s\", %#llx)", path_raw, (unsigned long long)buf_addr);
+    char path[MAX_PATH];
+    int err = path_normalize(AT_PWD, path_raw, path, N_SYMLINK_NOFOLLOW);
+    if (err < 0)
+        return err;
+    struct mount *mount = mount_find(path);
+    err = statfs_arm64_mount(mount, buf_addr);
+    mount_release(mount);
+    return err;
+}
+
+dword_t sys_fstatfs_arm64(fd_t f, addr_t buf_addr) {
+    STRACE("fstatfs(%d, %#llx)", f, (unsigned long long)buf_addr);
+    struct fd *fd = f_get(f);
+    if (fd == NULL)
+        return _EBADF;
+    return statfs_arm64_mount(fd->mount, buf_addr);
+}
+#endif
+
 dword_t sys_flock(fd_t f, dword_t operation) {
     struct fd *fd = f_get(f);
     if (fd == NULL)
@@ -737,8 +907,9 @@ static dword_t sys_utime_common(fd_t at_f, addr_t path_addr, struct timespec ati
     if (path_addr != 0)
         if (user_read_string(path_addr, path, sizeof(path)))
             return _EFAULT;
-    STRACE("utimensat(%d, %s, {{%d, %d}, {%d, %d}}, %d)", at_f, path,
-            atime.tv_sec, atime.tv_nsec, mtime.tv_sec, mtime.tv_nsec, flags);
+    STRACE("utimensat(%d, %s, {{%lld, %lld}, {%lld, %lld}}, %d)", at_f, path,
+            (long long)atime.tv_sec, (long long)atime.tv_nsec,
+            (long long)mtime.tv_sec, (long long)mtime.tv_nsec, flags);
     struct fd *at = at_fd(at_f);
     if (at == NULL)
         return _EBADF;

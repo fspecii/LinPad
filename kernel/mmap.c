@@ -7,6 +7,8 @@
 #include "kernel/memory.h"
 #include "kernel/mm.h"
 
+#define MMAP_DEBUG 0
+
 struct mm *mm_new() {
     struct mm *mm = malloc(sizeof(struct mm));
     if (mm == NULL)
@@ -106,6 +108,31 @@ addr_t sys_mmap2(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_
     return mmap_common(addr, len, prot, flags, fd_no, offset << PAGE_BITS);
 }
 
+#if defined(GUEST_ARM64)
+// ARM64 mmap syscall: offset is passed directly (not shifted like mmap2)
+// and takes 6 direct arguments (not a pointer to a struct like x86 mmap)
+addr_t sys_mmap64(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, qword_t offset) {
+    STRACE("mmap64(0x%x, 0x%x, 0x%x, 0x%x, %d, 0x%llx)", addr, len, prot, flags, fd_no, (unsigned long long)offset);
+    if (len == 0)
+        return _EINVAL;
+    if (prot & ~P_RWX)
+        return _EINVAL;
+    if ((flags & MMAP_PRIVATE) && (flags & MMAP_SHARED))
+        return _EINVAL;
+
+    write_wrlock(&current->mem->lock);
+    // Note: offset is already in bytes for ARM64 mmap, so pass directly
+    addr_t res = do_mmap(addr, len, prot, flags, fd_no, (dword_t)offset);
+    write_wrunlock(&current->mem->lock);
+#if MMAP_DEBUG
+    fprintf(stderr, "[MMAP64] addr=0x%llx len=0x%x prot=0x%x flags=0x%x fd=%d off=0x%llx => 0x%llx\n",
+            (unsigned long long)addr, len, prot, flags, fd_no, (unsigned long long)offset,
+            (unsigned long long)res);
+#endif
+    return res;
+}
+#endif
+
 struct mmap_arg_struct {
     dword_t addr, len, prot, flags, fd, offset;
 };
@@ -119,6 +146,9 @@ addr_t sys_mmap(addr_t args_addr) {
 
 int_t sys_munmap(addr_t addr, uint_t len) {
     STRACE("munmap(0x%x, 0x%x)", addr, len);
+#if MMAP_DEBUG
+    fprintf(stderr, "[MUNMAP] addr=0x%llx len=0x%x\n", (unsigned long long)addr, len);
+#endif
     if (PGOFFSET(addr) != 0)
         return _EINVAL;
     if (len == 0)
@@ -212,6 +242,10 @@ int_t sys_msync(addr_t UNUSED(addr), dword_t UNUSED(len), int_t UNUSED(flags)) {
 addr_t sys_brk(addr_t new_brk) {
     STRACE("brk(0x%x)", new_brk);
     struct mm *mm = current->mm;
+#if MMAP_DEBUG
+    fprintf(stderr, "[BRK] new_brk=0x%x current_brk=0x%x start_brk=0x%x\n",
+            new_brk, mm ? mm->brk : 0, mm ? mm->start_brk : 0);
+#endif
 
     write_wrlock(&mm->mem.lock);
     if (new_brk < mm->start_brk)

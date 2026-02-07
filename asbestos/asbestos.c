@@ -5,7 +5,17 @@
 #include "asbestos/frame.h"
 #include "emu/cpu.h"
 #include "emu/interrupt.h"
+#include "emu/tlb.h"
 #include "util/list.h"
+
+// Architecture-specific instruction pointer access
+#if defined(GUEST_ARM64)
+#define CPU_IP(cpu) ((cpu)->pc)
+#define CPU_HAS_SINGLE_STEP 0
+#else
+#define CPU_IP(cpu) ((cpu)->eip)
+#define CPU_HAS_SINGLE_STEP ((cpu)->tf)
+#endif
 
 extern int current_pid(void);
 
@@ -187,7 +197,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
     int interrupt = INT_NONE;
     while (interrupt == INT_NONE) {
-        addr_t ip = frame->cpu.eip;
+        addr_t ip = CPU_IP(&frame->cpu);
         size_t cache_index = fiber_cache_hash(ip);
         struct fiber_block *block = cache[cache_index];
         if (block == NULL || block->addr != ip) {
@@ -244,7 +254,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
 static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
     struct gen_state state;
-    gen_start(cpu->eip, &state);
+    gen_start(CPU_IP(cpu), &state);
     gen_step(&state, tlb);
     gen_exit(&state);
     gen_end(&state);
@@ -263,7 +273,7 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     if (cpu->poked_ptr == NULL)
         cpu->poked_ptr = &cpu->_poked;
     tlb_refresh(tlb, cpu->mmu);
-    int interrupt = (cpu->tf ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb);
+    int interrupt = (CPU_HAS_SINGLE_STEP ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb);
     cpu->trapno = interrupt;
 
     struct asbestos *asbestos = cpu->mmu->asbestos;

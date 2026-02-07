@@ -6,6 +6,8 @@
 #include "kernel/fs.h"
 #include "fs/fd.h"
 
+#define DENTS_DEBUG 0
+
 static unsigned long fd_telldir(struct fd *fd) {
     unsigned long off = fd->offset;
     if (fd->ops->telldir)
@@ -59,11 +61,23 @@ size_t fill_dirent_64(void *dirent_data, ino_t inode, off_t_ offset, const char 
 int_t sys_getdents_common(fd_t f, addr_t dirents, dword_t count,
         size_t (*fill_dirent)(void *, ino_t, off_t_, const char *, int)) {
     STRACE("getdents(%d, %#x, %#x)", f, dirents, count);
+#if DENTS_DEBUG
+    fprintf(stderr, "getdents: fd=%d dirents=%#x count=%d\n", f, dirents, count);
+#endif
     struct fd *fd = f_get(f);
-    if (fd == NULL)
+    if (fd == NULL) {
+#if DENTS_DEBUG
+        fprintf(stderr, "getdents: fd %d -> EBADF\n", f);
+#endif
         return _EBADF;
-    if (!S_ISDIR(fd->type) || fd->ops->readdir == NULL)
+    }
+    if (!S_ISDIR(fd->type) || fd->ops->readdir == NULL) {
+#if DENTS_DEBUG
+        fprintf(stderr, "getdents: fd %d type=%#x readdir=%p -> ENOTDIR\n", f, fd->type,
+                fd->ops ? (void *)fd->ops->readdir : NULL);
+#endif
         return _ENOTDIR;
+    }
 
     dword_t orig_count = count;
 
@@ -94,6 +108,10 @@ int_t sys_getdents_common(fd_t f, addr_t dirents, dword_t count,
 
         if (reclen > count)
             break;
+#if DENTS_DEBUG
+        fprintf(stderr, "getdents: returning entry: name='%s' inode=%lu off=%lu reclen=%zu at addr=%#llx\n",
+                name, (unsigned long)inode, (unsigned long)offset, reclen, (unsigned long long)dirents);
+#endif
         if (user_write(dirents, dirent_data, reclen))
             return _EFAULT;
         dirents += reclen;
@@ -101,6 +119,9 @@ int_t sys_getdents_common(fd_t f, addr_t dirents, dword_t count,
     }
 
     fd_seekdir(fd, ptr);
+#if DENTS_DEBUG
+    fprintf(stderr, "getdents: returning %d bytes\n", orig_count - count);
+#endif
     return orig_count - count;
 }
 
@@ -111,4 +132,3 @@ int_t sys_getdents(fd_t f, addr_t dirents, uint_t count) {
 int_t sys_getdents64(fd_t f, addr_t dirents, uint_t count) {
     return sys_getdents_common(f, dirents, count, fill_dirent_64);
 }
-

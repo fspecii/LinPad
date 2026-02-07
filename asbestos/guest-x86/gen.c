@@ -1,10 +1,10 @@
 #include <assert.h>
 #include <stdint.h>
 #include "asbestos/gen.h"
-#include "emu/modrm.h"
-#include "emu/cpuid.h"
-#include "emu/fpu.h"
-#include "emu/vec.h"
+#include "emu/arch/x86/modrm.h"
+#include "emu/arch/x86/cpuid.h"
+#include "emu/arch/x86/fpu.h"
+#include "emu/arch/x86/vec.h"
 #include "emu/interrupt.h"
 
 static int gen_step32(struct gen_state *state, struct tlb *tlb);
@@ -560,8 +560,8 @@ static inline bool gen_vec(enum arg src, enum arg dst, void (*helper)(), gadget_
 #define DECODER_PASS_ARGS state, tlb
 
 #define OP_SIZE 32
-#include "emu/decode.h"
+#include "emu/arch/x86/decode.h"
 #undef OP_SIZE
 #define OP_SIZE 16
-#include "emu/decode.h"
+#include "emu/arch/x86/decode.h"
 #undef OP_SIZE

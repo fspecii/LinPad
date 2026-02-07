@@ -6,6 +6,15 @@
 #include "kernel/mm.h"
 #include "kernel/ptrace.h"
 
+// Architecture-specific register access for fork/clone
+#if defined(GUEST_ARM64)
+#define CPU_SP(cpu) ((cpu).sp)
+#define CPU_RETVAL(cpu) ((cpu).regs[0])
+#else
+#define CPU_SP(cpu) ((cpu).esp)
+#define CPU_RETVAL(cpu) ((cpu).eax)
+#endif
+
 #define CSIGNAL_ 0x000000ff
 #define CLONE_VM_ 0x00000100
 #define CLONE_FS_ 0x00000200
@@ -56,7 +65,7 @@ static struct tgroup *tgroup_copy(struct tgroup *old_group) {
 static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid_addr, addr_t tls_addr, addr_t ctid_addr) {
     task->vfork = NULL;
     if (stack != 0)
-        task->cpu.esp = stack;
+        CPU_SP(task->cpu) = stack;
 
     int err;
     struct mm *mm = task->mm;
@@ -106,9 +115,15 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     unlock(&pids_lock);
 
     if (flags & CLONE_SETTLS_) {
+#if defined(GUEST_ARM64)
+        // On ARM64, the TLS argument is the actual TLS pointer value (for TPIDR_EL0),
+        // not a pointer to a descriptor structure like x86.
+        task->cpu.tls_ptr = tls_addr;
+#else
         err = task_set_thread_area(task, tls_addr);
         if (err < 0)
             goto fail_free_sighand;
+#endif
     }
 
     err = _EFAULT;
@@ -161,7 +176,7 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
         unlock(&pids_lock);
         return err;
     }
-    task->cpu.eax = 0;
+    CPU_RETVAL(task->cpu) = 0;
 
     struct vfork_info vfork;
     if (flags & CLONE_VFORK_) {

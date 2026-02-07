@@ -30,6 +30,32 @@ struct newstat64 stat_convert_newstat64(struct statbuf stat) {
     return newstat;
 }
 
+// ARM64 stat conversion (128 bytes struct)
+struct stat_arm64 stat_convert_arm64(struct statbuf stat) {
+    struct stat_arm64 arm64stat = {};
+    arm64stat.dev = stat.dev;
+    arm64stat.ino = stat.inode;
+    arm64stat.mode = stat.mode;
+    arm64stat.nlink = stat.nlink;
+    arm64stat.uid = stat.uid;
+    arm64stat.gid = stat.gid;
+    arm64stat.rdev = stat.rdev;
+    arm64stat.__pad1 = 0;
+    arm64stat.size = stat.size;
+    arm64stat.blksize = stat.blksize;
+    arm64stat.__pad2 = 0;
+    arm64stat.blocks = stat.blocks;
+    arm64stat.atime_ = stat.atime;
+    arm64stat.atime_nsec = stat.atime_nsec;
+    arm64stat.mtime_ = stat.mtime;
+    arm64stat.mtime_nsec = stat.mtime_nsec;
+    arm64stat.ctime_ = stat.ctime;
+    arm64stat.ctime_nsec = stat.ctime_nsec;
+    arm64stat.__unused4 = 0;
+    arm64stat.__unused5 = 0;
+    return arm64stat;
+}
+
 int generic_statat(struct fd *at, const char *path_raw, struct statbuf *stat, bool follow_links) {
     char path[MAX_PATH];
     int err = path_normalize(at, path_raw, path, follow_links ? N_SYMLINK_FOLLOW : N_SYMLINK_NOFOLLOW);
@@ -61,9 +87,15 @@ static dword_t sys_stat_path(fd_t at_f, addr_t path_addr, addr_t statbuf_addr, b
     struct statbuf stat = {};
     if ((err = generic_statat(at, path, &stat, follow_links)) < 0)
         return err;
+#ifdef GUEST_ARM64
+    struct stat_arm64 arm64stat = stat_convert_arm64(stat);
+    if (user_put(statbuf_addr, arm64stat))
+        return _EFAULT;
+#else
     struct newstat64 newstat = stat_convert_newstat64(stat);
     if (user_put(statbuf_addr, newstat))
         return _EFAULT;
+#endif
     return 0;
 }
 
@@ -88,14 +120,19 @@ dword_t sys_fstat64(fd_t fd_no, addr_t statbuf_addr) {
     int err = fd->mount->fs->fstat(fd, &stat);
     if (err < 0)
         return err;
+#ifdef GUEST_ARM64
+    struct stat_arm64 arm64stat = stat_convert_arm64(stat);
+    if (user_put(statbuf_addr, arm64stat))
+        return _EFAULT;
+#else
     struct newstat64 newstat = stat_convert_newstat64(stat);
     if (user_put(statbuf_addr, newstat))
         return _EFAULT;
+#endif
     return 0;
 }
 
 dword_t sys_statx(fd_t at_f, addr_t path_addr, int_t flags, uint_t mask, addr_t statx_addr) {
-    int err;
     char path[MAX_PATH];
     if (user_read_string(path_addr, path, sizeof(path)))
         return _EFAULT;

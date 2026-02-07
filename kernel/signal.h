@@ -157,7 +157,11 @@ dword_t sys_sigreturn(void);
 #define SIG_SETMASK_ 2
 typedef uint64_t sigset_t_;
 dword_t sys_rt_sigprocmask(dword_t how, addr_t set, addr_t oldset, dword_t size);
-int_t sys_rt_sigpending(addr_t set_addr);
+int_t sys_rt_sigpending(addr_t set_addr, dword_t size);
+
+int sigset_size_valid(dword_t size);
+int user_get_sigset(addr_t addr, dword_t size, sigset_t_ *out);
+int user_put_sigset(addr_t addr, dword_t size, sigset_t_ set);
 
 static inline sigset_t_ sig_mask(int sig) {
     assert(sig >= 1 && sig < NUM_SIGS);
@@ -195,6 +199,60 @@ dword_t sys_tgkill(pid_t_ tgid, pid_t_ tid, dword_t sig);
 // signal frame structs. There's a good chance this should go in its own header file
 
 // thanks kernel for giving me something to copy/paste
+#if defined(GUEST_ARM64)
+// ARM64 sigcontext matches Linux kernel (arch/arm64/include/uapi/asm/sigcontext.h)
+#define FPSIMD_MAGIC 0x46508001
+#define ESR_MAGIC    0x45535201
+
+// FPSIMD context within the sigcontext extension area
+struct fpsimd_context_ {
+    uint32_t magic;
+    uint32_t size;
+    uint32_t fpsr;
+    uint32_t fpcr;
+    __uint128_t vregs[32];
+};
+
+struct sigcontext_ {
+    uint64_t fault_address;  // This was missing!
+    uint64_t regs[31];
+    uint64_t sp;
+    uint64_t pc;
+    uint64_t pstate;
+    // Extension area for FPSIMD state - must be 16-byte aligned
+    uint8_t __reserved[4096] __attribute__((aligned(16)));
+};
+
+struct ucontext_ {
+    uint64_t flags;
+    uint64_t link;
+    struct stack_t_ stack;
+    sigset_t_ sigmask;
+    uint8_t __padding[128 - sizeof(sigset_t_)];  // Pad to fixed offset
+    struct sigcontext_ mcontext;
+};
+
+struct sigframe_ {
+    addr_t restorer;
+    dword_t sig;
+    struct sigcontext_ sc;
+    dword_t extramask;
+    char retcode[8];
+};
+
+struct rt_sigframe_ {
+    addr_t restorer;
+    int_t sig;
+    addr_t pinfo;
+    addr_t puc;
+    union {
+        struct siginfo_ info;
+        char __pad[128];
+    };
+    struct ucontext_ uc;
+    char retcode[8];
+};
+#else
 struct sigcontext_ {
     word_t gs, __gsh;
     word_t fs, __fsh;
@@ -287,6 +345,7 @@ struct rt_sigframe_ {
     struct ucontext_ uc;
     char retcode[8];
 };
+#endif
 
 // On a 64-bit system with 32-bit emulation, the fpu state is stored in extra
 // space at the end of the frame, not in the frame itself. We store the fpu

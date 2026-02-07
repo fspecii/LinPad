@@ -1,6 +1,6 @@
 #ifndef EMU_FPU_H
 #define EMU_FPU_H
-#include "emu/float80.h"
+#include "emu/arch/x86/float80.h"
 struct cpu_state;
 struct fpu_env32;
 struct fpu_state32;

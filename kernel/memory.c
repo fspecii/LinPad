@@ -107,6 +107,22 @@ int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t of
     if (memory == MAP_FAILED)
         return errno_map();
 
+#if defined(GUEST_ARM64) && 0  // Disabled for performance
+    // Debug: track mapping for page 0xf7fa7 (which corresponds to ld.so code at 0x17000)
+    page_t debug_page = 0xf7fa7;
+    if (start <= debug_page && debug_page < start + pages) {
+        fprintf(stderr, "[PT_MAP] Mapping page 0x%x: start=0x%x pages=%d memory=%p offset=0x%lx\n",
+                debug_page, start, pages, memory, (unsigned long)offset);
+        fprintf(stderr, "[PT_MAP]   Page 0x%x will have offset: 0x%lx\n",
+                debug_page, (unsigned long)(((debug_page - start) << PAGE_BITS) + offset));
+        fprintf(stderr, "[PT_MAP]   Ptr will be: memory + offset = %p\n",
+                (char*)memory + (((debug_page - start) << PAGE_BITS) + offset));
+        // Check what's at that address
+        uint32_t *insn_ptr = (uint32_t*)((char*)memory + (((debug_page - start) << PAGE_BITS) + offset) + 0x160);
+        fprintf(stderr, "[PT_MAP]   Instruction at offset 0x160: 0x%08x (expected 0x17ffff37)\n", *insn_ptr);
+    }
+#endif
+
     // If this fails, the munmap in pt_unmap would probably fail.
     assert((uintptr_t) memory % real_page_size == 0 || memory == vdso_data);
 
@@ -296,7 +312,10 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
 }
 
 static void *mem_mmu_translate(struct mmu *mmu, addr_t addr, int type) {
-    return mem_ptr_nofault(container_of(mmu, struct mem, mmu), addr, type);
+    // Use mem_ptr instead of mem_ptr_nofault to properly handle:
+    // 1. Copy-on-write (COW) pages - need to copy before write
+    // 2. Growing stack pages (P_GROWSDOWN)
+    return mem_ptr(container_of(mmu, struct mem, mmu), addr, type);
 }
 
 static struct mmu_ops mem_mmu_ops = {

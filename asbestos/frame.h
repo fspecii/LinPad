@@ -9,7 +9,8 @@ struct fiber_frame {
     struct cpu_state cpu;
     void *bp;
     addr_t value_addr;
-    uint64_t value[2]; // buffer for crosspage crap
+    uint64_t value[4]; // buffer for crosspage crap (must hold up to 32 bytes)
     struct fiber_block *last_block;
+    uint64_t jit_exit_sp; // host sp value that fiber_exit expects (set by fiber_enter)
     long ret_cache[FIBER_RETURN_CACHE_SIZE]; // a map of ip to pointer-to-call-gadget-arguments
 };

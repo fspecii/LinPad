@@ -51,6 +51,9 @@ addr_t sys_brk(addr_t new_brk);
 #define MMAP_ANONYMOUS 0x20
 addr_t sys_mmap(addr_t args_addr);
 addr_t sys_mmap2(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset);
+#if defined(GUEST_ARM64)
+addr_t sys_mmap64(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, qword_t offset);
+#endif
 int_t sys_munmap(addr_t addr, uint_t len);
 int_t sys_mprotect(addr_t addr, uint_t len, int_t prot);
 int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags);
@@ -68,12 +71,21 @@ struct iovec_ {
     addr_t base;
     uint_t len;
 };
+
+#ifdef GUEST_ARM64
+// ARM64 uses 64-bit pointers and size_t in iovec
+struct iovec64_ {
+    uint64_t base;
+    uint64_t len;
+};
+#endif
 dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size);
 dword_t sys_readv(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count);
 dword_t sys_write(fd_t fd_no, addr_t buf_addr, dword_t size);
 dword_t sys_writev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count);
 dword_t sys__llseek(fd_t f, dword_t off_high, dword_t off_low, addr_t res_addr, dword_t whence);
 dword_t sys_lseek(fd_t f, dword_t off, dword_t whence);
+qword_t sys_lseek64(fd_t f, sqword_t off, dword_t whence);
 dword_t sys_pread(fd_t f, addr_t buf_addr, dword_t buf_size, off_t_ off);
 dword_t sys_pwrite(fd_t f, addr_t buf_addr, dword_t size, off_t_ off);
 dword_t sys_ioctl(fd_t f, dword_t cmd, dword_t arg);
@@ -158,6 +170,10 @@ dword_t sys_statfs(addr_t path_addr, addr_t buf_addr);
 dword_t sys_statfs64(addr_t path_addr, dword_t buf_size, addr_t buf_addr);
 dword_t sys_fstatfs(fd_t f, addr_t buf_addr);
 dword_t sys_fstatfs64(fd_t f, addr_t buf_addr);
+#if defined(GUEST_ARM64)
+dword_t sys_statfs_arm64(addr_t path_addr, addr_t buf_addr);
+dword_t sys_fstatfs_arm64(fd_t f, addr_t buf_addr);
+#endif
 dword_t sys_statx(fd_t at_f, addr_t path_addr, int_t flags, uint_t mask, addr_t statx_addr);
 
 #define MS_READONLY_ (1 << 0)
@@ -228,6 +244,28 @@ void do_uname(struct uname *uts);
 dword_t sys_uname(addr_t uts_addr);
 dword_t sys_sethostname(addr_t hostname_addr, dword_t hostname_len);
 
+// sysinfo struct - architecture specific sizes
+#if defined(GUEST_ARM64)
+// ARM64: uses 64-bit long types (112 bytes total with padding)
+struct sys_info {
+    uint64_t uptime;
+    uint64_t loads[3];
+    uint64_t totalram;
+    uint64_t freeram;
+    uint64_t sharedram;
+    uint64_t bufferram;
+    uint64_t totalswap;
+    uint64_t freeswap;
+    uint16_t procs;
+    uint16_t _pad1;          // padding
+    uint32_t _pad2;          // padding
+    uint64_t totalhigh;
+    uint64_t freehigh;
+    uint32_t mem_unit;
+    uint32_t _pad3;          // padding for alignment
+};
+#else
+// x86: uses 32-bit types
 struct sys_info {
     dword_t uptime;
     dword_t loads[3];
@@ -243,6 +281,7 @@ struct sys_info {
     dword_t mem_unit;
     char pad;
 };
+#endif
 dword_t sys_sysinfo(addr_t info_addr);
 
 // futexes
@@ -256,5 +295,11 @@ int_t sys_syslog(int_t type, addr_t buf_addr, int_t len);
 int_t sys_ipc(uint_t call, int_t first, int_t second, int_t third, addr_t ptr, int_t fifth);
 
 typedef int (*syscall_t)(dword_t, dword_t, dword_t, dword_t, dword_t, dword_t);
+
+// Stub for unimplemented syscalls
+dword_t syscall_stub(void);
+dword_t syscall_silent_stub(void);
+dword_t syscall_success_stub(void);
+
 
 #endif

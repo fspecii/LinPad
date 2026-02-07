@@ -23,6 +23,19 @@ found:
     return child;
 }
 
+#if defined(GUEST_ARM64)
+// ARM64 ptrace register access - stub implementation
+// TODO: Implement ARM64 ptrace register access
+static void get_user_regs(struct cpu_state *cpu, struct user_regs_struct_ *user_regs_) {
+    (void)cpu;
+    memset(user_regs_, 0, sizeof(*user_regs_));
+}
+
+static void set_user_regs(struct cpu_state *cpu, struct user_regs_struct_ *user_regs_) {
+    (void)cpu;
+    (void)user_regs_;
+}
+#else
 // Ensure stopped, ptrace locked, etc. before calling this
 static void get_user_regs(struct cpu_state *cpu, struct user_regs_struct_ *user_regs_) {
     user_regs_->ebx = cpu->ebx;
@@ -64,6 +77,7 @@ static void set_user_regs(struct cpu_state *cpu, struct user_regs_struct_ *user_
     cpu->esp = user_regs_->esp;
 //  cpu->xss = user_regs_->xss;
 }
+#endif
 
 dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
     switch (request) {
@@ -133,7 +147,9 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
+#if !defined(GUEST_ARM64)
             child->cpu.tf = false;
+#endif
             child->ptrace.stopped = false;
             notify(&child->ptrace.cond);
             unlock(&child->ptrace.lock);
@@ -158,7 +174,9 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
+#if !defined(GUEST_ARM64)
             child->cpu.tf = true;
+#endif
             child->ptrace.stopped = false;
             notify(&child->ptrace.cond);
             unlock(&child->ptrace.lock);

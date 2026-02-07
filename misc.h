@@ -117,7 +117,11 @@ typedef sdword_t pid_t_;
 typedef dword_t uid_t_;
 typedef word_t mode_t_;
 typedef sqword_t off_t_;
+#ifdef GUEST_ARM64
+typedef sqword_t time_t_;
+#else
 typedef dword_t time_t_;
+#endif
 typedef dword_t clock_t_;
 
 #define uint(size) glue3(uint,size,_t)

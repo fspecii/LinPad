@@ -229,15 +229,25 @@ dword_t sys_pselect(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr, addr_t
         addr_t mask_addr;
         dword_t mask_size;
     } sigmask;
+#ifdef GUEST_ARM64
+    struct {
+        uint64_t mask_addr;
+        uint64_t mask_size;
+    } sigmask64;
+    if (user_get(sigmask_addr, sigmask64))
+        return _EFAULT;
+    sigmask.mask_addr = (addr_t) sigmask64.mask_addr;
+    sigmask.mask_size = (dword_t) sigmask64.mask_size;
+#else
     if (user_get(sigmask_addr, sigmask))
         return _EFAULT;
+#endif
     sigset_t_ mask;
 
     if (sigmask.mask_addr != 0) {
-        if (sigmask.mask_size != sizeof(sigset_t_))
-            return _EINVAL;
-        if (user_get(sigmask.mask_addr, mask))
-            return _EFAULT;
+        int err = user_get_sigset(sigmask.mask_addr, sigmask.mask_size, &mask);
+        if (err)
+            return err;
         sigmask_set_temp(mask);
     }
     return select_common(nfds, readfds_addr, writefds_addr, exceptfds_addr, timeout_ts_addr, "pselect");
@@ -254,10 +264,9 @@ dword_t sys_ppoll(addr_t fds, dword_t nfds, addr_t timeout_addr, addr_t sigmask_
 
     sigset_t_ mask;
     if (sigmask_addr != 0) {
-        if (sigsetsize != sizeof(sigset_t_))
-            return _EINVAL;
-        if (user_get(sigmask_addr, mask))
-            return _EFAULT;
+        int err = user_get_sigset(sigmask_addr, sigsetsize, &mask);
+        if (err)
+            return err;
         sigmask_set_temp(mask);
     }
 

@@ -53,6 +53,21 @@ struct msghdr_ {
     int_t msg_flags;
 };
 
+#ifdef GUEST_ARM64
+// ARM64 Linux uses 64-bit pointers and size_t in msghdr
+struct msghdr64_ {
+    uint64_t msg_name;       // void *
+    uint32_t msg_namelen;    // socklen_t
+    uint32_t _pad0;
+    uint64_t msg_iov;        // struct iovec *
+    uint64_t msg_iovlen;     // size_t
+    uint64_t msg_control;    // void *
+    uint64_t msg_controllen; // size_t
+    int32_t  msg_flags;
+    int32_t  _pad1;
+};
+#endif
+
 struct cmsghdr_ {
     dword_t len;
     int_t level;
