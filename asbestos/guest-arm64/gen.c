@@ -93,6 +93,11 @@ extern void gadget_adds_imm_64_sh(void);
 extern void gadget_subs_imm_64_sh(void);
 extern void gadget_add_imm_64_sh(void);
 extern void gadget_sub_imm_64_sh(void);
+// 32-bit specialized add/sub immediate gadgets
+extern void gadget_add_imm_32(void);
+extern void gadget_sub_imm_32(void);
+extern void gadget_adds_imm_32(void);
+extern void gadget_subs_imm_32(void);
 extern void gadget_adds_reg_64_nshift(void);
 extern void gadget_subs_reg_64_nshift(void);
 extern void gadget_add_reg_64_nshift(void);
@@ -145,6 +150,38 @@ extern void gadget_fused_subs_bcond_ge(void);
 extern void gadget_fused_subs_bcond_lt(void);
 extern void gadget_fused_subs_bcond_gt(void);
 extern void gadget_fused_subs_bcond_le(void);
+
+// 32-bit fused CMP-imm + B.cond gadgets (rd=31, 32-bit compare)
+extern void gadget_fused_cmp32_bcond_eq(void);
+extern void gadget_fused_cmp32_bcond_ne(void);
+extern void gadget_fused_cmp32_bcond_cs(void);
+extern void gadget_fused_cmp32_bcond_cc(void);
+extern void gadget_fused_cmp32_bcond_mi(void);
+extern void gadget_fused_cmp32_bcond_pl(void);
+extern void gadget_fused_cmp32_bcond_vs(void);
+extern void gadget_fused_cmp32_bcond_vc(void);
+extern void gadget_fused_cmp32_bcond_hi(void);
+extern void gadget_fused_cmp32_bcond_ls(void);
+extern void gadget_fused_cmp32_bcond_ge(void);
+extern void gadget_fused_cmp32_bcond_lt(void);
+extern void gadget_fused_cmp32_bcond_gt(void);
+extern void gadget_fused_cmp32_bcond_le(void);
+
+// 32-bit fused SUBS-imm + B.cond gadgets (rd!=31, 32-bit subtract)
+extern void gadget_fused_subs32_bcond_eq(void);
+extern void gadget_fused_subs32_bcond_ne(void);
+extern void gadget_fused_subs32_bcond_cs(void);
+extern void gadget_fused_subs32_bcond_cc(void);
+extern void gadget_fused_subs32_bcond_mi(void);
+extern void gadget_fused_subs32_bcond_pl(void);
+extern void gadget_fused_subs32_bcond_vs(void);
+extern void gadget_fused_subs32_bcond_vc(void);
+extern void gadget_fused_subs32_bcond_hi(void);
+extern void gadget_fused_subs32_bcond_ls(void);
+extern void gadget_fused_subs32_bcond_ge(void);
+extern void gadget_fused_subs32_bcond_lt(void);
+extern void gadget_fused_subs32_bcond_gt(void);
+extern void gadget_fused_subs32_bcond_le(void);
 
 // Conditional select
 extern void gadget_csel(void);
@@ -658,6 +695,8 @@ static bool gen_peek_next_insn(struct gen_state *state, uint32_t *next_insn) {
  */
 static void *fused_cmp_bcond_gadgets[14];
 static void *fused_subs_bcond_gadgets[14];
+static void *fused_cmp32_bcond_gadgets[14];
+static void *fused_subs32_bcond_gadgets[14];
 static bool fused_bcond_tables_init = false;
 
 static void init_fused_bcond_tables(void) {
@@ -690,15 +729,44 @@ static void init_fused_bcond_tables(void) {
     fused_subs_bcond_gadgets[11] = gadget_fused_subs_bcond_lt;
     fused_subs_bcond_gadgets[12] = gadget_fused_subs_bcond_gt;
     fused_subs_bcond_gadgets[13] = gadget_fused_subs_bcond_le;
+    // 32-bit variants
+    fused_cmp32_bcond_gadgets[0]  = gadget_fused_cmp32_bcond_eq;
+    fused_cmp32_bcond_gadgets[1]  = gadget_fused_cmp32_bcond_ne;
+    fused_cmp32_bcond_gadgets[2]  = gadget_fused_cmp32_bcond_cs;
+    fused_cmp32_bcond_gadgets[3]  = gadget_fused_cmp32_bcond_cc;
+    fused_cmp32_bcond_gadgets[4]  = gadget_fused_cmp32_bcond_mi;
+    fused_cmp32_bcond_gadgets[5]  = gadget_fused_cmp32_bcond_pl;
+    fused_cmp32_bcond_gadgets[6]  = gadget_fused_cmp32_bcond_vs;
+    fused_cmp32_bcond_gadgets[7]  = gadget_fused_cmp32_bcond_vc;
+    fused_cmp32_bcond_gadgets[8]  = gadget_fused_cmp32_bcond_hi;
+    fused_cmp32_bcond_gadgets[9]  = gadget_fused_cmp32_bcond_ls;
+    fused_cmp32_bcond_gadgets[10] = gadget_fused_cmp32_bcond_ge;
+    fused_cmp32_bcond_gadgets[11] = gadget_fused_cmp32_bcond_lt;
+    fused_cmp32_bcond_gadgets[12] = gadget_fused_cmp32_bcond_gt;
+    fused_cmp32_bcond_gadgets[13] = gadget_fused_cmp32_bcond_le;
+    fused_subs32_bcond_gadgets[0]  = gadget_fused_subs32_bcond_eq;
+    fused_subs32_bcond_gadgets[1]  = gadget_fused_subs32_bcond_ne;
+    fused_subs32_bcond_gadgets[2]  = gadget_fused_subs32_bcond_cs;
+    fused_subs32_bcond_gadgets[3]  = gadget_fused_subs32_bcond_cc;
+    fused_subs32_bcond_gadgets[4]  = gadget_fused_subs32_bcond_mi;
+    fused_subs32_bcond_gadgets[5]  = gadget_fused_subs32_bcond_pl;
+    fused_subs32_bcond_gadgets[6]  = gadget_fused_subs32_bcond_vs;
+    fused_subs32_bcond_gadgets[7]  = gadget_fused_subs32_bcond_vc;
+    fused_subs32_bcond_gadgets[8]  = gadget_fused_subs32_bcond_hi;
+    fused_subs32_bcond_gadgets[9]  = gadget_fused_subs32_bcond_ls;
+    fused_subs32_bcond_gadgets[10] = gadget_fused_subs32_bcond_ge;
+    fused_subs32_bcond_gadgets[11] = gadget_fused_subs32_bcond_lt;
+    fused_subs32_bcond_gadgets[12] = gadget_fused_subs32_bcond_gt;
+    fused_subs32_bcond_gadgets[13] = gadget_fused_subs32_bcond_le;
     fused_bcond_tables_init = true;
 }
 
 /*
  * Try to fuse SUBS/CMP imm with a following B.cond.
  * Returns 0 (block ended) if fused, -1 if not fuseable.
- * Only handles: op=SUB, sf=1, sh=0, rn!=31 (64-bit SUBS/CMP, no shift)
+ * Handles both 32-bit (sf=0) and 64-bit (sf=1), sh=0, rn!=31
  */
-static int try_fuse_subs_bcond(struct gen_state *state, uint32_t rd, uint32_t rn, uint32_t imm12) {
+static int try_fuse_subs_bcond(struct gen_state *state, uint32_t sf, uint32_t rd, uint32_t rn, uint32_t imm12) {
     uint32_t next_insn;
     if (!gen_peek_next_insn(state, &next_insn))
         return -1;
@@ -715,20 +783,17 @@ static int try_fuse_subs_bcond(struct gen_state *state, uint32_t rd, uint32_t rn
     state->ip += 4;
 
     int64_t offset = arm64_branch_imm19(next_insn);
-    addr_t target = (state->ip - 4) + offset;  // B.cond is relative to its own PC
-    // Actually, the B.cond PC is (state->ip - 4) since we just consumed it.
-    // But arm64_branch_imm19 gives offset from the B.cond instruction itself.
-    // state->ip was at the B.cond start before we did += 4, so target = (state->ip - 4) + offset.
+    addr_t target = (state->ip - 4) + offset;
     unsigned long fake_target = (unsigned long)target | (1UL << 63);
     unsigned long fake_fallthrough = (unsigned long)state->ip | (1UL << 63);
 
     if (rd == 31) {
         // CMP: no result register, only flags
-        gen(state, (unsigned long) fused_cmp_bcond_gadgets[cond]);
+        gen(state, (unsigned long)(sf ? fused_cmp_bcond_gadgets[cond] : fused_cmp32_bcond_gadgets[cond]));
         gen(state, rn | ((uint64_t)imm12 << 8));
     } else {
         // SUBS: result register + flags
-        gen(state, (unsigned long) fused_subs_bcond_gadgets[cond]);
+        gen(state, (unsigned long)(sf ? fused_subs_bcond_gadgets[cond] : fused_subs32_bcond_gadgets[cond]));
         gen(state, rd | (rn << 8) | ((uint64_t)imm12 << 16));
     }
     gen(state, fake_target);
@@ -777,15 +842,17 @@ static int gen_dp_imm(struct gen_state *state, uint32_t insn) {
         // Don't pre-shift imm12 - pass sh flag to gadget instead
         // This avoids overflow when imm12 << 12 > 12 bits
 
+        // Try fused SUBS/CMP + B.cond peephole for both 32-bit and 64-bit
+        // (only for SUB with flags, no shift, rn!=31)
+        if (!sh && rn != 31 && S && op == 1) {
+            int fused = try_fuse_subs_bcond(state, sf, rd, rn, imm12);
+            if (fused == 0) return 0;  // fused and block ended
+        }
+
         // Try specialized 64-bit fast paths (no SP/XZR source)
         bool can_specialize_imm = sf && !sh && rn != 31;
         bool can_specialize_imm_sh = sf && sh && rn != 31;
         if (can_specialize_imm && S) {
-            // Try fused SUBS/CMP + B.cond peephole (only for SUB, not ADD)
-            if (op == 1) {
-                int fused = try_fuse_subs_bcond(state, rd, rn, imm12);
-                if (fused == 0) return 0;  // fused and block ended
-            }
             // ADDS/SUBS imm 64-bit (rd=31 allowed for CMP/CMN)
             gen(state, (unsigned long)(op ? gadget_subs_imm_64 : gadget_adds_imm_64));
             gen(state, rd | (rn << 8) | ((uint64_t)imm12 << 16));
@@ -810,7 +877,22 @@ static int gen_dp_imm(struct gen_state *state, uint32_t insn) {
             return 1;
         }
 
-        // Generic path: handles 32-bit, SP, and other cases
+        // Try specialized 32-bit fast paths (no SP/XZR source, no shift)
+        bool can_specialize_32 = !sf && !sh && rn != 31;
+        if (can_specialize_32 && S) {
+            // ADDS/SUBS imm 32-bit (rd=31 allowed for CMP/CMN)
+            gen(state, (unsigned long)(op ? gadget_subs_imm_32 : gadget_adds_imm_32));
+            gen(state, rd | (rn << 8) | ((uint64_t)imm12 << 16));
+            return 1;
+        }
+        if (can_specialize_32 && !S && rd != 31) {
+            // ADD/SUB imm 32-bit, no flags, no SP
+            gen(state, (unsigned long)(op ? gadget_sub_imm_32 : gadget_add_imm_32));
+            gen(state, rd | (rn << 8) | ((uint64_t)imm12 << 16));
+            return 1;
+        }
+
+        // Generic path: handles SP, LSL#12 with 32-bit, and other edge cases
         if (op == 0) {
             gen(state, (unsigned long) gadget_add_imm);
         } else {

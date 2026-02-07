@@ -71,24 +71,12 @@ NAME(fiber_enter):
  */
 .global fiber_ret_chain
 fiber_ret_chain:
-    // DEBUG: Validate guest SP at block boundary
-    ldr x8, [_cpu, #CPU_sp]
-    lsr x9, x8, #32            // get high 32 bits
-    cbnz x9, sp_corrupted      // if high bits non-zero, SP is bad
-
     // Check bit 63: if set, it's a fake_ip (unchained) → return to main loop
     tbnz _pc, #63, fiber_ret
     // Check if we've been poked (timer interrupt pending)
     ldr x8, [_cpu, #CPU_poked_ptr]
     ldrb w8, [x8]
     cbnz w8, poke
-    // Increment cycle counter; return to main loop periodically for timer check
-    ldr x8, [_cpu, #CPU_cycle]
-    add x8, x8, #1
-    str x8, [_cpu, #CPU_cycle]
-    // Every 1024 iterations, force exit
-    and x8, x8, #0x3FF
-    cbz x8, poke_cycle
     // Record last_block for block chaining in main loop
     sub x8, _pc, #FIBER_BLOCK_code
     str x8, [_cpu, #LOCAL_last_block]
@@ -97,12 +85,6 @@ fiber_ret_chain:
 
 poke:
     // Timer interrupt pending — load guest PC from block->addr and return
-    ldr w8, [_pc, #(-FIBER_BLOCK_code + FIBER_BLOCK_addr)]
-    str x8, [_cpu, #CPU_pc]
-    // fallthrough to fiber_ret
-
-    // Cycle limit reached — return to main loop for timer/signal processing
-poke_cycle:
     ldr w8, [_pc, #(-FIBER_BLOCK_code + FIBER_BLOCK_addr)]
     str x8, [_cpu, #CPU_pc]
     sub x8, _pc, #FIBER_BLOCK_code

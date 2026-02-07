@@ -33,27 +33,17 @@
  */
 .macro inline_chain reg, unchained_label
     tbnz \reg, #63, \unchained_label
-    // Chained fast path
+    // Chained fast path — poke check only (no cycle counter, matches x86)
     ldr w11, [\reg, #(-FIBER_BLOCK_code + FIBER_BLOCK_addr)]
     str x11, [_cpu, #CPU_pc]
     ldr x8, [_cpu, #CPU_poked_ptr]
     ldrb w8, [x8]
     cbnz w8, 7778f
-    ldr x8, [_cpu, #CPU_cycle]
-    add x8, x8, #1
-    str x8, [_cpu, #CPU_cycle]
-    tst x8, #0x3FF
-    b.eq 7779f
     sub x8, \reg, #FIBER_BLOCK_code
     str x8, [_cpu, #LOCAL_last_block]
     mov _pc, \reg
     gret
-7778:   // poke — just exit
-    mov _pc, \reg
-    b fiber_ret
-7779:   // cycle limit — set last_block then exit
-    sub x8, \reg, #FIBER_BLOCK_code
-    str x8, [_cpu, #LOCAL_last_block]
+7778:   // poke — exit to main loop
     mov _pc, \reg
     b fiber_ret
 .endm
@@ -174,16 +164,8 @@
     ldr _pc, [x14, #16]          // x14[2] = return_cont (block->code or fake_ip)
     // Check if return_cont is chained (bit 63 clear = valid block->code)
     tbnz _pc, #63, ret_unchained
-    // Chained: check poke + cycle before staying in JIT
-    ldr x8, [_cpu, #CPU_poked_ptr]
-    ldrb w8, [x8]
-    cbnz w8, ret_unchained
-    ldr x8, [_cpu, #CPU_cycle]
-    add x8, x8, #1
-    str x8, [_cpu, #CPU_cycle]
-    tst x8, #0x3FF
-    b.eq ret_unchained
-    // Continue in JIT at the return-site block
+    // Chained cache hit — continue immediately (no poke check, matches x86)
+    // Poke will be caught at the next branch via inline_chain
     sub x8, _pc, #FIBER_BLOCK_code
     str x8, [_cpu, #LOCAL_last_block]
     gret
@@ -1125,3 +1107,92 @@ make_fused_subs_bcond ge, ge
 make_fused_subs_bcond lt, lt
 make_fused_subs_bcond gt, gt
 make_fused_subs_bcond le, le
+
+/*
+ * ============================================================
+ * 32-bit Fused CMP/SUBS + B.cond gadgets (OP-9)
+ *
+ * Same as 64-bit versions but uses w-register (32-bit) SUBS.
+ * Code stream layout is identical to 64-bit variants.
+ * ============================================================
+ */
+
+/*
+ * Fused CMP Wn, #imm + B.cond (32-bit, rd=31, result discarded)
+ * Code stream: [gadget addr][rn | imm12<<8][fake_target][fake_fallthrough]
+ */
+.macro make_fused_cmp32_bcond name, cond
+.gadget fused_cmp32_bcond_\name
+    ldr x8, [_pc]               // rn | imm12<<8
+    add _pc, _pc, #8
+    ldr x9, [_pc]               // target
+    add _pc, _pc, #8
+    ldr x10, [_pc]              // fallthrough
+    and x11, x8, #0x1f          // rn
+    ubfx x12, x8, #8, #12       // imm12
+    add x13, _cpu, #CPU_x0
+    ldr x14, [x13, x11, lsl #3]
+    // 32-bit CMP
+    subs w15, w14, w12
+    mrs x16, nzcv
+    str w16, [_cpu, #CPU_nzcv]
+    b.\cond bcond_taken
+    b bcond_not_taken
+.endm
+
+make_fused_cmp32_bcond eq, eq
+make_fused_cmp32_bcond ne, ne
+make_fused_cmp32_bcond cs, cs
+make_fused_cmp32_bcond cc, cc
+make_fused_cmp32_bcond mi, mi
+make_fused_cmp32_bcond pl, pl
+make_fused_cmp32_bcond vs, vs
+make_fused_cmp32_bcond vc, vc
+make_fused_cmp32_bcond hi, hi
+make_fused_cmp32_bcond ls, ls
+make_fused_cmp32_bcond ge, ge
+make_fused_cmp32_bcond lt, lt
+make_fused_cmp32_bcond gt, gt
+make_fused_cmp32_bcond le, le
+
+/*
+ * Fused SUBS Wd, Wn, #imm + B.cond (32-bit, rd!=31, result stored)
+ * Code stream: [gadget addr][rd | rn<<8 | imm12<<16][fake_target][fake_fallthrough]
+ */
+.macro make_fused_subs32_bcond name, cond
+.gadget fused_subs32_bcond_\name
+    ldr x8, [_pc]               // rd | rn<<8 | imm12<<16
+    add _pc, _pc, #8
+    ldr x9, [_pc]               // target
+    add _pc, _pc, #8
+    ldr x10, [_pc]              // fallthrough
+    and x11, x8, #0x1f          // rd
+    ubfx x12, x8, #8, #5        // rn
+    lsr x13, x8, #16            // imm12
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x12, lsl #3]
+    // 32-bit SUBS
+    subs w15, w15, w13
+    // Store zero-extended 32-bit result
+    // (w-register SUBS already zero-extends to x15)
+    str x15, [x14, x11, lsl #3]
+    mrs x15, nzcv
+    str w15, [_cpu, #CPU_nzcv]
+    b.\cond bcond_taken
+    b bcond_not_taken
+.endm
+
+make_fused_subs32_bcond eq, eq
+make_fused_subs32_bcond ne, ne
+make_fused_subs32_bcond cs, cs
+make_fused_subs32_bcond cc, cc
+make_fused_subs32_bcond mi, mi
+make_fused_subs32_bcond pl, pl
+make_fused_subs32_bcond vs, vs
+make_fused_subs32_bcond vc, vc
+make_fused_subs32_bcond hi, hi
+make_fused_subs32_bcond ls, ls
+make_fused_subs32_bcond ge, ge
+make_fused_subs32_bcond lt, lt
+make_fused_subs32_bcond gt, gt
+make_fused_subs32_bcond le, le

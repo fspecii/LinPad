@@ -10592,6 +10592,76 @@ movi_really_zero:
     str x16, [x14, x9, lsl #3]  // Rd
     gret
 
+// ============================================================
+// 32-bit specialized add/sub immediate gadgets (OP-10)
+// ============================================================
+
+// ADD (immediate, 32-bit, no flags, no SP, no LSL#12)
+// Condition: sf=0, S=0, sh=0, rd!=31, rn!=31
+// Param: rd | rn<<8 | imm12<<16
+.gadget add_imm_32
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f           // rd
+    ubfx x10, x8, #8, #5        // rn
+    ubfx x11, x8, #16, #12      // imm12
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3] // Rn
+    add w16, w15, w11            // 32-bit add (zero-extends result)
+    str x16, [x14, x9, lsl #3]  // Rd
+    gret
+
+// SUB (immediate, 32-bit, no flags, no SP, no LSL#12)
+// Condition: sf=0, S=0, sh=0, rd!=31, rn!=31
+// Param: rd | rn<<8 | imm12<<16
+.gadget sub_imm_32
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f           // rd
+    ubfx x10, x8, #8, #5        // rn
+    ubfx x11, x8, #16, #12      // imm12
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3] // Rn
+    sub w16, w15, w11            // 32-bit sub (zero-extends result)
+    str x16, [x14, x9, lsl #3]  // Rd
+    gret
+
+// ADDS (immediate, 32-bit, flag-setting, no SP source, no LSL#12)
+// Condition: sf=0, S=1, sh=0, rn!=31 (rd=31 allowed for CMN)
+// Param: rd | rn<<8 | imm12<<16
+.gadget adds_imm_32
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f           // rd
+    ubfx x10, x8, #8, #5        // rn
+    ubfx x11, x8, #16, #12      // imm12
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3] // Rn
+    adds w16, w15, w11           // 32-bit adds (zero-extends, sets 32-bit flags)
+    store_flags
+    cmp x9, #31
+    b.eq 1f
+    str x16, [x14, x9, lsl #3]  // Rd (already zero-extended by w-reg op)
+1:  gret
+
+// SUBS (immediate, 32-bit, flag-setting, no SP source, no LSL#12)
+// Condition: sf=0, S=1, sh=0, rn!=31 (rd=31 allowed for CMP)
+// Param: rd | rn<<8 | imm12<<16
+.gadget subs_imm_32
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f           // rd
+    ubfx x10, x8, #8, #5        // rn
+    ubfx x11, x8, #16, #12      // imm12
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3] // Rn
+    subs w16, w15, w11           // 32-bit subs (zero-extends, sets 32-bit flags)
+    store_flags
+    cmp x9, #31
+    b.eq 1f
+    str x16, [x14, x9, lsl #3]  // Rd (already zero-extended by w-reg op)
+1:  gret
+
 // ADDS (register, 64-bit, flag-setting, no shift, no XZR)
 // Condition: sf=1, S=1, imm6=0, rn!=31, rm!=31
 // Param: rd | rn<<8 | rm<<16 (rd=31 allowed for CMN)
