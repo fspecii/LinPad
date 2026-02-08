@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
+#include <stdatomic.h>
 
 #define DEFAULT_CHANNEL memory
 #include "debug.h"
@@ -19,6 +20,10 @@
 // increment the change count
 static void mem_changed(struct mem *mem);
 static struct mmu_ops mem_mmu_ops;
+
+// Global anonymous page counter for mmap limit enforcement (defined in mmap.c)
+extern _Atomic long anon_page_count;
+
 
 void mem_init(struct mem *mem) {
     mem->pgdir = calloc(MEM_PGDIR_SIZE, sizeof(struct pt_entry *));
@@ -107,22 +112,6 @@ int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t of
     if (memory == MAP_FAILED)
         return errno_map();
 
-#if defined(GUEST_ARM64) && 0  // Disabled for performance
-    // Debug: track mapping for page 0xf7fa7 (which corresponds to ld.so code at 0x17000)
-    page_t debug_page = 0xf7fa7;
-    if (start <= debug_page && debug_page < start + pages) {
-        fprintf(stderr, "[PT_MAP] Mapping page 0x%x: start=0x%x pages=%d memory=%p offset=0x%lx\n",
-                debug_page, start, pages, memory, (unsigned long)offset);
-        fprintf(stderr, "[PT_MAP]   Page 0x%x will have offset: 0x%lx\n",
-                debug_page, (unsigned long)(((debug_page - start) << PAGE_BITS) + offset));
-        fprintf(stderr, "[PT_MAP]   Ptr will be: memory + offset = %p\n",
-                (char*)memory + (((debug_page - start) << PAGE_BITS) + offset));
-        // Check what's at that address
-        uint32_t *insn_ptr = (uint32_t*)((char*)memory + (((debug_page - start) << PAGE_BITS) + offset) + 0x160);
-        fprintf(stderr, "[PT_MAP]   Instruction at offset 0x160: 0x%08x (expected 0x17ffff37)\n", *insn_ptr);
-    }
-#endif
-
     // If this fails, the munmap in pt_unmap would probably fail.
     assert((uintptr_t) memory % real_page_size == 0 || memory == vdso_data);
 
@@ -147,6 +136,7 @@ int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t of
         pt->data = data;
         pt->offset = ((page - start) << PAGE_BITS) + offset;
         pt->flags = flags;
+
     }
     return 0;
 }
@@ -163,12 +153,16 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
         struct pt_entry *pt = mem_pt(mem, page);
         if (pt == NULL)
             continue;
+
         asbestos_invalidate_page(mem->mmu.asbestos, page);
         struct data *data = pt->data;
+        bool is_anon = (pt->flags & P_ANONYMOUS) != 0;
         mem_pt_del(mem, page);
         if (--data->refcount == 0) {
             // vdso wasn't allocated with mmap, it's just in our data segment
             if (data->data != vdso_data) {
+                if (is_anon)
+                    atomic_fetch_sub(&anon_page_count, (long)(data->size / PAGE_SIZE));
                 int err = munmap(data->data, data->size);
                 if (err != 0)
                     die("munmap(%p, %lu) failed: %s", data->data, data->size, strerror(errno));
@@ -198,6 +192,7 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
         struct pt_entry *entry = mem_pt(mem, page);
         int old_flags = entry->flags;
         entry->flags = flags;
+
         // check if protection is increasing
         if ((flags & ~old_flags) & (P_READ|P_WRITE)) {
             void *data = (char *) entry->data->data + entry->offset;
@@ -253,6 +248,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
 
     page_t page = PAGE(addr);
     struct pt_entry *entry = mem_pt(mem, page);
+
 
     if (entry == NULL) {
         // page does not exist

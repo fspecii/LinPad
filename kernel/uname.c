@@ -56,6 +56,12 @@ static uint64_t get_total_ram() {
 static void sysinfo_specific(struct sys_info *info) {
     uint64_t total_ram = get_total_ram();
 #if defined(GUEST_ARM64)
+    // Cap totalram to 256MB for the emulated environment.
+    // Reporting the full host RAM (e.g. 32GB) causes musl malloc to
+    // allocate enormous mmap arenas, leading to multi-GB memory growth.
+    #define GUEST_MAX_RAM (256ULL * 1024 * 1024)
+    if (total_ram > GUEST_MAX_RAM)
+        total_ram = GUEST_MAX_RAM;
     info->totalram = total_ram;
     info->mem_unit = 1;
 #else

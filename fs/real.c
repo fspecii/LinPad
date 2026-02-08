@@ -255,7 +255,8 @@ int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off
 
     off_t real_offset = (offset / real_page_size) * real_page_size;
     off_t correction = offset - real_offset;
-    char *memory = mmap(NULL, (pages * PAGE_SIZE) + correction,
+    size_t map_size = (pages * PAGE_SIZE) + correction;
+    char *memory = mmap(NULL, map_size,
             mmap_prot, mmap_flags, fd->real_fd, real_offset);
     return pt_map(mem, start, pages, memory, correction, prot);
 }
@@ -307,7 +308,7 @@ int realfs_rename(struct mount *mount, const char *src, const char *dst) {
 }
 
 int realfs_symlink(struct mount *mount, const char *target, const char *link) {
-    int err = symlinkat(target, mount->root_fd, link);
+    int err = symlinkat(target, mount->root_fd, fix_path(link));
     if (err < 0)
         return errno_map();
     return err;
@@ -349,9 +350,13 @@ int realfs_setattr(struct mount *mount, const char *path, struct attr attr) {
     switch (attr.type) {
         case attr_uid:
             err = fchownat(root, path, attr.uid, -1, 0);
+            if (err < 0 && errno == EPERM)
+                return 0; // silently ignore, we're not root on host
             break;
         case attr_gid:
             err = fchownat(root, path, attr.gid, -1, 0);
+            if (err < 0 && errno == EPERM)
+                return 0;
             break;
         case attr_mode:
             err = fchmodat(root, path, attr.mode, 0);
@@ -372,9 +377,13 @@ int realfs_fsetattr(struct fd *fd, struct attr attr) {
     switch (attr.type) {
         case attr_uid:
             err = fchown(real_fd, attr.uid, -1);
+            if (err < 0 && errno == EPERM)
+                return 0;
             break;
         case attr_gid:
             err = fchown(real_fd, attr.gid, -1);
+            if (err < 0 && errno == EPERM)
+                return 0;
             break;
         case attr_mode:
             err = fchmod(real_fd, attr.mode);

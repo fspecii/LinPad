@@ -66,8 +66,8 @@ void handle_interrupt(int interrupt) {
             }
             STRACE("%d call %-3d ", current->pid, syscall_num);
             int result = syscall_table[syscall_num](
-                (uint32_t)cpu->regs[0], (uint32_t)cpu->regs[1], (uint32_t)cpu->regs[2],
-                (uint32_t)cpu->regs[3], (uint32_t)cpu->regs[4], (uint32_t)cpu->regs[5]);
+                cpu->regs[0], cpu->regs[1], cpu->regs[2],
+                cpu->regs[3], cpu->regs[4], cpu->regs[5]);
             STRACE(" = 0x%x\n", result);
             // ARM64 ABI: error codes are -1 to -4095 (sign-extended), success is 0 or positive.
             // We need to check if result is in the error range (-1 to -4095).
@@ -91,36 +91,89 @@ void handle_interrupt(int interrupt) {
 #endif
     } else if (interrupt == INT_GPF) {
         // some page faults, such as stack growing or CoW clones, are handled by mem_ptr
-#if defined(GUEST_ARM64)
-        {
-            // Check if our dirty-register trap fired
-            // LOCAL_value is at offset 864 from cpu, LOCAL_value_addr at 856
-            uint64_t *dirty_val_ptr = (uint64_t *)((char *)cpu + 864);
-            uint64_t *dirty_reg_ptr = (uint64_t *)((char *)cpu + 856);
-            uint64_t dirty_val = *dirty_val_ptr;
-            uint64_t dirty_reg_idx = *dirty_reg_ptr;
-            if (dirty_val >> 32) {
-                printk("%d DIRTY REG x%llu = 0x%llx at pc=0x%llx\n",
-                    current->pid, (unsigned long long)dirty_reg_idx,
-                    (unsigned long long)dirty_val, (unsigned long long)cpu->pc);
-                // Print ALL 31 registers to see which are dirty
-                for (int i = 0; i < 31; i += 4) {
-                    printk("  x%d=%llx x%d=%llx x%d=%llx x%d=%llx\n",
-                        i, (unsigned long long)cpu->regs[i],
-                        i+1, (unsigned long long)cpu->regs[i+1],
-                        i+2, (unsigned long long)cpu->regs[i+2],
-                        i+3, (unsigned long long)(i+3 < 31 ? cpu->regs[i+3] : 0));
-                }
-                printk("  sp=%llx\n", (unsigned long long)cpu->sp);
-            }
-            // Always clear for next time
-            *dirty_val_ptr = 0;
-        }
-#endif
         read_wrlock(&current->mem->lock);
         void *ptr = mem_ptr(current->mem, cpu->segfault_addr, cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
         read_wrunlock(&current->mem->lock);
         if (ptr == NULL) {
+            {
+                uint32_t fault_insn = 0;
+                for (int i = 0; i < 4; i++) {
+                    uint8_t b;
+                    if (user_get(cpu->pc + i, b))
+                        break;
+                    fault_insn |= (uint32_t)b << (i * 8);
+                }
+                fprintf(stderr, "[GPF] pid=%d fault=0x%llx at pc=0x%llx insn=0x%08x write=%d\n",
+                        current->pid, (unsigned long long)cpu->segfault_addr,
+                        (unsigned long long)cpu->pc, fault_insn, cpu->segfault_was_write);
+                fprintf(stderr, "  x0=%llx x1=%llx x2=%llx x3=%llx\n",
+                        (unsigned long long)cpu->regs[0], (unsigned long long)cpu->regs[1],
+                        (unsigned long long)cpu->regs[2], (unsigned long long)cpu->regs[3]);
+                for (int i = 0; i < 31; i += 4) {
+                    fprintf(stderr, "  x%d=%llx x%d=%llx x%d=%llx x%d=%llx\n",
+                            i, (unsigned long long)cpu->regs[i],
+                            i+1, (unsigned long long)cpu->regs[i+1],
+                            i+2, (unsigned long long)cpu->regs[i+2],
+                            i+3 < 31 ? i+3 : 30, (unsigned long long)(i+3 < 31 ? cpu->regs[i+3] : cpu->regs[30]));
+                }
+                fprintf(stderr, "  sp=%llx\n", (unsigned long long)cpu->sp);
+                // Dump a few stack words
+                fprintf(stderr, "  stack:");
+                for (int i = 0; i < 8; i++) {
+                    uint64_t val = 0;
+                    for (int j = 0; j < 8; j++) {
+                        uint8_t b;
+                        if (user_get(cpu->sp + i*8 + j, b)) break;
+                        val |= (uint64_t)b << (j*8);
+                    }
+                    fprintf(stderr, " %llx", (unsigned long long)val);
+                }
+                fprintf(stderr, "\n");
+                // Dump page table info and full host memory for x22's page
+                {
+                    uint64_t rval = cpu->regs[22];
+                    if (rval != 0 && rval < 0xffff0000ULL) {
+                        page_t pg = PAGE((addr_t)rval);
+                        struct pt_entry *pt = mem_pt(current->mem, pg);
+                        if (pt) {
+                            char *host = (char *)pt->data->data + pt->offset;
+                            fprintf(stderr, "  [x22 PT] pg=0x%x data=%p off=0x%x flags=0x%x host=%p\n",
+                                    pg, pt->data->data, pt->offset, pt->flags, host);
+                            // Dump host memory at key relocation offsets
+                            // _Py_Identifier structs: 16 bytes each (string ptr + index)
+                            // Offsets 0x0d0-0x200 cover most identifiers
+                            fprintf(stderr, "  [HOST DUMP] relocation region:\n");
+                            for (int j = 0x000; j < 0x210; j += 8) {
+                                uint64_t v = 0;
+                                memcpy(&v, host + j, 8);
+                                if (v != 0) {
+                                    fprintf(stderr, "    [+0x%03x]=0x%016llx\n", j, (unsigned long long)v);
+                                }
+                            }
+                        } else {
+                            fprintf(stderr, "  [x22 PT] pg=0x%x UNMAPPED!\n", pg);
+                        }
+                    }
+                }
+                // Dump memory around key registers for debugging
+                for (int r = 0; r < 31; r++) {
+                    uint64_t rval = cpu->regs[r];
+                    if (rval == 0 || rval > 0xffff0000ULL) continue;
+                    // Try to read 32 bytes at this address
+                    int readable = 1;
+                    uint8_t buf[32];
+                    for (int j = 0; j < 32; j++) {
+                        uint8_t b;
+                        if (user_get((addr_t)(rval - 8 + j), b)) { readable = 0; break; }
+                        buf[j] = b;
+                    }
+                    if (readable) {
+                        fprintf(stderr, "  [x%d-8]=", r);
+                        for (int j = 0; j < 32; j++) fprintf(stderr, "%02x", buf[j]);
+                        fprintf(stderr, "\n");
+                    }
+                }
+            }
 #if defined(GUEST_X86) || !defined(GUEST_ARM64)
             printk("%d page fault on 0x%x at 0x%x\n", current->pid, cpu->segfault_addr, cpu->eip);
 #elif defined(GUEST_ARM64)
@@ -159,6 +212,8 @@ void handle_interrupt(int interrupt) {
                     break;
                 ill_insn |= (uint32_t)b << (i * 8);
             }
+            fprintf(stderr, "[UNDEF] pid=%d pc=0x%llx insn=0x%08x\n",
+                    current->pid, (unsigned long long)cpu->pc, ill_insn);
             printk("%d illegal instruction at 0x%llx: insn=0x%08x\n", current->pid, (unsigned long long)cpu->pc, ill_insn);
         }
 #endif

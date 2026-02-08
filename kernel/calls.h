@@ -150,9 +150,15 @@ dword_t sys_fchown32(fd_t f, dword_t owner, dword_t group);
 dword_t sys_fchownat(fd_t at_f, addr_t path_addr, dword_t owner, dword_t group, int flags);
 dword_t sys_chown32(addr_t path_addr, uid_t_ owner, uid_t_ group);
 dword_t sys_lchown(addr_t path_addr, uid_t_ owner, uid_t_ group);
+#ifdef GUEST_ARM64
+dword_t sys_truncate64(addr_t path_addr, off_t_ size);
+dword_t sys_ftruncate64(fd_t f, off_t_ size);
+dword_t sys_fallocate(fd_t f, dword_t mode, off_t_ offset, off_t_ len);
+#else
 dword_t sys_truncate64(addr_t path_addr, dword_t size_low, dword_t size_high);
 dword_t sys_ftruncate64(fd_t f, dword_t size_low, dword_t size_high);
 dword_t sys_fallocate(fd_t f, dword_t mode, dword_t offset_low, dword_t offset_high, dword_t len_low, dword_t len_high);
+#endif
 dword_t sys_mkdir(addr_t path_addr, mode_t_ mode);
 dword_t sys_mkdirat(fd_t at_f, addr_t path_addr, mode_t_ mode);
 dword_t sys_utimensat(fd_t at_f, addr_t path_addr, addr_t times_addr, dword_t flags);
@@ -294,7 +300,13 @@ dword_t sys_getrandom(addr_t buf_addr, dword_t len, dword_t flags);
 int_t sys_syslog(int_t type, addr_t buf_addr, int_t len);
 int_t sys_ipc(uint_t call, int_t first, int_t second, int_t third, addr_t ptr, int_t fifth);
 
+#ifdef GUEST_ARM64
+// ARM64 syscalls pass 64-bit register values; functions taking dword_t
+// will implicitly truncate, while those taking off_t_/qword_t get full values.
+typedef int (*syscall_t)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+#else
 typedef int (*syscall_t)(dword_t, dword_t, dword_t, dword_t, dword_t, dword_t);
+#endif
 
 // Stub for unimplemented syscalls
 dword_t syscall_stub(void);

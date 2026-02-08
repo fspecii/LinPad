@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdatomic.h>
 #include "debug.h"
 #include "kernel/calls.h"
 #include "kernel/errno.h"
@@ -6,8 +7,6 @@
 #include "fs/fd.h"
 #include "kernel/memory.h"
 #include "kernel/mm.h"
-
-#define MMAP_DEBUG 0
 
 struct mm *mm_new() {
     struct mm *mm = malloc(sizeof(struct mm));
@@ -49,6 +48,16 @@ void mm_release(struct mm *mm) {
     }
 }
 
+// Maximum anonymous mmap pages across ALL processes (host memory cap).
+// Prevents iOS app from being killed by jetsam.
+// 0 = no limit. Non-zero = hard limit in pages (4KB each).
+// 262144 pages = 1GB.
+#define ANON_MMAP_LIMIT_PAGES 262144
+
+#if ANON_MMAP_LIMIT_PAGES > 0
+_Atomic long anon_page_count;
+#endif
+
 static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
     int err;
     pages_t pages = PAGE_ROUND_UP(len);
@@ -72,6 +81,11 @@ static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
         prot |= P_SHARED;
 
     if (flags & MMAP_ANONYMOUS) {
+#if ANON_MMAP_LIMIT_PAGES > 0
+        if (atomic_load(&anon_page_count) + (long)pages > ANON_MMAP_LIMIT_PAGES)
+            return _ENOMEM;
+        atomic_fetch_add(&anon_page_count, (long)pages);
+#endif
         if ((err = pt_map_nothing(current->mem, page, pages, prot)) < 0)
             return err;
     } else {
@@ -124,11 +138,6 @@ addr_t sys_mmap64(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd
     // Note: offset is already in bytes for ARM64 mmap, so pass directly
     addr_t res = do_mmap(addr, len, prot, flags, fd_no, (dword_t)offset);
     write_wrunlock(&current->mem->lock);
-#if MMAP_DEBUG
-    fprintf(stderr, "[MMAP64] addr=0x%llx len=0x%x prot=0x%x flags=0x%x fd=%d off=0x%llx => 0x%llx\n",
-            (unsigned long long)addr, len, prot, flags, fd_no, (unsigned long long)offset,
-            (unsigned long long)res);
-#endif
     return res;
 }
 #endif
@@ -146,15 +155,13 @@ addr_t sys_mmap(addr_t args_addr) {
 
 int_t sys_munmap(addr_t addr, uint_t len) {
     STRACE("munmap(0x%x, 0x%x)", addr, len);
-#if MMAP_DEBUG
-    fprintf(stderr, "[MUNMAP] addr=0x%llx len=0x%x\n", (unsigned long long)addr, len);
-#endif
+    pages_t pages = PAGE_ROUND_UP(len);
     if (PGOFFSET(addr) != 0)
         return _EINVAL;
     if (len == 0)
         return _EINVAL;
     write_wrlock(&current->mem->lock);
-    int err = pt_unmap_always(current->mem, PAGE(addr), PAGE_ROUND_UP(len));
+    int err = pt_unmap_always(current->mem, PAGE(addr), pages);
     write_wrunlock(&current->mem->lock);
     if (err < 0)
         return _EINVAL;
@@ -242,11 +249,6 @@ int_t sys_msync(addr_t UNUSED(addr), dword_t UNUSED(len), int_t UNUSED(flags)) {
 addr_t sys_brk(addr_t new_brk) {
     STRACE("brk(0x%x)", new_brk);
     struct mm *mm = current->mm;
-#if MMAP_DEBUG
-    fprintf(stderr, "[BRK] new_brk=0x%x current_brk=0x%x start_brk=0x%x\n",
-            new_brk, mm ? mm->brk : 0, mm ? mm->start_brk : 0);
-#endif
-
     write_wrlock(&mm->mem.lock);
     if (new_brk < mm->start_brk)
         goto out;
@@ -260,6 +262,11 @@ addr_t sys_brk(addr_t new_brk) {
         pages_t size = PAGE_ROUND_UP(new_brk) - PAGE_ROUND_UP(old_brk);
         if (!pt_is_hole(&mm->mem, start, size))
             goto out;
+#if ANON_MMAP_LIMIT_PAGES > 0
+        if (atomic_load(&anon_page_count) + (long)size > ANON_MMAP_LIMIT_PAGES)
+            goto out;
+        atomic_fetch_add(&anon_page_count, (long)size);
+#endif
         int err = pt_map_nothing(&mm->mem, start, size, P_WRITE);
         if (err < 0)
             goto out;

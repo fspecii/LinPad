@@ -1299,6 +1299,85 @@ calc_base_dirty:
     read_bullshit 64, ld1_single_d_1
 
 /*
+ * LD1R {Vt.T}, [Xn] - Load single element and replicate to all lanes
+ *
+ * Code stream: [gadget addr][rt | (size << 8) | (Q << 16)]
+ *   rt: vector register index (0-31)
+ *   size: element size (0=B, 1=H, 2=S, 3=D)
+ *   Q: 0=64-bit (lower half), 1=128-bit (full vector)
+ *
+ * Address should already be in _addr (x7) from calc_addr_imm
+ */
+.gadget ld1r_vec
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    and x23, x22, #0x1f         // rt (vector reg index)
+    ubfx x25, x22, #8, #8       // size (0=B, 1=H, 2=S, 3=D)
+    ubfx x26, x22, #16, #8      // Q
+
+    mov x24, _addr              // Save guest address
+
+    // Dispatch on element size for read_prep and load
+    cmp x25, #0
+    b.eq ld1r_byte
+    cmp x25, #1
+    b.eq ld1r_half
+    cmp x25, #2
+    b.eq ld1r_word
+    // else: doubleword
+
+ld1r_dword:
+    read_prep 64, ld1r_dword_1
+    ldr x11, [_addr]
+    dup v0.2d, x11
+    b ld1r_store
+
+    read_bullshit 64, ld1r_dword_1
+
+ld1r_word:
+    read_prep 32, ld1r_word_1
+    ldr w11, [_addr]
+    dup v0.4s, w11
+    b ld1r_store
+
+    read_bullshit 32, ld1r_word_1
+
+ld1r_half:
+    read_prep 16, ld1r_half_1
+    ldrh w11, [_addr]
+    dup v0.8h, w11
+    b ld1r_store
+
+    read_bullshit 16, ld1r_half_1
+
+ld1r_byte:
+    read_prep 8, ld1r_byte_1
+    ldrb w11, [_addr]
+    dup v0.16b, w11
+    b ld1r_store
+
+    read_bullshit 8, ld1r_byte_1
+
+ld1r_store:
+    // Store replicated vector to cpu->fp[rt]
+    add x9, _cpu, #CPU_fp
+    lsl x10, x23, #4            // each V reg is 16 bytes
+    add x9, x9, x10
+
+    cbz x26, ld1r_store_64
+    // Q=1: store full 128-bit vector
+    str q0, [x9]
+    mov _addr, x24
+    gret
+
+ld1r_store_64:
+    // Q=0: store lower 64 bits, zero upper 64 bits
+    str d0, [x9]
+    str xzr, [x9, #8]           // zero upper 64 bits
+    mov _addr, x24
+    gret
+
+/*
  * ST1 {Vt.B}[lane], [Xn] - Store single byte from vector lane
  */
 .gadget st1_single_b

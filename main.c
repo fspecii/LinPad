@@ -1,10 +1,50 @@
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
+#include <execinfo.h>
+#include <mach/mach.h>
+#include <pthread.h>
 #include "kernel/calls.h"
 #include "kernel/task.h"
 #include "xX_main_Xx.h"
 
+static void crash_handler(int sig, siginfo_t *info, void *ctx) {
+    // Use raw write to avoid stdio buffering issues in signal handler
+    char buf[512];
+    int len;
+    ucontext_t *uc = (ucontext_t *)ctx;
+    len = snprintf(buf, sizeof(buf), "\n=== HOST CRASH: signal %d ===\nfault addr: %p\n", sig, info->si_addr);
+    write(STDERR_FILENO, buf, len);
+#ifdef __aarch64__
+    len = snprintf(buf, sizeof(buf),
+        "pc:  0x%llx\nlr:  0x%llx\nsp:  0x%llx\n"
+        "x0:  0x%llx\nx1:  0x%llx\nx2:  0x%llx\n"
+        "x7:  0x%llx\nx28: 0x%llx\n",
+        uc->uc_mcontext->__ss.__pc, uc->uc_mcontext->__ss.__lr,
+        uc->uc_mcontext->__ss.__sp,
+        uc->uc_mcontext->__ss.__x[0], uc->uc_mcontext->__ss.__x[1],
+        uc->uc_mcontext->__ss.__x[2],
+        uc->uc_mcontext->__ss.__x[7], uc->uc_mcontext->__ss.__x[28]);
+    write(STDERR_FILENO, buf, len);
+#endif
+    void *bt[20];
+    int n = backtrace(bt, 20);
+    backtrace_symbols_fd(bt, n, STDERR_FILENO);
+    _exit(139);
+}
+
 int main(int argc, char *const argv[]) {
+    static char altstack[SIGSTKSZ];
+    stack_t ss = {.ss_sp = altstack, .ss_size = SIGSTKSZ};
+    sigaltstack(&ss, NULL);
+    struct sigaction sa = {0};
+    sa.sa_sigaction = crash_handler;
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
+    sigaction(SIGABRT, &sa, NULL);
+    sigaction(SIGILL, &sa, NULL);
+    sigaction(SIGTRAP, &sa, NULL);
     char envp[200] = {0};
     size_t p = 0;
     if (getenv("TERM")) {
@@ -12,13 +52,8 @@ int main(int argc, char *const argv[]) {
         p += snprintf(envp + p, sizeof(envp) - p, "TERM=%s", term) + 1;
     }
 #ifdef GUEST_ARM64
-    // Disable SHA256 (bit 3) and SHA512 (bit 5) hardware acceleration in OpenSSL.
-    // The emulator produces wrong results for these instructions.
-    // 0x17 = NEON | AES | SHA1 | PMULL
-    // OpenSSL armcap bits: 0=NEON, 1=TICK, 2=AES, 3=SHA1, 4=SHA256, 5=PMULL, 6=SHA512
-    // Disable all hardware crypto acceleration for now.
-    // Some NEON-optimized paths use vector instructions we haven't fully implemented.
     p += snprintf(envp + p, sizeof(envp) - p, "OPENSSL_armcap=0") + 1;
+    p += snprintf(envp + p, sizeof(envp) - p, "PYTHONMALLOC=malloc") + 1;
 #endif
     int err = xX_main_Xx(argc, argv, envp);
     if (err < 0) {

@@ -3237,6 +3237,10 @@ msub_store:
     b.eq .Lmrs_id_aa64isar1
     cmp x11, #11
     b.eq .Lmrs_id_aa64zfr0
+    cmp x11, #12
+    b.eq .Lmrs_cntvct_el0
+    cmp x11, #13
+    b.eq .Lmrs_cntfrq_el0
     // Unknown sysreg - return 0
     mov x10, #0
     b .Lmrs_store
@@ -3310,6 +3314,17 @@ msub_store:
 .Lmrs_id_aa64zfr0:
     // ID_AA64ZFR0_EL1: SVE not supported.
     mov x10, #0
+    b .Lmrs_store
+
+.Lmrs_cntvct_el0:
+    // CNTVCT_EL0 - Virtual counter timer
+    // Read the host's virtual counter directly (same hardware)
+    mrs x10, cntvct_el0
+    b .Lmrs_store
+
+.Lmrs_cntfrq_el0:
+    // CNTFRQ_EL0 - Counter-timer frequency
+    mrs x10, cntfrq_el0
     b .Lmrs_store
 
 .Lmrs_store:
@@ -3958,10 +3973,10 @@ msub_store:
     mov x3, x15
 
 .Lumov_store:
-    add x19, _cpu, #CPU_x0
+    add x14, _cpu, #CPU_x0
     cmp x9, #31
     b.eq .Lumov_done
-    str x3, [x19, x9, lsl #3]
+    str x3, [x14, x9, lsl #3]
 .Lumov_done:
     gret
 
@@ -4034,6 +4049,448 @@ msub_store:
     gret
 
 /*
+ * MOV/INS - Insert GPR into vector element (H/halfword size)
+ * Code stream: [gadget addr][rd | rn<<8 | index<<16]
+ */
+.gadget ins_gpr_to_vec_h
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd (vector)
+    ubfx x10, x8, #8, #5    // rn (gpr)
+    ubfx x11, x8, #16, #3   // index (0..7)
+
+    add x12, _cpu, #CPU_x0
+    cmp x10, #31
+    b.eq 1f
+    ldr x13, [x12, x10, lsl #3]
+    b 2f
+1:  mov w13, #0
+2:
+    add x14, _cpu, #CPU_fp
+    lsl x15, x9, #4
+    add x14, x14, x15
+    add x14, x14, x11, lsl #1   // H element is 2 bytes
+
+    strh w13, [x14]
+    gret
+
+/*
+ * MOV/INS - Insert GPR into vector element (B/byte size)
+ * Code stream: [gadget addr][rd | rn<<8 | index<<16]
+ */
+.gadget ins_gpr_to_vec_b
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd (vector)
+    ubfx x10, x8, #8, #5    // rn (gpr)
+    ubfx x11, x8, #16, #4   // index (0..15)
+
+    add x12, _cpu, #CPU_x0
+    cmp x10, #31
+    b.eq 1f
+    ldr x13, [x12, x10, lsl #3]
+    b 2f
+1:  mov w13, #0
+2:
+    add x14, _cpu, #CPU_fp
+    lsl x15, x9, #4
+    add x14, x14, x15
+    add x14, x14, x11           // B element is 1 byte
+
+    strb w13, [x14]
+    gret
+
+/*
+ * SSHLL - Signed shift left long (B->H)
+ * Code stream: [gadget addr][rd | rn<<8 | shift<<16]
+ * Extends 8 bytes to 8 halfwords (sign-extend), then shift left
+ */
+.gadget sshll_vec_b_to_h
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #4   // shift (0..7)
+
+    add x12, _cpu, #CPU_fp
+    lsl x13, x10, #4
+    add x12, x12, x13       // &Vn
+
+    // Load 8 source bytes
+    ldr x14, [x12]
+
+    // Sign-extend each byte to halfword and shift
+    add x17, _cpu, #CPU_fp
+    lsl x3, x9, #4
+    add x17, x17, x3        // &Vd
+
+    // Element 0
+    sbfx x15, x14, #0, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #0]
+    // Element 1
+    sbfx x15, x14, #8, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #2]
+    // Element 2
+    sbfx x15, x14, #16, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #4]
+    // Element 3
+    sbfx x15, x14, #24, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #6]
+    // Element 4
+    sbfx x15, x14, #32, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #8]
+    // Element 5
+    sbfx x15, x14, #40, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #10]
+    // Element 6
+    sbfx x15, x14, #48, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #12]
+    // Element 7
+    sbfx x15, x14, #56, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #14]
+    gret
+
+/*
+ * USHLL - Unsigned shift left long (B->H)
+ * Code stream: [gadget addr][rd | rn<<8 | shift<<16]
+ */
+.gadget ushll_vec_b_to_h
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #4
+
+    add x12, _cpu, #CPU_fp
+    lsl x13, x10, #4
+    add x12, x12, x13
+
+    ldr x14, [x12]
+
+    add x17, _cpu, #CPU_fp
+    lsl x3, x9, #4
+    add x17, x17, x3
+
+    // Zero-extend each byte to halfword and shift
+    ubfx x15, x14, #0, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #0]
+    ubfx x15, x14, #8, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #2]
+    ubfx x15, x14, #16, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #4]
+    ubfx x15, x14, #24, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #6]
+    ubfx x15, x14, #32, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #8]
+    ubfx x15, x14, #40, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #10]
+    ubfx x15, x14, #48, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #12]
+    ubfx x15, x14, #56, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #14]
+    gret
+
+/*
+ * SSHLL - Signed shift left long (H->S)
+ * Code stream: [gadget addr][rd | rn<<8 | shift<<16]
+ * Extends 4 halfwords to 4 words (sign-extend), then shift left
+ */
+.gadget sshll_vec_h_to_s
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #4   // shift (0..15)
+
+    add x12, _cpu, #CPU_fp
+    lsl x13, x10, #4
+    add x12, x12, x13
+
+    ldr x14, [x12]          // 4 halfwords in 64 bits
+
+    add x17, _cpu, #CPU_fp
+    lsl x3, x9, #4
+    add x17, x17, x3
+
+    // Sign-extend each halfword to word and shift
+    sbfx x15, x14, #0, #16
+    lsl w15, w15, w11
+    str w15, [x17, #0]
+    sbfx x15, x14, #16, #16
+    lsl w15, w15, w11
+    str w15, [x17, #4]
+    sbfx x15, x14, #32, #16
+    lsl w15, w15, w11
+    str w15, [x17, #8]
+    sbfx x15, x14, #48, #16
+    lsl w15, w15, w11
+    str w15, [x17, #12]
+    gret
+
+/*
+ * USHLL - Unsigned shift left long (H->S)
+ * Code stream: [gadget addr][rd | rn<<8 | shift<<16]
+ */
+.gadget ushll_vec_h_to_s
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #4
+
+    add x12, _cpu, #CPU_fp
+    lsl x13, x10, #4
+    add x12, x12, x13
+
+    ldr x14, [x12]
+
+    add x17, _cpu, #CPU_fp
+    lsl x3, x9, #4
+    add x17, x17, x3
+
+    // Zero-extend each halfword to word and shift
+    ubfx x15, x14, #0, #16
+    lsl w15, w15, w11
+    str w15, [x17, #0]
+    ubfx x15, x14, #16, #16
+    lsl w15, w15, w11
+    str w15, [x17, #4]
+    ubfx x15, x14, #32, #16
+    lsl w15, w15, w11
+    str w15, [x17, #8]
+    ubfx x15, x14, #48, #16
+    lsl w15, w15, w11
+    str w15, [x17, #12]
+    gret
+
+/*
+ * SSHLL2 - Signed shift left long (B->H, upper half)
+ * Code stream: [gadget addr][rd | rn<<8 | shift<<16]
+ * Reads bytes 8..15, sign-extends to 8 halfwords
+ */
+.gadget sshll2_vec_b_to_h
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #4
+
+    add x12, _cpu, #CPU_fp
+    lsl x13, x10, #4
+    add x12, x12, x13
+    ldr x14, [x12, #8]      // upper 8 bytes
+
+    add x17, _cpu, #CPU_fp
+    lsl x3, x9, #4
+    add x17, x17, x3
+
+    sbfx x15, x14, #0, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #0]
+    sbfx x15, x14, #8, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #2]
+    sbfx x15, x14, #16, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #4]
+    sbfx x15, x14, #24, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #6]
+    sbfx x15, x14, #32, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #8]
+    sbfx x15, x14, #40, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #10]
+    sbfx x15, x14, #48, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #12]
+    sbfx x15, x14, #56, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #14]
+    gret
+
+.gadget ushll2_vec_b_to_h
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #4
+
+    add x12, _cpu, #CPU_fp
+    lsl x13, x10, #4
+    add x12, x12, x13
+    ldr x14, [x12, #8]
+
+    add x17, _cpu, #CPU_fp
+    lsl x3, x9, #4
+    add x17, x17, x3
+
+    ubfx x15, x14, #0, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #0]
+    ubfx x15, x14, #8, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #2]
+    ubfx x15, x14, #16, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #4]
+    ubfx x15, x14, #24, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #6]
+    ubfx x15, x14, #32, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #8]
+    ubfx x15, x14, #40, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #10]
+    ubfx x15, x14, #48, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #12]
+    ubfx x15, x14, #56, #8
+    lsl x15, x15, x11
+    strh w15, [x17, #14]
+    gret
+
+.gadget sshll2_vec_h_to_s
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #4
+
+    add x12, _cpu, #CPU_fp
+    lsl x13, x10, #4
+    add x12, x12, x13
+    ldr x14, [x12, #8]      // upper 4 halfwords
+
+    add x17, _cpu, #CPU_fp
+    lsl x3, x9, #4
+    add x17, x17, x3
+
+    sbfx x15, x14, #0, #16
+    lsl w15, w15, w11
+    str w15, [x17, #0]
+    sbfx x15, x14, #16, #16
+    lsl w15, w15, w11
+    str w15, [x17, #4]
+    sbfx x15, x14, #32, #16
+    lsl w15, w15, w11
+    str w15, [x17, #8]
+    sbfx x15, x14, #48, #16
+    lsl w15, w15, w11
+    str w15, [x17, #12]
+    gret
+
+.gadget ushll2_vec_h_to_s
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #4
+
+    add x12, _cpu, #CPU_fp
+    lsl x13, x10, #4
+    add x12, x12, x13
+    ldr x14, [x12, #8]
+
+    add x17, _cpu, #CPU_fp
+    lsl x3, x9, #4
+    add x17, x17, x3
+
+    ubfx x15, x14, #0, #16
+    lsl w15, w15, w11
+    str w15, [x17, #0]
+    ubfx x15, x14, #16, #16
+    lsl w15, w15, w11
+    str w15, [x17, #4]
+    ubfx x15, x14, #32, #16
+    lsl w15, w15, w11
+    str w15, [x17, #8]
+    ubfx x15, x14, #48, #16
+    lsl w15, w15, w11
+    str w15, [x17, #12]
+    gret
+
+.gadget sshll2_vec_s_to_d
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+
+    add x12, _cpu, #CPU_fp
+    lsl x13, x10, #4
+    add x12, x12, x13
+    ldr x14, [x12, #8]      // upper 2 words
+
+    sxtw x15, w14
+    asr x16, x14, #32
+
+    lsl x15, x15, x11
+    lsl x16, x16, x11
+
+    add x17, _cpu, #CPU_fp
+    lsl x3, x9, #4
+    add x17, x17, x3
+    str x15, [x17]
+    str x16, [x17, #8]
+    gret
+
+.gadget ushll2_vec_s_to_d
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+
+    add x12, _cpu, #CPU_fp
+    lsl x13, x10, #4
+    add x12, x12, x13
+    ldr x14, [x12, #8]
+
+    uxtw x15, w14
+    lsr x16, x14, #32
+
+    lsl x15, x15, x11
+    lsl x16, x16, x11
+
+    add x17, _cpu, #CPU_fp
+    lsl x3, x9, #4
+    add x17, x17, x3
+    str x15, [x17]
+    str x16, [x17, #8]
+    gret
+
+/*
  * SSHLL - Signed shift left long (S->D)
  * Code stream: [gadget addr][rd | rn<<8 | shift<<16]
  *
@@ -4102,6 +4559,186 @@ msub_store:
     lsl x16, x16, x11
 
     // Store to destination vector
+    add x17, _cpu, #CPU_fp
+    lsl x3, x9, #4
+    add x17, x17, x3
+    str x15, [x17]
+    str x16, [x17, #8]
+    gret
+
+/*
+ * SHLL/SHLL2 - Shift left long by element size (two-reg misc)
+ * Code stream: [gadget addr][rd | rn<<8]
+ * Shift is fixed at element size (8 for B->H, 16 for H->S, 32 for S->D)
+ */
+
+// SHLL B->H: each byte << 8, result is halfword
+.gadget shll_vec_b_to_h
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    add x12, _cpu, #CPU_fp
+    lsl x13, x10, #4
+    add x12, x12, x13
+    ldr x14, [x12]           // lower 8 bytes
+    add x17, _cpu, #CPU_fp
+    lsl x3, x9, #4
+    add x17, x17, x3
+    ubfx x15, x14, #0, #8
+    lsl x15, x15, #8
+    strh w15, [x17, #0]
+    ubfx x15, x14, #8, #8
+    lsl x15, x15, #8
+    strh w15, [x17, #2]
+    ubfx x15, x14, #16, #8
+    lsl x15, x15, #8
+    strh w15, [x17, #4]
+    ubfx x15, x14, #24, #8
+    lsl x15, x15, #8
+    strh w15, [x17, #6]
+    ubfx x15, x14, #32, #8
+    lsl x15, x15, #8
+    strh w15, [x17, #8]
+    ubfx x15, x14, #40, #8
+    lsl x15, x15, #8
+    strh w15, [x17, #10]
+    ubfx x15, x14, #48, #8
+    lsl x15, x15, #8
+    strh w15, [x17, #12]
+    ubfx x15, x14, #56, #8
+    lsl x15, x15, #8
+    strh w15, [x17, #14]
+    gret
+
+// SHLL2 B->H: upper 8 bytes << 8
+.gadget shll2_vec_b_to_h
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    add x12, _cpu, #CPU_fp
+    lsl x13, x10, #4
+    add x12, x12, x13
+    ldr x14, [x12, #8]       // upper 8 bytes
+    add x17, _cpu, #CPU_fp
+    lsl x3, x9, #4
+    add x17, x17, x3
+    ubfx x15, x14, #0, #8
+    lsl x15, x15, #8
+    strh w15, [x17, #0]
+    ubfx x15, x14, #8, #8
+    lsl x15, x15, #8
+    strh w15, [x17, #2]
+    ubfx x15, x14, #16, #8
+    lsl x15, x15, #8
+    strh w15, [x17, #4]
+    ubfx x15, x14, #24, #8
+    lsl x15, x15, #8
+    strh w15, [x17, #6]
+    ubfx x15, x14, #32, #8
+    lsl x15, x15, #8
+    strh w15, [x17, #8]
+    ubfx x15, x14, #40, #8
+    lsl x15, x15, #8
+    strh w15, [x17, #10]
+    ubfx x15, x14, #48, #8
+    lsl x15, x15, #8
+    strh w15, [x17, #12]
+    ubfx x15, x14, #56, #8
+    lsl x15, x15, #8
+    strh w15, [x17, #14]
+    gret
+
+// SHLL H->S: each halfword << 16
+.gadget shll_vec_h_to_s
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    add x12, _cpu, #CPU_fp
+    lsl x13, x10, #4
+    add x12, x12, x13
+    ldr x14, [x12]
+    add x17, _cpu, #CPU_fp
+    lsl x3, x9, #4
+    add x17, x17, x3
+    ubfx x15, x14, #0, #16
+    lsl w15, w15, #16
+    str w15, [x17, #0]
+    ubfx x15, x14, #16, #16
+    lsl w15, w15, #16
+    str w15, [x17, #4]
+    ubfx x15, x14, #32, #16
+    lsl w15, w15, #16
+    str w15, [x17, #8]
+    ubfx x15, x14, #48, #16
+    lsl w15, w15, #16
+    str w15, [x17, #12]
+    gret
+
+// SHLL2 H->S: upper 4 halfwords << 16
+.gadget shll2_vec_h_to_s
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    add x12, _cpu, #CPU_fp
+    lsl x13, x10, #4
+    add x12, x12, x13
+    ldr x14, [x12, #8]
+    add x17, _cpu, #CPU_fp
+    lsl x3, x9, #4
+    add x17, x17, x3
+    ubfx x15, x14, #0, #16
+    lsl w15, w15, #16
+    str w15, [x17, #0]
+    ubfx x15, x14, #16, #16
+    lsl w15, w15, #16
+    str w15, [x17, #4]
+    ubfx x15, x14, #32, #16
+    lsl w15, w15, #16
+    str w15, [x17, #8]
+    ubfx x15, x14, #48, #16
+    lsl w15, w15, #16
+    str w15, [x17, #12]
+    gret
+
+// SHLL S->D: each word << 32
+.gadget shll_vec_s_to_d
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    add x12, _cpu, #CPU_fp
+    lsl x13, x10, #4
+    add x12, x12, x13
+    ldr x14, [x12]
+    uxtw x15, w14
+    lsl x15, x15, #32
+    lsr x16, x14, #32
+    lsl x16, x16, #32
+    add x17, _cpu, #CPU_fp
+    lsl x3, x9, #4
+    add x17, x17, x3
+    str x15, [x17]
+    str x16, [x17, #8]
+    gret
+
+// SHLL2 S->D: upper 2 words << 32
+.gadget shll2_vec_s_to_d
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    add x12, _cpu, #CPU_fp
+    lsl x13, x10, #4
+    add x12, x12, x13
+    ldr x14, [x12, #8]
+    uxtw x15, w14
+    lsl x15, x15, #32
+    lsr x16, x14, #32
+    lsl x16, x16, #32
     add x17, _cpu, #CPU_fp
     lsl x3, x9, #4
     add x17, x17, x3
@@ -4796,6 +5433,229 @@ msub_store:
     str d0, [x14]
     str xzr, [x14, #8]
     gret
+
+/*
+ * CNT - Vector population count (count set bits per byte)
+ * Code stream: [gadget addr][rd | rn<<8 | Q<<16]
+ * Only valid for .8B (Q=0) and .16B (Q=1)
+ */
+.gadget cnt_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x17, x8, #16, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+
+    // Load source vector
+    ldr q0, [x15]
+
+    // Use native CNT instruction
+    cbz x17, .Lcnt_vec_8b
+    cnt v0.16b, v0.16b
+    str q0, [x14]
+    gret
+
+.Lcnt_vec_8b:
+    cnt v0.8b, v0.8b
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+/*
+ * ADDV - Add across vector (sum all elements into scalar)
+ * Code stream: [gadget addr][rd | rn<<8 | size<<16 | Q<<24]
+ * size: 0=B, 1=H, 2=S (no 3=D for ADDV)
+ * Q: 0=64-bit vector, 1=128-bit vector
+ * Result is scalar: Vd.element = sum of all Vn elements
+ */
+.gadget addv_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x12, x8, #16, #2   // size
+    ubfx x17, x8, #24, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+
+    // Load source vector
+    ldr q0, [x15]
+
+    // Use native ADDV instruction, dispatch by size and Q
+    cmp x12, #2
+    b.eq .Laddv_32
+    cmp x12, #1
+    b.eq .Laddv_16
+    // size=0 (bytes)
+    cbz x17, .Laddv_8b
+    addv b1, v0.16b
+    b .Laddv_store_b
+.Laddv_8b:
+    addv b1, v0.8b
+.Laddv_store_b:
+    stp xzr, xzr, [x14]     // zero destination
+    st1 {v1.b}[0], [x14]    // store scalar byte result
+    gret
+
+.Laddv_16:
+    cbz x17, .Laddv_4h
+    addv h1, v0.8h
+    b .Laddv_store_h
+.Laddv_4h:
+    addv h1, v0.4h
+.Laddv_store_h:
+    stp xzr, xzr, [x14]
+    st1 {v1.h}[0], [x14]
+    gret
+
+.Laddv_32:
+    cbz x17, .Laddv_2s
+    addv s1, v0.4s
+    b .Laddv_store_s
+.Laddv_2s:
+    // ADDV doesn't exist for 2S, use ADDP instead
+    addp v1.2s, v0.2s, v0.2s
+.Laddv_store_s:
+    stp xzr, xzr, [x14]
+    str s1, [x14]
+    gret
+
+/*
+ * SADDLV/UADDLV - Signed/Unsigned Add Long Across Vector
+ * Code stream: [gadget addr][rd | rn<<8 | size<<16 | Q<<24]
+ * size: 0=B→H, 1=H→S, 2=S→D (result is one size wider)
+ * Q: 0=64-bit vector, 1=128-bit vector
+ */
+.macro make_across_addlv name, insn_b_16, insn_b_8, insn_h_8, insn_h_4, insn_s_4
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x12, x8, #16, #2   // size
+    ubfx x17, x8, #24, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+
+    ldr q0, [x15]
+
+    cmp x12, #2
+    b.eq .L\name\()_32
+    cmp x12, #1
+    b.eq .L\name\()_16
+    // size=0 (bytes → halfword result)
+    cbz x17, .L\name\()_8b
+    \insn_b_16
+    b .L\name\()_store_h
+.L\name\()_8b:
+    \insn_b_8
+.L\name\()_store_h:
+    stp xzr, xzr, [x14]
+    st1 {v1.h}[0], [x14]
+    gret
+
+.L\name\()_16:
+    // size=1 (halfwords → word result)
+    cbz x17, .L\name\()_4h
+    \insn_h_8
+    b .L\name\()_store_s
+.L\name\()_4h:
+    \insn_h_4
+.L\name\()_store_s:
+    stp xzr, xzr, [x14]
+    str s1, [x14]
+    gret
+
+.L\name\()_32:
+    // size=2 (words → doubleword result)
+    // SADDLV/UADDLV for 4S only (Q=1); 2S not encodable
+    \insn_s_4
+    stp xzr, xzr, [x14]
+    str d1, [x14]
+    gret
+.endm
+
+make_across_addlv saddlv, "saddlv h1, v0.16b", "saddlv h1, v0.8b", "saddlv s1, v0.8h", "saddlv s1, v0.4h", "saddlv d1, v0.4s"
+make_across_addlv uaddlv, "uaddlv h1, v0.16b", "uaddlv h1, v0.8b", "uaddlv s1, v0.8h", "uaddlv s1, v0.4h", "uaddlv d1, v0.4s"
+
+/*
+ * UMAXV/UMINV/SMAXV/SMINV - Min/Max across vector lanes
+ * Code stream: [gadget addr][rd | rn<<8 | size<<16 | Q<<24]
+ * size: 0=B, 1=H, 2=S (no 3=D)
+ * Q: 0=64-bit vector, 1=128-bit vector
+ * Result is scalar: Vd.element = min/max of all Vn elements
+ */
+.macro make_across_minmax name, insn_b_16, insn_b_8, insn_h_8, insn_h_4, insn_s_4, insn_s_2
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x12, x8, #16, #2   // size
+    ubfx x17, x8, #24, #1   // Q
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    ldr q0, [x15]
+    cmp x12, #2
+    b.eq .L\name\()_32
+    cmp x12, #1
+    b.eq .L\name\()_16
+    // size=0 (bytes)
+    cbz x17, .L\name\()_8b
+    \insn_b_16
+    b .L\name\()_store_b
+.L\name\()_8b:
+    \insn_b_8
+.L\name\()_store_b:
+    stp xzr, xzr, [x14]
+    st1 {v1.b}[0], [x14]
+    gret
+.L\name\()_16:
+    cbz x17, .L\name\()_4h
+    \insn_h_8
+    b .L\name\()_store_h
+.L\name\()_4h:
+    \insn_h_4
+.L\name\()_store_h:
+    stp xzr, xzr, [x14]
+    st1 {v1.h}[0], [x14]
+    gret
+.L\name\()_32:
+    cbz x17, .L\name\()_2s
+    \insn_s_4
+    b .L\name\()_store_s
+.L\name\()_2s:
+    \insn_s_2
+.L\name\()_store_s:
+    stp xzr, xzr, [x14]
+    str s1, [x14]
+    gret
+.endm
+
+make_across_minmax umaxv, "umaxv b1, v0.16b", "umaxv b1, v0.8b", "umaxv h1, v0.8h", "umaxv h1, v0.4h", "umaxv s1, v0.4s", "umaxp v1.2s, v0.2s, v0.2s"
+make_across_minmax uminv, "uminv b1, v0.16b", "uminv b1, v0.8b", "uminv h1, v0.8h", "uminv h1, v0.4h", "uminv s1, v0.4s", "uminp v1.2s, v0.2s, v0.2s"
+make_across_minmax smaxv, "smaxv b1, v0.16b", "smaxv b1, v0.8b", "smaxv h1, v0.8h", "smaxv h1, v0.4h", "smaxv s1, v0.4s", "smaxp v1.2s, v0.2s, v0.2s"
+make_across_minmax sminv, "sminv b1, v0.16b", "sminv b1, v0.8b", "sminv h1, v0.8h", "sminv h1, v0.4h", "sminv s1, v0.4s", "sminp v1.2s, v0.2s, v0.2s"
 
 /*
  * ADD - Vector add
@@ -6968,6 +7828,313 @@ movi_really_zero:
     gret
 
 /*
+ * XTN/SQXTUN/SQXTN/UQXTN - Narrowing instructions
+ * Code stream: [gadget addr][rd | rn<<8 | size<<16 | Q<<24]
+ * size: 0=8H→8B, 1=4S→4H, 2=2D→2S
+ * Q: 0=lower half (XTN), 1=upper half (XTN2)
+ * Uses native NEON narrowing instructions.
+ */
+.macro make_narrow_vec name, insn_b_lo, insn_b_hi, insn_h_lo, insn_h_hi, insn_s_lo, insn_s_hi
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x12, x8, #16, #2   // size
+    ubfx x17, x8, #24, #1   // Q
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    ldr q0, [x15]           // load source (wide)
+    ldr q1, [x14]           // load dest (for Q=1, preserve lower half)
+    cmp x12, #2
+    b.eq .L\name\()_2d
+    cmp x12, #1
+    b.eq .L\name\()_4s
+    // size=0: 8H→8B
+    cbz x17, .L\name\()_8h_lo
+    \insn_b_hi                // XTN2/etc: narrow into upper half of v1
+    b .L\name\()_store128
+.L\name\()_8h_lo:
+    \insn_b_lo                // XTN: narrow into lower half of v1
+    b .L\name\()_store64
+.L\name\()_4s:
+    cbz x17, .L\name\()_4s_lo
+    \insn_h_hi
+    b .L\name\()_store128
+.L\name\()_4s_lo:
+    \insn_h_lo
+    b .L\name\()_store64
+.L\name\()_2d:
+    cbz x17, .L\name\()_2d_lo
+    \insn_s_hi
+    b .L\name\()_store128
+.L\name\()_2d_lo:
+    \insn_s_lo
+.L\name\()_store64:
+    stp xzr, xzr, [x14]     // clear destination
+    str d1, [x14]            // store lower 64 bits only
+    gret
+.L\name\()_store128:
+    str q1, [x14]            // store full 128 bits (upper half inserted)
+    gret
+.endm
+
+/*
+ * UADDLP/SADDLP/UADALP/SADALP - Pairwise add long
+ * Code stream: [gadget addr][rd | rn<<8 | size<<16 | Q<<24]
+ * size: 0=B→H, 1=H→S, 2=S→D
+ * Uses native NEON pairwise instructions.
+ */
+.macro make_pairwise_addl name, insn_b_8, insn_b_16, insn_h_4, insn_h_8, insn_s_2, insn_s_4
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x12, x8, #16, #2   // size
+    ubfx x17, x8, #24, #1   // Q
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    ldr q0, [x15]           // load source
+    ldr q2, [x14]           // load dest (for accumulate variants)
+    cmp x12, #2
+    b.eq .L\name\()_s
+    cmp x12, #1
+    b.eq .L\name\()_h
+    cbz x17, .L\name\()_b8
+    \insn_b_16
+    str q1, [x14]
+    gret
+.L\name\()_b8:
+    \insn_b_8
+    str d1, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_h:
+    cbz x17, .L\name\()_h4
+    \insn_h_8
+    str q1, [x14]
+    gret
+.L\name\()_h4:
+    \insn_h_4
+    str d1, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_s:
+    cbz x17, .L\name\()_s2
+    \insn_s_4
+    str q1, [x14]
+    gret
+.L\name\()_s2:
+    \insn_s_2
+    str d1, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+/*
+ * SHRN/RSHRN - Shift Right Narrow (and rounding variant)
+ * Code stream: [gadget addr][rd | rn<<8 | shift<<16 | esize<<24 | Q<<28]
+ * esize: 0=8H→8B, 1=4S→4H, 2=2D→2S (source element size code, not actual)
+ * Q=0: write lower half, Q=1: write upper half (SHRN2/RSHRN2)
+ * Uses urshl/srshl (variable shift with negative amount) + xtn to narrow.
+ */
+.macro make_shrn_vec name, sh8h, sh4s, sh2d
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #8   // shift amount
+    ubfx x12, x8, #24, #4   // esize (0=B, 1=H, 2=S - narrow target)
+    ubfx x17, x8, #28, #1   // Q
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    ldr q0, [x15]           // load source (wide elements)
+    ldr q2, [x14]           // load dest (for Q=1 preserve lower)
+    neg x11, x11             // negative shift for right shift
+    cmp x12, #2
+    b.eq .L\name\()_2d
+    cmp x12, #1
+    b.eq .L\name\()_4s
+    // esize=0: 8H→8B
+    dup v1.8h, w11
+    \sh8h
+    cbz x17, .L\name\()_8h_lo
+    xtn2 v2.16b, v0.8h
+    str q2, [x14]
+    gret
+.L\name\()_8h_lo:
+    xtn v2.8b, v0.8h
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_4s:
+    dup v1.4s, w11
+    \sh4s
+    cbz x17, .L\name\()_4s_lo
+    xtn2 v2.8h, v0.4s
+    str q2, [x14]
+    gret
+.L\name\()_4s_lo:
+    xtn v2.4h, v0.4s
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_2d:
+    dup v1.2d, x11
+    \sh2d
+    cbz x17, .L\name\()_2d_lo
+    xtn2 v2.4s, v0.2d
+    str q2, [x14]
+    gret
+.L\name\()_2d_lo:
+    xtn v2.2s, v0.2d
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+// SHRN: unsigned shift right (truncate) then narrow
+make_shrn_vec shrn, "urshl v0.8h, v0.8h, v1.8h", "urshl v0.4s, v0.4s, v1.4s", "urshl v0.2d, v0.2d, v1.2d"
+// RSHRN: signed rounding shift right then narrow
+make_shrn_vec rshrn, "srshl v0.8h, v0.8h, v1.8h", "srshl v0.4s, v0.4s, v1.4s", "srshl v0.2d, v0.2d, v1.2d"
+
+make_pairwise_addl uaddlp, "uaddlp v1.4h, v0.8b", "uaddlp v1.8h, v0.16b", "uaddlp v1.2s, v0.4h", "uaddlp v1.4s, v0.8h", "uaddlp v1.1d, v0.2s", "uaddlp v1.2d, v0.4s"
+make_pairwise_addl saddlp, "saddlp v1.4h, v0.8b", "saddlp v1.8h, v0.16b", "saddlp v1.2s, v0.4h", "saddlp v1.4s, v0.8h", "saddlp v1.1d, v0.2s", "saddlp v1.2d, v0.4s"
+
+// For accumulate variants, load dest into v1 first (native insn accumulates into v1)
+.macro make_pairwise_accl name, insn_b_8, insn_b_16, insn_h_4, insn_h_8, insn_s_2, insn_s_4
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x12, x8, #16, #2   // size
+    ubfx x17, x8, #24, #1   // Q
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    ldr q0, [x15]           // load source
+    ldr q1, [x14]           // load dest into v1 (accumulate target)
+    cmp x12, #2
+    b.eq .L\name\()_s
+    cmp x12, #1
+    b.eq .L\name\()_h
+    cbz x17, .L\name\()_b8
+    \insn_b_16
+    str q1, [x14]
+    gret
+.L\name\()_b8:
+    \insn_b_8
+    str d1, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_h:
+    cbz x17, .L\name\()_h4
+    \insn_h_8
+    str q1, [x14]
+    gret
+.L\name\()_h4:
+    \insn_h_4
+    str d1, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_s:
+    cbz x17, .L\name\()_s2
+    \insn_s_4
+    str q1, [x14]
+    gret
+.L\name\()_s2:
+    \insn_s_2
+    str d1, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+make_pairwise_accl uadalp, "uadalp v1.4h, v0.8b", "uadalp v1.8h, v0.16b", "uadalp v1.2s, v0.4h", "uadalp v1.4s, v0.8h", "uadalp v1.1d, v0.2s", "uadalp v1.2d, v0.4s"
+make_pairwise_accl sadalp, "sadalp v1.4h, v0.8b", "sadalp v1.8h, v0.16b", "sadalp v1.2s, v0.4h", "sadalp v1.4s, v0.8h", "sadalp v1.1d, v0.2s", "sadalp v1.2d, v0.4s"
+
+make_narrow_vec sqxtun, "sqxtun v1.8b, v0.8h", "sqxtun2 v1.16b, v0.8h", "sqxtun v1.4h, v0.4s", "sqxtun2 v1.8h, v0.4s", "sqxtun v1.2s, v0.2d", "sqxtun2 v1.4s, v0.2d"
+make_narrow_vec sqxtn, "sqxtn v1.8b, v0.8h", "sqxtn2 v1.16b, v0.8h", "sqxtn v1.4h, v0.4s", "sqxtn2 v1.8h, v0.4s", "sqxtn v1.2s, v0.2d", "sqxtn2 v1.4s, v0.2d"
+make_narrow_vec uqxtn, "uqxtn v1.8b, v0.8h", "uqxtn2 v1.16b, v0.8h", "uqxtn v1.4h, v0.4s", "uqxtn2 v1.8h, v0.4s", "uqxtn v1.2s, v0.2d", "uqxtn2 v1.4s, v0.2d"
+
+/*
+ * CMGT/CMGE/CMLT/CMLE (zero) - Compare vector elements against zero
+ * Code stream: [gadget addr][rd | rn<<8 | size<<16 | Q<<24]
+ * size: 0=B, 1=H, 2=S, 3=D
+ * Uses native NEON compare instructions for efficiency.
+ */
+.macro make_cmpzero_vec name, insn8q0, insn8q1, insn16q0, insn16q1, insn32q0, insn32q1, insn64q1
+.gadget \name\()_zero_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x12, x8, #16, #2   // size
+    ubfx x17, x8, #24, #1   // Q
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    ldr q0, [x15]
+    cmp x12, #3
+    b.eq .L\name\()z_64
+    cmp x12, #2
+    b.eq .L\name\()z_32
+    cmp x12, #1
+    b.eq .L\name\()z_16
+    // size=0 (bytes)
+    cbz x17, .L\name\()z_8b
+    \insn8q1
+    b .L\name\()z_store
+.L\name\()z_8b:
+    \insn8q0
+    b .L\name\()z_store_lo
+.L\name\()z_16:
+    cbz x17, .L\name\()z_4h
+    \insn16q1
+    b .L\name\()z_store
+.L\name\()z_4h:
+    \insn16q0
+    b .L\name\()z_store_lo
+.L\name\()z_32:
+    cbz x17, .L\name\()z_2s
+    \insn32q1
+    b .L\name\()z_store
+.L\name\()z_2s:
+    \insn32q0
+    b .L\name\()z_store_lo
+.L\name\()z_64:
+    // size=3 requires Q=1 (2D); Q=0 is UNDEF (handled in gen.c)
+    \insn64q1
+.L\name\()z_store:
+    str q1, [x14]
+    gret
+.L\name\()z_store_lo:
+    str d1, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+make_cmpzero_vec cmgt, "cmgt v1.8b, v0.8b, #0", "cmgt v1.16b, v0.16b, #0", "cmgt v1.4h, v0.4h, #0", "cmgt v1.8h, v0.8h, #0", "cmgt v1.2s, v0.2s, #0", "cmgt v1.4s, v0.4s, #0", "cmgt v1.2d, v0.2d, #0"
+make_cmpzero_vec cmge, "cmge v1.8b, v0.8b, #0", "cmge v1.16b, v0.16b, #0", "cmge v1.4h, v0.4h, #0", "cmge v1.8h, v0.8h, #0", "cmge v1.2s, v0.2s, #0", "cmge v1.4s, v0.4s, #0", "cmge v1.2d, v0.2d, #0"
+make_cmpzero_vec cmlt, "cmlt v1.8b, v0.8b, #0", "cmlt v1.16b, v0.16b, #0", "cmlt v1.4h, v0.4h, #0", "cmlt v1.8h, v0.8h, #0", "cmlt v1.2s, v0.2s, #0", "cmlt v1.4s, v0.4s, #0", "cmlt v1.2d, v0.2d, #0"
+make_cmpzero_vec cmle, "cmle v1.8b, v0.8b, #0", "cmle v1.16b, v0.16b, #0", "cmle v1.4h, v0.4h, #0", "cmle v1.8h, v0.8h, #0", "cmle v1.2s, v0.2s, #0", "cmle v1.4s, v0.4s, #0", "cmle v1.2d, v0.2d, #0"
+
+/*
  * Vector Logical Operations
  * These operate on the entire 64-bit or 128-bit vector as a bitwise operation.
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
@@ -7622,6 +8789,171 @@ movi_really_zero:
     gret
 
 /*
+ * SRSHR/URSHR/SRSRA/URSRA (vector, immediate) - Rounding shift right (and accumulate)
+ * Code stream: [gadget addr][rd | rn<<8 | shift<<16 | esize<<24 | Q<<28]
+ * Uses native NEON srshl/urshl with negative shift vector for efficiency.
+ *
+ * srshl/urshl Vd, Vn, Vm does: Vd[i] = round_shift(Vn[i], Vm[i])
+ * where positive Vm = left shift, negative Vm = right shift with rounding
+ */
+.macro make_rounding_shift name, insn_b_8, insn_b_16, insn_h_4, insn_h_8, insn_s_2, insn_s_4, insn_d_2, accumulate=0
+.gadget \name\()_imm_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #8   // shift amount
+    ubfx x12, x8, #24, #4   // esize
+    ubfx x17, x8, #28, #1   // Q
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    ldr q0, [x15]           // load source
+.if \accumulate
+    ldr q2, [x14]           // load existing dest for accumulate
+.endif
+    // Create shift vector with -shift replicated to all elements
+    neg x11, x11
+    dup v1.16b, w11          // replicate -shift as bytes (works for all sizes since
+                             // srshl/urshl reads shift per element as signed byte-sized)
+    cmp x12, #3
+    b.eq .L\name\()_64
+    cmp x12, #2
+    b.eq .L\name\()_32
+    cmp x12, #1
+    b.eq .L\name\()_16
+    // size=0 (bytes): shift vector is already correct
+    cbz x17, .L\name\()_8b
+    \insn_b_16
+    b .L\name\()_store
+.L\name\()_8b:
+    \insn_b_8
+    b .L\name\()_store_lo
+.L\name\()_16:
+    // For 16-bit elements, need shift replicated per 16-bit lane
+    dup v1.8h, w11
+    cbz x17, .L\name\()_4h
+    \insn_h_8
+    b .L\name\()_store
+.L\name\()_4h:
+    \insn_h_4
+    b .L\name\()_store_lo
+.L\name\()_32:
+    dup v1.4s, w11
+    cbz x17, .L\name\()_2s
+    \insn_s_4
+    b .L\name\()_store
+.L\name\()_2s:
+    \insn_s_2
+    b .L\name\()_store_lo
+.L\name\()_64:
+    dup v1.2d, x11
+    \insn_d_2
+.L\name\()_store:
+.if \accumulate
+    // For accumulate variants, we computed shifted result in v3, now add to dest
+    // The caller macros put result in v3 for accumulate, v3 for non-accumulate
+    add_placeholder_\name:
+.endif
+    str q3, [x14]
+    gret
+.L\name\()_store_lo:
+.if \accumulate
+    add_placeholder2_\name:
+.endif
+    str d3, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+// SRSHR: Signed Rounding Shift Right
+// srshl does signed rounding shift by variable amount (negative = right)
+make_rounding_shift srshr, "srshl v3.8b, v0.8b, v1.8b", "srshl v3.16b, v0.16b, v1.16b", "srshl v3.4h, v0.4h, v1.4h", "srshl v3.8h, v0.8h, v1.8h", "srshl v3.2s, v0.2s, v1.2s", "srshl v3.4s, v0.4s, v1.4s", "srshl v3.2d, v0.2d, v1.2d"
+
+// URSHR: Unsigned Rounding Shift Right
+make_rounding_shift urshr, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.16b", "urshl v3.4h, v0.4h, v1.4h", "urshl v3.8h, v0.8h, v1.8h", "urshl v3.2s, v0.2s, v1.2s", "urshl v3.4s, v0.4s, v1.4s", "urshl v3.2d, v0.2d, v1.2d"
+
+/*
+ * SRSRA/URSRA (vector, immediate) - Rounding shift right and accumulate
+ * Code stream: [gadget addr][rd | rn<<8 | shift<<16 | esize<<24 | Q<<28]
+ * rd = rd + rounding_shift_right(rn, shift)
+ */
+.macro make_rounding_sra name, shift_insn_b_8, shift_insn_b_16, shift_insn_h_4, shift_insn_h_8, shift_insn_s_2, shift_insn_s_4, shift_insn_d_2
+.gadget \name\()_imm_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #8   // shift amount
+    ubfx x12, x8, #24, #4   // esize
+    ubfx x17, x8, #28, #1   // Q
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    ldr q0, [x15]           // load source
+    ldr q2, [x14]           // load existing dest for accumulate
+    neg x11, x11
+    cmp x12, #3
+    b.eq .L\name\()_64
+    cmp x12, #2
+    b.eq .L\name\()_32
+    cmp x12, #1
+    b.eq .L\name\()_16
+    // size=0 (bytes)
+    dup v1.16b, w11
+    cbz x17, .L\name\()_8b
+    \shift_insn_b_16
+    add v3.16b, v3.16b, v2.16b
+    str q3, [x14]
+    gret
+.L\name\()_8b:
+    \shift_insn_b_8
+    add v3.8b, v3.8b, v2.8b
+    str d3, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_16:
+    dup v1.8h, w11
+    cbz x17, .L\name\()_4h
+    \shift_insn_h_8
+    add v3.8h, v3.8h, v2.8h
+    str q3, [x14]
+    gret
+.L\name\()_4h:
+    \shift_insn_h_4
+    add v3.4h, v3.4h, v2.4h
+    str d3, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_32:
+    dup v1.4s, w11
+    cbz x17, .L\name\()_2s
+    \shift_insn_s_4
+    add v3.4s, v3.4s, v2.4s
+    str q3, [x14]
+    gret
+.L\name\()_2s:
+    \shift_insn_s_2
+    add v3.2s, v3.2s, v2.2s
+    str d3, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_64:
+    dup v1.2d, x11
+    \shift_insn_d_2
+    add v3.2d, v3.2d, v2.2d
+    str q3, [x14]
+    gret
+.endm
+
+make_rounding_sra srsra, "srshl v3.8b, v0.8b, v1.8b", "srshl v3.16b, v0.16b, v1.16b", "srshl v3.4h, v0.4h, v1.4h", "srshl v3.8h, v0.8h, v1.8h", "srshl v3.2s, v0.2s, v1.2s", "srshl v3.4s, v0.4s, v1.4s", "srshl v3.2d, v0.2d, v1.2d"
+make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.16b", "urshl v3.4h, v0.4h, v1.4h", "urshl v3.8h, v0.8h, v1.8h", "urshl v3.2s, v0.2s, v1.2s", "urshl v3.4s, v0.4s, v1.4s", "urshl v3.2d, v0.2d, v1.2d"
+
+/*
  * SHL (scalar, immediate) - Scalar shift left immediate
  * Code stream: [gadget addr][rd | rn<<8 | shift<<16 | esize<<24]
  *
@@ -7855,6 +9187,235 @@ movi_really_zero:
     asr x17, x17, x11       // arithmetic (signed) shift right
     add x16, x16, x17
     str x16, [x14]
+    gret
+
+/*
+ * ADD (scalar, 64-bit integer) - Add two 64-bit integers in SIMD registers
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
+ */
+.gadget add_scalar_i64
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+
+    add x13, _cpu, #CPU_fp
+    add x15, x13, x10, lsl #4    // &Dn
+    add x16, x13, x11, lsl #4    // &Dm
+    ldr x17, [x15]               // Dn
+    ldr x3, [x16]                // Dm
+    add x17, x17, x3
+    add x14, x13, x9, lsl #4     // &Dd
+    str x17, [x14]               // store result
+    str xzr, [x14, #8]           // clear upper 64 bits
+    gret
+
+/*
+ * SUB (scalar, 64-bit integer) - Subtract two 64-bit integers in SIMD registers
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
+ */
+.gadget sub_scalar_i64
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+
+    add x13, _cpu, #CPU_fp
+    add x15, x13, x10, lsl #4
+    add x16, x13, x11, lsl #4
+    ldr x17, [x15]
+    ldr x3, [x16]
+    sub x17, x17, x3
+    add x14, x13, x9, lsl #4
+    str x17, [x14]
+    str xzr, [x14, #8]
+    gret
+
+/*
+ * SCVTF (scalar, fixed-point) - Signed integer to FP with fractional bits
+ * Code stream: [gadget addr][rd | rn<<8 | fbits<<16 | esize<<24]
+ * Converts signed int in Dn/Sn to FP in Dd/Sd, dividing by 2^fbits
+ */
+.gadget scvtf_fixpt_scalar
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #8   // fbits
+    ubfx x12, x8, #24, #4   // esize
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Dd/Sd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Dn/Sn
+
+    cmp x12, #3
+    b.eq 1f
+    // 32-bit: SCVTF Sd, Sn, #fbits
+    ldr s0, [x15]
+    // We need to build the SCVTF instruction dynamically since fbits is variable
+    // Instead, convert integer to float then divide by 2^fbits
+    fmov w16, s0
+    scvtf s0, w16
+    // Now divide by 2^fbits: multiply by 2^(-fbits)
+    mov w17, #1
+    lsl w17, w17, w11
+    scvtf s1, w17
+    fdiv s0, s0, s1
+    str s0, [x14]
+    str wzr, [x14, #4]
+    str xzr, [x14, #8]
+    gret
+
+1:  // 64-bit: SCVTF Dd, Dn, #fbits
+    ldr x16, [x15]
+    scvtf d0, x16
+    // Divide by 2^fbits
+    mov x17, #1
+    lsl x17, x17, x11
+    ucvtf d1, x17
+    fdiv d0, d0, d1
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+/*
+ * UCVTF (scalar, fixed-point) - Unsigned integer to FP with fractional bits
+ * Code stream: [gadget addr][rd | rn<<8 | fbits<<16 | esize<<24]
+ */
+.gadget ucvtf_fixpt_scalar
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #8
+    ubfx x12, x8, #24, #4
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14
+    lsl x15, x10, #4
+    add x15, x13, x15
+
+    cmp x12, #3
+    b.eq 1f
+    // 32-bit
+    ldr w16, [x15]
+    ucvtf s0, w16
+    mov w17, #1
+    lsl w17, w17, w11
+    scvtf s1, w17
+    fdiv s0, s0, s1
+    str s0, [x14]
+    str wzr, [x14, #4]
+    str xzr, [x14, #8]
+    gret
+
+1:  // 64-bit
+    ldr x16, [x15]
+    ucvtf d0, x16
+    mov x17, #1
+    lsl x17, x17, x11
+    ucvtf d1, x17
+    fdiv d0, d0, d1
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+/*
+ * FCVTZS (scalar, fixed-point) - FP to signed integer with fractional bits
+ * Code stream: [gadget addr][rd | rn<<8 | fbits<<16 | esize<<24]
+ * Multiplies FP value by 2^fbits, then converts to signed int (round toward zero)
+ */
+.gadget fcvtzs_fixpt_scalar
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #8
+    ubfx x12, x8, #24, #4
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14
+    lsl x15, x10, #4
+    add x15, x13, x15
+
+    cmp x12, #3
+    b.eq 1f
+    // 32-bit
+    ldr s0, [x15]
+    mov w17, #1
+    lsl w17, w17, w11
+    scvtf s1, w17
+    fmul s0, s0, s1
+    fcvtzs w16, s0
+    str w16, [x14]
+    str wzr, [x14, #4]
+    str xzr, [x14, #8]
+    gret
+
+1:  // 64-bit
+    ldr d0, [x15]
+    mov x17, #1
+    lsl x17, x17, x11
+    ucvtf d1, x17
+    fmul d0, d0, d1
+    fcvtzs x16, d0
+    str x16, [x14]
+    str xzr, [x14, #8]
+    gret
+
+/*
+ * FCVTZU (scalar, fixed-point) - FP to unsigned integer with fractional bits
+ * Code stream: [gadget addr][rd | rn<<8 | fbits<<16 | esize<<24]
+ */
+.gadget fcvtzu_fixpt_scalar
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #8
+    ubfx x12, x8, #24, #4
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14
+    lsl x15, x10, #4
+    add x15, x13, x15
+
+    cmp x12, #3
+    b.eq 1f
+    // 32-bit
+    ldr s0, [x15]
+    mov w17, #1
+    lsl w17, w17, w11
+    scvtf s1, w17
+    fmul s0, s0, s1
+    fcvtzu w16, s0
+    str w16, [x14]
+    str wzr, [x14, #4]
+    str xzr, [x14, #8]
+    gret
+
+1:  // 64-bit
+    ldr d0, [x15]
+    mov x17, #1
+    lsl x17, x17, x11
+    ucvtf d1, x17
+    fmul d0, d0, d1
+    fcvtzu x16, d0
+    str x16, [x14]
+    str xzr, [x14, #8]
     gret
 
 /*
@@ -9251,8 +10812,62 @@ movi_really_zero:
 .Lfcvtzu_done:
     gret
 
+// Macro for FCVT (FP->int) with different rounding modes
+// \name: gadget name suffix, \cvt_x_d: 64-bit convert insn, \cvt_w_d: 32-bit convert insn
+.macro make_fcvt_to_int name, cvt_x_d, cvt_w_d, cvt_x_s, cvt_w_s
+.gadget \name\()_scalar
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd (gpr)
+    ubfx x10, x8, #8, #5    // rn (fp reg)
+    ubfx x11, x8, #16, #2   // type
+    ubfx x12, x8, #18, #1   // sf
+    add x13, _cpu, #CPU_fp
+    lsl x14, x10, #4
+    add x13, x13, x14
+    cbz x12, .L\name\()_32
+    // 64-bit result
+    cbz x11, .L\name\()_x_s
+    ldr d0, [x13]
+    \cvt_x_d x14, d0
+    b .L\name\()_store
+.L\name\()_x_s:
+    ldr s0, [x13]
+    \cvt_x_s x14, s0
+    b .L\name\()_store
+.L\name\()_32:
+    // 32-bit result
+    cbz x11, .L\name\()_w_s
+    ldr d0, [x13]
+    \cvt_w_d w14, d0
+    b .L\name\()_store32
+.L\name\()_w_s:
+    ldr s0, [x13]
+    \cvt_w_s w14, s0
+.L\name\()_store32:
+    // Zero-extend 32-bit to 64-bit
+    mov w14, w14
+.L\name\()_store:
+    cmp x9, #31
+    b.eq .L\name\()_done
+    add x15, _cpu, #CPU_x0
+    str x14, [x15, x9, lsl #3]
+.L\name\()_done:
+    gret
+.endm
+
+make_fcvt_to_int fcvtns, fcvtns, fcvtns, fcvtns, fcvtns
+make_fcvt_to_int fcvtps, fcvtps, fcvtps, fcvtps, fcvtps
+make_fcvt_to_int fcvtms, fcvtms, fcvtms, fcvtms, fcvtms
+make_fcvt_to_int fcvtnu, fcvtnu, fcvtnu, fcvtnu, fcvtnu
+make_fcvt_to_int fcvtpu, fcvtpu, fcvtpu, fcvtpu, fcvtpu
+make_fcvt_to_int fcvtmu, fcvtmu, fcvtmu, fcvtmu, fcvtmu
+make_fcvt_to_int fcvtas, fcvtas, fcvtas, fcvtas, fcvtas
+make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
+
 /*
  * FCVTZS - Floating-point to signed integer (round toward zero)
+ * (kept for backward compatibility — same as make_fcvt_to_int but uses fcvtzs)
  */
 .gadget fcvtzs_scalar
     ldr x8, [_pc]
@@ -9291,6 +10906,214 @@ movi_really_zero:
     add x15, _cpu, #CPU_x0
     str x14, [x15, x9, lsl #3]
 .Lfcvtzs_done:
+    gret
+
+/*
+ * FCVTZS (GPR, fixed-point) - FP to signed int with scale factor (result in GPR)
+ * Code stream: [gadget addr][rd | rn<<8 | type<<16 | sf<<18 | fbits<<20]
+ * Computes: Rd = (int)(Fn * 2^fbits) truncated toward zero
+ */
+.gadget fcvtzs_fixpt_gpr
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd (gpr)
+    ubfx x10, x8, #8, #5    // rn (fp reg)
+    ubfx x11, x8, #16, #2   // type (0=S, 1=D)
+    ubfx x12, x8, #18, #2   // sf (0=32-bit, 1=64-bit)
+    ubfx x13, x8, #20, #7   // fbits
+
+    // Load FP source
+    add x14, _cpu, #CPU_fp
+    lsl x15, x10, #4
+    add x14, x14, x15
+
+    cbz x11, .Lfcvtzs_fg_single
+    ldr d0, [x14]            // double source
+    b .Lfcvtzs_fg_scale
+.Lfcvtzs_fg_single:
+    ldr s0, [x14]
+    fcvt d0, s0              // convert single to double for uniform handling
+
+.Lfcvtzs_fg_scale:
+    // Multiply by 2^fbits: convert fbits to double, use scvtf then fmul
+    // Actually: use fcvtzs with shift directly
+    // ARM64 has: fcvtzs x0, d0, #fbits — but we can't use variable fbits directly
+    // Instead: scale the double by 2^fbits, then convert
+    // Build 2^fbits as a double: exponent = fbits + 1023
+    add x16, x13, #1023     // biased exponent
+    lsl x16, x16, #52       // shift to exponent position
+    fmov d1, x16             // d1 = 2^fbits
+    fmul d0, d0, d1          // d0 = d0 * 2^fbits
+
+    cbz x12, .Lfcvtzs_fg_32bit
+    // 64-bit result
+    fcvtzs x14, d0
+    b .Lfcvtzs_fg_store
+.Lfcvtzs_fg_32bit:
+    fcvtzs w14, d0
+    sxtw x14, w14
+
+.Lfcvtzs_fg_store:
+    cmp x9, #31
+    b.eq .Lfcvtzs_fg_done
+    add x15, _cpu, #CPU_x0
+    str x14, [x15, x9, lsl #3]
+.Lfcvtzs_fg_done:
+    gret
+
+/*
+ * FCVTZU (GPR, fixed-point) - FP to unsigned int with scale factor (result in GPR)
+ * Code stream: [gadget addr][rd | rn<<8 | type<<16 | sf<<18 | fbits<<20]
+ * Computes: Rd = (uint)(Fn * 2^fbits) truncated toward zero
+ */
+.gadget fcvtzu_fixpt_gpr
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd (gpr)
+    ubfx x10, x8, #8, #5    // rn (fp reg)
+    ubfx x11, x8, #16, #2   // type
+    ubfx x12, x8, #18, #2   // sf
+    ubfx x13, x8, #20, #7   // fbits
+
+    add x14, _cpu, #CPU_fp
+    lsl x15, x10, #4
+    add x14, x14, x15
+
+    cbz x11, .Lfcvtzu_fg_single
+    ldr d0, [x14]
+    b .Lfcvtzu_fg_scale
+.Lfcvtzu_fg_single:
+    ldr s0, [x14]
+    fcvt d0, s0
+
+.Lfcvtzu_fg_scale:
+    add x16, x13, #1023
+    lsl x16, x16, #52
+    fmov d1, x16
+    fmul d0, d0, d1
+
+    cbz x12, .Lfcvtzu_fg_32bit
+    fcvtzu x14, d0
+    b .Lfcvtzu_fg_store
+.Lfcvtzu_fg_32bit:
+    fcvtzu w14, d0
+    mov w14, w14             // zero-extend
+
+.Lfcvtzu_fg_store:
+    cmp x9, #31
+    b.eq .Lfcvtzu_fg_done
+    add x15, _cpu, #CPU_x0
+    str x14, [x15, x9, lsl #3]
+.Lfcvtzu_fg_done:
+    gret
+
+/*
+ * SCVTF (GPR, fixed-point) - Signed int to FP with scale factor (source in GPR)
+ * Code stream: [gadget addr][rd | rn<<8 | type<<16 | sf<<18 | fbits<<20]
+ * Computes: Fd = (double)Rn / 2^fbits
+ */
+.gadget scvtf_fixpt_gpr
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd (fp reg)
+    ubfx x10, x8, #8, #5    // rn (gpr)
+    ubfx x11, x8, #16, #2   // type (0=S, 1=D)
+    ubfx x12, x8, #18, #2   // sf
+    ubfx x13, x8, #20, #7   // fbits
+
+    // Load GPR source
+    add x14, _cpu, #CPU_x0
+    cmp x10, #31
+    b.eq .Lscvtf_fg_zero
+    ldr x15, [x14, x10, lsl #3]
+    b .Lscvtf_fg_convert
+.Lscvtf_fg_zero:
+    mov x15, #0
+
+.Lscvtf_fg_convert:
+    cbz x12, .Lscvtf_fg_32bit
+    scvtf d0, x15
+    b .Lscvtf_fg_scale
+.Lscvtf_fg_32bit:
+    scvtf d0, w15
+
+.Lscvtf_fg_scale:
+    // Divide by 2^fbits: multiply by 2^(-fbits)
+    mov x16, #1023
+    sub x16, x16, x13       // biased exponent = 1023 - fbits
+    lsl x16, x16, #52
+    fmov d1, x16             // d1 = 2^(-fbits)
+    fmul d0, d0, d1
+
+    // Store to FP register
+    add x14, _cpu, #CPU_fp
+    lsl x15, x9, #4
+    add x14, x14, x15
+
+    cbz x11, .Lscvtf_fg_store_single
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.Lscvtf_fg_store_single:
+    fcvt s0, d0
+    str s0, [x14]
+    str wzr, [x14, #4]
+    str xzr, [x14, #8]
+    gret
+
+/*
+ * UCVTF (GPR, fixed-point) - Unsigned int to FP with scale factor (source in GPR)
+ * Code stream: [gadget addr][rd | rn<<8 | type<<16 | sf<<18 | fbits<<20]
+ * Computes: Fd = (double)(uint)Rn / 2^fbits
+ */
+.gadget ucvtf_fixpt_gpr
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd (fp reg)
+    ubfx x10, x8, #8, #5    // rn (gpr)
+    ubfx x11, x8, #16, #2   // type
+    ubfx x12, x8, #18, #2   // sf
+    ubfx x13, x8, #20, #7   // fbits
+
+    add x14, _cpu, #CPU_x0
+    cmp x10, #31
+    b.eq .Lucvtf_fg_zero
+    ldr x15, [x14, x10, lsl #3]
+    b .Lucvtf_fg_convert
+.Lucvtf_fg_zero:
+    mov x15, #0
+
+.Lucvtf_fg_convert:
+    cbz x12, .Lucvtf_fg_32bit
+    ucvtf d0, x15
+    b .Lucvtf_fg_scale
+.Lucvtf_fg_32bit:
+    ucvtf d0, w15
+
+.Lucvtf_fg_scale:
+    mov x16, #1023
+    sub x16, x16, x13
+    lsl x16, x16, #52
+    fmov d1, x16
+    fmul d0, d0, d1
+
+    add x14, _cpu, #CPU_fp
+    lsl x15, x9, #4
+    add x14, x14, x15
+
+    cbz x11, .Lucvtf_fg_store_single
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.Lucvtf_fg_store_single:
+    fcvt s0, d0
+    str s0, [x14]
+    str wzr, [x14, #4]
+    str xzr, [x14, #8]
     gret
 
 /*
@@ -9677,6 +11500,39 @@ movi_really_zero:
 .Lfmov_f2f_store_single:
     str s0, [x14]
     str xzr, [x14, #4]
+    str xzr, [x14, #8]
+    gret
+
+/*
+ * FMOV (scalar, immediate) - Load FP constant into register
+ * Code stream: [gadget addr][rd | ftype<<8][fpbits_lo][fpbits_hi]
+ * ftype: 0=single, 1=double
+ */
+.gadget fmov_fp_imm
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd
+    ubfx x11, x8, #8, #2    // ftype
+
+    // Load the 64-bit immediate from code stream
+    ldr x16, [_pc]
+    add _pc, _pc, #8
+
+    // Store to destination FP register
+    add x14, _cpu, #CPU_fp
+    lsl x15, x9, #4
+    add x14, x14, x15
+
+    cbz x11, .Lfmov_imm_single
+    // Double: store full 64 bits
+    str x16, [x14]
+    str xzr, [x14, #8]
+    gret
+.Lfmov_imm_single:
+    // Single: store lower 32 bits, zero rest
+    str w16, [x14]
+    str wzr, [x14, #4]
     str xzr, [x14, #8]
     gret
 
@@ -10229,6 +12085,483 @@ movi_really_zero:
     str xzr, [x17, #4]
     str xzr, [x17, #8]
     gret
+/*
+ * FCCMP - Floating-point conditional compare
+ * Code stream: [gadget addr][rn | rm<<8 | ftype<<16 | cond<<20 | nzcv<<24]
+ * If cond is true: compare Vn vs Vm and set NZCV from result
+ * If cond is false: set NZCV to immediate nzcv value
+ */
+.gadget fccmp_scalar
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rn
+    ubfx x10, x8, #8, #5    // rm
+    ubfx x12, x8, #16, #4   // ftype
+    ubfx x17, x8, #20, #4   // cond
+    ubfx x20, x8, #24, #4   // nzcv (immediate)
+
+    // Read current NZCV flags from memory (not hardware, which may be
+    // clobbered by TLB lookups in intervening load/store gadgets)
+    ldr w21, [_cpu, #CPU_nzcv]
+
+    // Check if condition is true
+    // We need to test the condition. Use a conditional branch trick:
+    // Branch over the "set immediate" path if condition is met
+    // Encode condition check using csel
+    cmp x17, #0
+    b.eq .Lfccmp_check_eq
+    cmp x17, #1
+    b.eq .Lfccmp_check_ne
+    cmp x17, #2
+    b.eq .Lfccmp_check_cs
+    cmp x17, #3
+    b.eq .Lfccmp_check_cc
+    cmp x17, #4
+    b.eq .Lfccmp_check_mi
+    cmp x17, #5
+    b.eq .Lfccmp_check_pl
+    cmp x17, #8
+    b.eq .Lfccmp_check_hi
+    cmp x17, #9
+    b.eq .Lfccmp_check_ls
+    cmp x17, #10
+    b.eq .Lfccmp_check_ge
+    cmp x17, #11
+    b.eq .Lfccmp_check_lt
+    cmp x17, #12
+    b.eq .Lfccmp_check_gt
+    cmp x17, #13
+    b.eq .Lfccmp_check_le
+    cmp x17, #14
+    b.eq .Lfccmp_check_al
+    // VS(6), VC(7) and AL(14)/NV(15)
+    cmp x17, #6
+    b.eq .Lfccmp_check_vs
+    cmp x17, #7
+    b.eq .Lfccmp_check_vc
+    b .Lfccmp_check_al       // default: always
+
+    // Each check: restore NZCV, test condition, branch
+.Lfccmp_check_eq:
+    msr nzcv, x21
+    b.eq .Lfccmp_do_compare
+    b .Lfccmp_set_imm
+.Lfccmp_check_ne:
+    msr nzcv, x21
+    b.ne .Lfccmp_do_compare
+    b .Lfccmp_set_imm
+.Lfccmp_check_cs:
+    msr nzcv, x21
+    b.cs .Lfccmp_do_compare
+    b .Lfccmp_set_imm
+.Lfccmp_check_cc:
+    msr nzcv, x21
+    b.cc .Lfccmp_do_compare
+    b .Lfccmp_set_imm
+.Lfccmp_check_mi:
+    msr nzcv, x21
+    b.mi .Lfccmp_do_compare
+    b .Lfccmp_set_imm
+.Lfccmp_check_pl:
+    msr nzcv, x21
+    b.pl .Lfccmp_do_compare
+    b .Lfccmp_set_imm
+.Lfccmp_check_vs:
+    msr nzcv, x21
+    b.vs .Lfccmp_do_compare
+    b .Lfccmp_set_imm
+.Lfccmp_check_vc:
+    msr nzcv, x21
+    b.vc .Lfccmp_do_compare
+    b .Lfccmp_set_imm
+.Lfccmp_check_hi:
+    msr nzcv, x21
+    b.hi .Lfccmp_do_compare
+    b .Lfccmp_set_imm
+.Lfccmp_check_ls:
+    msr nzcv, x21
+    b.ls .Lfccmp_do_compare
+    b .Lfccmp_set_imm
+.Lfccmp_check_ge:
+    msr nzcv, x21
+    b.ge .Lfccmp_do_compare
+    b .Lfccmp_set_imm
+.Lfccmp_check_lt:
+    msr nzcv, x21
+    b.lt .Lfccmp_do_compare
+    b .Lfccmp_set_imm
+.Lfccmp_check_gt:
+    msr nzcv, x21
+    b.gt .Lfccmp_do_compare
+    b .Lfccmp_set_imm
+.Lfccmp_check_le:
+    msr nzcv, x21
+    b.le .Lfccmp_do_compare
+    b .Lfccmp_set_imm
+.Lfccmp_check_al:
+    b .Lfccmp_do_compare
+
+.Lfccmp_set_imm:
+    // Condition was false: set NZCV from immediate
+    lsl x20, x20, #28       // shift nzcv into position
+    msr nzcv, x20
+    gret
+
+.Lfccmp_do_compare:
+    // Condition was true: do the actual FP compare
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vn
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vm
+
+    cbz x12, .Lfccmp_single
+    ldr d0, [x14]
+    ldr d1, [x15]
+    fcmp d0, d1
+    gret
+.Lfccmp_single:
+    ldr s0, [x14]
+    ldr s1, [x15]
+    fcmp s0, s1
+    gret
+
+/*
+ * FCSEL - Floating-point conditional select
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | ftype<<24][cond]
+ * Rd = cond ? Rn : Rm
+ */
+.gadget fcsel_scalar
+    ldr x8, [_pc]
+    ldr x20, [_pc, #8]      // cond (save in x20, callee-saved won't be clobbered)
+    add _pc, _pc, #16
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x12, x8, #24, #4   // ftype
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x10, #4
+    add x14, x13, x14       // &Vn
+    lsl x15, x11, #4
+    add x15, x13, x15       // &Vm
+    lsl x16, x9, #4
+    add x16, x13, x16       // &Vd
+
+    // Load both operands
+    cbz x12, .Lfcsel_single
+    ldr d0, [x14]           // Vn (double)
+    ldr d1, [x15]           // Vm (double)
+    b .Lfcsel_select
+.Lfcsel_single:
+    ldr s0, [x14]           // Vn (single)
+    ldr s1, [x15]           // Vm (single)
+
+.Lfcsel_select:
+    // Load guest NZCV from memory (not hardware, which may be clobbered by
+    // TLB lookups in intervening load/store gadgets).
+    // The dispatch uses cmp which also clobbers hardware flags, so we restore
+    // guest NZCV from x17 at each condition label before testing.
+    ldr w17, [_cpu, #CPU_nzcv]
+
+    cmp x20, #0
+    b.eq .Lfcsel_eq
+    cmp x20, #1
+    b.eq .Lfcsel_ne
+    cmp x20, #10
+    b.eq .Lfcsel_ge
+    cmp x20, #11
+    b.eq .Lfcsel_lt
+    cmp x20, #12
+    b.eq .Lfcsel_gt
+    cmp x20, #13
+    b.eq .Lfcsel_le
+    cmp x20, #2
+    b.eq .Lfcsel_cs
+    cmp x20, #3
+    b.eq .Lfcsel_cc
+    cmp x20, #4
+    b.eq .Lfcsel_mi
+    cmp x20, #5
+    b.eq .Lfcsel_pl
+    cmp x20, #6
+    b.eq .Lfcsel_vs
+    cmp x20, #7
+    b.eq .Lfcsel_vc
+    cmp x20, #8
+    b.eq .Lfcsel_hi
+    cmp x20, #9
+    b.eq .Lfcsel_ls
+    b .Lfcsel_true           // AL/NV: always true
+
+    // Each label: restore guest NZCV, test condition, branch to true/false
+.Lfcsel_eq:
+    msr nzcv, x17
+    b.eq .Lfcsel_true
+    b .Lfcsel_false
+.Lfcsel_ne:
+    msr nzcv, x17
+    b.ne .Lfcsel_true
+    b .Lfcsel_false
+.Lfcsel_cs:
+    msr nzcv, x17
+    b.cs .Lfcsel_true
+    b .Lfcsel_false
+.Lfcsel_cc:
+    msr nzcv, x17
+    b.cc .Lfcsel_true
+    b .Lfcsel_false
+.Lfcsel_mi:
+    msr nzcv, x17
+    b.mi .Lfcsel_true
+    b .Lfcsel_false
+.Lfcsel_pl:
+    msr nzcv, x17
+    b.pl .Lfcsel_true
+    b .Lfcsel_false
+.Lfcsel_vs:
+    msr nzcv, x17
+    b.vs .Lfcsel_true
+    b .Lfcsel_false
+.Lfcsel_vc:
+    msr nzcv, x17
+    b.vc .Lfcsel_true
+    b .Lfcsel_false
+.Lfcsel_hi:
+    msr nzcv, x17
+    b.hi .Lfcsel_true
+    b .Lfcsel_false
+.Lfcsel_ls:
+    msr nzcv, x17
+    b.ls .Lfcsel_true
+    b .Lfcsel_false
+.Lfcsel_ge:
+    msr nzcv, x17
+    b.ge .Lfcsel_true
+    b .Lfcsel_false
+.Lfcsel_lt:
+    msr nzcv, x17
+    b.lt .Lfcsel_true
+    b .Lfcsel_false
+.Lfcsel_gt:
+    msr nzcv, x17
+    b.gt .Lfcsel_true
+    b .Lfcsel_false
+.Lfcsel_le:
+    msr nzcv, x17
+    b.le .Lfcsel_true
+    b .Lfcsel_false
+
+.Lfcsel_true:
+    // Condition met: Rd = Rn (d0/s0)
+    cbz x12, .Lfcsel_store_s_true
+    str d0, [x16]
+    str xzr, [x16, #8]
+    gret
+.Lfcsel_store_s_true:
+    str s0, [x16]
+    str xzr, [x16, #4]
+    str xzr, [x16, #8]
+    gret
+
+.Lfcsel_false:
+    // Condition not met: Rd = Rm (d1/s1)
+    cbz x12, .Lfcsel_store_s_false
+    str d1, [x16]
+    str xzr, [x16, #8]
+    gret
+.Lfcsel_store_s_false:
+    str s1, [x16]
+    str xzr, [x16, #4]
+    str xzr, [x16, #8]
+    gret
+
+/*
+ * FP data-processing (1 source) - generic dispatcher
+ * Code stream: [gadget addr][rd | rn<<8 | ftype<<16 | opcode<<20]
+ * ftype: 0=single, 1=double
+ * opcode: 0=FMOV, 1=FABS, 2=FNEG, 3=FSQRT, 4=FCVT(->S), 5=FCVT(->D),
+ *         8=FRINTN, 9=FRINTP, 10=FRINTM, 11=FRINTZ, 12=FRINTA, 14=FRINTX, 15=FRINTI
+ */
+.gadget fp_dp1
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x12, x8, #16, #4   // ftype
+    ubfx x17, x8, #20, #6   // opcode
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x10, #4
+    add x14, x13, x14       // &Vn
+    lsl x15, x9, #4
+    add x15, x13, x15       // &Vd
+
+    // Load source (always load as Q to cover both S and D)
+    ldr q0, [x14]
+
+    // Dispatch on opcode
+    cmp x17, #1
+    b.eq .Lfp_dp1_fabs
+    cmp x17, #2
+    b.eq .Lfp_dp1_fneg
+    cmp x17, #3
+    b.eq .Lfp_dp1_fsqrt
+    cmp x17, #5
+    b.eq .Lfp_dp1_fcvt_to_d
+    cmp x17, #4
+    b.eq .Lfp_dp1_fcvt_to_s
+    cmp x17, #8
+    b.eq .Lfp_dp1_frintn
+    cmp x17, #9
+    b.eq .Lfp_dp1_frintp
+    cmp x17, #10
+    b.eq .Lfp_dp1_frintm
+    cmp x17, #11
+    b.eq .Lfp_dp1_frintz
+    cmp x17, #12
+    b.eq .Lfp_dp1_frinta
+    cmp x17, #14
+    b.eq .Lfp_dp1_frintx
+    cmp x17, #15
+    b.eq .Lfp_dp1_frinti
+    // opcode 0 = FMOV (same type copy) - just store source to dest
+    b .Lfp_dp1_store
+
+.Lfp_dp1_fabs:
+    cbz x12, 1f
+    fabs d0, d0
+    b .Lfp_dp1_store
+1:  fabs s0, s0
+    b .Lfp_dp1_store
+
+.Lfp_dp1_fneg:
+    cbz x12, 1f
+    fneg d0, d0
+    b .Lfp_dp1_store
+1:  fneg s0, s0
+    b .Lfp_dp1_store
+
+.Lfp_dp1_fsqrt:
+    cbz x12, 1f
+    fsqrt d0, d0
+    b .Lfp_dp1_store
+1:  fsqrt s0, s0
+    b .Lfp_dp1_store
+
+.Lfp_dp1_fcvt_to_d:
+    // FCVT Dd, Sn (single to double)
+    fcvt d0, s0
+    mov w12, #1              // result is double
+    b .Lfp_dp1_store
+
+.Lfp_dp1_fcvt_to_s:
+    // FCVT Sd, Dn (double to single)
+    fcvt s0, d0
+    mov w12, #0              // result is single
+    b .Lfp_dp1_store
+
+.Lfp_dp1_frintn:
+    cbz x12, 1f
+    frintn d0, d0
+    b .Lfp_dp1_store
+1:  frintn s0, s0
+    b .Lfp_dp1_store
+
+.Lfp_dp1_frintp:
+    cbz x12, 1f
+    frintp d0, d0
+    b .Lfp_dp1_store
+1:  frintp s0, s0
+    b .Lfp_dp1_store
+
+.Lfp_dp1_frintm:
+    cbz x12, 1f
+    frintm d0, d0
+    b .Lfp_dp1_store
+1:  frintm s0, s0
+    b .Lfp_dp1_store
+
+.Lfp_dp1_frintz:
+    cbz x12, 1f
+    frintz d0, d0
+    b .Lfp_dp1_store
+1:  frintz s0, s0
+    b .Lfp_dp1_store
+
+.Lfp_dp1_frinta:
+    cbz x12, 1f
+    frinta d0, d0
+    b .Lfp_dp1_store
+1:  frinta s0, s0
+    b .Lfp_dp1_store
+
+.Lfp_dp1_frintx:
+    cbz x12, 1f
+    frintx d0, d0
+    b .Lfp_dp1_store
+1:  frintx s0, s0
+    b .Lfp_dp1_store
+
+.Lfp_dp1_frinti:
+    cbz x12, 1f
+    frinti d0, d0
+    b .Lfp_dp1_store
+1:  frinti s0, s0
+    b .Lfp_dp1_store
+
+.Lfp_dp1_store:
+    cbz x12, .Lfp_dp1_store_s
+    str d0, [x15]
+    str xzr, [x15, #8]
+    gret
+.Lfp_dp1_store_s:
+    str s0, [x15]
+    str xzr, [x15, #4]
+    str xzr, [x15, #8]
+    gret
+
+// Macro for FP two-source scalar operations
+// All have same structure: load Vn and Vm, do op, store to Vd
+.macro make_fp2_scalar name, op_d, op_s
+.gadget \name\()_scalar
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x12, x8, #24, #2   // type (0=single, 1=double)
+    add x13, _cpu, #CPU_fp
+    lsl x14, x10, #4
+    add x14, x13, x14       // &Vn
+    lsl x15, x11, #4
+    add x15, x13, x15       // &Vm
+    lsl x16, x9, #4
+    add x16, x13, x16       // &Vd
+    cbz x12, .L\name\()_single
+    ldr d0, [x14]
+    ldr d1, [x15]
+    \op_d d0, d0, d1
+    str d0, [x16]
+    str xzr, [x16, #8]
+    gret
+.L\name\()_single:
+    ldr s0, [x14]
+    ldr s1, [x15]
+    \op_s s0, s0, s1
+    str s0, [x16]
+    str xzr, [x16, #4]
+    str xzr, [x16, #8]
+    gret
+.endm
+
+make_fp2_scalar fmax, fmax, fmax
+make_fp2_scalar fmin, fmin, fmin
+make_fp2_scalar fmaxnm, fmaxnm, fmaxnm
+make_fp2_scalar fminnm, fminnm, fminnm
+make_fp2_scalar fnmul, fnmul, fnmul
+make_fp2_scalar fabd, fabd, fabd
+
 // UMULH: Xd = (Xn * Xm) >> 64 (unsigned high multiply)
 .gadget umulh
     ldr x8, [_pc]
@@ -10444,6 +12777,162 @@ movi_really_zero:
     b .Luaddw_store
 
 .Luaddw_store:
+    str q0, [x14]
+    gret
+
+/*
+ * SSUBW - Signed subtract wide (vector)
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
+ *
+ * SSUBW{2} Vd.<Ta>, Vn.<Ta>, Vm.<Tb>
+ * Subtracts sign-extended narrow vector Vm from wide vector Vn
+ * Vd[i] = Vn[i] - sext(Vm[i])
+ *
+ * size: 0=B->H, 1=H->S, 2=S->D (narrow source size)
+ * Q: 0=lower half (SSUBW), 1=upper half (SSUBW2)
+ */
+.gadget ssubw_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x12, x8, #24, #2   // size
+    ubfx x17, x8, #26, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn (wide)
+    lsl x16, x11, #4
+    add x16, x13, x16       // &Vm (narrow)
+
+    // Load wide vector Vn into v0
+    ldr q0, [x15]
+    // Load narrow vector Vm into v1
+    ldr q1, [x16]
+
+    cmp x12, #0
+    b.eq .Lssubw_size_b
+    cmp x12, #1
+    b.eq .Lssubw_size_h
+    // size == 2 (S->D)
+    b .Lssubw_size_s
+
+.Lssubw_size_b:
+    // B->H: Vn.8H - sext(Vm.8B) (or .16B upper half)
+    cbz x17, .Lssubw_b_lo
+    // SSUBW2: upper half
+    ssubw2 v0.8h, v0.8h, v1.16b
+    b .Lssubw_store
+.Lssubw_b_lo:
+    // SSUBW: lower half
+    ssubw v0.8h, v0.8h, v1.8b
+    b .Lssubw_store
+
+.Lssubw_size_h:
+    // H->S: Vn.4S - sext(Vm.4H) (or .8H upper half)
+    cbz x17, .Lssubw_h_lo
+    // SSUBW2: upper half
+    ssubw2 v0.4s, v0.4s, v1.8h
+    b .Lssubw_store
+.Lssubw_h_lo:
+    // SSUBW: lower half
+    ssubw v0.4s, v0.4s, v1.4h
+    b .Lssubw_store
+
+.Lssubw_size_s:
+    // S->D: Vn.2D - sext(Vm.2S) (or .4S upper half)
+    cbz x17, .Lssubw_s_lo
+    // SSUBW2: upper half
+    ssubw2 v0.2d, v0.2d, v1.4s
+    b .Lssubw_store
+.Lssubw_s_lo:
+    // SSUBW: lower half
+    ssubw v0.2d, v0.2d, v1.2s
+    b .Lssubw_store
+
+.Lssubw_store:
+    str q0, [x14]
+    gret
+
+/*
+ * USUBW - Unsigned subtract wide (vector)
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
+ *
+ * USUBW{2} Vd.<Ta>, Vn.<Ta>, Vm.<Tb>
+ * Subtracts zero-extended narrow vector Vm from wide vector Vn
+ * Vd[i] = Vn[i] - zext(Vm[i])
+ *
+ * size: 0=B->H, 1=H->S, 2=S->D (narrow source size)
+ * Q: 0=lower half (USUBW), 1=upper half (USUBW2)
+ */
+.gadget usubw_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x12, x8, #24, #2   // size
+    ubfx x17, x8, #26, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn (wide)
+    lsl x16, x11, #4
+    add x16, x13, x16       // &Vm (narrow)
+
+    // Load wide vector Vn into v0
+    ldr q0, [x15]
+    // Load narrow vector Vm into v1
+    ldr q1, [x16]
+
+    cmp x12, #0
+    b.eq .Lusubw_size_b
+    cmp x12, #1
+    b.eq .Lusubw_size_h
+    // size == 2 (S->D)
+    b .Lusubw_size_s
+
+.Lusubw_size_b:
+    // B->H: Vn.8H - zext(Vm.8B) (or .16B upper half)
+    cbz x17, .Lusubw_b_lo
+    // USUBW2: upper half
+    usubw2 v0.8h, v0.8h, v1.16b
+    b .Lusubw_store
+.Lusubw_b_lo:
+    // USUBW: lower half
+    usubw v0.8h, v0.8h, v1.8b
+    b .Lusubw_store
+
+.Lusubw_size_h:
+    // H->S: Vn.4S - zext(Vm.4H) (or .8H upper half)
+    cbz x17, .Lusubw_h_lo
+    // USUBW2: upper half
+    usubw2 v0.4s, v0.4s, v1.8h
+    b .Lusubw_store
+.Lusubw_h_lo:
+    // USUBW: lower half
+    usubw v0.4s, v0.4s, v1.4h
+    b .Lusubw_store
+
+.Lusubw_size_s:
+    // S->D: Vn.2D - zext(Vm.2S) (or .4S upper half)
+    cbz x17, .Lusubw_s_lo
+    // USUBW2: upper half
+    usubw2 v0.2d, v0.2d, v1.4s
+    b .Lusubw_store
+.Lusubw_s_lo:
+    // USUBW: lower half
+    usubw v0.2d, v0.2d, v1.2s
+    b .Lusubw_store
+
+.Lusubw_store:
     str q0, [x14]
     gret
 
@@ -10731,3 +13220,763 @@ movi_really_zero:
     sub x17, x15, x16
     str x17, [x14, x9, lsl #3]  // Rd
     gret
+
+/*
+ * Three-same NEON ops using native instructions (MUL, PMUL, MLA, MLS,
+ * SMAX, UMAX, SMIN, UMIN).
+ *
+ * Macro: make_threesame_native  name, op, has_d
+ *   name: gadget name (e.g. mul)
+ *   op:   native instruction mnemonic
+ *   has_d: 1 if D-size supported, 0 if not (B/H/S only)
+ *
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
+ */
+.macro make_threesame_native name, op, has_d=0
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x12, x8, #24, #2   // size
+    ubfx x17, x8, #26, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    lsl x16, x11, #4
+    add x16, x13, x16       // &Vm
+
+    ldr q0, [x15]
+    ldr q1, [x16]
+
+    cmp x12, #0
+    b.eq .L\name\()_b
+    cmp x12, #1
+    b.eq .L\name\()_h
+    cmp x12, #2
+    b.eq .L\name\()_s
+.if \has_d
+    b .L\name\()_d
+.else
+    b .L\name\()_inv
+.endif
+
+.L\name\()_b:
+    cbz x17, .L\name\()_b_q0
+    \op v0.16b, v0.16b, v1.16b
+    b .L\name\()_store_q
+.L\name\()_b_q0:
+    \op v0.8b, v0.8b, v1.8b
+    b .L\name\()_store_low
+
+.L\name\()_h:
+    cbz x17, .L\name\()_h_q0
+    \op v0.8h, v0.8h, v1.8h
+    b .L\name\()_store_q
+.L\name\()_h_q0:
+    \op v0.4h, v0.4h, v1.4h
+    b .L\name\()_store_low
+
+.L\name\()_s:
+    cbz x17, .L\name\()_s_q0
+    \op v0.4s, v0.4s, v1.4s
+    b .L\name\()_store_q
+.L\name\()_s_q0:
+    \op v0.2s, v0.2s, v1.2s
+    b .L\name\()_store_low
+
+.if \has_d
+.L\name\()_d:
+    cbz x17, .L\name\()_inv
+    \op v0.2d, v0.2d, v1.2d
+    b .L\name\()_store_q
+.endif
+
+.L\name\()_inv:
+    str xzr, [x14]
+    str xzr, [x14, #8]
+    gret
+
+.L\name\()_store_q:
+    str q0, [x14]
+    gret
+
+.L\name\()_store_low:
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+/*
+ * Three-same accumulate ops (MLA, MLS). Rd = Rd op Vn * Vm.
+ * Need to load Vd into v2 first.
+ *
+ * Macro: make_threesame_accum  name, op
+ */
+.macro make_threesame_accum name, op
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x12, x8, #24, #2   // size
+    ubfx x17, x8, #26, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    lsl x16, x11, #4
+    add x16, x13, x16       // &Vm
+
+    ldr q0, [x15]            // Vn
+    ldr q1, [x16]            // Vm
+    ldr q2, [x14]            // Vd (accumulator)
+
+    cmp x12, #0
+    b.eq .L\name\()_b
+    cmp x12, #1
+    b.eq .L\name\()_h
+    // size=2: S
+    cbz x17, .L\name\()_s_q0
+    \op v2.4s, v0.4s, v1.4s
+    str q2, [x14]
+    gret
+.L\name\()_s_q0:
+    \op v2.2s, v0.2s, v1.2s
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+
+.L\name\()_b:
+    cbz x17, .L\name\()_b_q0
+    \op v2.16b, v0.16b, v1.16b
+    str q2, [x14]
+    gret
+.L\name\()_b_q0:
+    \op v2.8b, v0.8b, v1.8b
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+
+.L\name\()_h:
+    cbz x17, .L\name\()_h_q0
+    \op v2.8h, v0.8h, v1.8h
+    str q2, [x14]
+    gret
+.L\name\()_h_q0:
+    \op v2.4h, v0.4h, v1.4h
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+// Integer multiply (B/H/S only, no D)
+make_threesame_native mul, mul, 0
+
+// Polynomial multiply (B only — special gadget, gen.c validates size=0)
+.gadget pmul_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x17, x8, #26, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    lsl x16, x11, #4
+    add x16, x13, x16       // &Vm
+
+    ldr q0, [x15]
+    ldr q1, [x16]
+
+    cbz x17, .Lpmul_q0
+    pmul v0.16b, v0.16b, v1.16b
+    str q0, [x14]
+    gret
+.Lpmul_q0:
+    pmul v0.8b, v0.8b, v1.8b
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+// Signed/unsigned max/min (B/H/S only, no D)
+make_threesame_native smax, smax, 0
+make_threesame_native umax, umax, 0
+make_threesame_native smin, smin, 0
+make_threesame_native umin, umin, 0
+
+// Signed/unsigned absolute difference (B/H/S only, no D)
+make_threesame_native sabd, sabd, 0
+make_threesame_native uabd, uabd, 0
+
+// Compare bitwise test (B/H/S/D)
+make_threesame_native cmtst, cmtst, 1
+
+// Multiply-accumulate and multiply-subtract (B/H/S only)
+make_threesame_accum mla, mla
+make_threesame_accum mls, mls
+
+/*
+ * Two-reg misc native ops (ABS, NEG, CLS, CLZ, etc.)
+ *
+ * Macro: make_twomis_native  name, op, has_d
+ *   name: gadget name
+ *   op:   native instruction mnemonic
+ *   has_d: 1 if D-size supported, 0 if not
+ *
+ * Code stream: [gadget addr][rd | rn<<8 | size<<16 | Q<<24]
+ */
+.macro make_twomis_native name, op, has_d=1
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x12, x8, #16, #2   // size
+    ubfx x17, x8, #24, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+
+    ldr q0, [x15]
+
+    cmp x12, #0
+    b.eq .L\name\()_b
+    cmp x12, #1
+    b.eq .L\name\()_h
+    cmp x12, #2
+    b.eq .L\name\()_s
+.if \has_d
+    b .L\name\()_d
+.else
+    b .L\name\()_inv
+.endif
+
+.L\name\()_b:
+    cbz x17, .L\name\()_b_q0
+    \op v0.16b, v0.16b
+    b .L\name\()_store_q
+.L\name\()_b_q0:
+    \op v0.8b, v0.8b
+    b .L\name\()_store_low
+
+.L\name\()_h:
+    cbz x17, .L\name\()_h_q0
+    \op v0.8h, v0.8h
+    b .L\name\()_store_q
+.L\name\()_h_q0:
+    \op v0.4h, v0.4h
+    b .L\name\()_store_low
+
+.L\name\()_s:
+    cbz x17, .L\name\()_s_q0
+    \op v0.4s, v0.4s
+    b .L\name\()_store_q
+.L\name\()_s_q0:
+    \op v0.2s, v0.2s
+    b .L\name\()_store_low
+
+.if \has_d
+.L\name\()_d:
+    cbz x17, .L\name\()_inv
+    \op v0.2d, v0.2d
+    b .L\name\()_store_q
+.endif
+
+.L\name\()_inv:
+    str xzr, [x14]
+    str xzr, [x14, #8]
+    gret
+
+.L\name\()_store_q:
+    str q0, [x14]
+    gret
+
+.L\name\()_store_low:
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+make_twomis_native abs, abs, 1
+make_twomis_native neg, neg, 1
+
+/*
+ * Three-different widening "long" ops (UADDL, SADDL, USUBL, SSUBL, UMULL, SMULL, UABDL, SABDL).
+ * Both Vn and Vm are narrow; Vd is wide.
+ * Q=0: lower half, Q=1: upper half (op2 variant).
+ *
+ * Macro: make_widening_long  name, op
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
+ */
+.macro make_widening_long name, op
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x12, x8, #24, #2   // size
+    ubfx x17, x8, #26, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    lsl x16, x11, #4
+    add x16, x13, x16       // &Vm
+
+    ldr q0, [x15]
+    ldr q1, [x16]
+
+    cmp x12, #0
+    b.eq .L\name\()_b
+    cmp x12, #1
+    b.eq .L\name\()_h
+    // size == 2 (S->D)
+    cbz x17, .L\name\()_s_lo
+    \op\()2 v0.2d, v0.4s, v1.4s
+    b .L\name\()_store
+.L\name\()_s_lo:
+    \op v0.2d, v0.2s, v1.2s
+    b .L\name\()_store
+
+.L\name\()_b:
+    cbz x17, .L\name\()_b_lo
+    \op\()2 v0.8h, v0.16b, v1.16b
+    b .L\name\()_store
+.L\name\()_b_lo:
+    \op v0.8h, v0.8b, v1.8b
+    b .L\name\()_store
+
+.L\name\()_h:
+    cbz x17, .L\name\()_h_lo
+    \op\()2 v0.4s, v0.8h, v1.8h
+    b .L\name\()_store
+.L\name\()_h_lo:
+    \op v0.4s, v0.4h, v1.4h
+    // fall through
+
+.L\name\()_store:
+    str q0, [x14]
+    gret
+.endm
+
+/*
+ * Saturating shift-right-and-narrow instructions (UQRSHRN, SQRSHRN, etc.)
+ * Similar to SHRN but uses saturating narrowing (uqxtn/sqxtn/sqxtun).
+ *
+ * Macro: make_sat_shrn  name, shift_op_prefix, narrow_8b, narrow_16b, narrow_4h, narrow_8h, narrow_2s, narrow_4s
+ *   name: gadget name
+ *   shift_op_prefix: urshl or srshl (for rounding) or ushl/sshl (non-rounding)
+ *   narrow_*: native saturating narrow instruction for each size
+ *
+ * Code stream: [gadget addr][rd | rn<<8 | shift<<16 | esize<<24 | Q<<28]
+ */
+.macro make_sat_shrn name, sop, n8b, n16b, n4h, n8h, n2s, n4s
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #8   // shift amount
+    ubfx x12, x8, #24, #4   // esize (0=B, 1=H, 2=S - narrow target)
+    ubfx x17, x8, #28, #1   // Q
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    ldr q0, [x15]           // load source (wide elements)
+    ldr q2, [x14]           // load dest (for Q=1 preserve lower)
+    neg x11, x11             // negative shift for right shift
+    cmp x12, #2
+    b.eq .L\name\()_2d
+    cmp x12, #1
+    b.eq .L\name\()_4s
+    // esize=0: 8H→8B
+    dup v1.8h, w11
+    \sop v0.8h, v0.8h, v1.8h
+    cbz x17, .L\name\()_8h_lo
+    \n16b
+    str q2, [x14]
+    gret
+.L\name\()_8h_lo:
+    \n8b
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_4s:
+    dup v1.4s, w11
+    \sop v0.4s, v0.4s, v1.4s
+    cbz x17, .L\name\()_4s_lo
+    \n8h
+    str q2, [x14]
+    gret
+.L\name\()_4s_lo:
+    \n4h
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_2d:
+    dup v1.2d, x11
+    \sop v0.2d, v0.2d, v1.2d
+    cbz x17, .L\name\()_2d_lo
+    \n4s
+    str q2, [x14]
+    gret
+.L\name\()_2d_lo:
+    \n2s
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+// UQRSHRN: unsigned rounding shift right + unsigned saturating narrow
+make_sat_shrn uqrshrn, urshl, "uqxtn v2.8b, v0.8h", "uqxtn2 v2.16b, v0.8h", "uqxtn v2.4h, v0.4s", "uqxtn2 v2.8h, v0.4s", "uqxtn v2.2s, v0.2d", "uqxtn2 v2.4s, v0.2d"
+// SQRSHRN: signed rounding shift right + signed saturating narrow
+make_sat_shrn sqrshrn, srshl, "sqxtn v2.8b, v0.8h", "sqxtn2 v2.16b, v0.8h", "sqxtn v2.4h, v0.4s", "sqxtn2 v2.8h, v0.4s", "sqxtn v2.2s, v0.2d", "sqxtn2 v2.4s, v0.2d"
+// UQSHRN: unsigned shift right (truncate) + unsigned saturating narrow
+make_sat_shrn uqshrn, ushl, "uqxtn v2.8b, v0.8h", "uqxtn2 v2.16b, v0.8h", "uqxtn v2.4h, v0.4s", "uqxtn2 v2.8h, v0.4s", "uqxtn v2.2s, v0.2d", "uqxtn2 v2.4s, v0.2d"
+// SQSHRN: signed shift right (truncate) + signed saturating narrow
+make_sat_shrn sqshrn, sshl, "sqxtn v2.8b, v0.8h", "sqxtn2 v2.16b, v0.8h", "sqxtn v2.4h, v0.4s", "sqxtn2 v2.8h, v0.4s", "sqxtn v2.2s, v0.2d", "sqxtn2 v2.4s, v0.2d"
+// SQSHRUN: signed rounding shift right + unsigned saturating narrow from signed
+make_sat_shrn sqshrun, ushl, "sqxtun v2.8b, v0.8h", "sqxtun2 v2.16b, v0.8h", "sqxtun v2.4h, v0.4s", "sqxtun2 v2.8h, v0.4s", "sqxtun v2.2s, v0.2d", "sqxtun2 v2.4s, v0.2d"
+// SQRSHRUN: signed rounding shift right + unsigned saturating narrow from signed
+make_sat_shrn sqrshrun, srshl, "sqxtun v2.8b, v0.8h", "sqxtun2 v2.16b, v0.8h", "sqxtun v2.4h, v0.4s", "sqxtun2 v2.8h, v0.4s", "sqxtun v2.2s, v0.2d", "sqxtun2 v2.4s, v0.2d"
+
+/*
+ * Indexed-element helpers: extract element[index] from Vm and DUP to v1.
+ *
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | index<<21 | size<<24 | Q<<26]
+ *
+ * Helper macro: elem_setup  name
+ *   Parses code stream, loads Vn→v0, extracts Vm[index]→v1 (dup'd).
+ *   Sets x14→&Vd, x17=Q, x12=size.
+ */
+.macro elem_setup name
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f           // rd
+    ubfx x10, x8, #8, #5        // rn
+    ubfx x11, x8, #16, #5       // rm
+    ubfx x20, x8, #21, #3       // index
+    ubfx x12, x8, #24, #2       // size
+    ubfx x17, x8, #26, #1       // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14           // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15           // &Vn
+    lsl x16, x11, #4
+    add x16, x13, x16           // &Vm
+
+    ldr q0, [x15]               // Vn
+    ldr q1, [x16]               // Vm (will be replaced by dup of element)
+
+    // DUP element from v1 based on size and index
+    cmp x12, #1
+    b.eq .L\name\()_dup_h
+    cmp x12, #2
+    b.eq .L\name\()_dup_s
+    // size=3: D
+    cbnz x20, .L\name\()_dup_d1
+    dup v1.2d, v1.d[0]
+    b .L\name\()_op
+.L\name\()_dup_d1:
+    dup v1.2d, v1.d[1]
+    b .L\name\()_op
+.L\name\()_dup_h:
+    cmp x20, #0
+    b.eq .L\name\()_dup_h0
+    cmp x20, #1
+    b.eq .L\name\()_dup_h1
+    cmp x20, #2
+    b.eq .L\name\()_dup_h2
+    cmp x20, #3
+    b.eq .L\name\()_dup_h3
+    cmp x20, #4
+    b.eq .L\name\()_dup_h4
+    cmp x20, #5
+    b.eq .L\name\()_dup_h5
+    cmp x20, #6
+    b.eq .L\name\()_dup_h6
+    dup v1.8h, v1.h[7]
+    b .L\name\()_op
+.L\name\()_dup_h0:
+    dup v1.8h, v1.h[0]
+    b .L\name\()_op
+.L\name\()_dup_h1:
+    dup v1.8h, v1.h[1]
+    b .L\name\()_op
+.L\name\()_dup_h2:
+    dup v1.8h, v1.h[2]
+    b .L\name\()_op
+.L\name\()_dup_h3:
+    dup v1.8h, v1.h[3]
+    b .L\name\()_op
+.L\name\()_dup_h4:
+    dup v1.8h, v1.h[4]
+    b .L\name\()_op
+.L\name\()_dup_h5:
+    dup v1.8h, v1.h[5]
+    b .L\name\()_op
+.L\name\()_dup_h6:
+    dup v1.8h, v1.h[6]
+    b .L\name\()_op
+.L\name\()_dup_s:
+    cmp x20, #0
+    b.eq .L\name\()_dup_s0
+    cmp x20, #1
+    b.eq .L\name\()_dup_s1
+    cmp x20, #2
+    b.eq .L\name\()_dup_s2
+    dup v1.4s, v1.s[3]
+    b .L\name\()_op
+.L\name\()_dup_s0:
+    dup v1.4s, v1.s[0]
+    b .L\name\()_op
+.L\name\()_dup_s1:
+    dup v1.4s, v1.s[1]
+    b .L\name\()_op
+.L\name\()_dup_s2:
+    dup v1.4s, v1.s[2]
+    b .L\name\()_op
+.endm
+
+/*
+ * Macro: elem_op_store  name, op  — perform the operation and store
+ * v0=Vn, v1=Vm[idx] dup'd, x14=&Vd, x12=size, x17=Q
+ */
+.macro elem_op_store name, op
+.L\name\()_op:
+    cmp x12, #1
+    b.eq .L\name\()_op_h
+    // size=2: S
+    cbz x17, .L\name\()_op_s_q0
+    \op v0.4s, v0.4s, v1.4s
+    str q0, [x14]
+    gret
+.L\name\()_op_s_q0:
+    \op v0.2s, v0.2s, v1.2s
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_op_h:
+    cbz x17, .L\name\()_op_h_q0
+    \op v0.8h, v0.8h, v1.8h
+    str q0, [x14]
+    gret
+.L\name\()_op_h_q0:
+    \op v0.4h, v0.4h, v1.4h
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+// MUL by element
+elem_setup mul_elem
+elem_op_store mul_elem, mul
+
+/*
+ * MLA/MLS by element — accumulate variants need Vd loaded into v2.
+ */
+.macro elem_accum_op_store name, op
+.L\name\()_op:
+    ldr q2, [x14]               // Vd (accumulator)
+    cmp x12, #1
+    b.eq .L\name\()_op_h
+    cbz x17, .L\name\()_op_s_q0
+    \op v2.4s, v0.4s, v1.4s
+    str q2, [x14]
+    gret
+.L\name\()_op_s_q0:
+    \op v2.2s, v0.2s, v1.2s
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_op_h:
+    cbz x17, .L\name\()_op_h_q0
+    \op v2.8h, v0.8h, v1.8h
+    str q2, [x14]
+    gret
+.L\name\()_op_h_q0:
+    \op v2.4h, v0.4h, v1.4h
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+elem_setup mla_elem
+elem_accum_op_store mla_elem, mla
+
+elem_setup mls_elem
+elem_accum_op_store mls_elem, mls
+
+/*
+ * FP multiply by element (FMUL/FMLA/FMLS by element)
+ * Uses elem_setup for parameter parsing and element DUP.
+ * size=2: float (S), size=3: double (D)
+ */
+.macro elem_fp_op_store name, op
+.L\name\()_op:
+    cmp x12, #3
+    b.eq .L\name\()_op_d
+    // size=2: S (float)
+    cbz x17, .L\name\()_op_s_q0
+    \op v0.4s, v0.4s, v1.4s
+    str q0, [x14]
+    gret
+.L\name\()_op_s_q0:
+    \op v0.2s, v0.2s, v1.2s
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_op_d:
+    // size=3: D (double), Q must be 1 for 2D
+    \op v0.2d, v0.2d, v1.2d
+    str q0, [x14]
+    gret
+.endm
+
+.macro elem_fp_accum_op_store name, op
+.L\name\()_op:
+    ldr q2, [x14]               // Vd (accumulator)
+    cmp x12, #3
+    b.eq .L\name\()_op_d
+    // size=2: S (float)
+    cbz x17, .L\name\()_op_s_q0
+    \op v2.4s, v0.4s, v1.4s
+    str q2, [x14]
+    gret
+.L\name\()_op_s_q0:
+    \op v2.2s, v0.2s, v1.2s
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_op_d:
+    // size=3: D (double), Q must be 1 for 2D
+    \op v2.2d, v0.2d, v1.2d
+    str q2, [x14]
+    gret
+.endm
+
+// FMUL by element
+elem_setup fmul_elem
+elem_fp_op_store fmul_elem, fmul
+
+// FMLA by element
+elem_setup fmla_elem
+elem_fp_accum_op_store fmla_elem, fmla
+
+// FMLS by element
+elem_setup fmls_elem
+elem_fp_accum_op_store fmls_elem, fmls
+
+/*
+ * Widening multiply by element (SMULL/UMULL/SMLAL/UMLAL/SMLSL/UMLSL by element)
+ * v0=Vn (narrow), v1=Vm[idx] dup'd, x14=&Vd (wide result), x12=size, x17=Q
+ */
+.macro elem_widen_op_store name, op
+.L\name\()_op:
+    cmp x12, #1
+    b.eq .L\name\()_op_h
+    cmp x12, #2
+    b.eq .L\name\()_op_s
+    // size=3 not valid for widening
+    str xzr, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_op_h:
+    cbz x17, .L\name\()_op_h_lo
+    \op\()2 v0.4s, v0.8h, v1.8h
+    b .L\name\()_op_store
+.L\name\()_op_h_lo:
+    \op v0.4s, v0.4h, v1.4h
+    b .L\name\()_op_store
+.L\name\()_op_s:
+    cbz x17, .L\name\()_op_s_lo
+    \op\()2 v0.2d, v0.4s, v1.4s
+    b .L\name\()_op_store
+.L\name\()_op_s_lo:
+    \op v0.2d, v0.2s, v1.2s
+.L\name\()_op_store:
+    str q0, [x14]
+    gret
+.endm
+
+elem_setup smull_elem
+elem_widen_op_store smull_elem, smull
+
+elem_setup umull_elem
+elem_widen_op_store umull_elem, umull
+
+/*
+ * Widening multiply-accumulate by element (SMLAL/UMLAL/SMLSL/UMLSL by element)
+ * Need to load Vd (wide accumulator) into v2 first.
+ */
+.macro elem_widen_accum_op_store name, op
+.L\name\()_op:
+    ldr q2, [x14]               // Vd (wide accumulator)
+    cmp x12, #1
+    b.eq .L\name\()_op_h
+    cmp x12, #2
+    b.eq .L\name\()_op_s
+    str xzr, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_op_h:
+    cbz x17, .L\name\()_op_h_lo
+    \op\()2 v2.4s, v0.8h, v1.8h
+    b .L\name\()_op_store
+.L\name\()_op_h_lo:
+    \op v2.4s, v0.4h, v1.4h
+    b .L\name\()_op_store
+.L\name\()_op_s:
+    cbz x17, .L\name\()_op_s_lo
+    \op\()2 v2.2d, v0.4s, v1.4s
+    b .L\name\()_op_store
+.L\name\()_op_s_lo:
+    \op v2.2d, v0.2s, v1.2s
+.L\name\()_op_store:
+    str q2, [x14]
+    gret
+.endm
+
+elem_setup smlal_elem
+elem_widen_accum_op_store smlal_elem, smlal
+
+elem_setup umlal_elem
+elem_widen_accum_op_store umlal_elem, umlal
+
+elem_setup smlsl_elem
+elem_widen_accum_op_store smlsl_elem, smlsl
+
+elem_setup umlsl_elem
+elem_widen_accum_op_store umlsl_elem, umlsl
+
+make_widening_long saddl, saddl
+make_widening_long uaddl, uaddl
+make_widening_long ssubl, ssubl
+make_widening_long usubl, usubl
+make_widening_long smull, smull
+make_widening_long umull, umull
+make_widening_long sabdl, sabdl
+make_widening_long uabdl, uabdl

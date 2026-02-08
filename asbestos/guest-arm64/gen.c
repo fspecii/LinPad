@@ -205,6 +205,8 @@ extern void gadget_mov_v_to_gpr(void);     // MOV Xd, Vn.D[0]
 extern void gadget_umov_vec_to_gpr(void);  // UMOV/MOV Wd, Vn.<T>[idx]
 extern void gadget_ins_gpr_to_vec_s(void); // MOV Vd.S[idx], Wn (INS from GPR)
 extern void gadget_ins_gpr_to_vec_d(void); // MOV Vd.D[idx], Xn (INS from GPR)
+extern void gadget_ins_gpr_to_vec_b(void); // MOV Vd.B[idx], Wn (INS from GPR, byte)
+extern void gadget_ins_gpr_to_vec_h(void); // MOV Vd.H[idx], Wn (INS from GPR, halfword)
 extern void gadget_str_q(void);            // STR Qn, [addr]
 extern void gadget_stur_q(void);           // STUR Qn, [addr, #imm]
 extern void gadget_stp_q(void);            // STP Qn, Qm, [addr]
@@ -216,6 +218,22 @@ extern void gadget_ushl_vec(void);         // USHL Vd, Vn, Vm (vector shift left
 extern void gadget_sshl_vec(void);         // SSHL Vd, Vn, Vm (signed shift left)
 extern void gadget_sshll_vec_s_to_d(void); // SSHLL Vd.2D, Vn.2S, #imm
 extern void gadget_ushll_vec_s_to_d(void); // USHLL Vd.2D, Vn.2S, #imm
+extern void gadget_sshll_vec_b_to_h(void); // SSHLL Vd.8H, Vn.8B, #imm
+extern void gadget_ushll_vec_b_to_h(void); // USHLL Vd.8H, Vn.8B, #imm
+extern void gadget_sshll_vec_h_to_s(void); // SSHLL Vd.4S, Vn.4H, #imm
+extern void gadget_ushll_vec_h_to_s(void); // USHLL Vd.4S, Vn.4H, #imm
+extern void gadget_sshll2_vec_b_to_h(void); // SSHLL2 Vd.8H, Vn.16B, #imm
+extern void gadget_ushll2_vec_b_to_h(void); // USHLL2 Vd.8H, Vn.16B, #imm
+extern void gadget_sshll2_vec_h_to_s(void); // SSHLL2 Vd.4S, Vn.8H, #imm
+extern void gadget_ushll2_vec_h_to_s(void); // USHLL2 Vd.4S, Vn.8H, #imm
+extern void gadget_sshll2_vec_s_to_d(void); // SSHLL2 Vd.2D, Vn.4S, #imm
+extern void gadget_ushll2_vec_s_to_d(void); // USHLL2 Vd.2D, Vn.4S, #imm
+extern void gadget_shll_vec_b_to_h(void);  // SHLL Vd.8H, Vn.8B, #8
+extern void gadget_shll_vec_h_to_s(void);  // SHLL Vd.4S, Vn.4H, #16
+extern void gadget_shll_vec_s_to_d(void);  // SHLL Vd.2D, Vn.2S, #32
+extern void gadget_shll2_vec_b_to_h(void); // SHLL2 Vd.8H, Vn.16B, #8
+extern void gadget_shll2_vec_h_to_s(void); // SHLL2 Vd.4S, Vn.8H, #16
+extern void gadget_shll2_vec_s_to_d(void); // SHLL2 Vd.2D, Vn.4S, #32
 extern void gadget_shl_imm_vec(void);      // SHL Vd, Vn, #imm (shift left immediate)
 extern void gadget_shl_imm_scalar(void);   // SHL Dd, Dn, #imm (scalar shift left immediate)
 extern void gadget_sshr_imm_vec(void);     // SSHR Vd, Vn, #imm (signed shift right immediate)
@@ -226,12 +244,46 @@ extern void gadget_ssra_imm_vec(void);     // SSRA Vd, Vn, #imm (signed shift ri
 extern void gadget_ssra_imm_scalar(void);  // SSRA Dd, Dn, #imm (scalar signed shift right and accumulate)
 extern void gadget_usra_imm_vec(void);     // USRA Vd, Vn, #imm (unsigned shift right and accumulate)
 extern void gadget_usra_imm_scalar(void);  // USRA Dd, Dn, #imm (scalar unsigned shift right and accumulate)
+extern void gadget_srshr_imm_vec(void);    // SRSHR Vd, Vn, #imm (signed rounding shift right)
+extern void gadget_urshr_imm_vec(void);    // URSHR Vd, Vn, #imm (unsigned rounding shift right)
+extern void gadget_srsra_imm_vec(void);    // SRSRA Vd, Vn, #imm (signed rounding shift right and accumulate)
+extern void gadget_ursra_imm_vec(void);    // URSRA Vd, Vn, #imm (unsigned rounding shift right and accumulate)
+extern void gadget_scvtf_fixpt_scalar(void);  // SCVTF Dd/Sd, Dn/Sn, #fbits (signed int to FP fixed-point)
+extern void gadget_ucvtf_fixpt_scalar(void);  // UCVTF Dd/Sd, Dn/Sn, #fbits (unsigned int to FP fixed-point)
+extern void gadget_fcvtzs_fixpt_scalar(void); // FCVTZS Dd/Sd, Dn/Sn, #fbits (FP to signed int fixed-point, SIMD)
+extern void gadget_fcvtzu_fixpt_scalar(void); // FCVTZU Dd/Sd, Dn/Sn, #fbits (FP to unsigned int fixed-point, SIMD)
+extern void gadget_fcvtzs_fixpt_gpr(void);    // FCVTZS Wd/Xd, Sn/Dn, #fbits (FP to signed int fixed-point, GPR)
+extern void gadget_fcvtzu_fixpt_gpr(void);    // FCVTZU Wd/Xd, Sn/Dn, #fbits (FP to unsigned int fixed-point, GPR)
+extern void gadget_scvtf_fixpt_gpr(void);     // SCVTF Sd/Dd, Wn/Xn, #fbits (signed int to FP fixed-point, GPR)
+extern void gadget_ucvtf_fixpt_gpr(void);     // UCVTF Sd/Dd, Wn/Xn, #fbits (unsigned int to FP fixed-point, GPR)
+extern void gadget_add_scalar_i64(void);      // ADD Dd, Dn, Dm (scalar 64-bit integer)
+extern void gadget_sub_scalar_i64(void);      // SUB Dd, Dn, Dm (scalar 64-bit integer)
 extern void gadget_sri_imm_vec(void);      // SRI Vd, Vn, #imm (shift right and insert)
 extern void gadget_sli_imm_vec(void);      // SLI Vd, Vn, #imm (shift left and insert)
 extern void gadget_cmhi_vec(void);         // CMHI Vd, Vn, Vm (unsigned compare greater)
 extern void gadget_cmhs_vec(void);         // CMHS Vd, Vn, Vm (unsigned compare greater or equal)
 extern void gadget_cmeq_vec(void);         // CMEQ Vd, Vn, Vm (compare equal)
 extern void gadget_cmeq_zero_vec(void);    // CMEQ Vd, Vn, #0 (compare equal to zero)
+extern void gadget_ld1r_vec(void);          // LD1R {Vt.T}, [Xn] (load single and replicate)
+extern void gadget_shrn_vec(void);          // SHRN/SHRN2 Vd, Vn, #shift (shift right narrow)
+extern void gadget_rshrn_vec(void);         // RSHRN/RSHRN2 Vd, Vn, #shift (rounding shift right narrow)
+extern void gadget_uqrshrn_vec(void);      // UQRSHRN - unsigned saturating rounding shift right narrow
+extern void gadget_sqrshrn_vec(void);      // SQRSHRN - signed saturating rounding shift right narrow
+extern void gadget_uqshrn_vec(void);       // UQSHRN - unsigned saturating shift right narrow
+extern void gadget_sqshrn_vec(void);       // SQSHRN - signed saturating shift right narrow
+extern void gadget_sqshrun_vec(void);      // SQSHRUN - signed saturating shift right unsigned narrow
+extern void gadget_sqrshrun_vec(void);     // SQRSHRUN - signed saturating rounding shift right unsigned narrow
+extern void gadget_uaddlp_vec(void);       // UADDLP Vd, Vn (unsigned add long pairwise)
+extern void gadget_saddlp_vec(void);       // SADDLP Vd, Vn (signed add long pairwise)
+extern void gadget_uadalp_vec(void);       // UADALP Vd, Vn (unsigned add and accumulate long pairwise)
+extern void gadget_sadalp_vec(void);       // SADALP Vd, Vn (signed add and accumulate long pairwise)
+extern void gadget_sqxtun_vec(void);       // SQXTUN Vd, Vn (signed sat extract unsigned narrow)
+extern void gadget_sqxtn_vec(void);        // SQXTN Vd, Vn (signed sat extract narrow)
+extern void gadget_uqxtn_vec(void);        // UQXTN Vd, Vn (unsigned sat extract narrow)
+extern void gadget_cmgt_zero_vec(void);    // CMGT Vd, Vn, #0 (compare greater than zero)
+extern void gadget_cmge_zero_vec(void);    // CMGE Vd, Vn, #0 (compare greater or equal zero)
+extern void gadget_cmlt_zero_vec(void);    // CMLT Vd, Vn, #0 (compare less than zero)
+extern void gadget_cmle_zero_vec(void);    // CMLE Vd, Vn, #0 (compare less or equal zero)
 extern void gadget_and_vec(void);          // AND Vd, Vn, Vm (bitwise AND)
 extern void gadget_orr_vec(void);          // ORR Vd, Vn, Vm (bitwise OR)
 extern void gadget_eor_vec(void);          // EOR Vd, Vn, Vm (bitwise XOR)
@@ -242,6 +294,31 @@ extern void gadget_bif_vec(void);          // BIF Vd, Vn, Vm (bitwise insert if 
 extern void gadget_addp_vec(void);         // ADDP Vd, Vn, Vm (add pairwise)
 extern void gadget_umaxp_vec(void);        // UMAXP Vd, Vn, Vm (unsigned max pairwise)
 extern void gadget_uminp_vec(void);        // UMINP Vd, Vn, Vm (unsigned min pairwise)
+extern void gadget_abs_vec(void);          // ABS Vd, Vn (absolute value)
+extern void gadget_neg_vec(void);          // NEG Vd, Vn (negate)
+extern void gadget_mul_vec(void);          // MUL Vd, Vn, Vm (integer multiply)
+extern void gadget_pmul_vec(void);         // PMUL Vd.16B, Vn.16B, Vm.16B (polynomial multiply)
+extern void gadget_mla_vec(void);          // MLA Vd, Vn, Vm (multiply-accumulate)
+extern void gadget_mls_vec(void);          // MLS Vd, Vn, Vm (multiply-subtract)
+extern void gadget_smax_vec(void);         // SMAX Vd, Vn, Vm (signed maximum)
+extern void gadget_umax_vec(void);         // UMAX Vd, Vn, Vm (unsigned maximum)
+extern void gadget_smin_vec(void);         // SMIN Vd, Vn, Vm (signed minimum)
+extern void gadget_umin_vec(void);         // UMIN Vd, Vn, Vm (unsigned minimum)
+extern void gadget_mul_elem_vec(void);     // MUL Vd, Vn, Vm[idx] (multiply by element)
+extern void gadget_mla_elem_vec(void);     // MLA Vd, Vn, Vm[idx] (multiply-accumulate by element)
+extern void gadget_mls_elem_vec(void);     // MLS Vd, Vn, Vm[idx] (multiply-subtract by element)
+extern void gadget_smull_elem_vec(void);   // SMULL Vd, Vn, Vm[idx] (signed multiply long by element)
+extern void gadget_umull_elem_vec(void);   // UMULL Vd, Vn, Vm[idx] (unsigned multiply long by element)
+extern void gadget_smlal_elem_vec(void);   // SMLAL Vd, Vn, Vm[idx] (signed multiply-accumulate long by element)
+extern void gadget_umlal_elem_vec(void);   // UMLAL Vd, Vn, Vm[idx] (unsigned multiply-accumulate long by element)
+extern void gadget_smlsl_elem_vec(void);   // SMLSL Vd, Vn, Vm[idx] (signed multiply-subtract long by element)
+extern void gadget_umlsl_elem_vec(void);   // UMLSL Vd, Vn, Vm[idx] (unsigned multiply-subtract long by element)
+extern void gadget_fmul_elem_vec(void);    // FMUL Vd, Vn, Vm[idx] (FP multiply by element)
+extern void gadget_fmla_elem_vec(void);    // FMLA Vd, Vn, Vm[idx] (FP multiply-accumulate by element)
+extern void gadget_fmls_elem_vec(void);    // FMLS Vd, Vn, Vm[idx] (FP multiply-subtract by element)
+extern void gadget_sabd_vec(void);         // SABD Vd, Vn, Vm (signed abs diff)
+extern void gadget_uabd_vec(void);         // UABD Vd, Vn, Vm (unsigned abs diff)
+extern void gadget_cmtst_vec(void);        // CMTST Vd, Vn, Vm (compare bitwise test)
 extern void gadget_aese(void);             // AESE Vd.16B, Vn.16B (AES encrypt)
 extern void gadget_aesd(void);             // AESD Vd.16B, Vn.16B (AES decrypt)
 extern void gadget_aesmc(void);            // AESMC Vd.16B, Vn.16B (AES mix columns)
@@ -279,6 +356,14 @@ extern void gadget_zip2_vec(void);         // ZIP2 Vd, Vn, Vm (zip upper halves)
 extern void gadget_rev32_vec(void);        // REV32 Vd, Vn (reverse bytes in 32-bit elements)
 extern void gadget_rev64_vec(void);        // REV64 Vd, Vn (reverse bytes in 64-bit elements)
 extern void gadget_rbit_vec(void);         // RBIT Vd.xB, Vn.xB (reverse bits in each byte)
+extern void gadget_cnt_vec(void);          // CNT Vd.xB, Vn.xB (count set bits per byte)
+extern void gadget_addv_vec(void);         // ADDV Vd, Vn (add across vector lanes)
+extern void gadget_saddlv_vec(void);       // SADDLV Vd, Vn (signed add long across vector)
+extern void gadget_uaddlv_vec(void);       // UADDLV Vd, Vn (unsigned add long across vector)
+extern void gadget_umaxv_vec(void);        // UMAXV Vd, Vn (unsigned max across vector)
+extern void gadget_uminv_vec(void);        // UMINV Vd, Vn (unsigned min across vector)
+extern void gadget_smaxv_vec(void);        // SMAXV Vd, Vn (signed max across vector)
+extern void gadget_sminv_vec(void);        // SMINV Vd, Vn (signed min across vector)
 extern void gadget_add_vec(void);          // ADD Vd, Vn, Vm (vector add)
 extern void gadget_sub_vec(void);          // SUB Vd, Vn, Vm (vector subtract)
 extern void gadget_shadd_vec(void);        // SHADD Vd, Vn, Vm (signed halving add)
@@ -287,12 +372,30 @@ extern void gadget_srhadd_vec(void);       // SRHADD Vd, Vn, Vm (signed rounding
 extern void gadget_urhadd_vec(void);       // URHADD Vd, Vn, Vm (unsigned rounding halving add)
 extern void gadget_saddw_vec(void);        // SADDW Vd, Vn, Vm (signed add wide)
 extern void gadget_uaddw_vec(void);        // UADDW Vd, Vn, Vm (unsigned add wide)
+extern void gadget_saddl_vec(void);        // SADDL Vd, Vn, Vm (signed add long)
+extern void gadget_uaddl_vec(void);        // UADDL Vd, Vn, Vm (unsigned add long)
+extern void gadget_ssubl_vec(void);        // SSUBL Vd, Vn, Vm (signed sub long)
+extern void gadget_usubl_vec(void);        // USUBL Vd, Vn, Vm (unsigned sub long)
+extern void gadget_smull_vec(void);        // SMULL Vd, Vn, Vm (signed multiply long)
+extern void gadget_umull_vec(void);        // UMULL Vd, Vn, Vm (unsigned multiply long)
+extern void gadget_sabdl_vec(void);        // SABDL Vd, Vn, Vm (signed abs diff long)
+extern void gadget_uabdl_vec(void);        // UABDL Vd, Vn, Vm (unsigned abs diff long)
+extern void gadget_ssubw_vec(void);        // SSUBW Vd, Vn, Vm (signed subtract wide)
+extern void gadget_usubw_vec(void);        // USUBW Vd, Vn, Vm (unsigned subtract wide)
 
 // Floating-point conversions
 extern void gadget_ucvtf_scalar(void);     // UCVTF Sd, Wn / UCVTF Dd, Xn
 extern void gadget_scvtf_scalar(void);     // SCVTF Sd, Wn / SCVTF Dd, Xn
 extern void gadget_fcvtzu_scalar(void);    // FCVTZU Wd, Sn / FCVTZU Xd, Dn
 extern void gadget_fcvtzs_scalar(void);    // FCVTZS Wd, Sn / FCVTZS Xd, Dn
+extern void gadget_fcvtns_scalar(void);    // FCVTNS (round to nearest, ties to even)
+extern void gadget_fcvtps_scalar(void);    // FCVTPS (round toward +inf)
+extern void gadget_fcvtms_scalar(void);    // FCVTMS (round toward -inf)
+extern void gadget_fcvtnu_scalar(void);    // FCVTNU (unsigned, round to nearest)
+extern void gadget_fcvtpu_scalar(void);    // FCVTPU (unsigned, round toward +inf)
+extern void gadget_fcvtmu_scalar(void);    // FCVTMU (unsigned, round toward -inf)
+extern void gadget_fcvtas_scalar(void);    // FCVTAS (round to nearest, ties to away)
+extern void gadget_fcvtau_scalar(void);    // FCVTAU (unsigned, ties to away)
 extern void gadget_fcvtzs_simd_scalar(void); // FCVTZS Dd, Dn (SIMD scalar)
 extern void gadget_fcvtzu_simd_scalar(void); // FCVTZU Dd, Dn (SIMD scalar)
 extern void gadget_ucvtf_simd_scalar(void);  // UCVTF Sd, Sn / UCVTF Dd, Dn (SIMD scalar)
@@ -302,12 +405,22 @@ extern void gadget_fmov_gpr_to_fp_hi(void);   // FMOV Vd.D[1], Xn
 extern void gadget_fmov_fp_to_gpr(void);   // FMOV Wd, Sn / FMOV Xd, Dn
 extern void gadget_fmov_fp_to_gpr_hi(void);   // FMOV Xd, Vn.D[1]
 extern void gadget_fmov_fp_to_fp(void);    // FMOV Sd, Sn / FMOV Dd, Dn (scalar reg copy)
+extern void gadget_fmov_fp_imm(void);     // FMOV Sd/Dd, #imm (FP immediate)
 extern void gadget_fcmp_scalar(void);      // FCMP/FCMPE Sn, Sm / Dn, Dm
 extern void gadget_fcmp_zero_scalar(void); // FCMP/FCMPE Sn, #0.0 / Dn, #0.0
 extern void gadget_fadd_scalar(void);      // FADD Sn, Sm, Sd / Dn, Dm, Dd
 extern void gadget_fsub_scalar(void);      // FSUB Sn, Sm, Sd / Dn, Dm, Dd
 extern void gadget_fmul_scalar(void);      // FMUL Sn, Sm, Sd / Dn, Dm, Dd
 extern void gadget_fdiv_scalar(void);      // FDIV Sn, Sm, Sd / Dn, Dm, Dd
+extern void gadget_fmax_scalar(void);      // FMAX Sn, Sm, Sd / Dn, Dm, Dd
+extern void gadget_fmin_scalar(void);      // FMIN Sn, Sm, Sd / Dn, Dm, Dd
+extern void gadget_fmaxnm_scalar(void);   // FMAXNM Sn, Sm, Sd / Dn, Dm, Dd
+extern void gadget_fminnm_scalar(void);   // FMINNM Sn, Sm, Sd / Dn, Dm, Dd
+extern void gadget_fnmul_scalar(void);     // FNMUL Sn, Sm, Sd / Dn, Dm, Dd
+extern void gadget_fabd_scalar(void);      // FABD Sn, Sm, Sd / Dn, Dm, Dd (scalar)
+extern void gadget_fp_dp1(void);           // FP single-source: FABS/FNEG/FSQRT/FRINT*/FCVT
+extern void gadget_fccmp_scalar(void);     // FCCMP/FCCMPE (conditional FP compare)
+extern void gadget_fcsel_scalar(void);     // FCSEL (conditional FP select)
 extern void gadget_fmadd_scalar(void);     // FMADD Fd, Fn, Fm, Fa
 extern void gadget_fmsub_scalar(void);     // FMSUB Fd, Fn, Fm, Fa
 extern void gadget_fnmadd_scalar(void);    // FNMADD Fd, Fn, Fm, Fa
@@ -415,6 +528,8 @@ extern void gadget_rbit(void);
 #define SYSREG_ID_ID_AA64ISAR0_EL1 9
 #define SYSREG_ID_ID_AA64ISAR1_EL1 10
 #define SYSREG_ID_ID_AA64ZFR0_EL1 11
+#define SYSREG_ID_CNTVCT_EL0    12  // Virtual counter timer
+#define SYSREG_ID_CNTFRQ_EL0    13  // Counter frequency
 
 // Memory gadgets
 extern void gadget_load64(void);
@@ -1343,6 +1458,14 @@ static int gen_branch(struct gen_state *state, uint32_t insn) {
             else if (op0 == 3 && op1 == 0 && CRn == 0 && CRm == 6 && op2 == 1) {
                 sysreg_id = SYSREG_ID_ID_AA64ISAR1_EL1;
             }
+            // CNTVCT_EL0: op0=3, op1=3, CRn=14, CRm=0, op2=2
+            else if (op0 == 3 && op1 == 3 && CRn == 14 && CRm == 0 && op2 == 2) {
+                sysreg_id = SYSREG_ID_CNTVCT_EL0;
+            }
+            // CNTFRQ_EL0: op0=3, op1=3, CRn=14, CRm=0, op2=0
+            else if (op0 == 3 && op1 == 3 && CRn == 14 && CRm == 0 && op2 == 0) {
+                sysreg_id = SYSREG_ID_CNTFRQ_EL0;
+            }
 
             if (sysreg_id >= 0) {
                 gen(state, (unsigned long) gadget_mrs_sysreg);
@@ -2076,10 +2199,15 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
         uint32_t rn = (insn >> 5) & 0x1f;
         uint32_t rt = insn & 0x1f;
 
-        (void)o1; (void)o0;  // Acquire/release semantics ignored for single-threaded
+        (void)o0;  // Acquire/release semantics ignored for single-threaded
 
-        // Handle pair exclusives (LDXP/STXP/LDAXP/STLXP)
-        if (o2 == 1) {
+        // o2=1: STLR/LDAR/LDLAR/STLLR — non-exclusive, non-pair load/store with
+        // acquire/release semantics. Treat as simple load/store.
+        // o2=0, o1=1: STXP/LDXP/STLXP/LDAXP — exclusive pair operations.
+        // o2=0, o1=0: STXR/LDXR/STLXR/LDAXR — exclusive register operations.
+
+        // Handle pair exclusives (LDXP/STXP/LDAXP/STLXP): o2=0, o1=1
+        if (o2 == 0 && o1 == 1) {
             // Generate address from Rn
             gen(state, (unsigned long) gadget_calc_addr_imm);
             gen(state, rn | (0ULL << 8));  // offset = 0
@@ -2118,14 +2246,12 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
             return 1;
         }
 
-        // For now, only handle non-pair operations (o2=0, rt2=11111)
-        if (rt2 != 31) {
-            gen_interrupt(state, INT_UNDEFINED);
-            return 0;
-        }
+        // For non-pair operations (o2=0, o1=0 OR o2=1), fall through to
+        // simple load/store handling. Ignore Rt2 field (it should be 11111
+        // for non-pair, but some compilers emit non-standard values).
 
         if (L) {
-            // LDXR, LDAXR, LDLAR - Load exclusive/acquire
+            // LDXR, LDAXR, LDAR, LDLAR - Load exclusive/acquire
             // Generate address from Rn
             gen(state, (unsigned long) gadget_calc_addr_imm);
             gen(state, rn | (0ULL << 8));  // offset = 0
@@ -2144,8 +2270,8 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
             gen(state, (unsigned long) gadget_store_reg);
             gen(state, rt);
         } else {
-            // STXR, STLXR, STLLR - Store exclusive/release
-            // Note: For single-threaded emulation, store always succeeds (Rs = 0)
+            // STXR, STLXR, STLR, STLLR - Store exclusive/release
+            // For single-threaded emulation, store always succeeds (Rs = 0)
 
             // Load value from Rt
             gen(state, (unsigned long) gadget_load_reg);
@@ -2165,8 +2291,8 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
             }
             gen(state, (unsigned long) store_gadget);
 
-            // Set Rs = 0 to indicate success
-            if (rs != 31) {
+            // Set Rs = 0 to indicate success (only for exclusive stores, not STLR/STLLR)
+            if (o2 == 0 && rs != 31) {
                 gen(state, (unsigned long) gadget_movz);
                 gen(state, rs | (0 << 8) | (0ULL << 16) | (0ULL << 32));  // movz rs, #0
             }
@@ -2311,6 +2437,14 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
             // Doubleword (opcode = 100, size = 01)
             elem_size = 8;
             lane = Q;
+        } else if (opcode == 0x6 && S == 0 && L == 1) {
+            // LD1R: Load single element and replicate to all lanes
+            // Element size determined by 'size': 0=B, 1=H, 2=S, 3=D
+            gen(state, (unsigned long) gadget_calc_addr_imm);
+            gen(state, rn | (0ULL << 8));
+            gen(state, (unsigned long) gadget_ld1r_vec);
+            gen(state, rt | (size << 8) | (Q << 16));
+            return 1;
         } else {
             // Unsupported encoding
             gen_interrupt(state, INT_UNDEFINED);
@@ -2350,6 +2484,96 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
             }
         }
         gen(state, rt | (lane_offset << 8));
+        return 1;
+    }
+
+    // LD1/ST1 (single structure, post-indexed) - with register or immediate post-index
+    // Pattern: 0 Q 001101 1 L R Rm opcode S size Rn Rt  (bit23=1)
+    // Mask: 0xbf800000, expected: 0x0d800000
+    if ((insn & 0xbf800000) == 0x0d800000) {
+        uint32_t Q = (insn >> 30) & 1;
+        uint32_t L = (insn >> 22) & 1;
+        uint32_t rm = (insn >> 16) & 0x1f;
+        uint32_t opcode = (insn >> 13) & 0x7;
+        uint32_t S = (insn >> 12) & 1;
+        uint32_t size = (insn >> 10) & 0x3;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t rt = insn & 0x1f;
+
+        int elem_size = 0;
+        int lane = 0;
+
+        if ((opcode & 0x4) == 0) {
+            elem_size = 1;
+            lane = (Q << 3) | (S << 2) | size;
+        } else if ((opcode & 0x6) == 0x4) {
+            elem_size = 2;
+            lane = (Q << 2) | (S << 1) | (size & 1);
+        } else if (opcode == 0x4 && size == 0) {
+            elem_size = 4;
+            lane = (Q << 1) | S;
+        } else if (opcode == 0x4 && size == 1) {
+            elem_size = 8;
+            lane = Q;
+        } else if (opcode == 0x6 && S == 0 && L == 1) {
+            // LD1R post-indexed: Load single element and replicate to all lanes
+            int ld1r_elem_size = 1 << size;
+
+            gen(state, (unsigned long) gadget_calc_addr_imm);
+            gen(state, rn | (0ULL << 8));
+            gen(state, (unsigned long) gadget_ld1r_vec);
+            gen(state, rt | (size << 8) | (Q << 16));
+
+            // Post-index writeback
+            if (rm == 31) {
+                gen(state, (unsigned long) gadget_update_base);
+                gen(state, rn | ((uint64_t)ld1r_elem_size << 8));
+            } else {
+                gen(state, (unsigned long) gadget_update_base_reg);
+                gen(state, rn | (rm << 8));
+            }
+            return 1;
+        } else {
+            gen_interrupt(state, INT_UNDEFINED);
+            return 0;
+        }
+
+        int lane_offset = lane * elem_size;
+
+        gen(state, (unsigned long) gadget_calc_addr_imm);
+        gen(state, rn | (0ULL << 8));
+
+        if (L) {
+            if (elem_size == 1)
+                gen(state, (unsigned long) gadget_ld1_single_b);
+            else if (elem_size == 2)
+                gen(state, (unsigned long) gadget_ld1_single_h);
+            else if (elem_size == 4)
+                gen(state, (unsigned long) gadget_ld1_single_s);
+            else
+                gen(state, (unsigned long) gadget_ld1_single_d);
+        } else {
+            if (elem_size == 1)
+                gen(state, (unsigned long) gadget_st1_single_b);
+            else if (elem_size == 2)
+                gen(state, (unsigned long) gadget_st1_single_h);
+            else if (elem_size == 4)
+                gen(state, (unsigned long) gadget_st1_single_s);
+            else
+                gen(state, (unsigned long) gadget_st1_single_d);
+        }
+        gen(state, rt | (lane_offset << 8));
+
+        // Post-index writeback
+        if (rm == 31) {
+            // Immediate: increment by element size
+            gen(state, (unsigned long) gadget_update_base);
+            gen(state, rn | ((uint64_t)elem_size << 8));
+        } else {
+            // Register: increment by Xm
+            gen(state, (unsigned long) gadget_update_base_reg);
+            gen(state, rn | (rm << 8));
+        }
         return 1;
     }
 
@@ -2788,6 +3012,31 @@ static int gen_simd_fp(struct gen_state *state, uint32_t insn) {
         return 1;
     }
 
+    // MOV/INS (general) - insert GPR into vector element (H size)
+    // imm5 bit pattern: xxx10 for H elements (bit 1 set, bit 0 clear)
+    // Encoding: 0100 1110 000 imm5 0 0011 1 Rn Rd, where imm5 & 3 == 2
+    if ((insn & 0xffe0fc00) == 0x4e001c00 && ((insn >> 16) & 0x3) == 0x2) {
+        uint32_t rd = insn & 0x1f;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t imm5 = (insn >> 16) & 0x1f;
+        uint32_t idx = (imm5 >> 2) & 0x7;  // H element index (0..7)
+        gen(state, (unsigned long) gadget_ins_gpr_to_vec_h);
+        gen(state, rd | (rn << 8) | (idx << 16));
+        return 1;
+    }
+
+    // MOV/INS (general) - insert GPR into vector element (B size)
+    // imm5 bit pattern: xxxx1 for B elements (bit 0 set)
+    if ((insn & 0xffe0fc00) == 0x4e001c00 && ((insn >> 16) & 0x1) == 0x1) {
+        uint32_t rd = insn & 0x1f;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t imm5 = (insn >> 16) & 0x1f;
+        uint32_t idx = (imm5 >> 1) & 0xf;  // B element index (0..15)
+        gen(state, (unsigned long) gadget_ins_gpr_to_vec_b);
+        gen(state, rd | (rn << 8) | (idx << 16));
+        return 1;
+    }
+
     // SHL (vector, immediate) - shift left immediate
     // 0 Q U 0 1 1 1 1 0 immh immb 0 1 0 1 0 1 Rn Rd  (U=0 for SHL)
     // immh:immb encodes the shift and element size
@@ -2796,63 +3045,72 @@ static int gen_simd_fp(struct gen_state *state, uint32_t insn) {
     // For 4S/2S (words): immh=01xx, shift = immh:immb - 32 (0-31)
     // For 2D/1D (doublewords): immh=1xxx, shift = immh:immb - 64 (0-63)
     // Mask: 0xbf80fc00 keeps bit 31, U, bits 28-23, and opcode; Value: 0x0f005400
+    // NOTE: immh must be non-zero for SHL; immh=0 encodes MOVI/MVNI instead
     if ((insn & 0xbf80fc00) == 0x0f005400) {
-        uint32_t Q = (insn >> 30) & 1;
         uint32_t immh = (insn >> 19) & 0xf;
-        uint32_t immb = (insn >> 16) & 0x7;
-        uint32_t rd = insn & 0x1f;
-        uint32_t rn = (insn >> 5) & 0x1f;
+        if (immh != 0) {
+            uint32_t Q = (insn >> 30) & 1;
+            uint32_t immb = (insn >> 16) & 0x7;
+            uint32_t rd = insn & 0x1f;
+            uint32_t rn = (insn >> 5) & 0x1f;
 
-        // Determine element size and shift from immh
-        uint32_t esize, shift;
-        if (immh & 0x8) {           // 64-bit
-            esize = 3;
-            shift = ((immh << 3) | immb) - 64;
-        } else if (immh & 0x4) {    // 32-bit
-            esize = 2;
-            shift = ((immh << 3) | immb) - 32;
-        } else if (immh & 0x2) {    // 16-bit
-            esize = 1;
-            shift = ((immh << 3) | immb) - 16;
-        } else {                    // 8-bit (immh & 0x1)
-            esize = 0;
-            shift = ((immh << 3) | immb) - 8;
+            // Determine element size and shift from immh
+            uint32_t esize, shift;
+            if (immh & 0x8) {           // 64-bit
+                esize = 3;
+                shift = ((immh << 3) | immb) - 64;
+            } else if (immh & 0x4) {    // 32-bit
+                esize = 2;
+                shift = ((immh << 3) | immb) - 32;
+            } else if (immh & 0x2) {    // 16-bit
+                esize = 1;
+                shift = ((immh << 3) | immb) - 16;
+            } else {                    // 8-bit (immh & 0x1)
+                esize = 0;
+                shift = ((immh << 3) | immb) - 8;
+            }
+
+            gen(state, (unsigned long) gadget_shl_imm_vec);
+            // Pack: rd | rn<<8 | shift<<16 | esize<<24 | Q<<28
+            gen(state, rd | (rn << 8) | (shift << 16) | (esize << 24) | (Q << 28));
+            return 1;
         }
-
-        gen(state, (unsigned long) gadget_shl_imm_vec);
-        // Pack: rd | rn<<8 | shift<<16 | esize<<24 | Q<<28
-        gen(state, rd | (rn << 8) | (shift << 16) | (esize << 24) | (Q << 28));
-        return 1;
+        // Fall through to MOVI/MVNI handler when immh=0
     }
 
     // USHR (vector, immediate) - unsigned shift right immediate
     // 0 Q U 0 1 1 1 1 0 immh immb 0 0 0 0 0 1 Rn Rd  (U=1 for USHR)
     // Mask: 0xbf80fc00, Value: 0x2f000400
+    // NOTE: immh must be non-zero for USHR; immh=0 encodes MOVI/MVNI instead
     if ((insn & 0xbf80fc00) == 0x2f000400) {
-        uint32_t Q = (insn >> 30) & 1;
         uint32_t immh = (insn >> 19) & 0xf;
-        uint32_t immb = (insn >> 16) & 0x7;
-        uint32_t rd = insn & 0x1f;
-        uint32_t rn = (insn >> 5) & 0x1f;
+        // immh=0 is not a valid shift encoding - this is MOVI/MVNI, not USHR
+        if (immh != 0) {
+            uint32_t Q = (insn >> 30) & 1;
+            uint32_t immb = (insn >> 16) & 0x7;
+            uint32_t rd = insn & 0x1f;
+            uint32_t rn = (insn >> 5) & 0x1f;
 
-        uint32_t esize, shift;
-        if (immh & 0x8) {
-            esize = 3;
-            shift = 128 - ((immh << 3) | immb);  // USHR: shift = 2*esize - imm
-        } else if (immh & 0x4) {
-            esize = 2;
-            shift = 64 - ((immh << 3) | immb);
-        } else if (immh & 0x2) {
-            esize = 1;
-            shift = 32 - ((immh << 3) | immb);
-        } else {
-            esize = 0;
-            shift = 16 - ((immh << 3) | immb);
+            uint32_t esize, shift;
+            if (immh & 0x8) {
+                esize = 3;
+                shift = 128 - ((immh << 3) | immb);  // USHR: shift = 2*esize - imm
+            } else if (immh & 0x4) {
+                esize = 2;
+                shift = 64 - ((immh << 3) | immb);
+            } else if (immh & 0x2) {
+                esize = 1;
+                shift = 32 - ((immh << 3) | immb);
+            } else {
+                esize = 0;
+                shift = 16 - ((immh << 3) | immb);
+            }
+
+            gen(state, (unsigned long) gadget_ushr_imm_vec);
+            gen(state, rd | (rn << 8) | (shift << 16) | (esize << 24) | (Q << 28));
+            return 1;
         }
-
-        gen(state, (unsigned long) gadget_ushr_imm_vec);
-        gen(state, rd | (rn << 8) | (shift << 16) | (esize << 24) | (Q << 28));
-        return 1;
+        // Fall through to MOVI/MVNI handler when immh=0
     }
 
     // SSHR (vector, immediate) - signed shift right immediate
@@ -2957,6 +3215,162 @@ static int gen_simd_fp(struct gen_state *state, uint32_t insn) {
         }
     }
 
+    // SRSHR (vector, immediate) - signed rounding shift right
+    // 0 Q 0 01111 0 immh immb 00100 1 Rn Rd  (U=0, opcode=00100)
+    // Mask: 0xbf80fc00, Value: 0x0f002400
+    if ((insn & 0xbf80fc00) == 0x0f002400) {
+        uint32_t immh = (insn >> 19) & 0xf;
+        if (immh != 0) {
+            uint32_t Q = (insn >> 30) & 1;
+            uint32_t immb = (insn >> 16) & 0x7;
+            uint32_t rd = insn & 0x1f;
+            uint32_t rn = (insn >> 5) & 0x1f;
+            uint32_t esize, shift;
+            if (immh & 0x8) { esize = 3; shift = 128 - ((immh << 3) | immb); }
+            else if (immh & 0x4) { esize = 2; shift = 64 - ((immh << 3) | immb); }
+            else if (immh & 0x2) { esize = 1; shift = 32 - ((immh << 3) | immb); }
+            else { esize = 0; shift = 16 - ((immh << 3) | immb); }
+            gen(state, (unsigned long) gadget_srshr_imm_vec);
+            gen(state, rd | (rn << 8) | (shift << 16) | (esize << 24) | (Q << 28));
+            return 1;
+        }
+    }
+
+    // URSHR (vector, immediate) - unsigned rounding shift right
+    // 0 Q 1 01111 0 immh immb 00100 1 Rn Rd  (U=1, opcode=00100)
+    // Mask: 0xbf80fc00, Value: 0x2f002400
+    if ((insn & 0xbf80fc00) == 0x2f002400) {
+        uint32_t immh = (insn >> 19) & 0xf;
+        if (immh != 0) {
+            uint32_t Q = (insn >> 30) & 1;
+            uint32_t immb = (insn >> 16) & 0x7;
+            uint32_t rd = insn & 0x1f;
+            uint32_t rn = (insn >> 5) & 0x1f;
+            uint32_t esize, shift;
+            if (immh & 0x8) { esize = 3; shift = 128 - ((immh << 3) | immb); }
+            else if (immh & 0x4) { esize = 2; shift = 64 - ((immh << 3) | immb); }
+            else if (immh & 0x2) { esize = 1; shift = 32 - ((immh << 3) | immb); }
+            else { esize = 0; shift = 16 - ((immh << 3) | immb); }
+            gen(state, (unsigned long) gadget_urshr_imm_vec);
+            gen(state, rd | (rn << 8) | (shift << 16) | (esize << 24) | (Q << 28));
+            return 1;
+        }
+    }
+
+    // SRSRA (vector, immediate) - signed rounding shift right and accumulate
+    // 0 Q 0 01111 0 immh immb 00110 1 Rn Rd  (U=0, opcode=00110)
+    // Mask: 0xbf80fc00, Value: 0x0f003400
+    if ((insn & 0xbf80fc00) == 0x0f003400) {
+        uint32_t immh = (insn >> 19) & 0xf;
+        if (immh != 0) {
+            uint32_t Q = (insn >> 30) & 1;
+            uint32_t immb = (insn >> 16) & 0x7;
+            uint32_t rd = insn & 0x1f;
+            uint32_t rn = (insn >> 5) & 0x1f;
+            uint32_t esize, shift;
+            if (immh & 0x8) { esize = 3; shift = 128 - ((immh << 3) | immb); }
+            else if (immh & 0x4) { esize = 2; shift = 64 - ((immh << 3) | immb); }
+            else if (immh & 0x2) { esize = 1; shift = 32 - ((immh << 3) | immb); }
+            else { esize = 0; shift = 16 - ((immh << 3) | immb); }
+            gen(state, (unsigned long) gadget_srsra_imm_vec);
+            gen(state, rd | (rn << 8) | (shift << 16) | (esize << 24) | (Q << 28));
+            return 1;
+        }
+    }
+
+    // URSRA (vector, immediate) - unsigned rounding shift right and accumulate
+    // 0 Q 1 01111 0 immh immb 00110 1 Rn Rd  (U=1, opcode=00110)
+    // Mask: 0xbf80fc00, Value: 0x2f003400
+    if ((insn & 0xbf80fc00) == 0x2f003400) {
+        uint32_t immh = (insn >> 19) & 0xf;
+        if (immh != 0) {
+            uint32_t Q = (insn >> 30) & 1;
+            uint32_t immb = (insn >> 16) & 0x7;
+            uint32_t rd = insn & 0x1f;
+            uint32_t rn = (insn >> 5) & 0x1f;
+            uint32_t esize, shift;
+            if (immh & 0x8) { esize = 3; shift = 128 - ((immh << 3) | immb); }
+            else if (immh & 0x4) { esize = 2; shift = 64 - ((immh << 3) | immb); }
+            else if (immh & 0x2) { esize = 1; shift = 32 - ((immh << 3) | immb); }
+            else { esize = 0; shift = 16 - ((immh << 3) | immb); }
+            gen(state, (unsigned long) gadget_ursra_imm_vec);
+            gen(state, rd | (rn << 8) | (shift << 16) | (esize << 24) | (Q << 28));
+            return 1;
+        }
+    }
+
+    // SHRN/SHRN2 (vector, immediate) - shift right narrow
+    // 0 Q 0 01111 0 immh immb 10000 1 Rn Rd  (U=0, opcode=10000)
+    // Mask: 0xbf80fc00, Value: 0x0f008400
+    if ((insn & 0xbf80fc00) == 0x0f008400) {
+        uint32_t immh = (insn >> 19) & 0xf;
+        if (immh != 0) {
+            uint32_t Q = (insn >> 30) & 1;
+            uint32_t immb = (insn >> 16) & 0x7;
+            uint32_t rd = insn & 0x1f;
+            uint32_t rn = (insn >> 5) & 0x1f;
+            uint32_t esize, shift;
+            if (immh & 0x4) { esize = 2; shift = 64 - ((immh << 3) | immb); }
+            else if (immh & 0x2) { esize = 1; shift = 32 - ((immh << 3) | immb); }
+            else { esize = 0; shift = 16 - ((immh << 3) | immb); }
+            gen(state, (unsigned long) gadget_shrn_vec);
+            gen(state, rd | (rn << 8) | (shift << 16) | (esize << 24) | (Q << 28));
+            return 1;
+        }
+    }
+
+    // RSHRN/RSHRN2 (vector, immediate) - rounding shift right narrow
+    // 0 Q 0 01111 0 immh immb 10001 1 Rn Rd  (U=0, opcode=10001)
+    // Mask: 0xbf80fc00, Value: 0x0f008c00
+    if ((insn & 0xbf80fc00) == 0x0f008c00) {
+        uint32_t immh = (insn >> 19) & 0xf;
+        if (immh != 0) {
+            uint32_t Q = (insn >> 30) & 1;
+            uint32_t immb = (insn >> 16) & 0x7;
+            uint32_t rd = insn & 0x1f;
+            uint32_t rn = (insn >> 5) & 0x1f;
+            uint32_t esize, shift;
+            if (immh & 0x4) { esize = 2; shift = 64 - ((immh << 3) | immb); }
+            else if (immh & 0x2) { esize = 1; shift = 32 - ((immh << 3) | immb); }
+            else { esize = 0; shift = 16 - ((immh << 3) | immb); }
+            gen(state, (unsigned long) gadget_rshrn_vec);
+            gen(state, rd | (rn << 8) | (shift << 16) | (esize << 24) | (Q << 28));
+            return 1;
+        }
+    }
+
+    // Saturating shift-right-narrow instructions (shift-by-immediate)
+    // All use mask 0xbf80fc00, immh != 0
+    // UQRSHRN: 0x2f009c00, SQRSHRN: 0x0f009c00
+    // UQSHRN: 0x2f009400, SQSHRN: 0x0f009400
+    // SQSHRUN: 0x2f008400, SQRSHRUN: 0x2f008c00
+    {
+        uint32_t masked = insn & 0xbf80fc00;
+        void *sat_gadget = NULL;
+        if      (masked == 0x2f009c00) sat_gadget = gadget_uqrshrn_vec;
+        else if (masked == 0x0f009c00) sat_gadget = gadget_sqrshrn_vec;
+        else if (masked == 0x2f009400) sat_gadget = gadget_uqshrn_vec;
+        else if (masked == 0x0f009400) sat_gadget = gadget_sqshrn_vec;
+        else if (masked == 0x2f008400) sat_gadget = gadget_sqshrun_vec;
+        else if (masked == 0x2f008c00) sat_gadget = gadget_sqrshrun_vec;
+        if (sat_gadget) {
+            uint32_t immh = (insn >> 19) & 0xf;
+            if (immh != 0) {
+                uint32_t Q = (insn >> 30) & 1;
+                uint32_t immb = (insn >> 16) & 0x7;
+                uint32_t rd = insn & 0x1f;
+                uint32_t rn = (insn >> 5) & 0x1f;
+                uint32_t esize, shift;
+                if (immh & 0x4) { esize = 2; shift = 64 - ((immh << 3) | immb); }
+                else if (immh & 0x2) { esize = 1; shift = 32 - ((immh << 3) | immb); }
+                else { esize = 0; shift = 16 - ((immh << 3) | immb); }
+                gen(state, (unsigned long) sat_gadget);
+                gen(state, rd | (rn << 8) | (shift << 16) | (esize << 24) | (Q << 28));
+                return 1;
+            }
+        }
+    }
+
     // SRI (vector, immediate) - shift right and insert
     // 0 Q 1 01111 0 immh immb 01000 1 Rn Rd  (U=1, opcode=01000)
     // Mask: 0xbf80fc00, Value: 0x2f004400
@@ -3021,28 +3435,51 @@ static int gen_simd_fp(struct gen_state *state, uint32_t insn) {
         }
     }
 
-    // SSHLL (vector, immediate) - signed shift left long (S->D)
-    // Matches: SSHLL Vd.2D, Vn.2S, #imm (shift 0..31)
-    // Mask 0xffe0fc00 ignores Rd/Rn and shift bits [20:16]
-    if ((insn & 0xffe0fc00) == 0x0f20a400) {
+    // SSHLL/USHLL/SSHLL2/USHLL2 (vector, immediate) - signed/unsigned shift left long
+    // Encoding: 0 Q U 011110 immh immb 10100 1 Rn Rd
+    // Mask 0x8f80fc00 checks bit31=0,bits[28:23]=011110,opcode=10100,bit10=1
+    // Q at bit 30: 0=lower half (SSHLL/USHLL), 1=upper half (SSHLL2/USHLL2)
+    // U at bit 29 distinguishes signed/unsigned
+    // immh determines size: 0001=B->H, 001x=H->S, 01xx=S->D
+    if ((insn & 0x8f80fc00) == 0x0f00a400) {
+        uint32_t Q = (insn >> 30) & 1;
+        uint32_t U = (insn >> 29) & 1;
+        uint32_t immh = (insn >> 19) & 0xf;
+        uint32_t immb = (insn >> 16) & 0x7;
         uint32_t rd = insn & 0x1f;
         uint32_t rn = (insn >> 5) & 0x1f;
-        uint32_t sh = (insn >> 16) & 0x1f;
-        gen(state, (unsigned long) gadget_sshll_vec_s_to_d);
-        gen(state, rd | (rn << 8) | (sh << 16));
-        return 1;
-    }
+        int immhb = (immh << 3) | immb;
+        int shift = 0;
+        void *gadget = NULL;
 
-    // USHLL (vector, immediate) - unsigned shift left long (S->D)
-    // Matches: USHLL Vd.2D, Vn.2S, #imm (shift 0..31)
-    // Mask 0xffe0fc00 ignores Rd/Rn and shift bits [20:16]
-    if ((insn & 0xffe0fc00) == 0x2f20a400) {
-        uint32_t rd = insn & 0x1f;
-        uint32_t rn = (insn >> 5) & 0x1f;
-        uint32_t sh = (insn >> 16) & 0x1f;
-        gen(state, (unsigned long) gadget_ushll_vec_s_to_d);
-        gen(state, rd | (rn << 8) | (sh << 16));
-        return 1;
+        if (immh & 0x4) {
+            // S->D: immh=01xx
+            shift = immhb - 32;
+            if (Q == 0)
+                gadget = U ? gadget_ushll_vec_s_to_d : gadget_sshll_vec_s_to_d;
+            else
+                gadget = U ? gadget_ushll2_vec_s_to_d : gadget_sshll2_vec_s_to_d;
+        } else if (immh & 0x2) {
+            // H->S: immh=001x
+            shift = immhb - 16;
+            if (Q == 0)
+                gadget = U ? gadget_ushll_vec_h_to_s : gadget_sshll_vec_h_to_s;
+            else
+                gadget = U ? gadget_ushll2_vec_h_to_s : gadget_sshll2_vec_h_to_s;
+        } else if (immh & 0x1) {
+            // B->H: immh=0001
+            shift = immhb - 8;
+            if (Q == 0)
+                gadget = U ? gadget_ushll_vec_b_to_h : gadget_sshll_vec_b_to_h;
+            else
+                gadget = U ? gadget_ushll2_vec_b_to_h : gadget_sshll2_vec_b_to_h;
+        }
+
+        if (gadget) {
+            gen(state, (unsigned long) gadget);
+            gen(state, rd | (rn << 8) | (shift << 16));
+            return 1;
+        }
     }
 
     // DUP (element) - duplicate vector element to vector
@@ -3341,19 +3778,19 @@ static int gen_simd_fp(struct gen_state *state, uint32_t insn) {
         }
 
         // ORR/BIC use odd cmode values for integer immediates (e.g., 0x1/0x3/0x5/0x7/0x9/0xb).
-        // MVNI with msl uses cmode=0xd, which should stay in the MOVI/MVNI path.
+        // MOVI/MVNI with MSL uses cmode=0xc (MSL #8) and 0xd (MSL #16).
         bool is_orr_bic = ((cmode & 1) != 0) && (cmode != 0xd);
         uint32_t base_cmode = is_orr_bic ? (cmode - 1) : cmode;
 
         uint64_t pattern = 0;
         bool ok = false;
-        if (cmode == 0xd) {
-            // MVNI (msl #16) - mask shift left: imm8 in bits[23:16], low 16 bits set.
-            // This form only exists for MVNI.
-            if (op != 1) {
-                gen_interrupt(state, INT_UNDEFINED);
-                return 0;
-            }
+        if (cmode == 0xc) {
+            // MOVI/MVNI (MSL #8): imm8 shifted left 8, low 8 bits set to ones
+            uint64_t elem = ((uint64_t)imm8 << 8) | 0xff;
+            pattern = elem | (elem << 32);
+            ok = true;
+        } else if (cmode == 0xd) {
+            // MOVI/MVNI (MSL #16): imm8 shifted left 16, low 16 bits set to ones
             uint64_t elem = ((uint64_t)imm8 << 16) | 0xffff;
             pattern = elem | (elem << 32);
             ok = true;
@@ -3478,6 +3915,49 @@ static int gen_simd_fp(struct gen_state *state, uint32_t insn) {
         } else if (U == 1 && opcode == 0x15) {
             // UMINP - Unsigned minimum pairwise
             gadget = gadget_uminp_vec;
+        } else if (U == 0 && opcode == 0x13) {
+            // MUL - Integer multiply (not for size=3/D)
+            if (size == 3) { gen_interrupt(state, INT_UNDEFINED); return 0; }
+            gadget = gadget_mul_vec;
+        } else if (U == 1 && opcode == 0x13) {
+            // PMUL - Polynomial multiply (size must be 0/bytes)
+            if (size != 0) { gen_interrupt(state, INT_UNDEFINED); return 0; }
+            gadget = gadget_pmul_vec;
+        } else if (U == 0 && opcode == 0x12) {
+            // MLA - Multiply-accumulate (not for size=3/D)
+            if (size == 3) { gen_interrupt(state, INT_UNDEFINED); return 0; }
+            gadget = gadget_mla_vec;
+        } else if (U == 1 && opcode == 0x12) {
+            // MLS - Multiply-subtract (not for size=3/D)
+            if (size == 3) { gen_interrupt(state, INT_UNDEFINED); return 0; }
+            gadget = gadget_mls_vec;
+        } else if (U == 0 && opcode == 0x0c) {
+            // SMAX - Signed maximum (not for size=3/D)
+            if (size == 3) { gen_interrupt(state, INT_UNDEFINED); return 0; }
+            gadget = gadget_smax_vec;
+        } else if (U == 1 && opcode == 0x0c) {
+            // UMAX - Unsigned maximum (not for size=3/D)
+            if (size == 3) { gen_interrupt(state, INT_UNDEFINED); return 0; }
+            gadget = gadget_umax_vec;
+        } else if (U == 0 && opcode == 0x0d) {
+            // SMIN - Signed minimum (not for size=3/D)
+            if (size == 3) { gen_interrupt(state, INT_UNDEFINED); return 0; }
+            gadget = gadget_smin_vec;
+        } else if (U == 1 && opcode == 0x0d) {
+            // UMIN - Unsigned minimum (not for size=3/D)
+            if (size == 3) { gen_interrupt(state, INT_UNDEFINED); return 0; }
+            gadget = gadget_umin_vec;
+        } else if (U == 0 && opcode == 0x0e) {
+            // SABD - Signed absolute difference (not for size=3/D)
+            if (size == 3) { gen_interrupt(state, INT_UNDEFINED); return 0; }
+            gadget = gadget_sabd_vec;
+        } else if (U == 1 && opcode == 0x0e) {
+            // UABD - Unsigned absolute difference (not for size=3/D)
+            if (size == 3) { gen_interrupt(state, INT_UNDEFINED); return 0; }
+            gadget = gadget_uabd_vec;
+        } else if (U == 0 && opcode == 0x11) {
+            // CMTST - Compare bitwise test (Vn AND Vm != 0)
+            gadget = gadget_cmtst_vec;
         }
 
         if (gadget) {
@@ -3521,23 +4001,21 @@ static int gen_simd_fp(struct gen_state *state, uint32_t insn) {
 
         if (U == 0) {
             switch (opcode) {
-                case 0x1:  // SADDW - Signed add wide
-                    gadget = gadget_saddw_vec;
-                    break;
-                // TODO: Add more signed widening instructions as needed
-                // case 0x0: SADDL
-                // case 0x2: SSUBL
-                // case 0x3: SSUBW
+                case 0x0:  gadget = gadget_saddl_vec; break;  // SADDL
+                case 0x1:  gadget = gadget_saddw_vec; break;  // SADDW
+                case 0x2:  gadget = gadget_ssubl_vec; break;  // SSUBL
+                case 0x3:  gadget = gadget_ssubw_vec; break;  // SSUBW
+                case 0x7:  gadget = gadget_sabdl_vec; break;  // SABDL
+                case 0xc:  gadget = gadget_smull_vec; break;  // SMULL
             }
         } else {
             switch (opcode) {
-                case 0x1:  // UADDW - Unsigned add wide
-                    gadget = gadget_uaddw_vec;
-                    break;
-                // TODO: Add more unsigned widening instructions as needed
-                // case 0x0: UADDL
-                // case 0x2: USUBL
-                // case 0x3: USUBW
+                case 0x0:  gadget = gadget_uaddl_vec; break;  // UADDL
+                case 0x1:  gadget = gadget_uaddw_vec; break;  // UADDW
+                case 0x2:  gadget = gadget_usubl_vec; break;  // USUBL
+                case 0x3:  gadget = gadget_usubw_vec; break;  // USUBW
+                case 0x7:  gadget = gadget_uabdl_vec; break;  // UABDL
+                case 0xc:  gadget = gadget_umull_vec; break;  // UMULL
             }
         }
 
@@ -3607,6 +4085,69 @@ skip_three_different:
         }
     }
 
+    // UADDLP/SADDLP/UADALP/SADALP - Pairwise add long (two-reg misc)
+    // SADDLP: 0 Q 0 01110 size 10000 00010 10 Rn Rd  (U=0, opcode=0x02)
+    // UADDLP: 0 Q 1 01110 size 10000 00010 10 Rn Rd  (U=1, opcode=0x02)
+    // SADALP: 0 Q 0 01110 size 10000 00110 10 Rn Rd  (U=0, opcode=0x06)
+    // UADALP: 0 Q 1 01110 size 10000 00110 10 Rn Rd  (U=1, opcode=0x06)
+    if ((insn & 0xbf3ffc00) == 0x0e202800 ||   // SADDLP
+        (insn & 0xbf3ffc00) == 0x2e202800 ||   // UADDLP
+        (insn & 0xbf3ffc00) == 0x0e206800 ||   // SADALP
+        (insn & 0xbf3ffc00) == 0x2e206800) {   // UADALP
+        uint32_t Q = (insn >> 30) & 1;
+        uint32_t U = (insn >> 29) & 1;
+        uint32_t size = (insn >> 22) & 0x3;
+        uint32_t opcode = (insn >> 12) & 0x1f;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t rd = insn & 0x1f;
+
+        if (size == 3) {
+            gen_interrupt(state, INT_UNDEFINED);
+            return 0;
+        }
+
+        void *gadget = NULL;
+        if (U == 0 && opcode == 0x02) gadget = gadget_saddlp_vec;
+        else if (U == 1 && opcode == 0x02) gadget = gadget_uaddlp_vec;
+        else if (U == 0 && opcode == 0x06) gadget = gadget_sadalp_vec;
+        else if (U == 1 && opcode == 0x06) gadget = gadget_uadalp_vec;
+
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | (rn << 8) | (size << 16) | (Q << 24));
+        return 1;
+    }
+
+    // SQXTUN/SQXTN/UQXTN - Saturating narrowing instructions (two-reg misc)
+    // Note: XTN is already handled by separate decoder above
+    // SQXTUN: 0 Q 1 01110 size 10000 10010 10 Rn Rd  (U=1, opcode=0x12)
+    // SQXTN:  0 Q 0 01110 size 10000 10100 10 Rn Rd  (U=0, opcode=0x14)
+    // UQXTN:  0 Q 1 01110 size 10000 10100 10 Rn Rd  (U=1, opcode=0x14)
+    if ((insn & 0xbf3ffc00) == 0x2e212800 ||   // SQXTUN
+        (insn & 0xbf3ffc00) == 0x0e214800 ||   // SQXTN
+        (insn & 0xbf3ffc00) == 0x2e214800) {   // UQXTN
+        uint32_t Q = (insn >> 30) & 1;
+        uint32_t U = (insn >> 29) & 1;
+        uint32_t size = (insn >> 22) & 0x3;
+        uint32_t opcode = (insn >> 12) & 0x1f;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t rd = insn & 0x1f;
+
+        // size=3 is reserved
+        if (size == 3) {
+            gen_interrupt(state, INT_UNDEFINED);
+            return 0;
+        }
+
+        void *gadget = NULL;
+        if (U == 1 && opcode == 0x12) gadget = gadget_sqxtun_vec;
+        else if (U == 0 && opcode == 0x14) gadget = gadget_sqxtn_vec;
+        else if (U == 1 && opcode == 0x14) gadget = gadget_uqxtn_vec;
+
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | (rn << 8) | (size << 16) | (Q << 24));
+        return 1;
+    }
+
     // CMEQ with zero - pattern: 0 Q 0 0 1 1 1 0 size 1 0 0 0 0 0 10011 1 Rn Rd
     // Binary: 0Q0_0111_0ss1_0000_0100_11Rn_nnRd_dddd
     if ((insn & 0xbf3ffc00) == 0x0e209800) {
@@ -3616,6 +4157,91 @@ skip_three_different:
         uint32_t rd = insn & 0x1f;
         gen(state, (unsigned long) gadget_cmeq_zero_vec);
         gen(state, rd | (rn << 8) | (size << 16) | (Q << 24));
+        return 1;
+    }
+
+    // CMGT/CMLT/CMGE/CMLE with zero - AdvSIMD two-register misc
+    // CMGT #0: 0 Q 0 01110 size 10000 01000 10 Rn Rd  (U=0, opcode=01000)
+    // CMLT #0: 0 Q 0 01110 size 10000 01010 10 Rn Rd  (U=0, opcode=01010)
+    // CMGE #0: 0 Q 1 01110 size 10000 01000 10 Rn Rd  (U=1, opcode=01000)
+    // CMLE #0: 0 Q 1 01110 size 10000 01001 10 Rn Rd  (U=1, opcode=01001)
+    if ((insn & 0xbf3ffc00) == 0x0e208800 ||   // CMGT #0
+        (insn & 0xbf3ffc00) == 0x0e20a800 ||   // CMLT #0
+        (insn & 0xbf3ffc00) == 0x2e208800 ||   // CMGE #0
+        (insn & 0xbf3ffc00) == 0x2e209800) {   // CMLE #0
+        uint32_t Q = (insn >> 30) & 1;
+        uint32_t U = (insn >> 29) & 1;
+        uint32_t size = (insn >> 22) & 0x3;
+        uint32_t opcode = (insn >> 12) & 0x1f;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t rd = insn & 0x1f;
+
+        // size=3 (D) requires Q=1
+        if (size == 3 && Q == 0) {
+            gen_interrupt(state, INT_UNDEFINED);
+            return 0;
+        }
+
+        void *gadget = NULL;
+        if (U == 0 && opcode == 0x08) gadget = gadget_cmgt_zero_vec;
+        else if (U == 0 && opcode == 0x0a) gadget = gadget_cmlt_zero_vec;
+        else if (U == 1 && opcode == 0x08) gadget = gadget_cmge_zero_vec;
+        else if (U == 1 && opcode == 0x09) gadget = gadget_cmle_zero_vec;
+
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | (rn << 8) | (size << 16) | (Q << 24));
+        return 1;
+    }
+
+    // ABS/NEG (vector) - AdvSIMD two-register misc
+    // ABS: 0 Q 0 01110 size 10000 01011 10 Rn Rd  (U=0, opcode=0x0b)
+    // NEG: 0 Q 1 01110 size 10000 01011 10 Rn Rd  (U=1, opcode=0x0b)
+    if ((insn & 0xbf3ffc00) == 0x0e20b800 ||   // ABS
+        (insn & 0xbf3ffc00) == 0x2e20b800) {   // NEG
+        uint32_t Q = (insn >> 30) & 1;
+        uint32_t U = (insn >> 29) & 1;
+        uint32_t size = (insn >> 22) & 0x3;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t rd = insn & 0x1f;
+
+        if (size == 3 && Q == 0) {
+            gen_interrupt(state, INT_UNDEFINED);
+            return 0;
+        }
+
+        void *gadget = (U == 0) ? gadget_abs_vec : gadget_neg_vec;
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | (rn << 8) | (size << 16) | (Q << 24));
+        return 1;
+    }
+
+    // SHLL/SHLL2 - Shift left long (by element size) - AdvSIMD two-register misc
+    // SHLL:  0 0 1 01110 size 10000 10011 10 Rn Rd  (Q=0, U=1, opcode=0x13)
+    // SHLL2: 0 1 1 01110 size 10000 10011 10 Rn Rd  (Q=1, U=1, opcode=0x13)
+    // Shift amount is fixed at element size (8/16/32), unlike USHLL which uses immediate
+    if ((insn & 0xbf3ffc00) == 0x2e213800) {
+        uint32_t Q = (insn >> 30) & 1;
+        uint32_t size = (insn >> 22) & 0x3;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t rd = insn & 0x1f;
+
+        // size=3 is reserved
+        if (size == 3) {
+            gen_interrupt(state, INT_UNDEFINED);
+            return 0;
+        }
+
+        void *gadget = NULL;
+        if (size == 2) {
+            gadget = Q ? gadget_shll2_vec_s_to_d : gadget_shll_vec_s_to_d;
+        } else if (size == 1) {
+            gadget = Q ? gadget_shll2_vec_h_to_s : gadget_shll_vec_h_to_s;
+        } else {
+            gadget = Q ? gadget_shll2_vec_b_to_h : gadget_shll_vec_b_to_h;
+        }
+
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | (rn << 8));
         return 1;
     }
 
@@ -3670,6 +4296,95 @@ skip_three_different:
         return 1;
     }
 
+    // ADDV (across lanes) - add all vector elements into scalar
+    // 0 Q U 01110 size 11000 1 10110 10 Rn Rd  (U=0, opcode=11011)
+    // Mask: 0xbf3ffc00 checks fixed bits, Value: 0x0e31b800
+    if ((insn & 0xbf3ffc00) == 0x0e31b800) {
+        uint32_t Q = (insn >> 30) & 1;
+        uint32_t size = (insn >> 22) & 0x3;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t rd = insn & 0x1f;
+
+        // ADDV is not valid for size=3 (D), and 2S requires Q=1
+        if (size == 3) {
+            gen_interrupt(state, INT_UNDEFINED);
+            return 0;
+        }
+
+        gen(state, (unsigned long) gadget_addv_vec);
+        gen(state, rd | (rn << 8) | (size << 16) | (Q << 24));
+        return 1;
+    }
+
+    // SADDLV/UADDLV (across lanes) - signed/unsigned add long across vector
+    // 0 Q U 01110 size 11000 00011 10 Rn Rd
+    // SADDLV: U=0, UADDLV: U=1
+    // Mask: 0x9f3ffc00 (ignore Q and U), Value: 0x0e303800
+    if ((insn & 0x9f3ffc00) == 0x0e303800) {
+        uint32_t Q = (insn >> 30) & 1;
+        uint32_t U = (insn >> 29) & 1;
+        uint32_t size = (insn >> 22) & 0x3;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t rd = insn & 0x1f;
+
+        // Not valid for size=3 (D)
+        if (size == 3) {
+            gen_interrupt(state, INT_UNDEFINED);
+            return 0;
+        }
+
+        gen(state, (unsigned long) (U ? gadget_uaddlv_vec : gadget_saddlv_vec));
+        gen(state, rd | (rn << 8) | (size << 16) | (Q << 24));
+        return 1;
+    }
+
+    // UMAXV/UMINV/SMAXV/SMINV (across lanes) - min/max reduction
+    // SMAXV: 0 Q 0 01110 size 11000 01010 10 Rn Rd  (U=0, opcode=01010)
+    // SMINV: 0 Q 0 01110 size 11000 11010 10 Rn Rd  (U=0, opcode=11010)
+    // UMAXV: 0 Q 1 01110 size 11000 01010 10 Rn Rd  (U=1, opcode=01010)
+    // UMINV: 0 Q 1 01110 size 11000 11010 10 Rn Rd  (U=1, opcode=11010)
+    if ((insn & 0xbf3ffc00) == 0x0e30a800 ||   // SMAXV
+        (insn & 0xbf3ffc00) == 0x0e31a800 ||   // SMINV
+        (insn & 0xbf3ffc00) == 0x2e30a800 ||   // UMAXV
+        (insn & 0xbf3ffc00) == 0x2e31a800) {   // UMINV
+        uint32_t Q = (insn >> 30) & 1;
+        uint32_t U = (insn >> 29) & 1;
+        uint32_t size = (insn >> 22) & 0x3;
+        uint32_t opcode = (insn >> 12) & 0x1f;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t rd = insn & 0x1f;
+
+        // Not valid for size=3 (D)
+        if (size == 3) {
+            gen_interrupt(state, INT_UNDEFINED);
+            return 0;
+        }
+
+        void *gadget = NULL;
+        if (U == 0 && opcode == 0x0a) gadget = gadget_smaxv_vec;
+        else if (U == 0 && opcode == 0x1a) gadget = gadget_sminv_vec;
+        else if (U == 1 && opcode == 0x0a) gadget = gadget_umaxv_vec;
+        else if (U == 1 && opcode == 0x1a) gadget = gadget_uminv_vec;
+
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | (rn << 8) | (size << 16) | (Q << 24));
+        return 1;
+    }
+
+    // CNT (vector) - count set bits per byte
+    // 0 Q 0 01110 size 10000 00101 10 Rn Rd  (U=0, opcode=00101)
+    // Same as RBIT but U=0 instead of U=1; size must be 00
+    // Mask 0xbf3ffc00, Value: 0x0e205800
+    if ((insn & 0xbf3ffc00) == 0x0e205800) {
+        uint32_t Q = (insn >> 30) & 1;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t rd = insn & 0x1f;
+
+        gen(state, (unsigned long) gadget_cnt_vec);
+        gen(state, rd | (rn << 8) | (Q << 16));
+        return 1;
+    }
+
     // Floating-point/integer conversion (scalar)
     // UCVTF/SCVTF/FCVTZU/FCVTZS
     // Pattern: sf 0 0 1 1 1 1 0 type 1 rmode opcode 0 0 0 0 0 0 Rn Rd
@@ -3697,6 +4412,30 @@ skip_three_different:
         } else if (rmode == 3 && opcode == 0) {
             // FCVTZS - float to signed int (round toward zero)
             gadget = gadget_fcvtzs_scalar;
+        } else if (rmode == 0 && opcode == 0) {
+            // FCVTNS - float to signed int (round to nearest, ties to even)
+            gadget = gadget_fcvtns_scalar;
+        } else if (rmode == 0 && opcode == 1) {
+            // FCVTNU - float to unsigned int (round to nearest)
+            gadget = gadget_fcvtnu_scalar;
+        } else if (rmode == 1 && opcode == 0) {
+            // FCVTPS - float to signed int (round toward +inf)
+            gadget = gadget_fcvtps_scalar;
+        } else if (rmode == 1 && opcode == 1) {
+            // FCVTPU - float to unsigned int (round toward +inf)
+            gadget = gadget_fcvtpu_scalar;
+        } else if (rmode == 2 && opcode == 0) {
+            // FCVTMS - float to signed int (round toward -inf)
+            gadget = gadget_fcvtms_scalar;
+        } else if (rmode == 2 && opcode == 1) {
+            // FCVTMU - float to unsigned int (round toward -inf)
+            gadget = gadget_fcvtmu_scalar;
+        } else if (rmode == 0 && opcode == 4) {
+            // FCVTAS - float to signed int (round to nearest, ties to away)
+            gadget = gadget_fcvtas_scalar;
+        } else if (rmode == 0 && opcode == 5) {
+            // FCVTAU - float to unsigned int (round to nearest, ties to away)
+            gadget = gadget_fcvtau_scalar;
         } else if (rmode == 0 && opcode == 6) {
             // FMOV - move bits from FP register to GPR (opcode bit 0 = 0)
             gadget = gadget_fmov_fp_to_gpr;
@@ -3719,51 +4458,155 @@ skip_three_different:
         }
     }
 
-    // FCMP/FCMPE (scalar, register)
-    // Encoding: 000 11110 type 1 Rm 00 1000 Rn opc 000
-    // type = bits 23:22 (00=S, 01=D), Rm = bits 20:16, Rn = bits 9:5
-    // opc = bits 4:3 (00=FCMP, 10=FCMPE)
-    // Mask 0xff20fc07 ignores type, Rm, Rn, and opc bits
-    if ((insn & 0xff20fc07) == 0x1e202000) {
+    // FCVTZS/FCVTZU/SCVTF/UCVTF (scalar, fixed-point, GPR <-> FP)
+    // Encoding: sf 0 0 11110 type 0 rmode opcode scale Rn Rd
+    // This is the GPR-to/from-FP fixed-point conversion (NOT the SIMD scalar form)
+    // rmode=11, opcode=000 -> FCVTZS; rmode=11, opcode=001 -> FCVTZU
+    // rmode=00, opcode=010 -> SCVTF; rmode=00, opcode=011 -> UCVTF
+    // scale = 64 - fbits (sf=1) or 32 - fbits (sf=0)
+    // Mask: 0x7f200000 checks bits 30:29=00, 28:24=11110, 21=0
+    if ((insn & 0x7f200000) == 0x1e000000) {
+        uint32_t sf = (insn >> 31) & 1;
         uint32_t type = (insn >> 22) & 3;
-        uint32_t rm = (insn >> 16) & 0x1f;
+        uint32_t rmode = (insn >> 19) & 3;
+        uint32_t opcode = (insn >> 16) & 7;
+        uint32_t scale = (insn >> 10) & 0x3f;
         uint32_t rn = (insn >> 5) & 0x1f;
-        if (type > 1) {
-            gen_interrupt(state, INT_UNDEFINED);
-            return 0;
+        uint32_t rd = insn & 0x1f;
+
+        if (type <= 1) {
+            uint32_t fbits = 64 - scale;
+            void *gadget = NULL;
+            if (rmode == 3 && opcode == 0) {
+                gadget = gadget_fcvtzs_fixpt_gpr;  // FCVTZS Wd/Xd, Sn/Dn, #fbits
+            } else if (rmode == 3 && opcode == 1) {
+                gadget = gadget_fcvtzu_fixpt_gpr;  // FCVTZU Wd/Xd, Sn/Dn, #fbits
+            } else if (rmode == 0 && opcode == 2) {
+                gadget = gadget_scvtf_fixpt_gpr;   // SCVTF Sd/Dd, Wn/Xn, #fbits
+            } else if (rmode == 0 && opcode == 3) {
+                gadget = gadget_ucvtf_fixpt_gpr;   // UCVTF Sd/Dd, Wn/Xn, #fbits
+            }
+
+            if (gadget) {
+                gen(state, (unsigned long) gadget);
+                // Pack: rd | rn<<8 | type<<16 | sf<<18 | fbits<<20
+                gen(state, rd | (rn << 8) | (type << 16) | (sf << 18) | (fbits << 20));
+                return 1;
+            }
         }
-        gen(state, (unsigned long) gadget_fcmp_scalar);
-        // Pack: rn | rm<<8 | type<<16
-        gen(state, rn | (rm << 8) | (type << 16));
+    }
+
+    // FMOV (scalar, immediate) - load FP constant
+    // Encoding: 000 11110 ftype 1 imm8 100 00000 Rd
+    // ftype: 00=S, 01=D
+    // Mask 0xff201fe0 checks fixed bits, ignores ftype, imm8, Rd
+    if ((insn & 0xff201fe0) == 0x1e201000) {
+        uint32_t ftype = (insn >> 22) & 3;
+        uint32_t imm8 = (insn >> 13) & 0xff;
+        uint32_t rd = insn & 0x1f;
+        bool is_double = (ftype == 1);
+
+        uint64_t fpbits = arm64_fpimm_to_bits(is_double, imm8);
+
+        gen(state, (unsigned long) gadget_fmov_fp_imm);
+        gen(state, rd | (ftype << 8));
+        // Emit the 64-bit FP value as a single unsigned long
+        gen(state, (unsigned long) fpbits);
         return 1;
     }
 
-    // FCMP/FCMPE (scalar, compare with zero)
-    // Encoding: 000 11110 type 1 00001 00 1000 Rn opc 000
-    // type = bits 23:22, Rm = bits 20:16 (must be 00001), Rn = bits 9:5
-    // opc = bits 4:3 (00=FCMP, 01=FCMPE)
-    // Mask 0xff20fc07 ignores type, Rn, and opc bits; check Rm=1 separately
-    if ((insn & 0xff20fc07) == 0x1e202000 && ((insn >> 16) & 0x1f) == 1) {
+    // FCMP/FCMPE (scalar)
+    // Register form: 000 11110 type 1 Rm 00 1000 Rn 0 opc 000 (bit 3 = 0)
+    // Zero form:     000 11110 type 1 Rm 00 1000 Rn 1 opc 000 (bit 3 = 1)
+    // Mask 0xff20fc17 checks fixed bits including bit 4 (part of opc)
+    // Bit 3 distinguishes register (0) from zero (1) comparison
+    if ((insn & 0xff20fc00) == 0x1e202000) {
         uint32_t type = (insn >> 22) & 3;
         uint32_t rn = (insn >> 5) & 0x1f;
         if (type > 1) {
             gen_interrupt(state, INT_UNDEFINED);
             return 0;
         }
-        gen(state, (unsigned long) gadget_fcmp_zero_scalar);
-        // Pack: rn | type<<16
-        gen(state, rn | (type << 16));
+        if (insn & 0x08) {
+            // Bit 3 set: FCMP/FCMPE with zero
+            gen(state, (unsigned long) gadget_fcmp_zero_scalar);
+            // Pack: rn | type<<16
+            gen(state, rn | (type << 16));
+        } else {
+            // Bit 3 clear: FCMP/FCMPE with register
+            uint32_t rm = (insn >> 16) & 0x1f;
+            gen(state, (unsigned long) gadget_fcmp_scalar);
+            // Pack: rn | rm<<8 | type<<16
+            gen(state, rn | (rm << 8) | (type << 16));
+        }
         return 1;
+    }
+
+    // FCCMP/FCCMPE - Floating-point conditional compare
+    // Encoding: 0 0 0 11110 ftype 1 Rm cond 01 Rn op nzcv
+    // Mask 0xff200c00 checks M,S,fixed,bit21; bits 11:10=01
+    if ((insn & 0xff200c00) == 0x1e200400) {
+        uint32_t ftype = (insn >> 22) & 3;
+        uint32_t rm = (insn >> 16) & 0x1f;
+        uint32_t cond = (insn >> 12) & 0xf;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t nzcv = insn & 0xf;
+        if (ftype > 1) {
+            gen_interrupt(state, INT_UNDEFINED);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget_fccmp_scalar);
+        // Pack: rn | rm<<8 | ftype<<16 | cond<<20 | nzcv<<24
+        gen(state, rn | (rm << 8) | (ftype << 16) | (cond << 20) | (nzcv << 24));
+        return 1;
+    }
+
+    // FCSEL - Floating-point conditional select
+    // Encoding: 0 0 0 11110 ftype 1 Rm cond 11 Rn Rd
+    // Mask 0xff200c00 checks M,S,fixed,bit21; bits 11:10=11
+    if ((insn & 0xff200c00) == 0x1e200c00) {
+        uint32_t ftype = (insn >> 22) & 3;
+        uint32_t rm = (insn >> 16) & 0x1f;
+        uint32_t cond = (insn >> 12) & 0xf;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t rd = insn & 0x1f;
+        if (ftype > 1) {
+            gen_interrupt(state, INT_UNDEFINED);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget_fcsel_scalar);
+        // Pack two words: [rd | rn<<8 | rm<<16 | ftype<<24] [cond]
+        gen(state, rd | (rn << 8) | (rm << 16) | (ftype << 24));
+        gen(state, cond);
+        return 1;
+    }
+
+    // Floating-point data-processing (1 source), scalar
+    // Pattern: M=0 S=0 1 1 1 1 0 ftype 1 opcode 10000 Rn Rd
+    // Mask 0xff207c00: M,S,fixed,ftype,bit21,bits14:10=10000
+    if ((insn & 0xff207c00) == 0x1e204000) {
+        uint32_t ftype = (insn >> 22) & 3;
+        uint32_t opcode = (insn >> 15) & 0x3f;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t rd = insn & 0x1f;
+
+        // Validate: ftype 0=single, 1=double; opcode must be valid
+        // We handle all common dp1 ops via a generic gadget that re-executes
+        // the instruction natively on the host (with emulated FP reg operands)
+        if (ftype <= 1 && opcode <= 15) {
+            gen(state, (unsigned long) gadget_fp_dp1);
+            // Pack: rd | rn<<8 | ftype<<16 | opcode<<20
+            gen(state, rd | (rn << 8) | (ftype << 16) | (opcode << 20));
+            return 1;
+        }
     }
 
     // Floating-point data-processing (2 source), scalar
-    // FADD/FSUB/FMUL/FDIV
-    if ((insn & 0xff20fc00) == 0x1e200800 ||
-        (insn & 0xff20fc00) == 0x1e201800 ||
-        (insn & 0xff20fc00) == 0x1e202800 ||
-        (insn & 0xff20fc00) == 0x1e203800) {
-        uint32_t op = insn & 0xff20fc00;
+    // Pattern: M=0 S=0 1 1 1 1 0 type 1 Rm opcode 10 Rn Rd
+    // Mask 0xff20c000 checks M,S,fixed,bit21; bits 15:12 = opcode
+    if ((insn & 0xff200000) == 0x1e200000 && ((insn >> 10) & 3) == 2) {
         uint32_t type = (insn >> 22) & 3;
+        uint32_t opcode = (insn >> 12) & 0xf;
         uint32_t rm = (insn >> 16) & 0x1f;
         uint32_t rn = (insn >> 5) & 0x1f;
         uint32_t rd = insn & 0x1f;
@@ -3773,21 +4616,17 @@ skip_three_different:
         }
 
         void *gadget = NULL;
-        switch (op) {
-            case 0x1e200800: // FMUL
-                gadget = gadget_fmul_scalar;
-                break;
-            case 0x1e201800: // FDIV
-                gadget = gadget_fdiv_scalar;
-                break;
-            case 0x1e202800: // FADD
-                gadget = gadget_fadd_scalar;
-                break;
-            case 0x1e203800: // FSUB
-                gadget = gadget_fsub_scalar;
-                break;
-            default:
-                break;
+        switch (opcode) {
+            case 0x0: gadget = gadget_fmul_scalar; break;    // FMUL
+            case 0x1: gadget = gadget_fdiv_scalar; break;    // FDIV
+            case 0x2: gadget = gadget_fadd_scalar; break;    // FADD
+            case 0x3: gadget = gadget_fsub_scalar; break;    // FSUB
+            case 0x4: gadget = gadget_fmax_scalar; break;    // FMAX
+            case 0x5: gadget = gadget_fmin_scalar; break;    // FMIN
+            case 0x6: gadget = gadget_fmaxnm_scalar; break; // FMAXNM
+            case 0x7: gadget = gadget_fminnm_scalar; break; // FMINNM
+            case 0x8: gadget = gadget_fnmul_scalar; break;   // FNMUL
+            default: break;
         }
 
         if (gadget) {
@@ -4077,6 +4916,131 @@ skip_three_different:
         return 1;
     }
 
+    // AdvSIMD vector x indexed element
+    // Pattern: 0 Q U 01111 size L M Rm opcode H 0 Rn Rd
+    // Fixed: bit[31]=0, bits[28:24]=01111, bit[10]=0
+    // Mask: 0x9f000400, Value: 0x0f000000
+    if ((insn & 0x9f000400) == 0x0f000000) {
+        uint32_t Q = (insn >> 30) & 1;
+        uint32_t U = (insn >> 29) & 1;
+        uint32_t size = (insn >> 22) & 3;
+        uint32_t L = (insn >> 21) & 1;
+        uint32_t M = (insn >> 20) & 1;
+        uint32_t Rm4 = (insn >> 16) & 0xf;
+        uint32_t opcode_elem = (insn >> 12) & 0xf;
+        uint32_t H = (insn >> 11) & 1;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t rd = insn & 0x1f;
+
+        uint32_t rm, index;
+        if (size == 1) {  // H: index = H:L:M, Rm = Rm4
+            rm = Rm4;
+            index = (H << 2) | (L << 1) | M;
+        } else if (size == 2) {  // S: index = H:L, Rm = M:Rm4
+            rm = (M << 4) | Rm4;
+            index = (H << 1) | L;
+        } else if (size == 3) {  // D: index = H, Rm = M:Rm4
+            rm = (M << 4) | Rm4;
+            index = H;
+        } else {
+            gen_interrupt(state, INT_UNDEFINED);
+            return 0;
+        }
+
+        void *gadget = NULL;
+        // Pack: rd | rn<<8 | rm<<16 | index<<21 | size<<24 | Q<<26
+        uint64_t packed = rd | (rn << 8) | (rm << 16) | (index << 21) | (size << 24) | (Q << 26);
+
+        if (U == 0 && opcode_elem == 0x8) {
+            // MUL by element (H/S only)
+            if (size == 3) { gen_interrupt(state, INT_UNDEFINED); return 0; }
+            gadget = gadget_mul_elem_vec;
+        } else if (U == 0 && opcode_elem == 0x0) {
+            // MLA by element (H/S only)
+            if (size == 3) { gen_interrupt(state, INT_UNDEFINED); return 0; }
+            gadget = gadget_mla_elem_vec;
+        } else if (U == 1 && opcode_elem == 0x0) {
+            // MLS by element (H/S only)
+            if (size == 3) { gen_interrupt(state, INT_UNDEFINED); return 0; }
+            gadget = gadget_mls_elem_vec;
+        } else if (U == 0 && opcode_elem == 0xa) {
+            // SMULL by element
+            gadget = gadget_smull_elem_vec;
+        } else if (U == 1 && opcode_elem == 0xa) {
+            // UMULL by element
+            gadget = gadget_umull_elem_vec;
+        } else if (U == 0 && opcode_elem == 0x2) {
+            // SMLAL by element
+            gadget = gadget_smlal_elem_vec;
+        } else if (U == 1 && opcode_elem == 0x2) {
+            // UMLAL by element
+            gadget = gadget_umlal_elem_vec;
+        } else if (U == 0 && opcode_elem == 0x6) {
+            // SMLSL by element
+            gadget = gadget_smlsl_elem_vec;
+        } else if (U == 1 && opcode_elem == 0x6) {
+            // UMLSL by element
+            gadget = gadget_umlsl_elem_vec;
+        } else if (U == 0 && opcode_elem == 0x9) {
+            // FMUL by element (size=2:S, size=3:D; size<2 is FP16/invalid)
+            if (size < 2) { gen_interrupt(state, INT_UNDEFINED); return 0; }
+            gadget = gadget_fmul_elem_vec;
+        } else if (U == 0 && opcode_elem == 0x1) {
+            // FMLA by element (size=2:S, size=3:D)
+            if (size < 2) { gen_interrupt(state, INT_UNDEFINED); return 0; }
+            gadget = gadget_fmla_elem_vec;
+        } else if (U == 0 && opcode_elem == 0x5) {
+            // FMLS by element (size=2:S, size=3:D)
+            if (size < 2) { gen_interrupt(state, INT_UNDEFINED); return 0; }
+            gadget = gadget_fmls_elem_vec;
+        }
+
+        if (gadget) {
+            gen(state, (unsigned long) gadget);
+            gen(state, packed);
+            return 1;
+        }
+        // Fall through to try other decoders for unimplemented opcodes
+    }
+
+    // AdvSIMD scalar three-same: 01 U 11110 sz 1 Rm opcode 1 Rn Rd
+    // ADD (scalar, 64-bit integer): U=0, opcode=10000
+    // SUB (scalar, 64-bit integer): U=1, opcode=10000
+    // Mask: 0xdf200400, Value: 0x5e200400
+    if ((insn & 0xdf200400) == 0x5e200400) {
+        uint32_t U = (insn >> 29) & 1;
+        uint32_t sz = (insn >> 22) & 3;
+        uint32_t Rm = (insn >> 16) & 0x1f;
+        uint32_t opcode = (insn >> 11) & 0x1f;
+        uint32_t Rn = (insn >> 5) & 0x1f;
+        uint32_t Rd = insn & 0x1f;
+
+        void *gadget = NULL;
+        if (sz == 3 && opcode == 0x10 && U == 0) {
+            // ADD d, d, d (64-bit integer)
+            gadget = gadget_add_scalar_i64;
+        } else if (sz == 3 && opcode == 0x10 && U == 1) {
+            // SUB d, d, d (64-bit integer)
+            gadget = gadget_sub_scalar_i64;
+        }
+
+        if (gadget) {
+            gen(state, (unsigned long) gadget);
+            gen(state, Rd | (Rn << 8) | (Rm << 16));
+            return 1;
+        }
+
+        // FABD (scalar): U=1, bit23=1, opcode=11010 (0x1A)
+        // Floating-point absolute difference: Vd = |Vn - Vm|
+        // bit22 = 0: single, bit22 = 1: double
+        if (U == 1 && (sz & 2) && opcode == 0x1a) {
+            uint32_t type = sz & 1; // bit 22: 0=single, 1=double
+            gen(state, (unsigned long) gadget_fabd_scalar);
+            gen(state, Rd | (Rn << 8) | (Rm << 16) | (type << 24));
+            return 1;
+        }
+    }
+
     // FCVTZS/FCVTZU (scalar, integer) - SIMD scalar form
     // Convert floating-point to integer (result in SIMD register)
     // Encoding: 01 U 11110 1 sz 100001 opcode Rn Rd
@@ -4186,6 +5150,35 @@ skip_three_different:
             else if (esize == 1) shift = 32 - immhb;
             else shift = 16 - immhb;
             gadget = gadget_usra_imm_scalar;
+        } else if (U == 0 && opcode == 0x1c) {
+            // SCVTF (scalar, fixed-point) - signed int to FP
+            // fbits = (esize*2*8) - immh:immb
+            if (esize == 3) shift = 128 - immhb;
+            else if (esize == 2) shift = 64 - immhb;
+            else if (esize == 1) shift = 32 - immhb;
+            else shift = 16 - immhb;
+            gadget = gadget_scvtf_fixpt_scalar;
+        } else if (U == 1 && opcode == 0x1c) {
+            // UCVTF (scalar, fixed-point) - unsigned int to FP
+            if (esize == 3) shift = 128 - immhb;
+            else if (esize == 2) shift = 64 - immhb;
+            else if (esize == 1) shift = 32 - immhb;
+            else shift = 16 - immhb;
+            gadget = gadget_ucvtf_fixpt_scalar;
+        } else if (U == 0 && opcode == 0x1f) {
+            // FCVTZS (scalar, fixed-point) - FP to signed int, round toward zero
+            if (esize == 3) shift = 128 - immhb;
+            else if (esize == 2) shift = 64 - immhb;
+            else if (esize == 1) shift = 32 - immhb;
+            else shift = 16 - immhb;
+            gadget = gadget_fcvtzs_fixpt_scalar;
+        } else if (U == 1 && opcode == 0x1f) {
+            // FCVTZU (scalar, fixed-point) - FP to unsigned int, round toward zero
+            if (esize == 3) shift = 128 - immhb;
+            else if (esize == 2) shift = 64 - immhb;
+            else if (esize == 1) shift = 32 - immhb;
+            else shift = 16 - immhb;
+            gadget = gadget_fcvtzu_fixpt_scalar;
         }
 
         if (gadget) {

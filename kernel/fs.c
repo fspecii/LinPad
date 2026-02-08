@@ -8,6 +8,7 @@
 #include "fs/fd.h"
 #include "fs/path.h"
 #include "fs/dev.h"
+#include "fs/real.h"
 
 #define IO_DEBUG 0
 
@@ -1004,6 +1005,9 @@ dword_t sys_fchown32(fd_t f, uid_t_ owner, uid_t_ group) {
     struct fd *fd = f_get(f);
     if (fd == NULL)
         return _EBADF;
+    // realfs can't change ownership on host, silently succeed
+    if (fd->mount->fs == &realfs)
+        return 0;
     int err;
     if (owner != (uid_t) -1) {
         err = generic_fsetattr(fd, make_attr(uid, owner));
@@ -1026,6 +1030,9 @@ dword_t sys_fchownat(fd_t at_f, addr_t path_addr, dword_t owner, dword_t group, 
     struct fd *at = at_fd(at_f);
     if (at == NULL)
         return _EBADF;
+    // realfs can't change ownership on host, silently succeed
+    if (at->mount->fs == &realfs)
+        return 0;
     int err;
     bool follow_links = flags & AT_SYMLINK_NOFOLLOW_ ? false : true;
     if (owner != (uid_t) -1) {
@@ -1049,6 +1056,36 @@ dword_t sys_lchown(addr_t path_addr, uid_t_ owner, uid_t_ group) {
     return sys_fchownat(AT_FDCWD_, path_addr, owner, group, AT_SYMLINK_NOFOLLOW_);
 }
 
+#ifdef GUEST_ARM64
+// ARM64: 64-bit values passed in single registers
+dword_t sys_truncate64(addr_t path_addr, off_t_ size) {
+    char path[MAX_PATH];
+    if (user_read_string(path_addr, path, sizeof(path)))
+        return _EFAULT;
+    return generic_setattrat(NULL, path, make_attr(size, size), true);
+}
+
+dword_t sys_ftruncate64(fd_t f, off_t_ size) {
+    struct fd *fd = f_get(f);
+    if (fd == NULL)
+        return _EBADF;
+    return generic_fsetattr(fd, make_attr(size, size));
+}
+
+dword_t sys_fallocate(fd_t f, dword_t UNUSED(mode), off_t_ offset, off_t_ len) {
+    struct fd *fd = f_get(f);
+    if (fd == NULL)
+        return _EBADF;
+    struct statbuf statbuf;
+    int err = fd->mount->fs->fstat(fd, &statbuf);
+    if (err < 0)
+        return err;
+    if ((uint64_t) offset + (uint64_t) len > statbuf.size)
+        return generic_fsetattr(fd, make_attr(size, offset + len));
+    return 0;
+}
+#else
+// x86: 64-bit values split across two 32-bit registers
 dword_t sys_truncate64(addr_t path_addr, dword_t size_low, dword_t size_high) {
     off_t_ size = ((qword_t) size_high << 32) | size_low;
     char path[MAX_PATH];
@@ -1079,6 +1116,7 @@ dword_t sys_fallocate(fd_t f, dword_t UNUSED(mode), dword_t offset_low, dword_t 
         return generic_fsetattr(fd, make_attr(size, offset + len));
     return 0;
 }
+#endif
 
 dword_t sys_mkdirat(fd_t at_f, addr_t path_addr, mode_t_ mode) {
     char path[MAX_PATH];

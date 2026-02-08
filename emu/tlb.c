@@ -84,24 +84,13 @@ bool __tlb_write_cross_page(struct tlb *tlb, addr_t addr, const char *value, uns
     return true;
 }
 
+
 __no_instrument void *tlb_handle_miss(struct tlb *tlb, addr_t addr, int type) {
-#if defined(GUEST_ARM64)
-    // Bounds check: addresses beyond 4GB are invalid in our 32-bit address space
-    // Return NULL to trigger a segfault instead of crashing the host
-    if (addr > 0xFFFFFFFFULL) {
-        // Don't print - caller should have printed debug info
-        tlb->segfault_addr = addr;
-        return NULL;
-    }
-#endif
     char *ptr = mmu_translate(tlb->mmu, TLB_PAGE(addr), type);
     if (tlb->mmu->changes != tlb->mem_changes)
         tlb_flush(tlb);
     if (ptr == NULL) {
         tlb->segfault_addr = addr;
-#if defined(GUEST_ARM64) && 0  // Disabled - debugging complete
-        fprintf(stderr, "[TLB SEGFAULT] addr=0x%llx type=%d\n", (unsigned long long)addr, type);
-#endif
         return NULL;
     }
     tlb->dirty_page = TLB_PAGE(addr);
@@ -111,28 +100,8 @@ __no_instrument void *tlb_handle_miss(struct tlb *tlb, addr_t addr, int type) {
     if (type == MEM_WRITE)
         tlb_ent->page_if_writable = tlb_ent->page;
     else
-        // 1 is not a valid page so this won't look like a hit
         tlb_ent->page_if_writable = TLB_PAGE_EMPTY;
     tlb_ent->data_minus_addr = (uintptr_t) ptr - TLB_PAGE(addr);
-
-#if defined(GUEST_ARM64) && 0  // Disabled for performance
-    // Debug: dump memory when page 0xf7fa7000 is accessed (where the buggy instructions are)
-    if ((addr & 0xfffff000) == 0xf7fa7000) {
-        fprintf(stderr, "[TLB DEBUG] page 0xf7fa7000 mapped, ptr=%p, TLB_INDEX=%lu, TLB_PAGE=0x%x\n",
-                ptr, (unsigned long)TLB_INDEX(addr), TLB_PAGE(addr));
-        // Check instruction at offset 0x160 (0xf7fa7160)
-        uint32_t *insn_at_160 = (uint32_t *)(ptr + 0x160);
-        fprintf(stderr, "[TLB DEBUG] insn at 0xf7fa7160=0x%08x (expected 0x17ffff37)\n", *insn_at_160);
-        uint32_t *insn_at_164 = (uint32_t *)(ptr + 0x164);
-        fprintf(stderr, "[TLB DEBUG] insn at 0xf7fa7164=0x%08x (expected 0xcb050042)\n", *insn_at_164);
-        // Also dump first few bytes to see what page this actually is
-        fprintf(stderr, "[TLB DEBUG] first 16 bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
-                ((unsigned char*)ptr)[0], ((unsigned char*)ptr)[1], ((unsigned char*)ptr)[2], ((unsigned char*)ptr)[3],
-                ((unsigned char*)ptr)[4], ((unsigned char*)ptr)[5], ((unsigned char*)ptr)[6], ((unsigned char*)ptr)[7],
-                ((unsigned char*)ptr)[8], ((unsigned char*)ptr)[9], ((unsigned char*)ptr)[10], ((unsigned char*)ptr)[11],
-                ((unsigned char*)ptr)[12], ((unsigned char*)ptr)[13], ((unsigned char*)ptr)[14], ((unsigned char*)ptr)[15]);
-    }
-#endif
 
     void *result = (void *) (tlb_ent->data_minus_addr + addr);
     return result;
@@ -373,7 +342,6 @@ __no_instrument int c_load8_sx32(struct tlb *tlb, addr_t addr, int32_t *out) {
 
 // Store functions - return 0 on success, -1 on segfault
 __no_instrument int c_store64(struct tlb *tlb, addr_t addr, uint64_t value) {
-    // Debug: disabled
 #if 0  // Debug: track stores to help debug SIMD STP
 #define DEBUG_STORE_ADDR 0x7fffd8c0ULL  // buf_size address (FILE+0x60 where FILE is at 0x7fffd860)
     // Debug: specifically trace stores to buf_size (FILE+0x60 = 0x7fffd8e8)
@@ -470,7 +438,6 @@ __no_instrument int c_store64(struct tlb *tlb, addr_t addr, uint64_t value) {
 }
 
 __no_instrument int c_store32(struct tlb *tlb, addr_t addr, uint32_t value) {
-    // Debug: disabled
 #if defined(GUEST_ARM64) && defined(WATCH_ADDR)
     if (WATCH_MATCH_ANY(addr)) {
         uint64_t pc = current ? current->cpu.pc : 0;
@@ -740,7 +707,6 @@ __no_instrument int c_ldp32(struct tlb *tlb, addr_t addr, uint32_t *val1, uint32
 }
 
 __no_instrument int c_stp64(struct tlb *tlb, addr_t addr, uint64_t val1, uint64_t val2) {
-    // Debug: disabled
 #if defined(GUEST_ARM64) && defined(WATCH_ADDR)
     if (WATCH_MATCH_ANY(addr) || WATCH_MATCH_ANY(addr + 8)) {
         uint64_t pc = current ? current->cpu.pc : 0;
@@ -776,7 +742,6 @@ __no_instrument int c_stp64(struct tlb *tlb, addr_t addr, uint64_t val1, uint64_
 }
 
 __no_instrument int c_stp32(struct tlb *tlb, addr_t addr, uint32_t val1, uint32_t val2) {
-    // Debug: disabled
 #if defined(GUEST_ARM64) && defined(WATCH_ADDR)
     if (WATCH_MATCH_ANY(addr) || WATCH_MATCH_ANY(addr + 4)) {
         uint64_t pc = current ? current->cpu.pc : 0;

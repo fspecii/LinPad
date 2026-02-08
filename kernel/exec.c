@@ -346,7 +346,7 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
 #endif
         {AX_SYSINFO_EHDR, current->mm->vdso},
 #if defined(GUEST_ARM64)
-        {AX_HWCAP, 0xbb}, // FP|ASIMD|AES|PMULL|SHA1|CRC32 (no SHA256 bit6, no SHA512 bit12)
+        {AX_HWCAP, 0x03}, // FP|ASIMD only — crypto NEON instructions not fully implemented
 #else
         {AX_HWCAP, 0x00000000}, // suck that
 #endif
@@ -769,6 +769,43 @@ dword_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
         args += strlen(args) + 1;
     }
     STRACE("})");
+
+#if defined(GUEST_ARM64)
+    // Force-inject environment variables into every execve'd process.
+    // mode=0: inject only if not present, mode=1: replace existing value
+    static const struct { const char *kv; size_t prefix_len; int mode; } inject_envs[] = {
+        { "OPENSSL_armcap=0", 15, 1 },        // FORCE disable NEON crypto (mode=1: always replace)
+        { "PYTHONMALLOC=malloc", 13, 1 },      // FORCE bypass pymalloc arenas (mode=1: always replace)
+        { "NO_COLOR=1", 9, 0 },                // Disable color output
+        { "PIP_PROGRESS_BAR=off", 17, 0 },     // Disable pip progress bar
+        { "PYTHONDONTWRITEBYTECODE=1", 25, 0 }, // Skip .pyc generation to reduce allocs
+    };
+    for (size_t vi = 0; vi < sizeof(inject_envs)/sizeof(inject_envs[0]); vi++) {
+        char *e = envp;
+        char *found_at = NULL;
+        while (*e != '\0') {
+            if (strncmp(e, inject_envs[vi].kv, inject_envs[vi].prefix_len) == 0)
+                found_at = e;
+            e += strlen(e) + 1;
+        }
+        size_t total_used = (e - envp) + 1; // includes final \0
+        if (found_at != NULL && inject_envs[vi].mode == 1) {
+            // Replace: remove old value, then append new one
+            size_t old_len = strlen(found_at) + 1;
+            size_t tail = total_used - (found_at - envp) - old_len;
+            memmove(found_at, found_at + old_len, tail);
+            total_used -= old_len;
+            found_at = NULL; // treat as not found so it gets appended
+        }
+        if (found_at == NULL) {
+            size_t inject_len = strlen(inject_envs[vi].kv) + 1;
+            if (total_used + inject_len + 1 <= ARGV_MAX) {
+                memcpy(envp + total_used - 1, inject_envs[vi].kv, inject_len);
+                envp[total_used - 1 + inject_len] = '\0';
+            }
+        }
+    }
+#endif
 
     err = do_execve(filename, argc, argv, envp);
 
