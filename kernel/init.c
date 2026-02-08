@@ -127,6 +127,12 @@ void set_console_device(int major, int minor) {
 
 int create_stdio(const char *file, int major, int minor) {
     struct fd *fd = generic_open(file, O_RDWR_, 0);
+    if (!IS_ERR(fd) && !S_ISCHR(fd->stat.mode)) {
+        // opened a regular file instead of a char device (e.g. realfs
+        // can't create device nodes), so close it and use fallback
+        fd_close(fd);
+        fd = ERR_PTR(_ENOENT);
+    }
     if (IS_ERR(fd)) {
         // fallback to adhoc files for stdio
         fd = adhoc_fd_create(NULL);

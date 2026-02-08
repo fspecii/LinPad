@@ -272,6 +272,12 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     if (cpu->poked_ptr == NULL)
         cpu->poked_ptr = &cpu->_poked;
+#ifdef GUEST_ARM64
+    // Invalidate exclusive monitor on every entry to JIT.
+    // Any interrupt/exception/context switch clears the exclusive state,
+    // ensuring STXR will fail if the monitor was set in a previous run.
+    cpu->excl_addr = UINT64_MAX;
+#endif
     tlb_refresh(tlb, cpu->mmu);
     int interrupt = (CPU_HAS_SINGLE_STEP ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb);
     cpu->trapno = interrupt;
@@ -279,16 +285,22 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     struct asbestos *asbestos = cpu->mmu->asbestos;
     lock(&asbestos->lock);
     if (!list_empty(&asbestos->jetsam)) {
-        // write-lock the jetsam_lock to wait until other asbestos threads get
-        // to this point, so they will all clear out their block pointers
-        // TODO: use RCU for better performance
+        // Try to write-lock the jetsam_lock to wait until other asbestos
+        // threads finish executing. Use trylock to avoid deadlocking with
+        // threads that are inside mem_ptr's lock upgrade (they hold
+        // jetsam_lock read while waiting for mem->lock write, but we hold
+        // mem->lock read). If trylock fails, skip cleanup — it will be
+        // retried on the next interrupt.
         unlock(&asbestos->lock);
-        write_wrlock(&asbestos->jetsam_lock);
-        lock(&asbestos->lock);
-        fiber_free_jetsam(asbestos);
-        write_wrunlock(&asbestos->jetsam_lock);
+        if (write_wrtrylock(&asbestos->jetsam_lock)) {
+            lock(&asbestos->lock);
+            fiber_free_jetsam(asbestos);
+            write_wrunlock(&asbestos->jetsam_lock);
+            unlock(&asbestos->lock);
+        }
+    } else {
+        unlock(&asbestos->lock);
     }
-    unlock(&asbestos->lock);
 
     return interrupt;
 }

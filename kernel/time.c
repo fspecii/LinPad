@@ -12,6 +12,8 @@
 #include "kernel/time.h"
 #include "fs/poll.h"
 
+#define TIMER_ABSTIME_ (1 << 0)
+
 static int clockid_to_real(uint_t clock, clockid_t *real) {
     switch (clock) {
         case CLOCK_REALTIME_:
@@ -206,6 +208,49 @@ dword_t sys_nanosleep(addr_t req_addr, addr_t rem_addr) {
     return 0;
 }
 
+dword_t sys_clock_nanosleep(dword_t clock, dword_t flags, addr_t req_addr, addr_t rem_addr) {
+    struct timespec_ req_ts;
+    if (user_get(req_addr, req_ts))
+        return _EFAULT;
+    STRACE("clock_nanosleep(%d, %d, {%lld, %lld}, 0x%x)", clock, flags,
+           (long long)req_ts.sec, (long long)req_ts.nsec, rem_addr);
+
+    clockid_t real_clock;
+    if (clockid_to_real(clock, &real_clock))
+        return _EINVAL;
+
+    struct timespec req;
+    req.tv_sec = req_ts.sec;
+    req.tv_nsec = req_ts.nsec;
+
+    if (flags & TIMER_ABSTIME_) {
+        // Convert absolute time to relative by subtracting current time
+        struct timespec now;
+        if (clock_gettime(real_clock, &now) < 0)
+            return errno_map();
+        req.tv_sec -= now.tv_sec;
+        req.tv_nsec -= now.tv_nsec;
+        if (req.tv_nsec < 0) {
+            req.tv_sec--;
+            req.tv_nsec += 1000000000;
+        }
+        if (req.tv_sec < 0)
+            return 0; // Already past the target time
+    }
+
+    struct timespec rem;
+    if (nanosleep(&req, &rem) < 0)
+        return errno_map();
+    if (rem_addr != 0 && !(flags & TIMER_ABSTIME_)) {
+        struct timespec_ rem_ts;
+        rem_ts.sec = rem.tv_sec;
+        rem_ts.nsec = rem.tv_nsec;
+        if (user_put(rem_addr, rem_ts))
+            return _EFAULT;
+    }
+    return 0;
+}
+
 dword_t sys_times(addr_t tbuf) {
     STRACE("times(0x%x)", tbuf);
     if (tbuf) {
@@ -315,8 +360,6 @@ int_t sys_timer_create(dword_t clock, addr_t sigevent_addr, addr_t timer_addr) {
     unlock(&group->lock);
     return 0;
 }
-
-#define TIMER_ABSTIME_ (1 << 0)
 
 int_t sys_timer_settime(dword_t timer_id, int_t flags, addr_t new_value_addr, addr_t old_value_addr) {
     STRACE("timer_settime(%d, %d, %#x, %#x)", timer_id, flags, new_value_addr, old_value_addr);

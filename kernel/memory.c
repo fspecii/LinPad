@@ -32,6 +32,7 @@ void mem_init(struct mem *mem) {
     mem->mmu.asbestos = asbestos_new(&mem->mmu);
     mem->mmu.changes = 0;
     wrlock_init(&mem->lock);
+    lock_init(&mem->cow_lock);
 }
 
 void mem_destroy(struct mem *mem) {
@@ -263,10 +264,6 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
 
         // Changing memory maps must be done with the write lock. But this is
         // called with the read lock.
-        // This locking stuff is copy/pasted for all the code in this function
-        // which changes memory maps.
-        // TODO: factor the lock/unlock code here into a new function. Do this
-        // next time you touch this function.
         read_wrunlock(&mem->lock);
         write_wrlock(&mem->lock);
         pt_map_nothing(mem, page, 1, P_WRITE | P_GROWSDOWN);

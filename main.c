@@ -45,12 +45,14 @@ int main(int argc, char *const argv[]) {
     sigaction(SIGABRT, &sa, NULL);
     sigaction(SIGILL, &sa, NULL);
     sigaction(SIGTRAP, &sa, NULL);
-    char envp[200] = {0};
+    char envp[512] = {0};
     size_t p = 0;
     if (getenv("TERM")) {
         const char *term = getenv("TERM");
         p += snprintf(envp + p, sizeof(envp) - p, "TERM=%s", term) + 1;
     }
+    p += snprintf(envp + p, sizeof(envp) - p, "HOME=/root") + 1;
+    p += snprintf(envp + p, sizeof(envp) - p, "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin") + 1;
 #ifdef GUEST_ARM64
     p += snprintf(envp + p, sizeof(envp) - p, "OPENSSL_armcap=0") + 1;
     p += snprintf(envp + p, sizeof(envp) - p, "PYTHONMALLOC=malloc") + 1;

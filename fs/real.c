@@ -256,8 +256,36 @@ int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off
     off_t real_offset = (offset / real_page_size) * real_page_size;
     off_t correction = offset - real_offset;
     size_t map_size = (pages * PAGE_SIZE) + correction;
+
+    // Check if the mapping extends beyond the file size.
+    // On macOS, accessing pages in a file-backed MAP_PRIVATE mapping that
+    // are beyond EOF causes SIGBUS. To avoid this, clamp the file mapping
+    // to the file size and use anonymous memory for the rest.
+    struct stat st;
+    if (fstat(fd->real_fd, &st) == 0 && (off_t)(real_offset + map_size) > st.st_size) {
+        // Mapping extends beyond file — use anonymous + pread instead
+        char *memory = mmap(NULL, map_size,
+                PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (memory == MAP_FAILED)
+            return _ENOMEM;
+        // Read file data into the anonymous mapping
+        size_t file_bytes = 0;
+        if (st.st_size > real_offset)
+            file_bytes = st.st_size - real_offset;
+        if (file_bytes > map_size)
+            file_bytes = map_size;
+        if (file_bytes > 0)
+            pread(fd->real_fd, memory, file_bytes, real_offset);
+        // If the mapping should be read-only, mprotect after filling
+        if (!(mmap_prot & PROT_WRITE))
+            mprotect(memory, map_size, mmap_prot);
+        return pt_map(mem, start, pages, memory, correction, prot);
+    }
+
     char *memory = mmap(NULL, map_size,
             mmap_prot, mmap_flags, fd->real_fd, real_offset);
+    if (memory == MAP_FAILED)
+        return _ENOMEM;
     return pt_map(mem, start, pages, memory, correction, prot);
 }
 

@@ -298,6 +298,13 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
     // allocate 1 page of stack at 0xffffd, and let it grow down
     if ((err = pt_map_nothing(current->mem, 0xffffd, 1, P_WRITE | P_GROWSDOWN)) < 0)
         goto beyond_hope;
+    // Map a read-only guard page above the stack (page 0xffffe).
+    // SP starts at 0xffffe000 (top of stack). Some programs (e.g. ffmpeg
+    // motion estimation) read slightly past buffer boundaries that abut the
+    // stack. Without this guard page, those reads hit unmapped memory and
+    // cause a fatal SIGSEGV. The guard is read-only so writes still fault.
+    if ((err = pt_map_nothing(current->mem, 0xffffe, 1, P_READ)) < 0)
+        goto beyond_hope;
     // that was the last memory mapping
     write_wrunlock(&current->mem->lock);
     dword_t sp = 0xffffe000;

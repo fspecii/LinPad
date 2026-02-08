@@ -34,29 +34,15 @@
     cmp x9, #31
     b.eq 1f
     ldr x12, [x11, x9, lsl #3]
-    // DEBUG: check base reg has clean high 32 bits
-    lsr x13, x12, #32
-    cbnz x13, calc_addr_dirty_base
+    and x12, x12, #0xffffffff   // truncate to 32-bit guest address
     b 2f
 1:  ldr x12, [_cpu, #CPU_sp]
-    // DEBUG: check SP has clean high 32 bits
-    lsr x13, x12, #32
-    cbnz x13, sp_corrupted_in_block
+    and x12, x12, #0xffffffff
 2:
-    // Calculate address (full 64-bit for ARM64 guest)
+    // Calculate address (32-bit base + signed offset)
     add _addr, x12, x10
 
     gret
-
-calc_addr_dirty_base:
-    // Guest register x<rn> has non-zero high 32 bits in calc_addr_imm
-    // x9 = rn, x12 = dirty value
-    str x12, [_cpu, #LOCAL_value]
-    str x9, [_cpu, #LOCAL_value_addr]
-    str w12, [_cpu, #CPU_segfault_addr]
-    strb wzr, [_cpu, #CPU_segfault_was_write]
-    mov w0, #INT_GPF
-    b fiber_exit
 
 // Calculate address for PC-relative literal loads
 // Code stream: [gadget addr][64-bit target address]
@@ -77,18 +63,21 @@ calc_addr_dirty_base:
     ubfx x11, x8, #16, #3   // extend type
     ubfx x12, x8, #24, #3   // shift amount
 
-    // Load base
+    // Load base (truncate to 32-bit: guest addresses are 32-bit)
     add x13, _cpu, #CPU_x0
     cmp x9, #31
     b.eq 1f
     ldr x14, [x13, x9, lsl #3]
+    and x14, x14, #0xffffffff
     b 2f
 1:  ldr x14, [_cpu, #CPU_sp]
+    and x14, x14, #0xffffffff
 2:
-    // Load index
+    // Load index (truncate to 32-bit: guest register values used as index)
     cmp x10, #31
     b.eq 3f
     ldr x15, [x13, x10, lsl #3]
+    and x15, x15, #0xffffffff
     b 4f
 3:  mov x15, #0
 4:
@@ -298,6 +287,7 @@ calc_addr_dirty_base:
     cmp x9, #31
     b.eq 1f
     ldr x12, [x11, x9, lsl #3]
+    and x12, x12, #0xffffffff
     b 2f
 1:  ldr x12, [_cpu, #CPU_sp]
 2:  add _addr, x12, x10
@@ -323,6 +313,7 @@ calc_addr_dirty_base:
     cmp x9, #31
     b.eq 1f
     ldr x12, [x11, x9, lsl #3]
+    and x12, x12, #0xffffffff
     b 2f
 1:  ldr x12, [_cpu, #CPU_sp]
 2:  add _addr, x12, x10
@@ -348,6 +339,7 @@ calc_addr_dirty_base:
     cmp x9, #31
     b.eq 1f
     ldr x12, [x11, x9, lsl #3]
+    and x12, x12, #0xffffffff
     b 2f
 1:  ldr x12, [_cpu, #CPU_sp]
 2:  add _addr, x12, x10
@@ -373,11 +365,9 @@ calc_addr_dirty_base:
     cmp x9, #31
     b.eq 1f
     ldr x12, [x11, x9, lsl #3]
-    // DEBUG: check if base register has dirty high 32 bits
-    lsr x13, x12, #32
-    cbnz x13, load8_imm_dirty_base
+    and x12, x12, #0xffffffff  // 32-bit load: truncates to guest address
     b 2f
-1:  ldr x12, [_cpu, #CPU_sp]
+1:  ldr w12, [_cpu, #CPU_sp]
 2:  add _addr, x12, x10
     mov x24, _addr
     read_prep 8, load8_imm_1
@@ -391,19 +381,6 @@ calc_addr_dirty_base:
     gret
     read_bullshit 8, load8_imm_1
 
-load8_imm_dirty_base:
-    // Guest register x<rn> has non-zero high 32 bits
-    // x9 = rn, x12 = dirty value, x22 = packed params
-    // Store dirty 64-bit value in LOCAL_value for C code to read
-    str x12, [_cpu, #LOCAL_value]
-    // Store rn in LOCAL_value_addr for identification
-    str x9, [_cpu, #LOCAL_value_addr]
-    // Store truncated addr for the normal handler
-    str w12, [_cpu, #CPU_segfault_addr]
-    strb wzr, [_cpu, #CPU_segfault_was_write]
-    mov w0, #INT_GPF
-    b fiber_exit
-
 // LDRSW Xd, [Xn, #imm] - fused 32-bit sign-extending load with unsigned offset
 .gadget load32_sx_imm
     ldr x22, [_pc]
@@ -414,6 +391,7 @@ load8_imm_dirty_base:
     cmp x9, #31
     b.eq 1f
     ldr x12, [x11, x9, lsl #3]
+    and x12, x12, #0xffffffff
     b 2f
 1:  ldr x12, [_cpu, #CPU_sp]
 2:  add _addr, x12, x10
@@ -445,6 +423,7 @@ load8_imm_dirty_base:
     cmp x9, #31
     b.eq 3f
     ldr x12, [x11, x9, lsl #3]
+    and x12, x12, #0xffffffff
     b 4f
 3:  ldr x12, [_cpu, #CPU_sp]
 4:  add _addr, x12, x10
@@ -472,6 +451,7 @@ load8_imm_dirty_base:
     cmp x9, #31
     b.eq 3f
     ldr x12, [x11, x9, lsl #3]
+    and x12, x12, #0xffffffff
     b 4f
 3:  ldr x12, [_cpu, #CPU_sp]
 4:  add _addr, x12, x10
@@ -499,6 +479,7 @@ load8_imm_dirty_base:
     cmp x9, #31
     b.eq 3f
     ldr x12, [x11, x9, lsl #3]
+    and x12, x12, #0xffffffff
     b 4f
 3:  ldr x12, [_cpu, #CPU_sp]
 4:  add _addr, x12, x10
@@ -526,6 +507,7 @@ load8_imm_dirty_base:
     cmp x9, #31
     b.eq 3f
     ldr x12, [x11, x9, lsl #3]
+    and x12, x12, #0xffffffff
     b 4f
 3:  ldr x12, [_cpu, #CPU_sp]
 4:  add _addr, x12, x10
@@ -569,12 +551,15 @@ load8_imm_dirty_base:
     cmp x9, #31
     b.eq 1f
     ldr x14, [x11, x9, lsl #3]
+    and x14, x14, #0xffffffff
     b 2f
 1:  ldr x14, [_cpu, #CPU_sp]
+    and x14, x14, #0xffffffff
 2:  // Load index
     cmp x10, #31
     b.eq 3f
     ldr x15, [x11, x10, lsl #3]
+    and x15, x15, #0xffffffff
     b 4f
 3:  mov x15, #0
 4:  lsl x15, x15, x12           // apply shift
@@ -602,11 +587,14 @@ load8_imm_dirty_base:
     cmp x9, #31
     b.eq 1f
     ldr x14, [x11, x9, lsl #3]
+    and x14, x14, #0xffffffff
     b 2f
 1:  ldr x14, [_cpu, #CPU_sp]
+    and x14, x14, #0xffffffff
 2:  cmp x10, #31
     b.eq 3f
     ldr x15, [x11, x10, lsl #3]
+    and x15, x15, #0xffffffff
     b 4f
 3:  mov x15, #0
 4:  lsl x15, x15, x12
@@ -634,11 +622,14 @@ load8_imm_dirty_base:
     cmp x9, #31
     b.eq 1f
     ldr x14, [x11, x9, lsl #3]
+    and x14, x14, #0xffffffff
     b 2f
 1:  ldr x14, [_cpu, #CPU_sp]
+    and x14, x14, #0xffffffff
 2:  cmp x10, #31
     b.eq 3f
     ldr x15, [x11, x10, lsl #3]
+    and x15, x15, #0xffffffff
     b 4f
 3:  mov x15, #0
 4:  lsl x15, x15, x12
@@ -666,11 +657,14 @@ load8_imm_dirty_base:
     cmp x9, #31
     b.eq 1f
     ldr x14, [x11, x9, lsl #3]
+    and x14, x14, #0xffffffff
     b 2f
 1:  ldr x14, [_cpu, #CPU_sp]
+    and x14, x14, #0xffffffff
 2:  cmp x10, #31
     b.eq 3f
     ldr x15, [x11, x10, lsl #3]
+    and x15, x15, #0xffffffff
     b 4f
 3:  mov x15, #0
 4:  lsl x15, x15, x12
@@ -698,11 +692,14 @@ load8_imm_dirty_base:
     cmp x9, #31
     b.eq 1f
     ldr x14, [x11, x9, lsl #3]
+    and x14, x14, #0xffffffff
     b 2f
 1:  ldr x14, [_cpu, #CPU_sp]
+    and x14, x14, #0xffffffff
 2:  cmp x10, #31
     b.eq 3f
     ldr x15, [x11, x10, lsl #3]
+    and x15, x15, #0xffffffff
     b 4f
 3:  mov x15, #0
 4:  lsl x15, x15, x12
@@ -736,11 +733,14 @@ load8_imm_dirty_base:
     cmp x9, #31
     b.eq 3f
     ldr x14, [x11, x9, lsl #3]
+    and x14, x14, #0xffffffff
     b 4f
 3:  ldr x14, [_cpu, #CPU_sp]
+    and x14, x14, #0xffffffff
 4:  cmp x10, #31
     b.eq 5f
     ldr x15, [x11, x10, lsl #3]
+    and x15, x15, #0xffffffff
     b 6f
 5:  mov x15, #0
 6:  lsl x15, x15, x12
@@ -770,11 +770,14 @@ load8_imm_dirty_base:
     cmp x9, #31
     b.eq 3f
     ldr x14, [x11, x9, lsl #3]
+    and x14, x14, #0xffffffff
     b 4f
 3:  ldr x14, [_cpu, #CPU_sp]
+    and x14, x14, #0xffffffff
 4:  cmp x10, #31
     b.eq 5f
     ldr x15, [x11, x10, lsl #3]
+    and x15, x15, #0xffffffff
     b 6f
 5:  mov x15, #0
 6:  lsl x15, x15, x12
@@ -804,11 +807,14 @@ load8_imm_dirty_base:
     cmp x9, #31
     b.eq 3f
     ldr x14, [x11, x9, lsl #3]
+    and x14, x14, #0xffffffff
     b 4f
 3:  ldr x14, [_cpu, #CPU_sp]
+    and x14, x14, #0xffffffff
 4:  cmp x10, #31
     b.eq 5f
     ldr x15, [x11, x10, lsl #3]
+    and x15, x15, #0xffffffff
     b 6f
 5:  mov x15, #0
 6:  lsl x15, x15, x12
@@ -838,11 +844,14 @@ load8_imm_dirty_base:
     cmp x9, #31
     b.eq 3f
     ldr x14, [x11, x9, lsl #3]
+    and x14, x14, #0xffffffff
     b 4f
 3:  ldr x14, [_cpu, #CPU_sp]
+    and x14, x14, #0xffffffff
 4:  cmp x10, #31
     b.eq 5f
     ldr x15, [x11, x10, lsl #3]
+    and x15, x15, #0xffffffff
     b 6f
 5:  mov x15, #0
 6:  lsl x15, x15, x12
@@ -982,12 +991,14 @@ atomic_cas_segfault:
     cmp x9, #31
     b.eq 1f
     ldr x12, [x11, x9, lsl #3]
+    and x12, x12, #0xffffffff
     // Update and store back (64-bit for ARM64 guest)
     add x12, x12, x10
     str x12, [x11, x9, lsl #3]
     gret
 1:  // SP update (64-bit for ARM64 guest)
     ldr x12, [_cpu, #CPU_sp]
+    and x12, x12, #0xffffffff
     add x12, x12, x10
     // DEBUG: validate updated SP
     lsr x13, x12, #32
@@ -1037,24 +1048,16 @@ sp_update_bad:
     and x9, x8, #0x1f       // rn
 
     // Load base register (or SP if rn == 31)
+    // Truncate to 32-bit: guest addresses are always 32-bit
     add x11, _cpu, #CPU_x0
     cmp x9, #31
     b.eq 1f
     ldr _addr, [x11, x9, lsl #3]
-    // DEBUG: check base reg has clean high 32 bits
-    lsr x13, _addr, #32
-    cbnz x13, calc_base_dirty
+    and _addr, _addr, #0xffffffff   // truncate to 32-bit guest address
     gret
 1:  ldr _addr, [_cpu, #CPU_sp]
+    and _addr, _addr, #0xffffffff
     gret
-
-calc_base_dirty:
-    str _addr, [_cpu, #LOCAL_value]
-    str x9, [_cpu, #LOCAL_value_addr]
-    str w7, [_cpu, #CPU_segfault_addr]
-    strb wzr, [_cpu, #CPU_segfault_was_write]
-    mov w0, #INT_GPF
-    b fiber_exit
 
 /*
  * Load/Store Pair gadgets (LDP/STP) with inline TLB lookup
@@ -1155,6 +1158,68 @@ calc_base_dirty:
     write_bullshit 64, stp32_1
 
 /*
+ * Interleaved SIMD load/store gadgets (LD2/LD3/LD4, ST2/ST3/ST4)
+ * These call C helper functions for the deinterleaving/interleaving logic.
+ * Code stream: [gadget addr][rt | (num_regs<<8) | (elem_size<<16) | (Q<<24)]
+ * _addr must contain the guest base address.
+ */
+
+.gadget simd_load_interleaved
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    mov x23, _addr              // save address
+
+    save_c
+    mov x0, _cpu                // cpu
+    sub x1, _tlb, #TLB_entries  // tlb (base pointer)
+    mov x2, x23                 // addr
+    and w3, w22, #0xff          // rt
+    ubfx w4, w22, #8, #8        // num_regs
+    ubfx w5, w22, #16, #8       // elem_size
+    ubfx w6, w22, #24, #8       // Q
+    bl NAME(c_simd_load_interleaved)
+    mov w19, w0
+    restore_c
+    mov _addr, x23              // restore _addr
+
+    cbnz w19, simd_interleaved_read_segfault
+    gret
+
+simd_interleaved_read_segfault:
+    str x23, [_cpu, #CPU_segfault_addr]
+    strb wzr, [_cpu, #CPU_segfault_was_write]
+    mov w0, #INT_GPF
+    b fiber_exit
+
+.gadget simd_store_interleaved
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    mov x23, _addr              // save address
+
+    save_c
+    mov x0, _cpu                // cpu
+    sub x1, _tlb, #TLB_entries  // tlb (base pointer)
+    mov x2, x23                 // addr
+    and w3, w22, #0xff          // rt
+    ubfx w4, w22, #8, #8        // num_regs
+    ubfx w5, w22, #16, #8       // elem_size
+    ubfx w6, w22, #24, #8       // Q
+    bl NAME(c_simd_store_interleaved)
+    mov w19, w0
+    restore_c
+    mov _addr, x23              // restore _addr
+
+    cbnz w19, simd_interleaved_write_segfault
+    gret
+
+simd_interleaved_write_segfault:
+    str x23, [_cpu, #CPU_segfault_addr]
+    mov w8, #1
+    strb w8, [_cpu, #CPU_segfault_was_write]
+    mov w0, #INT_GPF
+    b fiber_exit
+
+/*
  * Address manipulation gadgets
  */
 
@@ -1175,23 +1240,26 @@ calc_base_dirty:
     and x9, x8, #0x1f       // rn (base register to update)
     ubfx x10, x8, #8, #5    // rm (offset register)
 
-    // Load offset from Rm
+    // Load offset from Rm (truncate to 32-bit)
     add x11, _cpu, #CPU_x0
     cmp x10, #31
     b.eq 1f
     ldr x12, [x11, x10, lsl #3]
+    and x12, x12, #0xffffffff
     b 2f
 1:  mov x12, #0
 2:
-    // Load current base (64-bit for ARM64 guest)
+    // Load current base (truncate to 32-bit guest address)
     cmp x9, #31
     b.eq 3f
     ldr x13, [x11, x9, lsl #3]
+    and x13, x13, #0xffffffff
     add x13, x13, x12
     str x13, [x11, x9, lsl #3]
     gret
-3:  // Update SP (64-bit for ARM64 guest)
+3:  // Update SP (32-bit guest address)
     ldr x13, [_cpu, #CPU_sp]
+    and x13, x13, #0xffffffff
     add x13, x13, x12
     str x13, [_cpu, #CPU_sp]
     gret
@@ -1480,6 +1548,139 @@ sp_corrupted_in_block:
     str x12, [_cpu, #CPU_segfault_addr]
     str x12, [_cpu, #CPU_sp]  // write it so page fault handler can dump it
     mov w8, #0
+    strb w8, [_cpu, #CPU_segfault_was_write]
+    mov w0, #INT_GPF
+    b fiber_exit
+
+/*
+ * LDXR — Load exclusive with exclusive monitor save
+ * Code stream: [gadget addr][rt | (size << 8)]
+ * Expects _addr = guest address (from calc_addr_imm)
+ * Loads value, saves addr+value to cpu excl_addr/excl_val, stores to Rt
+ */
+.gadget ldxr
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+
+    and x23, x22, #0x1f        // rt
+    ubfx x11, x22, #8, #2      // size (0=8b, 1=16b, 2=32b, 3=64b)
+
+    // Inline TLB read - use read_prep for size 32 (we'll handle actual size in load)
+    mov x24, _addr
+    read_prep 32, ldxr_1
+
+    // Load based on size
+    cmp x11, #3
+    b.eq ldxr_load64
+    cmp x11, #2
+    b.eq ldxr_load32
+    cmp x11, #1
+    b.eq ldxr_load16
+    // size 0: 8-bit
+    ldrb w0, [_addr]
+    b ldxr_done
+ldxr_load16:
+    ldrh w0, [_addr]
+    b ldxr_done
+ldxr_load32:
+    ldr w0, [_addr]
+    b ldxr_done
+ldxr_load64:
+    ldr x0, [_addr]
+
+ldxr_done:
+    mov _addr, x24              // restore _addr
+
+    // Save to exclusive monitor
+    str _addr, [_cpu, #CPU_excl_addr]
+    str _tmp, [_cpu, #CPU_excl_val]    // _tmp = x0 = loaded value
+
+    // Store to Rt (unless Rt == 31 / XZR)
+    cmp x23, #31
+    b.eq 1f
+    add x9, _cpu, #CPU_x0
+    str _tmp, [x9, x23, lsl #3]
+1:  gret
+
+    read_bullshit 32, ldxr_1
+
+/*
+ * STXR — Store exclusive via atomic CAS
+ * Code stream: [gadget addr][rt | (rs << 8) | (size << 16)]
+ * Expects _addr = guest address (from calc_addr_imm)
+ * Checks excl_addr match, does atomic CAS, stores result to Rs
+ */
+.gadget stxr
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+
+    and x23, x22, #0x1f         // rt (new value register)
+    ubfx x25, x22, #8, #5       // rs (status result register)
+    ubfx x26, x22, #16, #2      // size
+
+    mov x24, _addr               // save guest address
+
+    // Check exclusive monitor: does excl_addr match current address?
+    ldr x8, [_cpu, #CPU_excl_addr]
+    cmp x8, _addr
+    b.ne stxr_fail               // mismatch -> fail
+
+    // Load the new value from Rt
+    add x12, _cpu, #CPU_x0
+    cmp x23, #31
+    b.eq 1f
+    ldr x13, [x12, x23, lsl #3]
+    b 2f
+1:  mov x13, #0                  // XZR
+2:
+    // Load expected value from exclusive monitor
+    ldr x14, [_cpu, #CPU_excl_val]
+
+    // Call C helper: c_stxr_cas(tlb, addr, expected_val, new_val, size)
+    save_c
+    sub x0, _tlb, #TLB_entries   // tlb struct pointer
+    mov x1, x24                  // guest address
+    mov x2, x14                  // expected value (from LDXR)
+    mov x3, x13                  // new value (from Rt)
+    mov w4, w26                  // size
+    bl NAME(c_stxr_cas)
+    mov w19, w0                  // save result (0=success, 1=fail, -1=segfault)
+    restore_c
+    mov _addr, x24               // restore _addr
+
+    // Check for segfault
+    cmn w19, #1
+    b.eq stxr_segfault
+
+    // Invalidate exclusive monitor
+    movn x8, #0
+    str x8, [_cpu, #CPU_excl_addr]
+
+    // Store result to Rs (w19 = 0 or 1)
+    cmp x25, #31
+    b.eq 3f                      // Rs == XZR, discard
+    add x9, _cpu, #CPU_x0
+    and x8, x19, #0xff          // zero-extend w19 to 64-bit
+    str x8, [x9, x25, lsl #3]   // store to Rs
+3:  gret
+
+stxr_fail:
+    // Exclusive monitor mismatch — store failed
+    movn x8, #0
+    str x8, [_cpu, #CPU_excl_addr]
+    cmp x25, #31
+    b.eq 4f
+    add x9, _cpu, #CPU_x0
+    mov x8, #1
+    str x8, [x9, x25, lsl #3]   // Rs = 1 (failure)
+4:  gret
+
+stxr_segfault:
+    // Invalidate exclusive monitor
+    movn x8, #0
+    str x8, [_cpu, #CPU_excl_addr]
+    str x24, [_cpu, #CPU_segfault_addr]
+    mov w8, #1
     strb w8, [_cpu, #CPU_segfault_was_write]
     mov w0, #INT_GPF
     b fiber_exit

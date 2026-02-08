@@ -16,6 +16,7 @@ struct mem {
     struct mmu mmu;
 
     wrlock_t lock;
+    lock_t cow_lock; // serializes COW page copies without upgrading rwlock
 };
 #define MEM_PGDIR_SIZE (1 << 10)
 

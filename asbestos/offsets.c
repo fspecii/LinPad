@@ -93,6 +93,10 @@ void cpu() {
     OFFSET(CPU, cpu_state, fp);
     OFFSET(CPU, cpu_state, fpcr);
     OFFSET(CPU, cpu_state, fpsr);
+
+    // Exclusive monitor
+    OFFSET(CPU, cpu_state, excl_addr);
+    OFFSET(CPU, cpu_state, excl_val);
 #endif
 
     // Common offsets

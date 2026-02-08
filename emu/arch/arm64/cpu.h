@@ -69,6 +69,10 @@ struct cpu_state {
     // Thread Local Storage pointer (TPIDR_EL0)
     uint64_t tls_ptr;
 
+    // Exclusive monitor for LDXR/STXR atomicity
+    uint64_t excl_addr;   // Guest address from last LDXR (0xFFFFFFFF = invalid)
+    uint64_t excl_val;    // Value loaded by last LDXR
+
     // For the page fault handler
     addr_t segfault_addr;
     bool segfault_was_write;

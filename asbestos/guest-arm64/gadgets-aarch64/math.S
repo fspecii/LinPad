@@ -5435,6 +5435,226 @@ msub_store:
     gret
 
 /*
+ * Vector FP two-register misc conversion instructions
+ * Code stream: [gadget addr][rd | rn<<8 | sz<<16 | Q<<24]
+ * sz: 0=single, 1=double
+ * Q: 0=lower half, 1=full
+ *
+ * Macro: generates gadgets for FP conversions (pass-through to native NEON)
+ */
+.macro make_fp_vec_two_reg_misc name, insn
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #1   // sz (0=single, 1=double)
+    ubfx x17, x8, #24, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+
+    ldr q0, [x15]
+
+    cbnz x11, .L\name\()_double
+    // Single-precision
+    cbz x17, .L\name\()_2s
+    \insn v0.4s, v0.4s
+    str q0, [x14]
+    gret
+.L\name\()_2s:
+    \insn v0.2s, v0.2s
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_double:
+    // Double-precision (always Q=1 for .2d)
+    \insn v0.2d, v0.2d
+    str q0, [x14]
+    gret
+.endm
+
+make_fp_vec_two_reg_misc scvtf_int, scvtf
+make_fp_vec_two_reg_misc ucvtf_int, ucvtf
+make_fp_vec_two_reg_misc fcvtzs_int, fcvtzs
+make_fp_vec_two_reg_misc fcvtzu_int, fcvtzu
+make_fp_vec_two_reg_misc fcvtns_int, fcvtns
+make_fp_vec_two_reg_misc fcvtnu_int, fcvtnu
+make_fp_vec_two_reg_misc fcvtms_int, fcvtms
+make_fp_vec_two_reg_misc fcvtmu_int, fcvtmu
+make_fp_vec_two_reg_misc fcvtps_int, fcvtps
+make_fp_vec_two_reg_misc fcvtpu_int, fcvtpu
+make_fp_vec_two_reg_misc fcvtas_int, fcvtas
+make_fp_vec_two_reg_misc fcvtau_int, fcvtau
+make_fp_vec_two_reg_misc frintn_vec, frintn
+make_fp_vec_two_reg_misc frinta_vec, frinta
+make_fp_vec_two_reg_misc frintp_vec, frintp
+make_fp_vec_two_reg_misc frintm_vec, frintm
+make_fp_vec_two_reg_misc frintx_vec, frintx
+make_fp_vec_two_reg_misc frintz_vec, frintz
+make_fp_vec_two_reg_misc frinti_vec, frinti
+
+/*
+ * Vector FP compare-with-zero instructions
+ * Code stream: [gadget addr][rd | rn<<8 | sz<<16 | Q<<24]
+ */
+.macro make_fp_vec_cmp_zero name, insn
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #1   // sz (0=single, 1=double)
+    ubfx x17, x8, #24, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+
+    ldr q0, [x15]
+
+    cbnz x11, .L\name\()_double
+    cbz x17, .L\name\()_2s
+    \insn v0.4s, v0.4s, #0.0
+    str q0, [x14]
+    gret
+.L\name\()_2s:
+    \insn v0.2s, v0.2s, #0.0
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_double:
+    \insn v0.2d, v0.2d, #0.0
+    str q0, [x14]
+    gret
+.endm
+
+make_fp_vec_cmp_zero fcmeq_zero, fcmeq
+make_fp_vec_cmp_zero fcmge_zero, fcmge
+make_fp_vec_cmp_zero fcmgt_zero, fcmgt
+make_fp_vec_cmp_zero fcmle_zero, fcmle
+make_fp_vec_cmp_zero fcmlt_zero, fcmlt
+
+/*
+ * Vector FP absolute value / negate
+ * Code stream: [gadget addr][rd | rn<<8 | sz<<16 | Q<<24]
+ */
+.macro make_fp_vec_unary name, insn
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #1   // sz (0=single, 1=double)
+    ubfx x17, x8, #24, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+
+    ldr q0, [x15]
+
+    cbnz x11, .L\name\()_double
+    cbz x17, .L\name\()_2s
+    \insn v0.4s, v0.4s
+    str q0, [x14]
+    gret
+.L\name\()_2s:
+    \insn v0.2s, v0.2s
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_double:
+    \insn v0.2d, v0.2d
+    str q0, [x14]
+    gret
+.endm
+
+make_fp_vec_unary fabs_vec, fabs
+make_fp_vec_unary fneg_vec, fneg
+make_fp_vec_unary fsqrt_vec, fsqrt
+make_fp_vec_unary frecpe_vec, frecpe
+make_fp_vec_unary frsqrte_vec, frsqrte
+
+/*
+ * Integer vector compare-with-zero instructions
+ * Code stream: [gadget addr][rd | rn<<8 | size<<16 | Q<<24]
+ */
+.macro make_int_vec_cmp_zero name, insn
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #2   // size
+    ubfx x17, x8, #24, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+
+    ldr q0, [x15]
+
+    cmp x11, #0
+    b.eq .L\name\()_b
+    cmp x11, #1
+    b.eq .L\name\()_h
+    cmp x11, #2
+    b.eq .L\name\()_s
+    // size == 3 (.2d, always Q=1)
+    \insn v0.2d, v0.2d, #0
+    str q0, [x14]
+    gret
+.L\name\()_b:
+    cbz x17, .L\name\()_8b
+    \insn v0.16b, v0.16b, #0
+    str q0, [x14]
+    gret
+.L\name\()_8b:
+    \insn v0.8b, v0.8b, #0
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_h:
+    cbz x17, .L\name\()_4h
+    \insn v0.8h, v0.8h, #0
+    str q0, [x14]
+    gret
+.L\name\()_4h:
+    \insn v0.4h, v0.4h, #0
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_s:
+    cbz x17, .L\name\()_2s
+    \insn v0.4s, v0.4s, #0
+    str q0, [x14]
+    gret
+.L\name\()_2s:
+    \insn v0.2s, v0.2s, #0
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+make_int_vec_cmp_zero cmgt_zero, cmgt
+make_int_vec_cmp_zero cmge_zero, cmge
+make_int_vec_cmp_zero cmlt_zero, cmlt
+make_int_vec_cmp_zero cmle_zero, cmle
+make_int_vec_cmp_zero cmeq_zero, cmeq
+
+// CLZ/CLS/ABS/NEG/NOT/RBIT vector gadgets use make_twomis_native macro (defined later in this file)
+
+/*
  * CNT - Vector population count (count set bits per byte)
  * Code stream: [gadget addr][rd | rn<<8 | Q<<16]
  * Only valid for .8B (Q=0) and .16B (Q=1)
@@ -7061,16 +7281,282 @@ movi_really_zero:
     gret
 
 /*
- * SSHL - Signed shift left (vector)
+ * Macro for NEON three-same register shift instructions.
+ * All of SRSHL, URSHL, SQSHL, UQSHL, SQRSHL, UQRSHL are native NEON instructions
+ * and support all element sizes including 64-bit (2D with Q=1).
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
- *
- * Same as USHL but right shift is arithmetic (signed).
- * For simplicity, just alias to USHL for now since we're dealing with positive data.
  */
-.gadget sshl_vec
-    // For now, treat same as USHL - the signed vs unsigned difference
-    // only matters for right shifts on negative numbers
-    b NAME(gadget_ushl_vec)
+.macro make_vec_shift_three_same name, insn
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x12, x8, #24, #2   // size
+    ubfx x17, x8, #26, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    lsl x16, x11, #4
+    add x16, x13, x16       // &Vm
+
+    ldr q0, [x15]
+    ldr q1, [x16]
+
+    cmp x12, #0
+    b.eq .L\name\()_size_b
+    cmp x12, #1
+    b.eq .L\name\()_size_h
+    cmp x12, #2
+    b.eq .L\name\()_size_s
+    // size == 3: 64-bit elements (only valid with Q=1)
+    \insn v0.2d, v0.2d, v1.2d
+    b .L\name\()_store_q
+
+.L\name\()_size_b:
+    cbz x17, .L\name\()_b_q0
+    \insn v0.16b, v0.16b, v1.16b
+    b .L\name\()_store_q
+.L\name\()_b_q0:
+    \insn v0.8b, v0.8b, v1.8b
+    b .L\name\()_store_low
+
+.L\name\()_size_h:
+    cbz x17, .L\name\()_h_q0
+    \insn v0.8h, v0.8h, v1.8h
+    b .L\name\()_store_q
+.L\name\()_h_q0:
+    \insn v0.4h, v0.4h, v1.4h
+    b .L\name\()_store_low
+
+.L\name\()_size_s:
+    cbz x17, .L\name\()_s_q0
+    \insn v0.4s, v0.4s, v1.4s
+    b .L\name\()_store_q
+.L\name\()_s_q0:
+    \insn v0.2s, v0.2s, v1.2s
+    b .L\name\()_store_low
+
+.L\name\()_store_q:
+    str q0, [x14]
+    gret
+
+.L\name\()_store_low:
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+// SSHL - Signed shift left (uses arithmetic right shift for negative shift values)
+make_vec_shift_three_same sshl, sshl
+make_vec_shift_three_same srshl, srshl
+make_vec_shift_three_same urshl, urshl
+make_vec_shift_three_same sqshl, sqshl
+make_vec_shift_three_same uqshl, uqshl
+make_vec_shift_three_same sqrshl, sqrshl
+make_vec_shift_three_same uqrshl, uqrshl
+
+// Saturating add/sub (support B/H/S/D)
+make_vec_shift_three_same sqadd, sqadd
+make_vec_shift_three_same uqadd, uqadd
+make_vec_shift_three_same sqsub, sqsub
+make_vec_shift_three_same uqsub, uqsub
+
+// Halving sub (B/H/S only — no D variant; gen.c rejects size=3)
+// Use a dedicated macro that omits the .2d path
+.macro make_vec_three_same_noD name, insn
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x12, x8, #24, #2   // size
+    ubfx x17, x8, #26, #1   // Q
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14
+    lsl x15, x10, #4
+    add x15, x13, x15
+    lsl x16, x11, #4
+    add x16, x13, x16
+    ldr q0, [x15]
+    ldr q1, [x16]
+    cmp x12, #0
+    b.eq .L\name\()_size_b
+    cmp x12, #1
+    b.eq .L\name\()_size_h
+    // size == 2: 32-bit
+    cbz x17, .L\name\()_s_q0
+    \insn v0.4s, v0.4s, v1.4s
+    b .L\name\()_store_q
+.L\name\()_s_q0:
+    \insn v0.2s, v0.2s, v1.2s
+    b .L\name\()_store_low
+.L\name\()_size_b:
+    cbz x17, .L\name\()_b_q0
+    \insn v0.16b, v0.16b, v1.16b
+    b .L\name\()_store_q
+.L\name\()_b_q0:
+    \insn v0.8b, v0.8b, v1.8b
+    b .L\name\()_store_low
+.L\name\()_size_h:
+    cbz x17, .L\name\()_h_q0
+    \insn v0.8h, v0.8h, v1.8h
+    b .L\name\()_store_q
+.L\name\()_h_q0:
+    \insn v0.4h, v0.4h, v1.4h
+    b .L\name\()_store_low
+.L\name\()_store_q:
+    str q0, [x14]
+    gret
+.L\name\()_store_low:
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+make_vec_three_same_noD shsub, shsub
+make_vec_three_same_noD uhsub, uhsub
+
+// Compare register (B/H/S/D)
+make_vec_shift_three_same cmgt_reg, cmgt
+make_vec_shift_three_same cmge_reg, cmge
+
+/*
+ * Macro for FP vector three-same instructions.
+ * These use sz (0=single, 1=double) instead of integer size field.
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | sz<<24 | Q<<26]
+ * Single: .2s (Q=0) or .4s (Q=1)
+ * Double: .2d (Q=1 only; Q=0 is undefined for most)
+ */
+.macro make_fp_vec_three_same name, insn
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x12, x8, #24, #2   // sz (0=single, 1=double)
+    ubfx x17, x8, #26, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    lsl x16, x11, #4
+    add x16, x13, x16       // &Vm
+
+    ldr q0, [x15]
+    ldr q1, [x16]
+
+    cbnz x12, .L\name\()_double
+    // Single precision
+    cbz x17, .L\name\()_s_q0
+    \insn v0.4s, v0.4s, v1.4s
+    b .L\name\()_store_q
+.L\name\()_s_q0:
+    \insn v0.2s, v0.2s, v1.2s
+    b .L\name\()_store_low
+
+.L\name\()_double:
+    // Double precision (Q must be 1)
+    \insn v0.2d, v0.2d, v1.2d
+    b .L\name\()_store_q
+
+.L\name\()_store_q:
+    str q0, [x14]
+    gret
+
+.L\name\()_store_low:
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+// FP vector three-same operations
+make_fp_vec_three_same fp_fadd, fadd
+make_fp_vec_three_same fp_fsub, fsub
+make_fp_vec_three_same fp_fmul, fmul
+make_fp_vec_three_same fp_fdiv, fdiv
+make_fp_vec_three_same fp_fmulx, fmulx
+/*
+ * FMLA/FMLS need a separate macro because they accumulate into Vd:
+ *   FMLA Vd, Vn, Vm => Vd = Vd + Vn*Vm
+ * The standard make_fp_vec_three_same macro loads Vn→v0, Vm→v1 and
+ * stores v0, which computes Vn + Vn*Vm (wrong).
+ */
+.macro make_fp_vec_three_same_accum name, insn
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x12, x8, #24, #2   // sz (0=single, 1=double)
+    ubfx x17, x8, #26, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    lsl x16, x11, #4
+    add x16, x13, x16       // &Vm
+
+    ldr q0, [x15]           // Vn
+    ldr q1, [x16]           // Vm
+    ldr q2, [x14]           // Vd (accumulator)
+
+    cbnz x12, .L\name\()_double
+    // Single precision
+    cbz x17, .L\name\()_s_q0
+    \insn v2.4s, v0.4s, v1.4s
+    b .L\name\()_store_q
+.L\name\()_s_q0:
+    \insn v2.2s, v0.2s, v1.2s
+    b .L\name\()_store_low
+
+.L\name\()_double:
+    // Double precision (Q must be 1)
+    \insn v2.2d, v0.2d, v1.2d
+    b .L\name\()_store_q
+
+.L\name\()_store_q:
+    str q2, [x14]
+    gret
+
+.L\name\()_store_low:
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+make_fp_vec_three_same_accum fp_fmla, fmla
+make_fp_vec_three_same_accum fp_fmls, fmls
+make_fp_vec_three_same fp_fmax, fmax
+make_fp_vec_three_same fp_fmin, fmin
+make_fp_vec_three_same fp_fmaxnm, fmaxnm
+make_fp_vec_three_same fp_fminnm, fminnm
+make_fp_vec_three_same fp_faddp, faddp
+make_fp_vec_three_same fp_fmaxp, fmaxp
+make_fp_vec_three_same fp_fminp, fminp
+make_fp_vec_three_same fp_frecps, frecps
+make_fp_vec_three_same fp_frsqrts, frsqrts
+make_fp_vec_three_same fp_fcmeq, fcmeq
+make_fp_vec_three_same fp_fcmge, fcmge
+make_fp_vec_three_same fp_fcmgt, fcmgt
+make_fp_vec_three_same fp_facge, facge
+make_fp_vec_three_same fp_facgt, facgt
+make_fp_vec_three_same fp_fabd, fabd
 
 /*
  * CMHI - Compare higher (unsigned greater than)
@@ -7656,176 +8142,7 @@ movi_really_zero:
     str xzr, [x14, #8]
     gret
 
-/*
- * CMEQ with zero - Compare equal to zero (vector)
- * Code stream: [gadget addr][rd | rn<<8 | size<<16 | Q<<24]
- *
- * For each element: Vd[i] = (Vn[i] == 0) ? -1 : 0
- */
-.gadget cmeq_zero_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
-
-    and x9, x8, #0x1f       // rd
-    ubfx x10, x8, #8, #5    // rn
-    ubfx x12, x8, #16, #2   // size
-    ubfx x17, x8, #24, #1   // Q
-
-    add x13, _cpu, #CPU_fp
-    lsl x14, x9, #4
-    add x14, x13, x14       // &Vd
-    lsl x15, x10, #4
-    add x15, x13, x15       // &Vn
-
-    cmp x12, #3
-    b.eq .Lcmeq0_64
-    cmp x12, #2
-    b.eq .Lcmeq0_32
-    cmp x12, #1
-    b.eq .Lcmeq0_16
-    b .Lcmeq0_8
-
-.Lcmeq0_8:
-    ldr x0, [x15]
-    mov x3, #0
-    mov x4, #8
-    mov x5, #0
-
-.Lcmeq0_8_loop:
-    lsr x6, x0, x5
-    and x6, x6, #0xff
-    cmp x6, #0
-    cset x19, eq
-    neg x19, x19
-    and x19, x19, #0xff
-    lsl x19, x19, x5
-    orr x3, x3, x19
-    add x5, x5, #8
-    subs x4, x4, #1
-    b.ne .Lcmeq0_8_loop
-
-    str x3, [x14]
-    cbz x17, .Lcmeq0_clear_high
-
-    ldr x0, [x15, #8]
-    mov x3, #0
-    mov x4, #8
-    mov x5, #0
-
-.Lcmeq0_8_hi_loop:
-    lsr x6, x0, x5
-    and x6, x6, #0xff
-    cmp x6, #0
-    cset x19, eq
-    neg x19, x19
-    and x19, x19, #0xff
-    lsl x19, x19, x5
-    orr x3, x3, x19
-    add x5, x5, #8
-    subs x4, x4, #1
-    b.ne .Lcmeq0_8_hi_loop
-
-    str x3, [x14, #8]
-    gret
-
-.Lcmeq0_16:
-    ldr x0, [x15]
-    mov x3, #0
-    mov x4, #4
-    mov x5, #0
-
-.Lcmeq0_16_loop:
-    lsr x6, x0, x5
-    and x6, x6, #0xffff
-    cmp x6, #0
-    cset x19, eq
-    neg x19, x19
-    and x19, x19, #0xffff
-    lsl x19, x19, x5
-    orr x3, x3, x19
-    add x5, x5, #16
-    subs x4, x4, #1
-    b.ne .Lcmeq0_16_loop
-
-    str x3, [x14]
-    cbz x17, .Lcmeq0_clear_high
-
-    ldr x0, [x15, #8]
-    mov x3, #0
-    mov x4, #4
-    mov x5, #0
-
-.Lcmeq0_16_hi_loop:
-    lsr x6, x0, x5
-    and x6, x6, #0xffff
-    cmp x6, #0
-    cset x19, eq
-    neg x19, x19
-    and x19, x19, #0xffff
-    lsl x19, x19, x5
-    orr x3, x3, x19
-    add x5, x5, #16
-    subs x4, x4, #1
-    b.ne .Lcmeq0_16_hi_loop
-
-    str x3, [x14, #8]
-    gret
-
-.Lcmeq0_32:
-    ldr x0, [x15]
-
-    and x5, x0, #0xffffffff
-    cmp x5, #0
-    cset x19, eq
-    neg x19, x19
-    and x2, x19, #0xffffffff
-
-    lsr x5, x0, #32
-    cmp x5, #0
-    cset x19, eq
-    neg x19, x19
-    and x19, x19, #0xffffffff
-    orr x2, x2, x19, lsl #32
-
-    str x2, [x14]
-    cbz x17, .Lcmeq0_clear_high
-
-    ldr x0, [x15, #8]
-
-    and x5, x0, #0xffffffff
-    cmp x5, #0
-    cset x19, eq
-    neg x19, x19
-    and x2, x19, #0xffffffff
-
-    lsr x5, x0, #32
-    cmp x5, #0
-    cset x19, eq
-    neg x19, x19
-    and x19, x19, #0xffffffff
-    orr x2, x2, x19, lsl #32
-
-    str x2, [x14, #8]
-    gret
-
-.Lcmeq0_64:
-    ldr x0, [x15]
-    cmp x0, #0
-    cset x2, eq
-    neg x2, x2
-    str x2, [x14]
-    cbz x17, .Lcmeq0_clear_high
-
-    ldr x0, [x15, #8]
-    cmp x0, #0
-    cset x2, eq
-    neg x2, x2
-    str x2, [x14, #8]
-    gret
-
-.Lcmeq0_clear_high:
-    str xzr, [x14, #8]
-    gret
+// Old manual cmeq_zero_vec replaced by native NEON macro (make_int_vec_cmp_zero) above
 
 /*
  * XTN/SQXTUN/SQXTN/UQXTN - Narrowing instructions
@@ -8004,10 +8321,10 @@ movi_really_zero:
     gret
 .endm
 
-// SHRN: unsigned shift right (truncate) then narrow
-make_shrn_vec shrn, "urshl v0.8h, v0.8h, v1.8h", "urshl v0.4s, v0.4s, v1.4s", "urshl v0.2d, v0.2d, v1.2d"
-// RSHRN: signed rounding shift right then narrow
-make_shrn_vec rshrn, "srshl v0.8h, v0.8h, v1.8h", "srshl v0.4s, v0.4s, v1.4s", "srshl v0.2d, v0.2d, v1.2d"
+// SHRN: unsigned shift right (truncate) then narrow — ushl (non-rounding)
+make_shrn_vec shrn, "ushl v0.8h, v0.8h, v1.8h", "ushl v0.4s, v0.4s, v1.4s", "ushl v0.2d, v0.2d, v1.2d"
+// RSHRN: unsigned rounding shift right then narrow — urshl (unsigned rounding)
+make_shrn_vec rshrn, "urshl v0.8h, v0.8h, v1.8h", "urshl v0.4s, v0.4s, v1.4s", "urshl v0.2d, v0.2d, v1.2d"
 
 make_pairwise_addl uaddlp, "uaddlp v1.4h, v0.8b", "uaddlp v1.8h, v0.16b", "uaddlp v1.2s, v0.4h", "uaddlp v1.4s, v0.8h", "uaddlp v1.1d, v0.2s", "uaddlp v1.2d, v0.4s"
 make_pairwise_addl saddlp, "saddlp v1.4h, v0.8b", "saddlp v1.8h, v0.16b", "saddlp v1.2s, v0.4h", "saddlp v1.4s, v0.8h", "saddlp v1.1d, v0.2s", "saddlp v1.2d, v0.4s"
@@ -8070,69 +8387,7 @@ make_narrow_vec sqxtun, "sqxtun v1.8b, v0.8h", "sqxtun2 v1.16b, v0.8h", "sqxtun 
 make_narrow_vec sqxtn, "sqxtn v1.8b, v0.8h", "sqxtn2 v1.16b, v0.8h", "sqxtn v1.4h, v0.4s", "sqxtn2 v1.8h, v0.4s", "sqxtn v1.2s, v0.2d", "sqxtn2 v1.4s, v0.2d"
 make_narrow_vec uqxtn, "uqxtn v1.8b, v0.8h", "uqxtn2 v1.16b, v0.8h", "uqxtn v1.4h, v0.4s", "uqxtn2 v1.8h, v0.4s", "uqxtn v1.2s, v0.2d", "uqxtn2 v1.4s, v0.2d"
 
-/*
- * CMGT/CMGE/CMLT/CMLE (zero) - Compare vector elements against zero
- * Code stream: [gadget addr][rd | rn<<8 | size<<16 | Q<<24]
- * size: 0=B, 1=H, 2=S, 3=D
- * Uses native NEON compare instructions for efficiency.
- */
-.macro make_cmpzero_vec name, insn8q0, insn8q1, insn16q0, insn16q1, insn32q0, insn32q1, insn64q1
-.gadget \name\()_zero_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
-    and x9, x8, #0x1f       // rd
-    ubfx x10, x8, #8, #5    // rn
-    ubfx x12, x8, #16, #2   // size
-    ubfx x17, x8, #24, #1   // Q
-    add x13, _cpu, #CPU_fp
-    lsl x14, x9, #4
-    add x14, x13, x14       // &Vd
-    lsl x15, x10, #4
-    add x15, x13, x15       // &Vn
-    ldr q0, [x15]
-    cmp x12, #3
-    b.eq .L\name\()z_64
-    cmp x12, #2
-    b.eq .L\name\()z_32
-    cmp x12, #1
-    b.eq .L\name\()z_16
-    // size=0 (bytes)
-    cbz x17, .L\name\()z_8b
-    \insn8q1
-    b .L\name\()z_store
-.L\name\()z_8b:
-    \insn8q0
-    b .L\name\()z_store_lo
-.L\name\()z_16:
-    cbz x17, .L\name\()z_4h
-    \insn16q1
-    b .L\name\()z_store
-.L\name\()z_4h:
-    \insn16q0
-    b .L\name\()z_store_lo
-.L\name\()z_32:
-    cbz x17, .L\name\()z_2s
-    \insn32q1
-    b .L\name\()z_store
-.L\name\()z_2s:
-    \insn32q0
-    b .L\name\()z_store_lo
-.L\name\()z_64:
-    // size=3 requires Q=1 (2D); Q=0 is UNDEF (handled in gen.c)
-    \insn64q1
-.L\name\()z_store:
-    str q1, [x14]
-    gret
-.L\name\()z_store_lo:
-    str d1, [x14]
-    str xzr, [x14, #8]
-    gret
-.endm
-
-make_cmpzero_vec cmgt, "cmgt v1.8b, v0.8b, #0", "cmgt v1.16b, v0.16b, #0", "cmgt v1.4h, v0.4h, #0", "cmgt v1.8h, v0.8h, #0", "cmgt v1.2s, v0.2s, #0", "cmgt v1.4s, v0.4s, #0", "cmgt v1.2d, v0.2d, #0"
-make_cmpzero_vec cmge, "cmge v1.8b, v0.8b, #0", "cmge v1.16b, v0.16b, #0", "cmge v1.4h, v0.4h, #0", "cmge v1.8h, v0.8h, #0", "cmge v1.2s, v0.2s, #0", "cmge v1.4s, v0.4s, #0", "cmge v1.2d, v0.2d, #0"
-make_cmpzero_vec cmlt, "cmlt v1.8b, v0.8b, #0", "cmlt v1.16b, v0.16b, #0", "cmlt v1.4h, v0.4h, #0", "cmlt v1.8h, v0.8h, #0", "cmlt v1.2s, v0.2s, #0", "cmlt v1.4s, v0.4s, #0", "cmlt v1.2d, v0.2d, #0"
-make_cmpzero_vec cmle, "cmle v1.8b, v0.8b, #0", "cmle v1.16b, v0.16b, #0", "cmle v1.4h, v0.4h, #0", "cmle v1.8h, v0.8h, #0", "cmle v1.2s, v0.2s, #0", "cmle v1.4s, v0.4s, #0", "cmle v1.2d, v0.2d, #0"
+// Old make_cmpzero_vec cmgt/cmge/cmlt/cmle removed — replaced by make_int_vec_cmp_zero above
 
 /*
  * Vector Logical Operations
@@ -8420,20 +8675,120 @@ make_cmpzero_vec cmle, "cmle v1.8b, v0.8b, #0", "cmle v1.16b, v0.16b, #0", "cmle
 
     ldr x0, [x15]
     ldr x3, [x16]
-    bic x2, x0, x3          // x2 = x0 AND NOT x3
-    str x2, [x14]
+    bic x19, x0, x3         // x19 = x0 AND NOT x3 (NOT x2 — x2 is _tlb!)
+    str x19, [x14]
 
     cbz x17, .Lbic_clear_high
 
     ldr x0, [x15, #8]
     ldr x3, [x16, #8]
-    bic x2, x0, x3
-    str x2, [x14, #8]
+    bic x19, x0, x3
+    str x19, [x14, #8]
     gret
 
 .Lbic_clear_high:
     str xzr, [x14, #8]
     gret
+
+// ORN - Bitwise OR NOT (Vd = Vn OR NOT Vm)
+.gadget orn_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x17, x8, #26, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14
+    lsl x15, x10, #4
+    add x15, x13, x15
+    lsl x16, x11, #4
+    add x16, x13, x16
+
+    ldr x0, [x15]
+    ldr x3, [x16]
+    orn x4, x0, x3          // x4 = x0 OR NOT x3
+    str x4, [x14]
+
+    cbz x17, .Lorn_clear_high
+
+    ldr x0, [x15, #8]
+    ldr x3, [x16, #8]
+    orn x4, x0, x3
+    str x4, [x14, #8]
+    gret
+
+.Lorn_clear_high:
+    str xzr, [x14, #8]
+    gret
+
+// SABA/UABA - Signed/Unsigned absolute difference accumulate
+// Vd = Vd + |Vn - Vm|  (accumulate into Vd, so must read Vd first)
+.macro make_vec_aba name, insn
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x12, x8, #24, #2   // size
+    ubfx x17, x8, #26, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    lsl x16, x11, #4
+    add x16, x13, x16       // &Vm
+
+    ldr q0, [x15]           // Vn
+    ldr q1, [x16]           // Vm
+    ldr q2, [x14]           // Vd (accumulator)
+
+    cmp x12, #0
+    b.eq .L\name\()_size_b
+    cmp x12, #1
+    b.eq .L\name\()_size_h
+    // size == 2: 32-bit (no 64-bit for saba/uaba)
+    cbz x17, .L\name\()_s_q0
+    \insn v2.4s, v0.4s, v1.4s
+    b .L\name\()_store_q
+.L\name\()_s_q0:
+    \insn v2.2s, v0.2s, v1.2s
+    b .L\name\()_store_low
+
+.L\name\()_size_b:
+    cbz x17, .L\name\()_b_q0
+    \insn v2.16b, v0.16b, v1.16b
+    b .L\name\()_store_q
+.L\name\()_b_q0:
+    \insn v2.8b, v0.8b, v1.8b
+    b .L\name\()_store_low
+
+.L\name\()_size_h:
+    cbz x17, .L\name\()_h_q0
+    \insn v2.8h, v0.8h, v1.8h
+    b .L\name\()_store_q
+.L\name\()_h_q0:
+    \insn v2.4h, v0.4h, v1.4h
+    b .L\name\()_store_low
+
+.L\name\()_store_q:
+    str q2, [x14]
+    gret
+.L\name\()_store_low:
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+make_vec_aba saba, saba
+make_vec_aba uaba, uaba
 
 /*
  * EXT - Extract from pair of vectors
@@ -9232,6 +9587,153 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
     sub x17, x17, x3
     add x14, x13, x9, lsl #4
     str x17, [x14]
+    str xzr, [x14, #8]
+    gret
+
+/*
+ * USHL (scalar, 64-bit) - Unsigned shift left D = Dn << Dm (mod 64)
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
+ */
+.gadget ushl_scalar_i64
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x13, _cpu, #CPU_fp
+    add x15, x13, x10, lsl #4
+    add x16, x13, x11, lsl #4
+    ldr d0, [x15]
+    ldr d1, [x16]
+    ushl d0, d0, d1
+    add x14, x13, x9, lsl #4
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+/*
+ * SSHL (scalar, 64-bit) - Signed shift left D = Dn << Dm (mod 64)
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
+ */
+.gadget sshl_scalar_i64
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x13, _cpu, #CPU_fp
+    add x15, x13, x10, lsl #4
+    add x16, x13, x11, lsl #4
+    ldr d0, [x15]
+    ldr d1, [x16]
+    sshl d0, d0, d1
+    add x14, x13, x9, lsl #4
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+/*
+ * CMHI (scalar, 64-bit) - Compare higher unsigned
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
+ */
+.gadget cmhi_scalar_i64
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x13, _cpu, #CPU_fp
+    add x15, x13, x10, lsl #4
+    add x16, x13, x11, lsl #4
+    ldr d0, [x15]
+    ldr d1, [x16]
+    cmhi d0, d0, d1
+    add x14, x13, x9, lsl #4
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+/*
+ * CMHS (scalar, 64-bit) - Compare higher or same unsigned
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
+ */
+.gadget cmhs_scalar_i64
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x13, _cpu, #CPU_fp
+    add x15, x13, x10, lsl #4
+    add x16, x13, x11, lsl #4
+    ldr d0, [x15]
+    ldr d1, [x16]
+    cmhs d0, d0, d1
+    add x14, x13, x9, lsl #4
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+/*
+ * CMGT (scalar, 64-bit) - Compare greater than signed
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
+ */
+.gadget cmgt_scalar_i64
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x13, _cpu, #CPU_fp
+    add x15, x13, x10, lsl #4
+    add x16, x13, x11, lsl #4
+    ldr d0, [x15]
+    ldr d1, [x16]
+    cmgt d0, d0, d1
+    add x14, x13, x9, lsl #4
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+/*
+ * CMGE (scalar, 64-bit) - Compare greater or equal signed
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
+ */
+.gadget cmge_scalar_i64
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x13, _cpu, #CPU_fp
+    add x15, x13, x10, lsl #4
+    add x16, x13, x11, lsl #4
+    ldr d0, [x15]
+    ldr d1, [x16]
+    cmge d0, d0, d1
+    add x14, x13, x9, lsl #4
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+/*
+ * CMEQ (scalar, 64-bit) - Compare equal
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
+ */
+.gadget cmeq_scalar_i64
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x13, _cpu, #CPU_fp
+    add x15, x13, x10, lsl #4
+    add x16, x13, x11, lsl #4
+    ldr d0, [x15]
+    ldr d1, [x16]
+    cmeq d0, d0, d1
+    add x14, x13, x9, lsl #4
+    str d0, [x14]
     str xzr, [x14, #8]
     gret
 
@@ -12204,7 +12706,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
 .Lfccmp_set_imm:
     // Condition was false: set NZCV from immediate
     lsl x20, x20, #28       // shift nzcv into position
-    msr nzcv, x20
+    str w20, [_cpu, #CPU_nzcv]
     gret
 
 .Lfccmp_do_compare:
@@ -12219,11 +12721,13 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
     ldr d0, [x14]
     ldr d1, [x15]
     fcmp d0, d1
+    store_flags
     gret
 .Lfccmp_single:
     ldr s0, [x14]
     ldr s1, [x15]
     fcmp s0, s1
+    store_flags
     gret
 
 /*
@@ -12561,6 +13065,58 @@ make_fp2_scalar fmaxnm, fmaxnm, fmaxnm
 make_fp2_scalar fminnm, fminnm, fminnm
 make_fp2_scalar fnmul, fnmul, fnmul
 make_fp2_scalar fabd, fabd, fabd
+
+/*
+ * FADDP (scalar) - Floating-point Add Pair of elements
+ * Code stream: [gadget addr][rd | rn<<8 | sz<<16]
+ * sz=0: FADDP Sd, Vn.2S  (add two single-precision elements)
+ * sz=1: FADDP Dd, Vn.2D  (add two double-precision elements)
+ */
+.gadget faddp_scalar
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x12, x8, #16, #2   // sz (0=single, 1=double)
+    add x13, _cpu, #CPU_fp
+    lsl x14, x10, #4
+    add x14, x13, x14       // &Vn
+    lsl x16, x9, #4
+    add x16, x13, x16       // &Vd
+    cbz x12, .Lfaddp_scalar_single
+    // Double: add pair from 128-bit register
+    ldr q0, [x14]
+    faddp d0, v0.2d
+    str d0, [x16]
+    str xzr, [x16, #8]
+    gret
+.Lfaddp_scalar_single:
+    // Single: add pair from low 64 bits
+    ldr d0, [x14]
+    faddp s0, v0.2s
+    str s0, [x16]
+    str xzr, [x16, #4]
+    str xzr, [x16, #8]
+    gret
+
+// ADDP (scalar, integer) - Add pair of 64-bit elements to scalar
+// ADDP Dd, Vn.2D: adds two 64-bit elements of Vn, stores in Dd
+// Code stream: [gadget addr][rd | rn<<8]
+.gadget addp_scalar
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    add x13, _cpu, #CPU_fp
+    lsl x14, x10, #4
+    add x14, x13, x14       // &Vn
+    lsl x16, x9, #4
+    add x16, x13, x16       // &Vd
+    ldr q0, [x14]
+    addp d0, v0.2d
+    str d0, [x16]
+    str xzr, [x16, #8]
+    gret
 
 // UMULH: Xd = (Xn * Xm) >> 64 (unsigned high multiply)
 .gadget umulh
@@ -13416,6 +13972,78 @@ make_threesame_native umax, umax, 0
 make_threesame_native smin, smin, 0
 make_threesame_native umin, umin, 0
 
+// Signed max/min pairwise (B/H/S only, no D)
+make_threesame_native smaxp, smaxp, 0
+make_threesame_native sminp, sminp, 0
+
+/*
+ * Macro: make_threesame_native_hs  name, op
+ * Like make_threesame_native but only H (size=1) and S (size=2) are valid.
+ * Used for SQDMULH/SQRDMULH which have no byte or doubleword variants.
+ */
+.macro make_threesame_native_hs name, op
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x12, x8, #24, #2   // size
+    ubfx x17, x8, #26, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    lsl x16, x11, #4
+    add x16, x13, x16       // &Vm
+
+    ldr q0, [x15]
+    ldr q1, [x16]
+
+    cmp x12, #1
+    b.eq .L\name\()_h
+    cmp x12, #2
+    b.eq .L\name\()_s
+    // size 0 (B) and 3 (D) are invalid
+    b .L\name\()_inv
+
+.L\name\()_h:
+    cbz x17, .L\name\()_h_q0
+    \op v0.8h, v0.8h, v1.8h
+    b .L\name\()_store_q
+.L\name\()_h_q0:
+    \op v0.4h, v0.4h, v1.4h
+    b .L\name\()_store_low
+
+.L\name\()_s:
+    cbz x17, .L\name\()_s_q0
+    \op v0.4s, v0.4s, v1.4s
+    b .L\name\()_store_q
+.L\name\()_s_q0:
+    \op v0.2s, v0.2s, v1.2s
+    b .L\name\()_store_low
+
+.L\name\()_inv:
+    str xzr, [x14]
+    str xzr, [x14, #8]
+    gret
+
+.L\name\()_store_q:
+    str q0, [x14]
+    gret
+
+.L\name\()_store_low:
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+// Signed saturating doubling multiply high (H/S only)
+make_threesame_native_hs sqdmulh, sqdmulh
+make_threesame_native_hs sqrdmulh, sqrdmulh
+
 // Signed/unsigned absolute difference (B/H/S only, no D)
 make_threesame_native sabd, sabd, 0
 make_threesame_native uabd, uabd, 0
@@ -13514,6 +14142,42 @@ make_threesame_accum mls, mls
 
 make_twomis_native abs, abs, 1
 make_twomis_native neg, neg, 1
+make_twomis_native clz, clz, 0
+make_twomis_native cls, cls, 0
+
+/*
+ * NOT/RBIT vector (bytes only: .8B/.16B)
+ * Code stream: [gadget addr][rd | rn<<8 | Q<<16]
+ */
+.macro make_byte_vec_unary name, insn
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x17, x8, #16, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+
+    ldr q0, [x15]
+
+    cbz x17, .L\name\()_8b
+    \insn v0.16b, v0.16b
+    str q0, [x14]
+    gret
+.L\name\()_8b:
+    \insn v0.8b, v0.8b
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+make_byte_vec_unary not, not
+// rbit_vec already defined above (line ~5408)
 
 /*
  * Three-different widening "long" ops (UADDL, SADDL, USUBL, SSUBL, UMULL, SMULL, UABDL, SABDL).
@@ -13656,7 +14320,7 @@ make_sat_shrn uqshrn, ushl, "uqxtn v2.8b, v0.8h", "uqxtn2 v2.16b, v0.8h", "uqxtn
 // SQSHRN: signed shift right (truncate) + signed saturating narrow
 make_sat_shrn sqshrn, sshl, "sqxtn v2.8b, v0.8h", "sqxtn2 v2.16b, v0.8h", "sqxtn v2.4h, v0.4s", "sqxtn2 v2.8h, v0.4s", "sqxtn v2.2s, v0.2d", "sqxtn2 v2.4s, v0.2d"
 // SQSHRUN: signed rounding shift right + unsigned saturating narrow from signed
-make_sat_shrn sqshrun, ushl, "sqxtun v2.8b, v0.8h", "sqxtun2 v2.16b, v0.8h", "sqxtun v2.4h, v0.4s", "sqxtun2 v2.8h, v0.4s", "sqxtun v2.2s, v0.2d", "sqxtun2 v2.4s, v0.2d"
+make_sat_shrn sqshrun, sshl, "sqxtun v2.8b, v0.8h", "sqxtun2 v2.16b, v0.8h", "sqxtun v2.4h, v0.4s", "sqxtun2 v2.8h, v0.4s", "sqxtun v2.2s, v0.2d", "sqxtun2 v2.4s, v0.2d"
 // SQRSHRUN: signed rounding shift right + unsigned saturating narrow from signed
 make_sat_shrn sqrshrun, srshl, "sqxtun v2.8b, v0.8h", "sqxtun2 v2.16b, v0.8h", "sqxtun v2.4h, v0.4s", "sqxtun2 v2.8h, v0.4s", "sqxtun v2.2s, v0.2d", "sqxtun2 v2.4s, v0.2d"
 
@@ -13972,6 +14636,26 @@ elem_widen_accum_op_store smlsl_elem, smlsl
 elem_setup umlsl_elem
 elem_widen_accum_op_store umlsl_elem, umlsl
 
+// SQDMULH by element (H/S only, non-widening)
+elem_setup sqdmulh_elem
+elem_op_store sqdmulh_elem, sqdmulh
+
+// SQRDMULH by element (H/S only, non-widening)
+elem_setup sqrdmulh_elem
+elem_op_store sqrdmulh_elem, sqrdmulh
+
+// SQDMULL by element (widening: H→S, S→D)
+elem_setup sqdmull_elem
+elem_widen_op_store sqdmull_elem, sqdmull
+
+// SQDMLAL by element (widening accumulate)
+elem_setup sqdmlal_elem
+elem_widen_accum_op_store sqdmlal_elem, sqdmlal
+
+// SQDMLSL by element (widening subtract-accumulate)
+elem_setup sqdmlsl_elem
+elem_widen_accum_op_store sqdmlsl_elem, sqdmlsl
+
 make_widening_long saddl, saddl
 make_widening_long uaddl, uaddl
 make_widening_long ssubl, ssubl
@@ -13980,3 +14664,409 @@ make_widening_long smull, smull
 make_widening_long umull, umull
 make_widening_long sabdl, sabdl
 make_widening_long uabdl, uabdl
+
+/*
+ * Macro: make_narrowing_high  name, op
+ * ADDHN/SUBHN/RADDHN/RSUBHN - add/sub wide operands, return high narrow result
+ * Direction: Vn(wide) op Vm(wide) → Vd(narrow, high half)
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
+ * size: narrow target element size (0=B, 1=H, 2=S)
+ * Q: 0=lower half, 1=upper half (writes to upper half of Vd)
+ */
+.macro make_narrowing_high name, op
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x12, x8, #24, #2   // size (narrow target)
+    ubfx x17, x8, #26, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    lsl x16, x11, #4
+    add x16, x13, x16       // &Vm
+
+    ldr q0, [x15]           // Vn (wide)
+    ldr q1, [x16]           // Vm (wide)
+    ldr q2, [x14]           // Vd (preserve for Q=1)
+
+    cmp x12, #0
+    b.eq .L\name\()_b
+    cmp x12, #1
+    b.eq .L\name\()_h
+    // size == 2: S narrow (D+D→S)
+    cbz x17, .L\name\()_s_lo
+    \op\()2 v2.4s, v0.2d, v1.2d
+    b .L\name\()_store
+.L\name\()_s_lo:
+    \op v2.2s, v0.2d, v1.2d
+    b .L\name\()_store_lo
+
+.L\name\()_b:
+    // size == 0: B narrow (H+H→B)
+    cbz x17, .L\name\()_b_lo
+    \op\()2 v2.16b, v0.8h, v1.8h
+    b .L\name\()_store
+.L\name\()_b_lo:
+    \op v2.8b, v0.8h, v1.8h
+    b .L\name\()_store_lo
+
+.L\name\()_h:
+    // size == 1: H narrow (S+S→H)
+    cbz x17, .L\name\()_h_lo
+    \op\()2 v2.8h, v0.4s, v1.4s
+    b .L\name\()_store
+.L\name\()_h_lo:
+    \op v2.4h, v0.4s, v1.4s
+    // fall through
+
+.L\name\()_store_lo:
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+
+.L\name\()_store:
+    str q2, [x14]
+    gret
+.endm
+
+make_narrowing_high addhn, addhn
+make_narrowing_high subhn, subhn
+make_narrowing_high raddhn, raddhn
+make_narrowing_high rsubhn, rsubhn
+
+/*
+ * Macro: make_widening_accum  name, op
+ * SABAL/UABAL/SMLAL/UMLAL/SMLSL/UMLSL (three-different accumulating)
+ * Accumulate: Vd += op(Vn, Vm) with widening
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
+ * size: narrow source element size (0=B, 1=H, 2=S)
+ * Q: 0=lower half, 1=upper half of narrow source
+ */
+.macro make_widening_accum name, op
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
+    ubfx x12, x8, #24, #2   // size
+    ubfx x17, x8, #26, #1   // Q
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    lsl x16, x11, #4
+    add x16, x13, x16       // &Vm
+
+    ldr q0, [x14]           // Vd (accumulator, wide)
+    ldr q1, [x15]           // Vn (narrow source)
+    ldr q2, [x16]           // Vm (narrow source)
+
+    cmp x12, #0
+    b.eq .L\name\()_b
+    cmp x12, #1
+    b.eq .L\name\()_h
+    // size == 2 (S->D)
+    cbz x17, .L\name\()_s_lo
+    \op\()2 v0.2d, v1.4s, v2.4s
+    b .L\name\()_store
+.L\name\()_s_lo:
+    \op v0.2d, v1.2s, v2.2s
+    b .L\name\()_store
+
+.L\name\()_b:
+    cbz x17, .L\name\()_b_lo
+    \op\()2 v0.8h, v1.16b, v2.16b
+    b .L\name\()_store
+.L\name\()_b_lo:
+    \op v0.8h, v1.8b, v2.8b
+    b .L\name\()_store
+
+.L\name\()_h:
+    cbz x17, .L\name\()_h_lo
+    \op\()2 v0.4s, v1.8h, v2.8h
+    b .L\name\()_store
+.L\name\()_h_lo:
+    \op v0.4s, v1.4h, v2.4h
+    // fall through
+
+.L\name\()_store:
+    str q0, [x14]
+    gret
+.endm
+
+make_widening_accum sabal, sabal
+make_widening_accum uabal, uabal
+make_widening_accum smlal, smlal
+make_widening_accum umlal, umlal
+make_widening_accum smlsl, smlsl
+make_widening_accum umlsl, umlsl
+
+/*
+ * Scalar two-register miscellaneous (integer, 64-bit only)
+ * Compare-against-zero and unary operations on a single D register.
+ * Code stream: [gadget addr][rd | rn<<8]
+ */
+
+// CMGT D, D, #0 — each element set to all-ones if > 0, else all-zeros
+.gadget cmgt_scalar_zero
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    ldr d0, [x15]
+    cmgt d0, d0, #0
+    str d0, [x14]
+    str xzr, [x14, #8]      // clear upper 64 bits
+    gret
+
+// CMGE D, D, #0
+.gadget cmge_scalar_zero
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14
+    lsl x15, x10, #4
+    add x15, x13, x15
+    ldr d0, [x15]
+    cmge d0, d0, #0
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+// CMEQ D, D, #0
+.gadget cmeq_scalar_zero
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14
+    lsl x15, x10, #4
+    add x15, x13, x15
+    ldr d0, [x15]
+    cmeq d0, d0, #0
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+// CMLE D, D, #0
+.gadget cmle_scalar_zero
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14
+    lsl x15, x10, #4
+    add x15, x13, x15
+    ldr d0, [x15]
+    cmle d0, d0, #0
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+// CMLT D, D, #0
+.gadget cmlt_scalar_zero
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14
+    lsl x15, x10, #4
+    add x15, x13, x15
+    ldr d0, [x15]
+    cmlt d0, d0, #0
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+// ABS D, D — absolute value
+.gadget abs_scalar
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14
+    lsl x15, x10, #4
+    add x15, x13, x15
+    ldr d0, [x15]
+    abs d0, d0
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+// NEG D, D — negate
+.gadget neg_scalar
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14
+    lsl x15, x10, #4
+    add x15, x13, x15
+    ldr d0, [x15]
+    neg d0, d0
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+/*
+ * FP scalar two-register miscellaneous — compare against zero
+ * Code stream: [gadget addr][rd | rn<<8 | sz<<16]
+ * sz=0: single precision, sz=1: double precision
+ */
+
+// FCMGT S/D, S/D, #0.0
+.gadget fcmgt_scalar_zero
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x12, x8, #16, #1   // sz (0=single, 1=double)
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    cbnz x12, .Lfcmgt_scalar_zero_double
+    ldr s0, [x15]
+    fcmgt s0, s0, #0.0
+    str s0, [x14]
+    str xzr, [x14, #4]
+    str xzr, [x14, #8]
+    gret
+.Lfcmgt_scalar_zero_double:
+    ldr d0, [x15]
+    fcmgt d0, d0, #0.0
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+// FCMGE S/D, S/D, #0.0
+.gadget fcmge_scalar_zero
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x12, x8, #16, #1
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14
+    lsl x15, x10, #4
+    add x15, x13, x15
+    cbnz x12, .Lfcmge_scalar_zero_double
+    ldr s0, [x15]
+    fcmge s0, s0, #0.0
+    str s0, [x14]
+    str xzr, [x14, #4]
+    str xzr, [x14, #8]
+    gret
+.Lfcmge_scalar_zero_double:
+    ldr d0, [x15]
+    fcmge d0, d0, #0.0
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+// FCMEQ S/D, S/D, #0.0
+.gadget fcmeq_scalar_zero
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x12, x8, #16, #1
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14
+    lsl x15, x10, #4
+    add x15, x13, x15
+    cbnz x12, .Lfcmeq_scalar_zero_double
+    ldr s0, [x15]
+    fcmeq s0, s0, #0.0
+    str s0, [x14]
+    str xzr, [x14, #4]
+    str xzr, [x14, #8]
+    gret
+.Lfcmeq_scalar_zero_double:
+    ldr d0, [x15]
+    fcmeq d0, d0, #0.0
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+// FCMLE S/D, S/D, #0.0
+.gadget fcmle_scalar_zero
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x12, x8, #16, #1
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14
+    lsl x15, x10, #4
+    add x15, x13, x15
+    cbnz x12, .Lfcmle_scalar_zero_double
+    ldr s0, [x15]
+    fcmle s0, s0, #0.0
+    str s0, [x14]
+    str xzr, [x14, #4]
+    str xzr, [x14, #8]
+    gret
+.Lfcmle_scalar_zero_double:
+    ldr d0, [x15]
+    fcmle d0, d0, #0.0
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+
+// FCMLT S/D, S/D, #0.0
+.gadget fcmlt_scalar_zero
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x12, x8, #16, #1
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14
+    lsl x15, x10, #4
+    add x15, x13, x15
+    cbnz x12, .Lfcmlt_scalar_zero_double
+    ldr s0, [x15]
+    fcmlt s0, s0, #0.0
+    str s0, [x14]
+    str xzr, [x14, #4]
+    str xzr, [x14, #8]
+    gret
+.Lfcmlt_scalar_zero_double:
+    ldr d0, [x15]
+    fcmlt d0, d0, #0.0
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
