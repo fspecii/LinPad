@@ -450,6 +450,26 @@ int_t sys_accept(fd_t sock_fd, addr_t sockaddr_addr, addr_t sockaddr_len_addr) {
     return client_f;
 }
 
+int_t sys_accept4(fd_t sock_fd, addr_t sockaddr_addr, addr_t sockaddr_len_addr, int_t flags) {
+    STRACE("accept4(%d, 0x%x, 0x%x, 0x%x)", sock_fd, sockaddr_addr, sockaddr_len_addr, flags);
+    if (flags & ~(SOCK_NONBLOCK_ | SOCK_CLOEXEC_))
+        return _EINVAL;
+    int_t client_f = sys_accept(sock_fd, sockaddr_addr, sockaddr_len_addr);
+    if (client_f < 0)
+        return client_f;
+    struct fd *client_fd = f_get(client_f);
+    if (client_fd != NULL) {
+        if (flags & SOCK_NONBLOCK_)
+            fd_setflags(client_fd, O_NONBLOCK_);
+        if (flags & SOCK_CLOEXEC_) {
+            lock(&current->files->lock);
+            bit_set(client_f, current->files->cloexec);
+            unlock(&current->files->lock);
+        }
+    }
+    return client_f;
+}
+
 static void copy_unix_name(char *sockaddr, dword_t *sockaddr_len, struct fd *sock) {
     struct sockaddr_ *fake_addr = (void *) sockaddr;
     fake_addr->family = PF_LOCAL_;
