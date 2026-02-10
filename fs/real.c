@@ -1,6 +1,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -121,28 +122,40 @@ int realfs_fstat(struct fd *fd, struct statbuf *fake_stat) {
 }
 
 ssize_t realfs_read(struct fd *fd, void *buf, size_t bufsize) {
-    ssize_t res = read(fd->real_fd, buf, bufsize);
+    ssize_t res;
+    do {
+        res = read(fd->real_fd, buf, bufsize);
+    } while (res < 0 && errno == EINTR);
     if (res < 0)
         return errno_map();
     return res;
 }
 
 ssize_t realfs_write(struct fd *fd, const void *buf, size_t bufsize) {
-    ssize_t res = write(fd->real_fd, buf, bufsize);
+    ssize_t res;
+    do {
+        res = write(fd->real_fd, buf, bufsize);
+    } while (res < 0 && errno == EINTR);
     if (res < 0)
         return errno_map();
     return res;
 }
 
 ssize_t realfs_pread(struct fd *fd, void *buf, size_t bufsize, off_t off) {
-    ssize_t res = pread(fd->real_fd, buf, bufsize, off);
+    ssize_t res;
+    do {
+        res = pread(fd->real_fd, buf, bufsize, off);
+    } while (res < 0 && errno == EINTR);
     if (res < 0)
         return errno_map();
     return res;
 }
 
 ssize_t realfs_pwrite(struct fd *fd, const void *buf, size_t bufsize, off_t off) {
-    ssize_t res = pwrite(fd->real_fd, buf, bufsize, off);
+    ssize_t res;
+    do {
+        res = pwrite(fd->real_fd, buf, bufsize, off);
+    } while (res < 0 && errno == EINTR);
     if (res < 0)
         return errno_map();
     return res;
@@ -257,28 +270,58 @@ int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off
     off_t correction = offset - real_offset;
     size_t map_size = (pages * PAGE_SIZE) + correction;
 
-    // Check if the mapping extends beyond the file size.
-    // On macOS, accessing pages in a file-backed MAP_PRIVATE mapping that
-    // are beyond EOF causes SIGBUS. To avoid this, clamp the file mapping
-    // to the file size and use anonymous memory for the rest.
     struct stat st;
-    if (fstat(fd->real_fd, &st) == 0 && (off_t)(real_offset + map_size) > st.st_size) {
-        // Mapping extends beyond file — use anonymous + pread instead
+    int have_stat = (fstat(fd->real_fd, &st) == 0);
+
+    // Check if the mapping extends beyond the file size.
+    if (have_stat && (off_t)(real_offset + map_size) > st.st_size) {
+        // For MAP_SHARED writable mappings, use a direct file-backed mmap.
+        // The host kernel handles beyond-EOF correctly: writes within the
+        // file are flushed on munmap, and the zero-filled region between
+        // file end and page boundary is discarded. This is what apk needs
+        // for its posix_fallocate + mmap(MAP_SHARED) extraction pattern.
+        // We must NOT extend the file via ftruncate, because apk doesn't
+        // truncate it back, leaving trailing null bytes that corrupt files.
+        if ((mmap_flags & MAP_SHARED) && (mmap_prot & PROT_WRITE)) {
+            char *memory = mmap(NULL, map_size,
+                    mmap_prot, mmap_flags, fd->real_fd, real_offset);
+            if (memory != MAP_FAILED) {
+                return pt_map(mem, start, pages, memory, correction, prot);
+            }
+            // mmap failed — fall through to anonymous path
+        }
+
+        // Create anonymous backing for the full range (zeros for BSS)
         char *memory = mmap(NULL, map_size,
                 PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (memory == MAP_FAILED)
             return _ENOMEM;
-        // Read file data into the anonymous mapping
         size_t file_bytes = 0;
         if (st.st_size > real_offset)
             file_bytes = st.st_size - real_offset;
         if (file_bytes > map_size)
             file_bytes = map_size;
-        if (file_bytes > 0)
-            pread(fd->real_fd, memory, file_bytes, real_offset);
-        // If the mapping should be read-only, mprotect after filling
-        if (!(mmap_prot & PROT_WRITE))
-            mprotect(memory, map_size, mmap_prot);
+        size_t file_map_size = (file_bytes / real_page_size) * real_page_size;
+        if (file_map_size > 0) {
+            char *file_map = mmap(memory, file_map_size,
+                    mmap_prot, mmap_flags | MAP_FIXED, fd->real_fd, real_offset);
+            if (file_map == MAP_FAILED)
+                file_map_size = 0;
+        }
+        if (file_map_size < file_bytes) {
+            size_t remaining = file_bytes - file_map_size;
+            size_t total_read = 0;
+            while (total_read < remaining) {
+                ssize_t n = pread(fd->real_fd, memory + file_map_size + total_read,
+                                  remaining - total_read,
+                                  real_offset + file_map_size + total_read);
+                if (n <= 0) break;
+                total_read += n;
+            }
+        }
+        if (!(mmap_prot & PROT_WRITE) && file_map_size < map_size)
+            mprotect(memory + file_map_size, map_size - file_map_size, mmap_prot);
+
         return pt_map(mem, start, pages, memory, correction, prot);
     }
 
@@ -286,6 +329,7 @@ int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off
             mmap_prot, mmap_flags, fd->real_fd, real_offset);
     if (memory == MAP_FAILED)
         return _ENOMEM;
+
     return pt_map(mem, start, pages, memory, correction, prot);
 }
 

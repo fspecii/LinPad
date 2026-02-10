@@ -154,7 +154,7 @@ static void fiber_block_disconnect(struct asbestos *asbestos, struct fiber_block
     }
     list_remove(&block->chain);
     for (int i = 0; i <= 1; i++) {
-        list_remove(&block->page[i]);
+        list_remove_safe(&block->page[i]);
         list_remove_safe(&block->jumps_from_links[i]);
 
         struct fiber_block *prev_block, *tmp;

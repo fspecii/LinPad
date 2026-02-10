@@ -10,8 +10,6 @@
 #include "fs/dev.h"
 #include "fs/real.h"
 
-#define IO_DEBUG 0
-
 static struct fd *at_fd(fd_t f) {
     if (f == AT_FDCWD_)
         return AT_PWD;
@@ -283,43 +281,12 @@ dword_t sys_write(fd_t fd_no, addr_t buf_addr, dword_t size) {
     if (user_read(buf_addr, buf, size))
         goto out;
 
-#if IO_DEBUG
-    // Temporary debug: dump small stdout/stderr writes to inspect applet name issues.
-    static int debug_write1_count = 0;
-    static int debug_write2_count = 0;
-    if (fd_no == 1 && size <= 128 && debug_write1_count < 12) {
-        fprintf(stderr, "[WRITE1 DEBUG #%d] size=%u bytes:", debug_write1_count, size);
-        for (dword_t i = 0; i < size; i++) {
-            fprintf(stderr, " %02x", (unsigned char)buf[i]);
-        }
-        fprintf(stderr, " |");
-        for (dword_t i = 0; i < size; i++) {
-            unsigned char c = (unsigned char)buf[i];
-            fputc((c >= 32 && c < 127) ? (char)c : '.', stderr);
-        }
-        fprintf(stderr, "|\n");
-        debug_write1_count++;
-    }
-    if (fd_no == 2 && size <= 64 && debug_write2_count < 8) {
-        fprintf(stderr, "[WRITE2 DEBUG #%d] size=%u bytes:", debug_write2_count, size);
-        for (dword_t i = 0; i < size; i++) {
-            fprintf(stderr, " %02x", (unsigned char)buf[i]);
-        }
-        fprintf(stderr, " |");
-        for (dword_t i = 0; i < size; i++) {
-            unsigned char c = (unsigned char)buf[i];
-            fputc((c >= 32 && c < 127) ? (char)c : '.', stderr);
-        }
-        fprintf(stderr, "|\n");
-        debug_write2_count++;
-    }
-#endif
-
     size_t print_size = size;
     if (print_size > 100) print_size = 100;
     STRACE("write(%d, \"%.*s\", %d)", fd_no, print_size, buf, size);
 
     res = sys_write_buf(fd_no, buf, size);
+
 out:
     free(buf);
     return res;
@@ -344,19 +311,6 @@ static struct iovec_ *read_iovec(addr_t iovec_addr, unsigned iovec_count) {
         free(iovec64);
         return ERR_PTR(_EFAULT);
     }
-
-    // Debug: print raw iovec64 data
-#if IO_DEBUG
-    static int iovec_debug_count = 0;
-    iovec_debug_count++;
-    if (iovec_debug_count < 20) {
-        fprintf(stderr, "[IOVEC64 DEBUG #%d] addr=0x%x count=%u\n", iovec_debug_count, iovec_addr, iovec_count);
-        for (unsigned i = 0; i < iovec_count && i < 4; i++) {
-            fprintf(stderr, "  iovec64[%d]: base=0x%llx len=0x%llx\n", i,
-                    (unsigned long long)iovec64[i].base, (unsigned long long)iovec64[i].len);
-        }
-    }
-#endif
 
     // Convert to 32-bit iovec for internal processing
     struct iovec_ *iovec = malloc(sizeof(struct iovec_) * iovec_count);
@@ -426,29 +380,10 @@ error:
 
 dword_t sys_writev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
     STRACE("writev(%d, %#x, %d)", fd_no, iovec_addr, iovec_count);
-#if IO_DEBUG
-    static int writev_call_count = 0;
-    writev_call_count++;
-#endif
-
     struct iovec_ *iovec = read_iovec(iovec_addr, iovec_count);
-    if (IS_ERR(iovec)) {
-#if IO_DEBUG
-        if (writev_call_count < 20) {
-            fprintf(stderr, "[WRITEV #%d] read_iovec failed: %d\n", writev_call_count, (int)PTR_ERR(iovec));
-        }
-#endif
+    if (IS_ERR(iovec))
         return PTR_ERR(iovec);
-    }
     size_t io_size = iovec_size(iovec, iovec_count);
-#if IO_DEBUG
-    if (writev_call_count < 20) {
-        fprintf(stderr, "[WRITEV #%d] fd=%d iovec_count=%d io_size=%zu\n", writev_call_count, fd_no, iovec_count, io_size);
-        for (unsigned i = 0; i < iovec_count && i < 4; i++) {
-            fprintf(stderr, "[WRITEV #%d]   iovec[%d]: base=0x%x len=%u\n", writev_call_count, i, iovec[i].base, iovec[i].len);
-        }
-    }
-#endif
     char *buf = malloc(io_size);
     if (buf == NULL) {
         free(iovec);
@@ -459,11 +394,6 @@ dword_t sys_writev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
     size_t offset = 0;
     for (unsigned i = 0; i < iovec_count; i++) {
         if (user_read(iovec[i].base, buf + offset, iovec[i].len)) {
-#if IO_DEBUG
-            if (writev_call_count < 20) {
-                fprintf(stderr, "[WRITEV #%d] user_read failed for iovec[%d]\n", writev_call_count, i);
-            }
-#endif
             res = _EFAULT;
             goto error;
         }
@@ -474,11 +404,6 @@ dword_t sys_writev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
         offset += iovec[i].len;
     }
     res = sys_write_buf(fd_no, buf, io_size);
-#if IO_DEBUG
-    if (writev_call_count < 20) {
-        fprintf(stderr, "[WRITEV #%d] sys_write_buf returned %d\n", writev_call_count, (int)res);
-    }
-#endif
 
 error:
     free(buf);
@@ -1031,7 +956,7 @@ dword_t sys_fchownat(fd_t at_f, addr_t path_addr, dword_t owner, dword_t group, 
     if (at == NULL)
         return _EBADF;
     // realfs can't change ownership on host, silently succeed
-    if (at->mount->fs == &realfs)
+    if (at != AT_PWD && at->mount->fs == &realfs)
         return 0;
     int err;
     bool follow_links = flags & AT_SYMLINK_NOFOLLOW_ ? false : true;
@@ -1059,6 +984,7 @@ dword_t sys_lchown(addr_t path_addr, uid_t_ owner, uid_t_ group) {
 #ifdef GUEST_ARM64
 // ARM64: 64-bit values passed in single registers
 dword_t sys_truncate64(addr_t path_addr, off_t_ size) {
+    STRACE("truncate64(%#x, %lld [0x%llx])", path_addr, (long long)size, (unsigned long long)size);
     char path[MAX_PATH];
     if (user_read_string(path_addr, path, sizeof(path)))
         return _EFAULT;
@@ -1066,6 +992,7 @@ dword_t sys_truncate64(addr_t path_addr, off_t_ size) {
 }
 
 dword_t sys_ftruncate64(fd_t f, off_t_ size) {
+    STRACE("ftruncate64(%d, %lld [0x%llx])", f, (long long)size, (unsigned long long)size);
     struct fd *fd = f_get(f);
     if (fd == NULL)
         return _EBADF;
@@ -1154,11 +1081,70 @@ dword_t sys_fsync(fd_t f) {
 }
 
 // a few stubs
-dword_t sys_sendfile(fd_t UNUSED(out_fd), fd_t UNUSED(in_fd), addr_t UNUSED(offset_addr), dword_t UNUSED(count)) {
-    return _EINVAL;
+dword_t sys_sendfile(fd_t out_fd, fd_t in_fd, addr_t offset_addr, dword_t count) {
+    return sys_sendfile64(out_fd, in_fd, offset_addr, count);
 }
-dword_t sys_sendfile64(fd_t UNUSED(out_fd), fd_t UNUSED(in_fd), addr_t UNUSED(offset_addr), dword_t UNUSED(count)) {
-    return _EINVAL;
+dword_t sys_sendfile64(fd_t out_fd, fd_t in_fd, addr_t offset_addr, dword_t count) {
+    STRACE("sendfile64(%d, %d, 0x%x, %d)", out_fd, in_fd, offset_addr, count);
+    struct fd *in = f_get(in_fd);
+    if (in == NULL)
+        return _EBADF;
+    struct fd *out = f_get(out_fd);
+    if (out == NULL)
+        return _EBADF;
+    if (!in->ops->read && !in->ops->pread)
+        return _EINVAL;
+    if (!out->ops->write)
+        return _EINVAL;
+
+    off_t_ offset = -1;
+    if (offset_addr != 0) {
+        if (user_get(offset_addr, offset))
+            return _EFAULT;
+    }
+
+    size_t remaining = count;
+    size_t total = 0;
+    char buf[4096];
+    while (remaining > 0) {
+        size_t chunk = remaining < sizeof(buf) ? remaining : sizeof(buf);
+        ssize_t nread;
+        if (offset_addr != 0) {
+            if (!in->ops->pread)
+                return _EINVAL;
+            nread = in->ops->pread(in, buf, chunk, offset);
+        } else {
+            if (in->ops->read) {
+                nread = in->ops->read(in, buf, chunk);
+            } else {
+                nread = in->ops->pread(in, buf, chunk, in->offset);
+                if (nread > 0)
+                    in->offset += nread;
+            }
+        }
+        if (nread < 0)
+            return total > 0 ? (dword_t) total : (dword_t) nread;
+        if (nread == 0)
+            break;
+
+        ssize_t nwritten = out->ops->write(out, buf, nread);
+        if (nwritten < 0)
+            return total > 0 ? (dword_t) total : (dword_t) nwritten;
+
+        total += nwritten;
+        remaining -= nwritten;
+        if (offset_addr != 0)
+            offset += nwritten;
+
+        if (nwritten < nread)
+            break;
+    }
+
+    if (offset_addr != 0) {
+        if (user_put(offset_addr, offset))
+            return _EFAULT;
+    }
+    return total;
 }
 dword_t sys_splice(fd_t UNUSED(in_fd), addr_t UNUSED(in_off_addr), fd_t UNUSED(out_fd), addr_t UNUSED(out_off_addr), dword_t UNUSED(count), dword_t UNUSED(flags)) {
     return _EINVAL;
