@@ -33,12 +33,12 @@
         clearf_oc
     .endifin
     .ifin(\op, adc,sbc)
-        ldrb w10, [_cpu, CPU_cf]
+        ldrb w10, [_cpu, #CPU_cf]
         .ifc \op,adc
-            cmp w10, 1
+            cmp w10, #1
         .else
             mvn w10, w10
-            cmn w10, 1
+            cmn w10, #1
         .endif
     .endifin
 
@@ -60,8 +60,8 @@
             cmp _xtmp, _tmp, sxtw
         .endif
         cset w10, ne
-        strb w10, [_cpu, CPU_cf]
-        strb w10, [_cpu, CPU_of]
+        strb w10, [_cpu, #CPU_cf]
+        strb w10, [_cpu, #CPU_of]
     .endif
 
     .ifin(\op, bsf,bsr)
@@ -72,7 +72,7 @@
         .endif
         .ifc \op,bsf
             .if \size != 32
-                orr w10, w10, 1<<\size
+                orr w10, w10, #(1<<\size)
             .endif
             rbit w10, w10
             clz w10, w10
@@ -88,13 +88,13 @@
         .endif
         csel _tmp, w10, _tmp, ne
         cset w10, eq
-        ldrb w9, [_cpu, CPU_eflags]
-        bic w9, w9, ZF_FLAG
+        ldrb w9, [_cpu, #CPU_eflags]
+        bic w9, w9, #ZF_FLAG
         orr w9, w9, w10, lsl 6
-        strb w9, [_cpu, CPU_eflags]
-        ldrb w9, [_cpu, CPU_flags_res]
-        bic w9, w9, ZF_RES
-        strb w9, [_cpu, CPU_flags_res]
+        strb w9, [_cpu, #CPU_eflags]
+        ldrb w9, [_cpu, #CPU_flags_res]
+        bic w9, w9, #ZF_RES
+        strb w9, [_cpu, #CPU_flags_res]
     .endifin
 
     .ifc \op,xchg
@@ -231,12 +231,12 @@
             clearf_oc
         .endifin
         .ifin(\op, adc,sbc)
-            ldrb w10, [_cpu, CPU_cf]
+            ldrb w10, [_cpu, #CPU_cf]
             .ifc \op,adc
-                cmp w10, 1
+                cmp w10, #1
             .else
                 mvn w10, w10
-                cmn w10, 1
+                cmn w10, #1
             .endif
         .endifin
 
@@ -258,7 +258,7 @@
         .endifin
 
         .ifin(\op, inc,dec)
-            mov w10, 1
+            mov w10, #1
             setf_a src=w10, dst=w8
             .ifb \s
                 .ifc \op,inc
@@ -277,7 +277,7 @@
                 cmp w8, w8, sxt\s
                 cset w9, ne
             .endif
-            strb w9, [_cpu, CPU_of]
+            strb w9, [_cpu, #CPU_of]
             setf_zsp \s, val=w8
         .endifin
 
@@ -317,7 +317,7 @@
 # unary operations (well, only one explicit operand)
 
 .macro do_inc size, s
-    mov w10, 1
+    mov w10, #1
     setf_a w10, _tmp
     .ifb \s
         adds _tmp, _tmp, 1
@@ -328,11 +328,11 @@
         cmp _tmp, _tmp, sxt\s
         cset w8, ne
     .endif
-    strb w8, [_cpu, CPU_of]
+    strb w8, [_cpu, #CPU_of]
     setf_zsp \s
 .endm
 .macro do_dec size, s
-    mov w10, 1
+    mov w10, #1
     setf_a w10, _tmp
     .ifb \s
         subs _tmp, _tmp, 1
@@ -343,7 +343,7 @@
         cmp _tmp, _tmp, sxt\s
         cset w8, ne
     .endif
-    strb w8, [_cpu, CPU_of]
+    strb w8, [_cpu, #CPU_of]
     setf_zsp \s
 .endm
 
@@ -429,8 +429,8 @@
         .endif
     .endif
     cset w8, ne
-    strb w8, [_cpu, CPU_cf]
-    strb w8, [_cpu, CPU_of]
+    strb w8, [_cpu, #CPU_cf]
+    strb w8, [_cpu, #CPU_of]
 .endm
 .macro do_imul1 size, s
     .ifb \s
@@ -450,8 +450,8 @@
         .endif
     .endif
     cset w8, ne
-    strb w8, [_cpu, CPU_cf]
-    strb w8, [_cpu, CPU_of]
+    strb w8, [_cpu, #CPU_cf]
+    strb w8, [_cpu, #CPU_of]
 .endm
 .macro do_not size, s
     .ifb \s
@@ -473,12 +473,12 @@
 .endr
 
 .gadget cvt_16
-    tst eax, 0x8000
+    tst eax, #0x8000
     cinv w8, wzr, ne
     bfxil edx, w8, 0, 16
     gret
 .gadget cvt_32
-    tst eax, 0x80000000
+    tst eax, #0x80000000
     cinv edx, wzr, ne
     gret
 .gadget_list cvt, SIZE_LIST

@@ -59,7 +59,7 @@ NAME(si_gadgets):
 .popsection
 
 .gadget seg_gs
-    ldr w8, [_cpu, CPU_tls_ptr]
+    ldr w8, [_cpu, #CPU_tls_ptr]
     add _addr, _addr, w8
     gret
 
@@ -69,12 +69,12 @@ NAME(si_gadgets):
 handle_\type\()_miss:
     save_c
     # %tlb actually points to tlb->entries
-    sub x0, _tlb, TLB_entries
+    sub x0, _tlb, #TLB_entries
     mov w1, _addr
     .ifc \type,read
         mov x2, xzr
     .else
-        mov x2, 1
+        mov x2, #1
     .endif
     bl NAME(tlb_handle_miss)
     mov x19, x0
@@ -85,20 +85,20 @@ handle_\type\()_miss:
 
 .global segfault_\type
 segfault_\type:
-    ldr _addr, [_tlb, -TLB_entries+TLB_segfault_addr]
-    str _addr, [_cpu, CPU_segfault_addr]
+    ldr _addr, [_tlb, #(-TLB_entries+TLB_segfault_addr)]
+    str _addr, [_cpu, #CPU_segfault_addr]
     .ifc \type,read
-        mov w0, 0
+        mov w0, #0
     .else
-        mov w0, 1
+        mov w0, #1
     .endif
-    strb w0, [_cpu, CPU_segfault_was_write]
+    strb w0, [_cpu, #CPU_segfault_was_write]
     ldr x0, [_ip]
     mov eip, w0
     sub w8, esp, 4
-    tst x0, 1 << 62
+    tst x0, #(1 << 62)
     csel esp, esp, w8, eq
-    mov x0, INT_GPF
+    mov x0, #INT_GPF
     b fiber_exit
 
 .endr
@@ -106,24 +106,24 @@ segfault_\type:
 .global crosspage_load
 crosspage_load:
     save_c
-    sub x0, _tlb, TLB_entries
-    add x2, _cpu, LOCAL_value
+    sub x0, _tlb, #TLB_entries
+    add x2, _cpu, #LOCAL_value
     mov w1, _addr
     mov x3, x19
     bl NAME(__tlb_read_cross_page)
     mov x19, x0
     restore_c
     cbz x19, segfault_read
-    str _addr, [_cpu, LOCAL_value_addr]
-    add _xaddr, _cpu, LOCAL_value
+    str _addr, [_cpu, #LOCAL_value_addr]
+    add _xaddr, _cpu, #LOCAL_value
     ret
 
 .global crosspage_store
 crosspage_store:
     save_c
-    sub x0, _tlb, TLB_entries
-    add x2, _cpu, LOCAL_value
-    ldr w1, [_cpu, LOCAL_value_addr]
+    sub x0, _tlb, #TLB_entries
+    add x2, _cpu, #LOCAL_value
+    ldr w1, [_cpu, #LOCAL_value_addr]
     mov x3, x19
     bl NAME(__tlb_write_cross_page)
     mov x19, x0

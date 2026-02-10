@@ -104,13 +104,72 @@
 		497F6D5C254E609700C82F46 /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = BB7D93822087C2890008DA78 /* main.c */; };
 		497F6D87254E62E100C82F46 /* libish.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB13F7DC200AD81D003D1C4D /* libish.a */; };
 		49FF844B2A06249F00850B7A /* ExceptionExfiltrator.m in Sources */ = {isa = PBXBuildFile; fileRef = 49FF844A2A06249F00850B7A /* ExceptionExfiltrator.m */; };
+		AA000020AF96D90D00FFB7A4 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = BB792B621F96D90D00FFB7A4 /* main.m */; };
+		AA000021AF96D90D00FFB7A4 /* LocationDevice.m in Sources */ = {isa = PBXBuildFile; fileRef = BB235533235D488400139E00 /* LocationDevice.m */; };
+		AA000022AF96D90D00FFB7A4 /* iOSFS.m in Sources */ = {isa = PBXBuildFile; fileRef = 408A2639236440F8008A4E81 /* iOSFS.m */; };
+		AA000023AF96D90D00FFB7A4 /* PasteboardDevice.m in Sources */ = {isa = PBXBuildFile; fileRef = 650B337322EA235C00B4C03E /* PasteboardDevice.m */; };
+		AA000031AF96D90D00FFB7A4 /* libarchive.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB10E5C8248DBAA1009C7A74 /* libarchive.a */; };
+		AA000032AF96D90D00FFB7A4 /* CoreLocation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BB235536235D49B300139E00 /* CoreLocation.framework */; };
+		AA000033AF96D90D00FFB7A4 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBA8E2C0236FF5EA00515F76 /* SystemConfiguration.framework */; };
+		AA000034AF96D90D00FFB7A4 /* libbz2.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = BBAEE338249B58E80069EBB5 /* libbz2.tbd */; };
+		AA000035AF96D90D00FFB7A4 /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = BB6DB260216435330047A611 /* libiconv.tbd */; };
+		AA000036AF96D90D00FFB7A4 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFB55652158644C00DFE6DE /* libresolv.tbd */; };
+		AA000040AF96D90D00FFB7A4 /* Terminal.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BB792B591F96D90D00FFB7A4 /* Terminal.storyboard */; };
+		AA000041AF96D90D00FFB7A4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BB792B5C1F96D90D00FFB7A4 /* Assets.xcassets */; };
+		AA000042AF96D90D00FFB7A4 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BB792B5E1F96D90D00FFB7A4 /* LaunchScreen.storyboard */; };
+		AA000043AF96D90D00FFB7A4 /* Settings.bundle in Resources */ = {isa = PBXBuildFile; fileRef = BBBF7B5B2415CDBB00EC4C14 /* Settings.bundle */; };
+		AA000044AF96D90D00FFB7A4 /* Icons.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB0F552D239F8A790032A2A1 /* Icons.plist */; };
+		AA000045AF96D90D00FFB7A4 /* About.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BBBCE7E521D2F02200CA00B3 /* About.storyboard */; };
+		AA000046AF96D90D00FFB7A4 /* Roots.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BB10E5CF248DC21D009C7A74 /* Roots.storyboard */; };
+		AA000047AF96D90D00FFB7A4 /* hterm_all.js in Resources */ = {isa = PBXBuildFile; fileRef = BB2B4DAB231D94C300CB578B /* hterm_all.js */; };
+		AA000048AF96D90D00FFB7A4 /* term.js in Resources */ = {isa = PBXBuildFile; fileRef = BB4A539C1FAA490C00A72ACE /* term.js */; };
+		AA000049AF96D90D00FFB7A4 /* term.css in Resources */ = {isa = PBXBuildFile; fileRef = BB4A53AF1FAA787900A72ACE /* term.css */; };
+		AA00004AAF96D90D00FFB7A4 /* term.html in Resources */ = {isa = PBXBuildFile; fileRef = BB4A53A91FAA496700A72ACE /* term.html */; };
+		AA000100AF96D90D00FFB7A4 /* AboutAppearanceViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 9A28E4E9219A8B670073D200 /* AboutAppearanceViewController.m */; };
+		AA000101AF96D90D00FFB7A4 /* AltIconViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BB267FA523A48F1500ED7CAF /* AltIconViewController.m */; };
+		AA000102AF96D90D00FFB7A4 /* ThemeViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 491B31E52883BF22008EEFB0 /* ThemeViewController.m */; };
+		AA000103AF96D90D00FFB7A4 /* Theme.m in Sources */ = {isa = PBXBuildFile; fileRef = 491C4C1E27C8FB65008B1DFA /* Theme.m */; };
+		AA000104AF96D90D00FFB7A4 /* AboutNavigationController.m in Sources */ = {isa = PBXBuildFile; fileRef = BB1D9D92234A8FE100F364E8 /* AboutNavigationController.m */; };
+		AA000105AF96D90D00FFB7A4 /* TerminalViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BB792B571F96D90D00FFB7A4 /* TerminalViewController.m */; };
+		AA000106AF96D90D00FFB7A4 /* IOSCalls.m in Sources */ = {isa = PBXBuildFile; fileRef = BB123ACD26C9F13500419CDA /* IOSCalls.m */; };
+		AA000107AF96D90D00FFB7A4 /* CurrentRoot.m in Sources */ = {isa = PBXBuildFile; fileRef = BB565EA32734F1FB00C93EAE /* CurrentRoot.m */; };
+		AA000108AF96D90D00FFB7A4 /* ProgressReportViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BBAEE33B249BDADC0069EBB5 /* ProgressReportViewController.m */; };
+		AA000109AF96D90D00FFB7A4 /* TerminalView.m in Sources */ = {isa = PBXBuildFile; fileRef = BB78AB2A1FAD22440013E782 /* TerminalView.m */; };
+		AA00010AAF96D90D00FFB7A4 /* mach_exc.defs in Sources */ = {isa = PBXBuildFile; fileRef = 49087C26295DF1350058075B /* mach_exc.defs */; settings = {ATTRIBUTES = (Server, ); }; };
+		AA00010BAF96D90D00FFB7A4 /* ScrollbarView.m in Sources */ = {isa = PBXBuildFile; fileRef = BB23F58C231E1D1400585522 /* ScrollbarView.m */; };
+		AA00010CAF96D90D00FFB7A4 /* DelayedUITask.m in Sources */ = {isa = PBXBuildFile; fileRef = BB455E101FB37F6600AFB48B /* DelayedUITask.m */; };
+		AA00010DAF96D90D00FFB7A4 /* hook.c in Sources */ = {isa = PBXBuildFile; fileRef = 49087C14295DF0490058075B /* hook.c */; };
+		AA00010EAF96D90D00FFB7A4 /* Roots.m in Sources */ = {isa = PBXBuildFile; fileRef = BB10E5CD248DBE66009C7A74 /* Roots.m */; };
+		AA00010FAF96D90D00FFB7A4 /* Terminal.m in Sources */ = {isa = PBXBuildFile; fileRef = BB0FC5911F980A6B00803272 /* Terminal.m */; };
+		AA000110AF96D90D00FFB7A4 /* FontPickerViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BB101B372364CF57000A93BC /* FontPickerViewController.m */; };
+		AA000111AF96D90D00FFB7A4 /* UpgradeRootViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BBA5D87D27536E7600B39D77 /* UpgradeRootViewController.m */; };
+		AA000112AF96D90D00FFB7A4 /* SceneDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = BBCC9D952365430800424C83 /* SceneDelegate.m */; };
+		AA000113AF96D90D00FFB7A4 /* AboutExternalKeyboardViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BB82A7FC21B4C2E8006AA5FD /* AboutExternalKeyboardViewController.m */; };
+		AA000114AF96D90D00FFB7A4 /* PassthroughView.m in Sources */ = {isa = PBXBuildFile; fileRef = BB149E7F256DC97C00F57815 /* PassthroughView.m */; };
+		AA000115AF96D90D00FFB7A4 /* UserPreferences.m in Sources */ = {isa = PBXBuildFile; fileRef = 8632A7BE219A59FB00F02325 /* UserPreferences.m */; };
+		AA000116AF96D90D00FFB7A4 /* RootsTableViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BB10E5D2248DCFEA009C7A74 /* RootsTableViewController.m */; };
+		AA000117AF96D90D00FFB7A4 /* BarButton.m in Sources */ = {isa = PBXBuildFile; fileRef = BB60F55121573FCA003A4E52 /* BarButton.m */; };
+		AA000118AF96D90D00FFB7A4 /* AppGroup.m in Sources */ = {isa = PBXBuildFile; fileRef = BB9C7B84240A240E00F5D4F0 /* AppGroup.m */; };
+		AA000119AF96D90D00FFB7A4 /* AppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = BB792B541F96D90D00FFB7A4 /* AppDelegate.m */; };
+		AA00011AAF96D90D00FFB7A4 /* UIApplication+OpenURL.m in Sources */ = {isa = PBXBuildFile; fileRef = BBFB557B215878C600DFE6DE /* UIApplication+OpenURL.m */; };
+		AA00011BAF96D90D00FFB7A4 /* ExceptionExfiltrator.m in Sources */ = {isa = PBXBuildFile; fileRef = 49FF844A2A06249F00850B7A /* ExceptionExfiltrator.m */; };
+		AA00011CAF96D90D00FFB7A4 /* AccessibilityFixes.m in Sources */ = {isa = PBXBuildFile; fileRef = 497A08BC2961168400B323CF /* AccessibilityFixes.m */; };
+		AA00011DAF96D90D00FFB7A4 /* AboutViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BBFB5578215876CD00DFE6DE /* AboutViewController.m */; };
+		AA00011EAF96D90D00FFB7A4 /* UIViewController+Extras.m in Sources */ = {isa = PBXBuildFile; fileRef = BBFB557021586C4800DFE6DE /* UIViewController+Extras.m */; };
+		AA00011FAF96D90D00FFB7A4 /* NSObject+SaneKVO.m in Sources */ = {isa = PBXBuildFile; fileRef = BBCED896255BB65A00CA0701 /* NSObject+SaneKVO.m */; };
+		AA000120AF96D90D00FFB7A4 /* ThemesViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 491C4C1627C8F84A008B1DFA /* ThemesViewController.m */; };
+		AA000121AF96D90D00FFB7A4 /* fakefs.c in Sources */ = {isa = PBXBuildFile; fileRef = BB10E5C2248DBA7B009C7A74 /* fakefs.c */; };
+		AA000122AF96D90D00FFB7A4 /* ArrowBarButton.m in Sources */ = {isa = PBXBuildFile; fileRef = BBFB557F21587B6800DFE6DE /* ArrowBarButton.m */; };
+		AA000130AF96D90D00FFB7A4 /* DebugServer.c in Sources */ = {isa = PBXBuildFile; fileRef = AA000131AF96D90D00FFB7A4 /* DebugServer.c */; };
 		BB0F552E239F8A790032A2A1 /* Icons.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB0F552D239F8A790032A2A1 /* Icons.plist */; };
 		BB10E5C9248DBAAC009C7A74 /* libarchive.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB10E5C8248DBAA1009C7A74 /* libarchive.a */; };
 		BB10E5D0248DC21D009C7A74 /* Roots.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BB10E5CF248DC21D009C7A74 /* Roots.storyboard */; };
 		BB123ACC26C9EFD900419CDA /* LinuxTTY.c in Sources */ = {isa = PBXBuildFile; fileRef = BB123ACB26C9EFD900419CDA /* LinuxTTY.c */; };
 		BB123ACE26C9F13500419CDA /* IOSCalls.m in Sources */ = {isa = PBXBuildFile; fileRef = BB123ACD26C9F13500419CDA /* IOSCalls.m */; };
 		BB13F7EA200ADCED003D1C4D /* libish.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB13F7DC200AD81D003D1C4D /* libish.a */; };
+		BB21A1702689048200BD19B4 /* libfakefs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB21A16F2689041500BD19B4 /* libfakefs.a */; };
 		BB21A18426890C7E00BD19B4 /* libfakefs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB21A16F2689041500BD19B4 /* libfakefs.a */; };
+		BB21A1862689500000BD19B4 /* libish_emu.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFB2C5B2590257E00545EAB /* libish_emu.a */; };
 		BB235537235D49B300139E00 /* CoreLocation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BB235536235D49B300139E00 /* CoreLocation.framework */; };
 		BB28C79226896B1F00BDC834 /* AboutAppearanceViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 9A28E4E9219A8B670073D200 /* AboutAppearanceViewController.m */; };
 		BB28C79326896B1F00BDC834 /* AltIconViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BB267FA523A48F1500ED7CAF /* AltIconViewController.m */; };
@@ -177,7 +236,11 @@
 		BB792B5B1F96D90D00FFB7A4 /* Terminal.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BB792B591F96D90D00FFB7A4 /* Terminal.storyboard */; };
 		BB792B5D1F96D90D00FFB7A4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BB792B5C1F96D90D00FFB7A4 /* Assets.xcassets */; };
 		BB792B601F96D90D00FFB7A4 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BB792B5E1F96D90D00FFB7A4 /* LaunchScreen.storyboard */; };
+		BB88F4942154760800A341FD /* FileProviderExtension.m in Sources */ = {isa = PBXBuildFile; fileRef = BB88F4932154760800A341FD /* FileProviderExtension.m */; };
+		BB88F4972154760800A341FD /* FileProviderItem.m in Sources */ = {isa = PBXBuildFile; fileRef = BB88F4962154760800A341FD /* FileProviderItem.m */; };
+		BB88F49A2154760800A341FD /* FileProviderEnumerator.m in Sources */ = {isa = PBXBuildFile; fileRef = BB88F4992154760800A341FD /* FileProviderEnumerator.m */; };
 		BB8C3AFF26B7B8CF00E38DDC /* fakefs.c in Sources */ = {isa = PBXBuildFile; fileRef = BB8C3AFD26B7B8AF00E38DDC /* fakefs.c */; };
+		BB9C7B87240A2B1E00F5D4F0 /* AppGroup.m in Sources */ = {isa = PBXBuildFile; fileRef = BB9C7B84240A240E00F5D4F0 /* AppGroup.m */; };
 		BBA8E2C1236FF5EA00515F76 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBA8E2C0236FF5EA00515F76 /* SystemConfiguration.framework */; };
 		BBAEE339249B58E80069EBB5 /* libbz2.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = BBAEE338249B58E80069EBB5 /* libbz2.tbd */; };
 		BBBCE7E321D2F02200CA00B3 /* About.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BBBCE7E521D2F02200CA00B3 /* About.storyboard */; };
@@ -186,10 +249,13 @@
 		BBBDDF932CE0132F0071F1F3 /* libiSHLinuxUser.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBBDDF8F2CE00F6B0071F1F3 /* libiSHLinuxUser.a */; };
 		BBBF7B5C2415CDBB00EC4C14 /* Settings.bundle in Resources */ = {isa = PBXBuildFile; fileRef = BBBF7B5B2415CDBB00EC4C14 /* Settings.bundle */; };
 		BBBF9CBD27C217B6002A30F7 /* PasteboardDeviceLinux.c in Sources */ = {isa = PBXBuildFile; fileRef = BBBF9CBB27C217A6002A30F7 /* PasteboardDeviceLinux.c */; };
+		BBBF9CBF27C44114002A30F7 /* iSHFileProvider.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BB88F4902154760800A341FD /* iSHFileProvider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		BBBFE94921C5CFF100509DD5 /* NSError+ISHErrno.m in Sources */ = {isa = PBXBuildFile; fileRef = BB13F4DD21C5770000343E17 /* NSError+ISHErrno.m */; };
 		BBC3863E276817A900CC8C2E /* UpgradeRootViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BBA5D87D27536E7600B39D77 /* UpgradeRootViewController.m */; };
 		BBC3863F276817AD00CC8C2E /* CurrentRoot.m in Sources */ = {isa = PBXBuildFile; fileRef = BB565EA32734F1FB00C93EAE /* CurrentRoot.m */; };
 		BBD23D5F258DA450003DCB40 /* Screenshots.m in Sources */ = {isa = PBXBuildFile; fileRef = BBD23D5E258DA450003DCB40 /* Screenshots.m */; };
 		BBD23D77258DA4BC003DCB40 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBD23D76258DA4BC003DCB40 /* SnapshotHelper.swift */; };
+		BBE64AC22A198FCC00589372 /* ExceptionExfiltrator.m in Sources */ = {isa = PBXBuildFile; fileRef = 49FF844A2A06249F00850B7A /* ExceptionExfiltrator.m */; };
 		BBECF3AD269132F400DEC937 /* LinuxInterop.c in Sources */ = {isa = PBXBuildFile; fileRef = BBECF39D2691313B00DEC937 /* LinuxInterop.c */; };
 		BBECF3AE2691330F00DEC937 /* libiSHLinux.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBECF3A22691314C00DEC937 /* libiSHLinux.a */; };
 		BBECF3B9269136FB00DEC937 /* liblinux.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBECF3B8269136E100DEC937 /* liblinux.a */; };
@@ -250,6 +316,19 @@
 			);
 			script = "set -x\n\nunset IPHONEOS_DEPLOYMENT_TARGET\n\nsdk=\"$(dirname \"$SCRIPT_INPUT_FILE\")/../../../\"\ncd \"$DERIVED_FILE_DIR\"\nmig -sheader \"$DERIVED_FILE_DIR/mach_excServer.h\" -server \"$DERIVED_FILE_DIR/mach_excServer.c\" -Wno-incompatible-sysroot -isysroot \"$sdk\" \"$SCRIPT_INPUT_FILE\"\n";
 		};
+		AA000200AF96D90D00FFB7A4 /* PBXBuildRule */ = {
+			isa = PBXBuildRule;
+			compilerSpec = com.apple.compilers.proxy.script;
+			fileType = sourcecode.mig;
+			inputFiles = (
+			);
+			isEditable = 1;
+			outputFiles = (
+				"$(DERIVED_FILE_DIR)/mach_excServer.h",
+				"$(DERIVED_FILE_DIR)/mach_excServer.c",
+			);
+			script = "set -x\n\nunset IPHONEOS_DEPLOYMENT_TARGET\n\nsdk=\"$(dirname \"$SCRIPT_INPUT_FILE\")/../../../\"\ncd \"$DERIVED_FILE_DIR\"\nmig -sheader \"$DERIVED_FILE_DIR/mach_excServer.h\" -server \"$DERIVED_FILE_DIR/mach_excServer.c\" -Wno-incompatible-sysroot -isysroot \"$sdk\" \"$SCRIPT_INPUT_FILE\"\n";
+		};
 /* End PBXBuildRule section */
 
 /* Begin PBXContainerItemProxy section */
@@ -259,6 +338,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = BB13F7DB200AD81D003D1C4D;
 			remoteInfo = libish;
+		};
+		AA000070AF96D90D00FFB7A4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BB792B461F96D8E000FFB7A4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BB4A922324ED9402002F5A96;
+			remoteInfo = "iSH pre";
 		};
 		BB10E5C7248DBAA1009C7A74 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -384,7 +470,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 1;
 		};
-		BB88F4A32154760800A341FD /* Embed Foundation Extensions */ = {
+		AA000014AF96D90D00FFB7A4 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
@@ -400,6 +486,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
+				BBBF9CBF27C44114002A30F7 /* iSHFileProvider.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -575,6 +662,10 @@
 		8632A7BE219A59FB00F02325 /* UserPreferences.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = UserPreferences.m; sourceTree = "<group>"; };
 		9A28E4E8219A8B670073D200 /* AboutAppearanceViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AboutAppearanceViewController.h; sourceTree = "<group>"; };
 		9A28E4E9219A8B670073D200 /* AboutAppearanceViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AboutAppearanceViewController.m; sourceTree = "<group>"; };
+		AA0000021F96D90D00FFB7A4 /* iSH ARM64.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "iSH ARM64.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA000015AF96D90D00FFB7A4 /* AppARM64.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AppARM64.xcconfig; sourceTree = "<group>"; };
+		AA000131AF96D90D00FFB7A4 /* DebugServer.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = DebugServer.c; sourceTree = "<group>"; };
+		AA000132AF96D90D00FFB7A4 /* DebugServer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DebugServer.h; sourceTree = "<group>"; };
 		BB0B848E2586A4CF00208600 /* XcodeDefault.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = XcodeDefault.xcconfig; sourceTree = "<group>"; };
 		BB0B859B2586F13200208600 /* XcodeDebug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = XcodeDebug.xcconfig; sourceTree = "<group>"; };
 		BB0B859C2586F19000208600 /* XcodeRelease.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = XcodeRelease.xcconfig; sourceTree = "<group>"; };
@@ -670,6 +761,7 @@
 		BB7D93822087C2890008DA78 /* main.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = main.c; sourceTree = "<group>"; };
 		BB82A7FB21B4C2E8006AA5FD /* AboutExternalKeyboardViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AboutExternalKeyboardViewController.h; sourceTree = "<group>"; };
 		BB82A7FC21B4C2E8006AA5FD /* AboutExternalKeyboardViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AboutExternalKeyboardViewController.m; sourceTree = "<group>"; };
+		BB88F4902154760800A341FD /* iSHFileProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = iSHFileProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB88F4922154760800A341FD /* FileProviderExtension.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FileProviderExtension.h; sourceTree = "<group>"; };
 		BB88F4932154760800A341FD /* FileProviderExtension.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FileProviderExtension.m; sourceTree = "<group>"; };
 		BB88F4952154760800A341FD /* FileProviderItem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FileProviderItem.h; sourceTree = "<group>"; };
@@ -742,6 +834,19 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA0000091F96D90D00FFB7A4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA000031AF96D90D00FFB7A4 /* libarchive.a in Frameworks */,
+				AA000032AF96D90D00FFB7A4 /* CoreLocation.framework in Frameworks */,
+				AA000033AF96D90D00FFB7A4 /* SystemConfiguration.framework in Frameworks */,
+				AA000034AF96D90D00FFB7A4 /* libbz2.tbd in Frameworks */,
+				AA000035AF96D90D00FFB7A4 /* libiconv.tbd in Frameworks */,
+				AA000036AF96D90D00FFB7A4 /* libresolv.tbd in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		BB415919255EF9E300E0950C /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -763,6 +868,15 @@
 				BBAEE339249B58E80069EBB5 /* libbz2.tbd in Frameworks */,
 				BB6DB261216435340047A611 /* libiconv.tbd in Frameworks */,
 				BBFB55662158644C00DFE6DE /* libresolv.tbd in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB88F48D2154760800A341FD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB21A1862689500000BD19B4 /* libish_emu.a in Frameworks */,
+				BB21A1702689048200BD19B4 /* libfakefs.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -835,6 +949,7 @@
 			isa = PBXGroup;
 			children = (
 				BB0B86CD2586FD8800208600 /* App.xcconfig */,
+				AA000015AF96D90D00FFB7A4 /* AppARM64.xcconfig */,
 				BBEF192C26806546001225BD /* AppLib.xcconfig */,
 				493B378F290F5320000C41ED /* CLI.xcconfig */,
 				BB0B86D52587009D00208600 /* iOS.xcconfig */,
@@ -999,6 +1114,8 @@
 			isa = PBXGroup;
 			children = (
 				BB792B501F96D90D00FFB7A4 /* iSH.app */,
+				AA0000021F96D90D00FFB7A4 /* iSH ARM64.app */,
+				BB88F4902154760800A341FD /* iSHFileProvider.appex */,
 				BB13F7DC200AD81D003D1C4D /* libish.a */,
 				BBFB2C5B2590257E00545EAB /* libish_emu.a */,
 				BB41591C255EF9E300E0950C /* iSHUITests.xctest */,
@@ -1019,6 +1136,8 @@
 			children = (
 				BB792B531F96D90D00FFB7A4 /* AppDelegate.h */,
 				BB792B541F96D90D00FFB7A4 /* AppDelegate.m */,
+				AA000132AF96D90D00FFB7A4 /* DebugServer.h */,
+				AA000131AF96D90D00FFB7A4 /* DebugServer.c */,
 				BB565EA52734F22D00C93EAE /* CurrentRoot.h */,
 				BB565EA32734F1FB00C93EAE /* CurrentRoot.m */,
 				BBCC9D942365430800424C83 /* SceneDelegate.h */,
@@ -1394,6 +1513,31 @@
 			productReference = 497F6D47254E605F00C82F46 /* ish */;
 			productType = "com.apple.product-type.tool";
 		};
+		AA0000011F96D90D00FFB7A4 /* iSH-ARM64 */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA0000031F96D90D00FFB7A4 /* Build configuration list for PBXNativeTarget "iSH-ARM64" */;
+			buildPhases = (
+				AA000300AF96D90D00FFB7A4 /* Build Meson (ARM64) */,
+				AA0000081F96D90D00FFB7A4 /* Sources */,
+				AA0000091F96D90D00FFB7A4 /* Frameworks */,
+				AA000011AF96D90D00FFB7A4 /* Download Root */,
+				AA000012AF96D90D00FFB7A4 /* Generate APK Repositories File */,
+				AA000013AF96D90D00FFB7A4 /* Compile JavaScript */,
+				AA000010AF96D90D00FFB7A4 /* Resources */,
+				AA000014AF96D90D00FFB7A4 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+				AA000200AF96D90D00FFB7A4 /* PBXBuildRule */,
+			);
+			dependencies = (
+				AA000060AF96D90D00FFB7A4 /* PBXTargetDependency */,
+				AA000062AF96D90D00FFB7A4 /* PBXTargetDependency */,
+			);
+			name = "iSH-ARM64";
+			productName = "iSH ARM64";
+			productReference = AA0000021F96D90D00FFB7A4 /* iSH ARM64.app */;
+			productType = "com.apple.product-type.application";
+		};
 		BB13F7DB200AD81D003D1C4D /* libish */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = BB13F7E2200AD81E003D1C4D /* Build configuration list for PBXNativeTarget "libish" */;
@@ -1454,7 +1598,6 @@
 				BB034E8C263643C10000A498 /* Generate APK Repositories File */,
 				BB4A53AC1FAA49CA00A72ACE /* Compile JavaScript */,
 				BB792B4E1F96D90D00FFB7A4 /* Resources */,
-				BB88F4A32154760800A341FD /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
@@ -1468,6 +1611,23 @@
 			productName = iSH;
 			productReference = BB792B501F96D90D00FFB7A4 /* iSH.app */;
 			productType = "com.apple.product-type.application";
+		};
+		BB88F48F2154760800A341FD /* iSHFileProvider */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BB88F4A22154760800A341FD /* Build configuration list for PBXNativeTarget "iSHFileProvider" */;
+			buildPhases = (
+				BB88F48C2154760800A341FD /* Sources */,
+				BB88F48D2154760800A341FD /* Frameworks */,
+				BB88F48E2154760800A341FD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = iSHFileProvider;
+			productName = iSHFiles;
+			productReference = BB88F4902154760800A341FD /* iSHFileProvider.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		BBBDDF802CE00F6A0071F1F3 /* libiSHLinuxUser */ = {
 			isa = PBXNativeTarget;
@@ -1589,6 +1749,15 @@
 						CreatedOnToolsVersion = 12.2;
 						ProvisioningStyle = Automatic;
 					};
+					AA0000011F96D90D00FFB7A4 = {
+						CreatedOnToolsVersion = 14.1;
+						ProvisioningStyle = Automatic;
+						SystemCapabilities = {
+							com.apple.ApplicationGroups.iOS = {
+								enabled = 1;
+							};
+						};
+					};
 					BB13F7CA200ACC31003D1C4D = {
 						CreatedOnToolsVersion = 9.2;
 						ProvisioningStyle = Automatic;
@@ -1613,6 +1782,15 @@
 					};
 					BB792B4F1F96D90D00FFB7A4 = {
 						CreatedOnToolsVersion = 9.0;
+						ProvisioningStyle = Automatic;
+						SystemCapabilities = {
+							com.apple.ApplicationGroups.iOS = {
+								enabled = 1;
+							};
+						};
+					};
+					BB88F48F2154760800A341FD = {
+						CreatedOnToolsVersion = 10.0;
 						ProvisioningStyle = Automatic;
 						SystemCapabilities = {
 							com.apple.ApplicationGroups.iOS = {
@@ -1648,10 +1826,12 @@
 			projectRoot = "";
 			targets = (
 				BB792B4F1F96D90D00FFB7A4 /* iSH */,
+				AA0000011F96D90D00FFB7A4 /* iSH-ARM64 */,
 				BBEF191D26806364001225BD /* libiSHApp */,
 				BBEF1964268066D1001225BD /* iSH+Linux */,
 				BBECF3A12691314C00DEC937 /* libiSHLinux */,
 				BBBDDF802CE00F6A0071F1F3 /* libiSHLinuxUser */,
+				BB88F48F2154760800A341FD /* iSHFileProvider */,
 				BB41591B255EF9E300E0950C /* iSHUITests */,
 				BB13F7CA200ACC31003D1C4D /* Meson */,
 				BB13F7D0200ACCA2003D1C4D /* Ninja */,
@@ -1677,6 +1857,24 @@
 /* End PBXReferenceProxy section */
 
 /* Begin PBXResourcesBuildPhase section */
+		AA000010AF96D90D00FFB7A4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA000040AF96D90D00FFB7A4 /* Terminal.storyboard in Resources */,
+				AA000041AF96D90D00FFB7A4 /* Assets.xcassets in Resources */,
+				AA000042AF96D90D00FFB7A4 /* LaunchScreen.storyboard in Resources */,
+				AA000043AF96D90D00FFB7A4 /* Settings.bundle in Resources */,
+				AA000044AF96D90D00FFB7A4 /* Icons.plist in Resources */,
+				AA000045AF96D90D00FFB7A4 /* About.storyboard in Resources */,
+				AA000046AF96D90D00FFB7A4 /* Roots.storyboard in Resources */,
+				AA000047AF96D90D00FFB7A4 /* hterm_all.js in Resources */,
+				AA000048AF96D90D00FFB7A4 /* term.js in Resources */,
+				AA000049AF96D90D00FFB7A4 /* term.css in Resources */,
+				AA00004AAF96D90D00FFB7A4 /* term.html in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		BB41591A255EF9E300E0950C /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1723,6 +1921,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BB88F48E2154760800A341FD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		BBEF197C268066D1001225BD /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1765,6 +1970,80 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		AA000011AF96D90D00FFB7A4 /* Download Root */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Download Root";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/root.tar.gz",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "curl -L \"https://$ROOTFS_URL\" -o \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\n";
+			showEnvVarsInLog = 0;
+		};
+		AA000012AF96D90D00FFB7A4 /* Generate APK Repositories File */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/app/gen_apk_repositories.py",
+			);
+			name = "Generate APK Repositories File";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/repositories.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "python3 $SRCROOT/app/gen_apk_repositories.py\n";
+		};
+		AA000013AF96D90D00FFB7A4 /* Compile JavaScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Compile JavaScript";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/deps/hterm/dist/js/hterm_all.js",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "cd $SRCROOT/deps/libapps && ./hterm/bin/mkdist\n";
+		};
+		AA000300AF96D90D00FFB7A4 /* Build Meson (ARM64) */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Build Meson (ARM64)";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/app/xcode-meson.sh\"\ncd \"$MESON_BUILD_DIR\"\n\"$SRCROOT/app/xcode-ninja.sh\" $NINJA_TARGETS\n";
+		};
 		BB034E8C263643C10000A498 /* Generate APK Repositories File */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -2050,6 +2329,53 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA0000081F96D90D00FFB7A4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA000020AF96D90D00FFB7A4 /* main.m in Sources */,
+				AA000021AF96D90D00FFB7A4 /* LocationDevice.m in Sources */,
+				AA000022AF96D90D00FFB7A4 /* iOSFS.m in Sources */,
+				AA000023AF96D90D00FFB7A4 /* PasteboardDevice.m in Sources */,
+				AA000100AF96D90D00FFB7A4 /* AboutAppearanceViewController.m in Sources */,
+				AA000101AF96D90D00FFB7A4 /* AltIconViewController.m in Sources */,
+				AA000102AF96D90D00FFB7A4 /* ThemeViewController.m in Sources */,
+				AA000103AF96D90D00FFB7A4 /* Theme.m in Sources */,
+				AA000104AF96D90D00FFB7A4 /* AboutNavigationController.m in Sources */,
+				AA000105AF96D90D00FFB7A4 /* TerminalViewController.m in Sources */,
+				AA000106AF96D90D00FFB7A4 /* IOSCalls.m in Sources */,
+				AA000107AF96D90D00FFB7A4 /* CurrentRoot.m in Sources */,
+				AA000108AF96D90D00FFB7A4 /* ProgressReportViewController.m in Sources */,
+				AA000109AF96D90D00FFB7A4 /* TerminalView.m in Sources */,
+				AA00010AAF96D90D00FFB7A4 /* mach_exc.defs in Sources */,
+				AA00010BAF96D90D00FFB7A4 /* ScrollbarView.m in Sources */,
+				AA00010CAF96D90D00FFB7A4 /* DelayedUITask.m in Sources */,
+				AA00010DAF96D90D00FFB7A4 /* hook.c in Sources */,
+				AA00010EAF96D90D00FFB7A4 /* Roots.m in Sources */,
+				AA00010FAF96D90D00FFB7A4 /* Terminal.m in Sources */,
+				AA000110AF96D90D00FFB7A4 /* FontPickerViewController.m in Sources */,
+				AA000111AF96D90D00FFB7A4 /* UpgradeRootViewController.m in Sources */,
+				AA000112AF96D90D00FFB7A4 /* SceneDelegate.m in Sources */,
+				AA000113AF96D90D00FFB7A4 /* AboutExternalKeyboardViewController.m in Sources */,
+				AA000114AF96D90D00FFB7A4 /* PassthroughView.m in Sources */,
+				AA000115AF96D90D00FFB7A4 /* UserPreferences.m in Sources */,
+				AA000116AF96D90D00FFB7A4 /* RootsTableViewController.m in Sources */,
+				AA000117AF96D90D00FFB7A4 /* BarButton.m in Sources */,
+				AA000118AF96D90D00FFB7A4 /* AppGroup.m in Sources */,
+				AA000119AF96D90D00FFB7A4 /* AppDelegate.m in Sources */,
+				AA00011AAF96D90D00FFB7A4 /* UIApplication+OpenURL.m in Sources */,
+				AA00011BAF96D90D00FFB7A4 /* ExceptionExfiltrator.m in Sources */,
+				AA00011CAF96D90D00FFB7A4 /* AccessibilityFixes.m in Sources */,
+				AA00011DAF96D90D00FFB7A4 /* AboutViewController.m in Sources */,
+				AA00011EAF96D90D00FFB7A4 /* UIViewController+Extras.m in Sources */,
+				AA00011FAF96D90D00FFB7A4 /* NSObject+SaneKVO.m in Sources */,
+				AA000120AF96D90D00FFB7A4 /* ThemesViewController.m in Sources */,
+				AA000121AF96D90D00FFB7A4 /* fakefs.c in Sources */,
+				AA000122AF96D90D00FFB7A4 /* ArrowBarButton.m in Sources */,
+				AA000130AF96D90D00FFB7A4 /* DebugServer.c in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		BB21A1722689084800BD19B4 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -2075,6 +2401,19 @@
 				BB41591F255EF9E300E0950C /* UITests.m in Sources */,
 				BBD23D5F258DA450003DCB40 /* Screenshots.m in Sources */,
 				BBD23D77258DA4BC003DCB40 /* SnapshotHelper.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB88F48C2154760800A341FD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB88F49A2154760800A341FD /* FileProviderEnumerator.m in Sources */,
+				BBBFE94921C5CFF100509DD5 /* NSError+ISHErrno.m in Sources */,
+				BB9C7B87240A2B1E00F5D4F0 /* AppGroup.m in Sources */,
+				BB88F4942154760800A341FD /* FileProviderExtension.m in Sources */,
+				BBE64AC22A198FCC00589372 /* ExceptionExfiltrator.m in Sources */,
+				BB88F4972154760800A341FD /* FileProviderItem.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2149,6 +2488,15 @@
 			isa = PBXTargetDependency;
 			target = BB13F7DB200AD81D003D1C4D /* libish */;
 			targetProxy = 497F6D5A254E609000C82F46 /* PBXContainerItemProxy */;
+		};
+		AA000060AF96D90D00FFB7A4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BB4A922324ED9402002F5A96 /* iSH pre */;
+			targetProxy = AA000070AF96D90D00FFB7A4 /* PBXContainerItemProxy */;
+		};
+		AA000062AF96D90D00FFB7A4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			targetProxy = BB10E5CA248DBAB7009C7A74 /* PBXContainerItemProxy */;
 		};
 		BB10E5CB248DBAB7009C7A74 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -2282,6 +2630,38 @@
 			buildSettings = {
 			};
 			name = Release;
+		};
+		AA0000041F96D90D00FFB7A4 /* Debug-ApplePleaseFixFB19282108 */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AA000015AF96D90D00FFB7A4 /* AppARM64.xcconfig */;
+			buildSettings = {
+				DEVELOPMENT_TEAM = K8Q74NT2BG;
+			};
+			name = "Debug-ApplePleaseFixFB19282108";
+		};
+		AA0000051F96D90D00FFB7A4 /* DebugLinux */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AA000015AF96D90D00FFB7A4 /* AppARM64.xcconfig */;
+			buildSettings = {
+				DEVELOPMENT_TEAM = K8Q74NT2BG;
+			};
+			name = DebugLinux;
+		};
+		AA0000061F96D90D00FFB7A4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AA000015AF96D90D00FFB7A4 /* AppARM64.xcconfig */;
+			buildSettings = {
+				DEVELOPMENT_TEAM = K8Q74NT2BG;
+			};
+			name = Release;
+		};
+		AA0000071F96D90D00FFB7A4 /* ReleaseLinux */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AA000015AF96D90D00FFB7A4 /* AppARM64.xcconfig */;
+			buildSettings = {
+				DEVELOPMENT_TEAM = K8Q74NT2BG;
+			};
+			name = ReleaseLinux;
 		};
 		BB13F7CC200ACC31003D1C4D /* Debug-ApplePleaseFixFB19282108 */ = {
 			isa = XCBuildConfiguration;
@@ -2419,7 +2799,6 @@
 			baseConfigurationReference = BB0B86CD2586FD8800208600 /* App.xcconfig */;
 			buildSettings = {
 				DEVELOPMENT_TEAM = K8Q74NT2BG;
-				PRODUCT_BUNDLE_IDENTIFIER = app.ish.iSH;
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
@@ -2428,7 +2807,6 @@
 			baseConfigurationReference = BB0B86CD2586FD8800208600 /* App.xcconfig */;
 			buildSettings = {
 				DEVELOPMENT_TEAM = K8Q74NT2BG;
-				PRODUCT_BUNDLE_IDENTIFIER = app.ish.iSH;
 			};
 			name = Release;
 		};
@@ -2445,7 +2823,6 @@
 			baseConfigurationReference = BB0B86CD2586FD8800208600 /* App.xcconfig */;
 			buildSettings = {
 				DEVELOPMENT_TEAM = K8Q74NT2BG;
-				PRODUCT_BUNDLE_IDENTIFIER = app.ish.iSH;
 			};
 			name = DebugLinux;
 		};
@@ -2460,6 +2837,19 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBEF192C26806546001225BD /* AppLib.xcconfig */;
 			buildSettings = {
+			};
+			name = DebugLinux;
+		};
+		BB7F62092688EAB5003C0220 /* DebugLinux */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = BB0B86D52587009D00208600 /* iOS.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = app/FileProvider/iSHFileProvider.entitlements;
+				DEVELOPMENT_TEAM = K8Q74NT2BG;
+				INFOPLIST_FILE = app/FileProvider/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_BUNDLE_IDENTIFIER).FileProvider";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
 			};
 			name = DebugLinux;
 		};
@@ -2527,6 +2917,32 @@
 			buildSettings = {
 			};
 			name = DebugLinux;
+		};
+		BB88F4A02154760800A341FD /* Debug-ApplePleaseFixFB19282108 */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = BB0B86D52587009D00208600 /* iOS.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = app/FileProvider/iSHFileProvider.entitlements;
+				DEVELOPMENT_TEAM = K8Q74NT2BG;
+				INFOPLIST_FILE = app/FileProvider/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_BUNDLE_IDENTIFIER).FileProvider";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+			};
+			name = "Debug-ApplePleaseFixFB19282108";
+		};
+		BB88F4A12154760800A341FD /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = BB0B86D52587009D00208600 /* iOS.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = app/FileProvider/iSHFileProvider.entitlements;
+				DEVELOPMENT_TEAM = K8Q74NT2BG;
+				INFOPLIST_FILE = app/FileProvider/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_BUNDLE_IDENTIFIER).FileProvider";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
 		};
 		BBBDDF8B2CE00F6A0071F1F3 /* Debug-ApplePleaseFixFB19282108 */ = {
 			isa = XCBuildConfiguration;
@@ -2657,7 +3073,6 @@
 			baseConfigurationReference = BB0B86CD2586FD8800208600 /* App.xcconfig */;
 			buildSettings = {
 				DEVELOPMENT_TEAM = K8Q74NT2BG;
-				PRODUCT_BUNDLE_IDENTIFIER = app.ish.iSH;
 			};
 			name = ReleaseLinux;
 		};
@@ -2672,6 +3087,19 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBEF192C26806546001225BD /* AppLib.xcconfig */;
 			buildSettings = {
+			};
+			name = ReleaseLinux;
+		};
+		BBEF19AF26806D1F001225BD /* ReleaseLinux */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = BB0B86D52587009D00208600 /* iOS.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = app/FileProvider/iSHFileProvider.entitlements;
+				DEVELOPMENT_TEAM = K8Q74NT2BG;
+				INFOPLIST_FILE = app/FileProvider/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_BUNDLE_IDENTIFIER).FileProvider";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
 			};
 			name = ReleaseLinux;
 		};
@@ -2778,6 +3206,17 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		AA0000031F96D90D00FFB7A4 /* Build configuration list for PBXNativeTarget "iSH-ARM64" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA0000041F96D90D00FFB7A4 /* Debug-ApplePleaseFixFB19282108 */,
+				AA0000051F96D90D00FFB7A4 /* DebugLinux */,
+				AA0000061F96D90D00FFB7A4 /* Release */,
+				AA0000071F96D90D00FFB7A4 /* ReleaseLinux */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		BB13F7CB200ACC31003D1C4D /* Build configuration list for PBXLegacyTarget "Meson" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -2862,6 +3301,17 @@
 				BB7F62062688EAB5003C0220 /* DebugLinux */,
 				BB792B651F96D90D00FFB7A4 /* Release */,
 				BBEF19AC26806D1F001225BD /* ReleaseLinux */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BB88F4A22154760800A341FD /* Build configuration list for PBXNativeTarget "iSHFileProvider" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BB88F4A02154760800A341FD /* Debug-ApplePleaseFixFB19282108 */,
+				BB7F62092688EAB5003C0220 /* DebugLinux */,
+				BB88F4A12154760800A341FD /* Release */,
+				BBEF19AF26806D1F001225BD /* ReleaseLinux */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

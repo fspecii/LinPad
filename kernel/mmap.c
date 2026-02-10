@@ -73,8 +73,9 @@ static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
     }
     if (addr == 0) {
         page = pt_find_hole(current->mem, pages);
-        if (page == BAD_PAGE)
+        if (page == BAD_PAGE) {
             return _ENOMEM;
+        }
     }
 
     if (flags & MMAP_SHARED)
@@ -86,8 +87,12 @@ static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
             return _ENOMEM;
         atomic_fetch_add(&anon_page_count, (long)pages);
 #endif
-        if ((err = pt_map_nothing(current->mem, page, pages, prot)) < 0)
+        if ((err = pt_map_nothing(current->mem, page, pages, prot)) < 0) {
+#if ANON_MMAP_LIMIT_PAGES > 0
+            atomic_fetch_sub(&anon_page_count, (long)pages);
+#endif
             return err;
+        }
     } else {
         // fd must be valid
         struct fd *fd = f_get(fd_no);
@@ -268,8 +273,12 @@ addr_t sys_brk(addr_t new_brk) {
         atomic_fetch_add(&anon_page_count, (long)size);
 #endif
         int err = pt_map_nothing(&mm->mem, start, size, P_WRITE);
-        if (err < 0)
+        if (err < 0) {
+#if ANON_MMAP_LIMIT_PAGES > 0
+            atomic_fetch_sub(&anon_page_count, (long)size);
+#endif
             goto out;
+        }
     } else if (new_brk < old_brk) {
         // shrink heap: unmap region from new_brk to old_brk
         // first page to unmap is PAGE(new_brk)

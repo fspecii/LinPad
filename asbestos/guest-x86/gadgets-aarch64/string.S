@@ -4,15 +4,15 @@
 #define REP_LIST once,rep,repnz
 
 .gadget cld
-    ldr w8, [_cpu, CPU_eflags]
-    bic w8, w8, DF_FLAG
-    str w8, [_cpu, CPU_eflags]
+    ldr w8, [_cpu, #CPU_eflags]
+    bic w8, w8, #DF_FLAG
+    str w8, [_cpu, #CPU_eflags]
     gret
 
 .gadget std
-    ldr w8, [_cpu, CPU_eflags]
-    orr w8, w8, DF_FLAG
-    str w8, [_cpu, CPU_eflags]
+    ldr w8, [_cpu, #CPU_eflags]
+    orr w8, w8, #DF_FLAG
+    str w8, [_cpu, #CPU_eflags]
     gret
 
 # FIXME non 32 bit
@@ -30,8 +30,8 @@
         .endif
         # df_offset = w12
         mov w12, (\size/8)
-        ldr w8, [_cpu, CPU_eflags]
-        tst w8, DF_FLAG
+        ldr w8, [_cpu, #CPU_eflags]
+        tst w8, #DF_FLAG
         cneg w12, w12, ne
     1:
 

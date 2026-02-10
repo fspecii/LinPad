@@ -39,23 +39,23 @@ _xaddr .req x3
 .irp type, read,write
 
 .macro \type\()_prep size, id
-    and w8, _addr, 0xfff
-    cmp x8, (0x1000-(\size/8))
+    and w8, _addr, #0xfff
+    cmp x8, #(0x1000-(\size/8))
     b.hi crosspage_load_\id
-    and w8, _addr, 0xfffff000
-    str w8, [_tlb, (-TLB_entries+TLB_dirty_page)]
+    and w8, _addr, #0xfffff000
+    str w8, [_tlb, #(-TLB_entries+TLB_dirty_page)]
     ubfx x9, _xaddr, 12, 10
     eor x9, x9, _xaddr, lsr 22
     lsl x9, x9, 4
     add x9, x9, _tlb
     .ifc \type,read
-        ldr w10, [x9, TLB_ENTRY_page]
+        ldr w10, [x9, #TLB_ENTRY_page]
     .else
-        ldr w10, [x9, TLB_ENTRY_page_if_writable]
+        ldr w10, [x9, #TLB_ENTRY_page_if_writable]
     .endif
     cmp w8, w10
     b.ne handle_miss_\id
-    ldr x10, [x9, TLB_ENTRY_data_minus_addr]
+    ldr x10, [x9, #TLB_ENTRY_data_minus_addr]
     add _xaddr, x10, _xaddr, uxtx
 back_\id:
 .endm
@@ -78,7 +78,7 @@ crosspage_store_\id :
 
 .endr
 .macro write_done size, id
-    add x8, _cpu, LOCAL_value
+    add x8, _cpu, #LOCAL_value
     cmp x8, _xaddr
     b.eq crosspage_store_\id
 back_write_done_\id :
@@ -121,40 +121,40 @@ back_write_done_\id :
 
 .macro setf_c
     cset w10, cc
-    strb w10, [_cpu, CPU_cf]
+    strb w10, [_cpu, #CPU_cf]
 .endm
 .macro setf_oc
     cset w10, vs
-    strb w10, [_cpu, CPU_of]
+    strb w10, [_cpu, #CPU_of]
     setf_c
 .endm
 .macro setf_a src, dst
-    str \src, [_cpu, CPU_op1]
-    str \dst, [_cpu, CPU_op2]
-    ldr w10, [_cpu, CPU_flags_res]
-    orr w10, w10, AF_OPS
-    str w10, [_cpu, CPU_flags_res]
+    str \src, [_cpu, #CPU_op1]
+    str \dst, [_cpu, #CPU_op2]
+    ldr w10, [_cpu, #CPU_flags_res]
+    orr w10, w10, #AF_OPS
+    str w10, [_cpu, #CPU_flags_res]
 .endm
 .macro clearf_a
-    ldr w10, [_cpu, CPU_eflags]
-    ldr w11, [_cpu, CPU_flags_res]
-    bic w10, w10, AF_FLAG
-    bic w11, w11, AF_OPS
-    str w10, [_cpu, CPU_eflags]
-    str w11, [_cpu, CPU_flags_res]
+    ldr w10, [_cpu, #CPU_eflags]
+    ldr w11, [_cpu, #CPU_flags_res]
+    bic w10, w10, #AF_FLAG
+    bic w11, w11, #AF_OPS
+    str w10, [_cpu, #CPU_eflags]
+    str w11, [_cpu, #CPU_flags_res]
 .endm
 .macro clearf_oc
-    strb wzr, [_cpu, CPU_of]
-    strb wzr, [_cpu, CPU_cf]
+    strb wzr, [_cpu, #CPU_of]
+    strb wzr, [_cpu, #CPU_cf]
 .endm
 .macro setf_zsp s, val=_tmp
     .ifnb \s
         sxt\s \val, \val
     .endif
-    str \val, [_cpu, CPU_res]
-    ldr w10, [_cpu, CPU_flags_res]
-    orr w10, w10, (ZF_RES|SF_RES|PF_RES)
-    str w10, [_cpu, CPU_flags_res]
+    str \val, [_cpu, #CPU_res]
+    ldr w10, [_cpu, #CPU_flags_res]
+    orr w10, w10, #(ZF_RES|SF_RES|PF_RES)
+    str w10, [_cpu, #CPU_flags_res]
 .endm
 
 .macro save_c
@@ -208,26 +208,26 @@ back_write_done_\id :
 .endm
 
 .macro load_regs
-    ldr eax, [_cpu, CPU_eax]
-    ldr ebx, [_cpu, CPU_ebx]
-    ldr ecx, [_cpu, CPU_ecx]
-    ldr edx, [_cpu, CPU_edx]
-    ldr esi, [_cpu, CPU_esi]
-    ldr edi, [_cpu, CPU_edi]
-    ldr ebp, [_cpu, CPU_ebp]
-    ldr esp, [_cpu, CPU_esp]
+    ldr eax, [_cpu, #CPU_eax]
+    ldr ebx, [_cpu, #CPU_ebx]
+    ldr ecx, [_cpu, #CPU_ecx]
+    ldr edx, [_cpu, #CPU_edx]
+    ldr esi, [_cpu, #CPU_esi]
+    ldr edi, [_cpu, #CPU_edi]
+    ldr ebp, [_cpu, #CPU_ebp]
+    ldr esp, [_cpu, #CPU_esp]
 .endm
 
 .macro save_regs
-    str eax, [_cpu, CPU_eax]
-    str ebx, [_cpu, CPU_ebx]
-    str ecx, [_cpu, CPU_ecx]
-    str edx, [_cpu, CPU_edx]
-    str edi, [_cpu, CPU_edi]
-    str esi, [_cpu, CPU_esi]
-    str ebp, [_cpu, CPU_ebp]
-    str esp, [_cpu, CPU_esp]
-    str eip, [_cpu, CPU_eip]
+    str eax, [_cpu, #CPU_eax]
+    str ebx, [_cpu, #CPU_ebx]
+    str ecx, [_cpu, #CPU_ecx]
+    str edx, [_cpu, #CPU_edx]
+    str edi, [_cpu, #CPU_edi]
+    str esi, [_cpu, #CPU_esi]
+    str ebp, [_cpu, #CPU_ebp]
+    str esp, [_cpu, #CPU_esp]
+    str eip, [_cpu, #CPU_eip]
 .endm
 
 # vim: ft=gas

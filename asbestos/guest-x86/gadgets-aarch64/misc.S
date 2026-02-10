@@ -31,8 +31,8 @@
         do_add sub, w9, w8, \s
         setf_zsp \s, val=w9
         .ifnb \s
-            cmp w9, 0
-            and w9, eax, (-1 << \size)
+            cmp w9, #0
+            and w9, eax, #(-1 << \size)
             orr w8, w8, w9
         .endif
         csel eax, w8, eax, ne
@@ -54,8 +54,8 @@
         do_add sub, w9, w8, \s
         setf_zsp \s, val=w9
         .ifnb \s
-            cmp w9, 0
-            and w9, eax, (-1 << \size)
+            cmp w9, #0
+            and w9, eax, #(-1 << \size)
             orr w8, w8, w9
         .endif
         csel eax, w8, eax, ne
@@ -91,7 +91,7 @@
 
 .gadget atomic_cmpxchg8b
     # Test for alignment.
-    tst _addr, 0x7
+    tst _addr, #0x7
     b.ne 3f
 
     # cmpxchg8b via aligned exclusive 8b load
@@ -119,12 +119,12 @@
     ubfx xdx, x9, 32, 32
 
     # set flags (but only zf)
-    ldr w8, [_cpu, CPU_flags_res]
-    ldr w9, [_cpu, CPU_eflags]
-    and w8, w8, ~ZF_RES
+    ldr w8, [_cpu, #CPU_flags_res]
+    ldr w9, [_cpu, #CPU_eflags]
+    and w8, w8, #~ZF_RES
     bfi w9, w12, 6, 1
-    str w8, [_cpu, CPU_flags_res]
-    str w9, [_cpu, CPU_eflags]
+    str w8, [_cpu, #CPU_flags_res]
+    str w9, [_cpu, #CPU_eflags]
     gret 1
     write_bullshit 64, atomic_cmpxchg8b
 
@@ -149,12 +149,12 @@
     ubfx xax, x9, 0, 32
     ubfx xdx, x9, 32, 32
 
-    ldr w8, [_cpu, CPU_flags_res]
-    ldr w9, [_cpu, CPU_eflags]
-    and w8, w8, ~ZF_RES
+    ldr w8, [_cpu, #CPU_flags_res]
+    ldr w9, [_cpu, #CPU_eflags]
+    and w8, w8, #~ZF_RES
     bfi w9, w11, 6, 1
-    str w8, [_cpu, CPU_flags_res]
-    str w9, [_cpu, CPU_eflags]
+    str w8, [_cpu, #CPU_flags_res]
+    str w9, [_cpu, #CPU_eflags]
     gret 1
     write_bullshit 64, cmpxchg8b
 
@@ -294,6 +294,6 @@ do_helper 2
 .endr
 
 .gadget fstsw_ax
-    ldrh w10, [_cpu, CPU_fsw]
+    ldrh w10, [_cpu, #CPU_fsw]
     movs eax, w10, h
     gret

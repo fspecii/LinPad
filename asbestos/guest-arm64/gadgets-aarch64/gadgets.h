@@ -140,7 +140,7 @@ segfault_\type\()_\id :
     mov w0, #INT_GPF
     b fiber_exit
 crosspage_load_\id :
-    mov x19, (\size/8)
+    mov x19, #(\size/8)
     bl NAME(crosspage_load)
     b back_\id
 .ifc \type,write
@@ -149,7 +149,7 @@ crosspage_write_prep_\id :
     add _addr, _cpu, #LOCAL_value
     b back_\id
 crosspage_store_\id :
-    mov x19, (\size/8)
+    mov x19, #(\size/8)
     bl NAME(crosspage_store)
     b back_write_done_\id
 .endif
@@ -158,7 +158,7 @@ crosspage_store_\id :
 .endr
 
 .macro write_done size, id
-    add x8, _cpu, LOCAL_value
+    add x8, _cpu, #LOCAL_value
     cmp x8, x7
     b.eq crosspage_store_\id
 back_write_done_\id :

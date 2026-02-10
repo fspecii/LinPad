@@ -36,7 +36,11 @@ if [[ $? -ne 0 ]]; then
     [properties]
     needs_exe_wrapper = true
 EOF
-    (set -x; meson $SRCROOT --cross-file $crossfile) || exit $?
+    guest_arch_opt=""
+    if [[ -n "$GUEST_ARCH" ]]; then
+        guest_arch_opt="-Dguest_arch=$GUEST_ARCH"
+    fi
+    (set -x; meson $SRCROOT --cross-file $crossfile $guest_arch_opt) || exit $?
     config=$(meson introspect --buildoptions)
 fi
 
@@ -56,7 +60,8 @@ if [[ -n "$ISH_KERNEL" ]]; then
     kernel=$ISH_KERNEL
 fi
 kconfig=""
-for var in buildtype log b_ndebug b_sanitize log_handler kernel kconfig; do
+guest_arch=${GUEST_ARCH:-x86}
+for var in buildtype log b_ndebug b_sanitize log_handler kernel kconfig guest_arch; do
     old_value=$(python3 -c "import sys, json; v = next(x['value'] for x in json.load(sys.stdin) if x['name'] == '$var'); print(str(v).lower() if isinstance(v, bool) else ','.join(v) if isinstance(v, list) else v)" <<< $config)
     new_value=${!var}
     if [[ $old_value != $new_value ]]; then

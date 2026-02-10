@@ -57,8 +57,9 @@ static int read_header(struct fd *fd, exec_elf_header *header) {
             || header->bitness != ELF_CLASS
             || header->endian != ELF_LITTLEENDIAN
             || header->elfversion1 != 1
-            || header->machine != ELF_MACHINE)
+            || header->machine != ELF_MACHINE) {
         return _ENOEXEC;
+    }
     return 0;
 }
 
@@ -125,10 +126,11 @@ static int load_entry(exec_prg_header ph, addr_t bias, struct fd *fd) {
             tail_size = bss_size;
 
         // then map the pages from after the file mapping up to and including the end of bss
-        if (bss_size - tail_size != 0)
+        if (bss_size - tail_size != 0) {
             if ((err = pt_map_nothing(current->mem, PAGE_ROUND_UP(addr + filesize),
                     PAGE_ROUND_UP(bss_size - tail_size), flags)) < 0)
                 return err;
+        }
     }
     return 0;
 }

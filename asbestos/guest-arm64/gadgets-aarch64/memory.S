@@ -26,8 +26,9 @@
     add _pc, _pc, #8
 
     and x9, x8, #0x1f       // rn
-    // Extract offset (16-bit signed) from bits 8-23 and sign-extend
-    sbfx x10, x8, #8, #16   // sign-extend 16 bits from position 8
+    // Extract offset from bits 8+ (arithmetic shift right preserves sign for negative offsets,
+    // and handles large unsigned offsets like SIMD Q-class up to 65520)
+    asr x10, x8, #8
 
     // Load base register (or SP if rn == 31)
     add x11, _cpu, #CPU_x0
@@ -984,9 +985,10 @@ atomic_cas_segfault:
     add _pc, _pc, #8
 
     and x9, x8, #0x1f       // rn
-    sbfx x10, x8, #8, #16   // offset (16-bit signed from bit 8)
+    asr x10, x8, #8         // offset (sign-extended from gen.c packing)
 
-    // Load current base register
+    // Load current base register, truncate to 32 bits, update with offset.
+    // Truncation ensures addresses stay in the 32-bit guest address space.
     add x11, _cpu, #CPU_x0
     cmp x9, #31
     b.eq 1f
@@ -996,23 +998,13 @@ atomic_cas_segfault:
     add x12, x12, x10
     str x12, [x11, x9, lsl #3]
     gret
-1:  // SP update (64-bit for ARM64 guest)
+1:  // SP update
     ldr x12, [_cpu, #CPU_sp]
     and x12, x12, #0xffffffff
     add x12, x12, x10
-    // DEBUG: validate updated SP
-    lsr x13, x12, #32
-    cbnz x13, sp_update_bad
+    and x12, x12, #0xffffffff
     str x12, [_cpu, #CPU_sp]
     gret
-
-sp_update_bad:
-    str x12, [_cpu, #CPU_segfault_addr]
-    str x12, [_cpu, #CPU_sp]
-    mov w8, #1
-    strb w8, [_cpu, #CPU_segfault_was_write]
-    mov w0, #INT_GPF
-    b fiber_exit
 
 /*
  * Writeback address to base register (for pre-indexed)

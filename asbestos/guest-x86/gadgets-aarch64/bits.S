@@ -5,9 +5,9 @@
         .gadget \type\size\()_\arg
             .ifc \arg,imm
                 ldr w8, [_ip]
-                ands w8, w8, 31
+                ands w8, w8, #31
             .else
-                ands w8, ecx, 31
+                ands w8, ecx, #31
             .endif
             b.eq 1f
 
@@ -20,17 +20,17 @@
                 ubfx w10, _tmp, \size-2, 1
                 lsl _tmp, _tmp, 1
                 eor w10, w10, w9
-                strb w9, [_cpu, CPU_cf]
-                strb w10, [_cpu, CPU_of]
+                strb w9, [_cpu, #CPU_cf]
+                strb w10, [_cpu, #CPU_of]
             .endif
             .ifc \type,shr
                 ubfx w10, _tmp, \size-1, 1
                 sub w8, w8, 1
                 lsr _tmp, _tmp, w8
-                and w9, _tmp, 1
+                and w9, _tmp, #1
                 lsr _tmp, _tmp, 1
-                strb w9, [_cpu, CPU_cf]
-                strb w10, [_cpu, CPU_of]
+                strb w9, [_cpu, #CPU_cf]
+                strb w10, [_cpu, #CPU_of]
             .endif
             .ifc \type,sar
                 # lazy ass copy paste job
@@ -39,10 +39,10 @@
                 .endif
                 sub w8, w8, 1
                 asr _tmp, _tmp, w8
-                and w9, _tmp, 1
+                and w9, _tmp, #1
                 asr _tmp, _tmp, 1
-                strb w9, [_cpu, CPU_cf]
-                strb wzr, [_cpu, CPU_of]
+                strb w9, [_cpu, #CPU_cf]
+                strb wzr, [_cpu, #CPU_of]
             .endif
 
             # regrets
@@ -75,24 +75,24 @@
                     ubfx w10, _tmp, \size-2, 1
                 .endif
                 eor w10, w10, w9
-                strb w9, [_cpu, CPU_cf]
-                strb w10, [_cpu, CPU_of]
+                strb w9, [_cpu, #CPU_cf]
+                strb w10, [_cpu, #CPU_of]
             .endifin
 
             # aaaaaaaaaaaaaa
             .ifin(\type, rcl,rcr)
                 .ifc \type,rcr
                     ubfx w9, _tmp, \size-1, 1
-                    ldrb w10, [_cpu, CPU_cf]
+                    ldrb w10, [_cpu, #CPU_cf]
                     eor w9, w9, w10
-                    strb w9, [_cpu, CPU_of]
+                    strb w9, [_cpu, #CPU_of]
                 .endif
 
-                ldrb w9, [_cpu, CPU_cf]
+                ldrb w9, [_cpu, #CPU_cf]
                 lsl x9, x9, \size
                 orr _xtmp, _xtmp, x9
                 # so ok we mask the shift count, not too hard
-                and w8, w8, 31
+                and w8, w8, #31
                 # ...now mod by \size+1 oof
                 .if \size == 8
                     .irpc _, 123
@@ -103,7 +103,7 @@
                     subs w10, w8, \size+1
                     csel w8, w10, w8, gt
                 .endif
-                mov w9, \size+1
+                mov w9, #(\size+1)
                 sub w9, w9, w8
                 .ifc \type,rcl
                     lsl x8, _xtmp, x8
@@ -114,11 +114,11 @@
                 .endif
                 orr _xtmp, x8, x9
                 ubfx x9, _xtmp, \size, 1
-                strb w9, [_cpu, CPU_cf]
+                strb w9, [_cpu, #CPU_cf]
                 .ifc \type,rcl
                     ubfx w10, _tmp, \size-1, 1
                     eor w10, w10, w9
-                    strb w10, [_cpu, CPU_of]
+                    strb w10, [_cpu, #CPU_of]
                 .endif
             .endifin
 
@@ -150,15 +150,15 @@
             .else
                 uxtb w8, ecx
             .endif
-            tst w8, 31
+            tst w8, #31
             b.eq 1f
-            mov w9, 32
+            mov w9, #32
             sub w9, w9, w8
             sub w8, w8, 1 /* shift by one less */
             .ifc \op,shrd
                 lsr w8, _tmp, w8
                 # and by one more
-                and w10, w8, 1
+                and w10, w8, #1
                 lsr w8, w8, 1
                 lsl w9, \reg, w9
             .else
@@ -169,7 +169,7 @@
                 lsr w9, \reg, w9
             .endif
             orr _tmp, w8, w9
-            strb w10, [_cpu, CPU_cf]
+            strb w10, [_cpu, #CPU_cf]
             setf_zsp
         1:
             .ifc \arg,imm
@@ -195,10 +195,10 @@
         .endif
         and _tmp, _tmp, \size-1
         lsr w8, w8, _tmp
-        and w8, w8, 1
-        strb w8, [_cpu, CPU_cf]
+        and w8, w8, #1
+        strb w8, [_cpu, #CPU_cf]
     .else
-        mov w9, 1
+        mov w9, #1
         and _tmp, _tmp, \size-1
         lsl w9, w9, _tmp
         tst \arg, w9
@@ -210,13 +210,13 @@
             bic \arg, \arg, w9
         .endif N .endif N .endif
         cset w9, ne
-        strb w9, [_cpu, CPU_cf]
+        strb w9, [_cpu, #CPU_cf]
     .endif
 .endm
 
 .macro do_bt op, size, s
     .gadget \op\size\()_mem
-        bic w8, _tmp, 0x1f
+        bic w8, _tmp, #0x1f
         add _addr, _addr, w8, lsr 3
         # hell {{{
         .ifin(\op, bt)
@@ -262,13 +262,13 @@
 
 .macro do_bt_atomic op, size, s
     .gadget atomic_\op\size\()_mem
-        bic w8, _tmp, 0x1f
+        bic w8, _tmp, #0x1f
         add _addr, _addr, w8, lsr 3
         write_prep \size, atomic_\op\size\()_mem
         # this is simple enough that I'm comfortable doing it with ldaxr/stlxr
     1:
         ldaxr w8, [_xaddr]
-        mov w9, 1
+        mov w9, #1
         and _tmp, _tmp, \size-1
         lsl w9, w9, _tmp
         tst w8, w9
@@ -282,7 +282,7 @@
         cset w9, ne
         stlxr w10, w8, [_xaddr]
         cbnz w10, 1b
-        strb w9, [_cpu, CPU_cf]
+        strb w9, [_cpu, #CPU_cf]
         write_done \size, atomic_\op\size\()_mem
         gret 1
         write_bullshit \size, atomic_\op\size\()_mem

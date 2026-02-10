@@ -6,8 +6,6 @@
 #include "kernel/signal.h"
 #include "kernel/task.h"
 
-#define ARM64_SYSCALL_TRACE 0
-
 dword_t syscall_stub(void) {
     return _ENOSYS;
 }
@@ -26,6 +24,7 @@ extern syscall_t syscall_table[];
 extern size_t syscall_table_size;
 
 void dump_stack(int lines);
+void dump_maps(void);
 
 void handle_interrupt(int interrupt) {
     struct cpu_state *cpu = &current->cpu;
@@ -48,15 +47,6 @@ void handle_interrupt(int interrupt) {
 #elif defined(GUEST_ARM64)
         // ARM64: syscall number in x8, args in x0-x5, return in x0
         unsigned syscall_num = cpu->regs[8];
-#if ARM64_SYSCALL_TRACE
-        static int arm64_syscall_count = 0;
-        arm64_syscall_count++;
-        // Always output syscalls for debugging
-        fprintf(stderr, "[%d SYSCALL #%d] num=%u x0=0x%llx x1=0x%llx x2=0x%llx pc=0x%llx\n",
-                current->pid, arm64_syscall_count, syscall_num, (unsigned long long)cpu->regs[0],
-                (unsigned long long)cpu->regs[1], (unsigned long long)cpu->regs[2],
-                (unsigned long long)cpu->pc);
-#endif
         if (syscall_num >= syscall_table_size || syscall_table[syscall_num] == NULL) {
             printk("%d(%s) missing syscall %d\n", current->pid, current->comm, syscall_num);
             cpu->regs[0] = (uint32_t)_ENOSYS;
@@ -83,10 +73,6 @@ void handle_interrupt(int interrupt) {
                 // Success: zero-extend the 32-bit value
                 cpu->regs[0] = (uint32_t)result;
             }
-#if ARM64_SYSCALL_TRACE
-            fprintf(stderr, "[%d SYSCALL #%d] result=0x%x (%d)\n",
-                    current->pid, arm64_syscall_count, result, (int32_t)result);
-#endif
         }
 #endif
     } else if (interrupt == INT_GPF) {
@@ -95,85 +81,6 @@ void handle_interrupt(int interrupt) {
         void *ptr = mem_ptr(current->mem, cpu->segfault_addr, cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
         read_wrunlock(&current->mem->lock);
         if (ptr == NULL) {
-            {
-                uint32_t fault_insn = 0;
-                for (int i = 0; i < 4; i++) {
-                    uint8_t b;
-                    if (user_get(cpu->pc + i, b))
-                        break;
-                    fault_insn |= (uint32_t)b << (i * 8);
-                }
-                fprintf(stderr, "[GPF] pid=%d fault=0x%llx at pc=0x%llx insn=0x%08x write=%d\n",
-                        current->pid, (unsigned long long)cpu->segfault_addr,
-                        (unsigned long long)cpu->pc, fault_insn, cpu->segfault_was_write);
-                fprintf(stderr, "  x0=%llx x1=%llx x2=%llx x3=%llx\n",
-                        (unsigned long long)cpu->regs[0], (unsigned long long)cpu->regs[1],
-                        (unsigned long long)cpu->regs[2], (unsigned long long)cpu->regs[3]);
-                for (int i = 0; i < 31; i += 4) {
-                    fprintf(stderr, "  x%d=%llx x%d=%llx x%d=%llx x%d=%llx\n",
-                            i, (unsigned long long)cpu->regs[i],
-                            i+1, (unsigned long long)cpu->regs[i+1],
-                            i+2, (unsigned long long)cpu->regs[i+2],
-                            i+3 < 31 ? i+3 : 30, (unsigned long long)(i+3 < 31 ? cpu->regs[i+3] : cpu->regs[30]));
-                }
-                fprintf(stderr, "  sp=%llx\n", (unsigned long long)cpu->sp);
-                // Dump a few stack words
-                fprintf(stderr, "  stack:");
-                for (int i = 0; i < 8; i++) {
-                    uint64_t val = 0;
-                    for (int j = 0; j < 8; j++) {
-                        uint8_t b;
-                        if (user_get(cpu->sp + i*8 + j, b)) break;
-                        val |= (uint64_t)b << (j*8);
-                    }
-                    fprintf(stderr, " %llx", (unsigned long long)val);
-                }
-                fprintf(stderr, "\n");
-                // Dump page table info and full host memory for x22's page
-                {
-                    uint64_t rval = cpu->regs[22];
-                    if (rval != 0 && rval < 0xffff0000ULL) {
-                        page_t pg = PAGE((addr_t)rval);
-                        struct pt_entry *pt = mem_pt(current->mem, pg);
-                        if (pt) {
-                            char *host = (char *)pt->data->data + pt->offset;
-                            fprintf(stderr, "  [x22 PT] pg=0x%x data=%p off=0x%x flags=0x%x host=%p\n",
-                                    pg, pt->data->data, pt->offset, pt->flags, host);
-                            // Dump host memory at key relocation offsets
-                            // _Py_Identifier structs: 16 bytes each (string ptr + index)
-                            // Offsets 0x0d0-0x200 cover most identifiers
-                            fprintf(stderr, "  [HOST DUMP] relocation region:\n");
-                            for (int j = 0x000; j < 0x210; j += 8) {
-                                uint64_t v = 0;
-                                memcpy(&v, host + j, 8);
-                                if (v != 0) {
-                                    fprintf(stderr, "    [+0x%03x]=0x%016llx\n", j, (unsigned long long)v);
-                                }
-                            }
-                        } else {
-                            fprintf(stderr, "  [x22 PT] pg=0x%x UNMAPPED!\n", pg);
-                        }
-                    }
-                }
-                // Dump memory around key registers for debugging
-                for (int r = 0; r < 31; r++) {
-                    uint64_t rval = cpu->regs[r];
-                    if (rval == 0 || rval > 0xffff0000ULL) continue;
-                    // Try to read 32 bytes at this address
-                    int readable = 1;
-                    uint8_t buf[32];
-                    for (int j = 0; j < 32; j++) {
-                        uint8_t b;
-                        if (user_get((addr_t)(rval - 8 + j), b)) { readable = 0; break; }
-                        buf[j] = b;
-                    }
-                    if (readable) {
-                        fprintf(stderr, "  [x%d-8]=", r);
-                        for (int j = 0; j < 32; j++) fprintf(stderr, "%02x", buf[j]);
-                        fprintf(stderr, "\n");
-                    }
-                }
-            }
 #if defined(GUEST_X86) || !defined(GUEST_ARM64)
             printk("%d page fault on 0x%x at 0x%x\n", current->pid, cpu->segfault_addr, cpu->eip);
 #elif defined(GUEST_ARM64)
@@ -192,6 +99,7 @@ void handle_interrupt(int interrupt) {
                 .fault.addr = cpu->segfault_addr,
             };
             dump_stack(8);
+            dump_maps();
             deliver_signal(current, SIGSEGV_, info);
         }
     } else if (interrupt == INT_UNDEFINED) {
@@ -212,8 +120,6 @@ void handle_interrupt(int interrupt) {
                     break;
                 ill_insn |= (uint32_t)b << (i * 8);
             }
-            fprintf(stderr, "[UNDEF] pid=%d pc=0x%llx insn=0x%08x\n",
-                    current->pid, (unsigned long long)cpu->pc, ill_insn);
             printk("%d illegal instruction at 0x%llx: insn=0x%08x\n", current->pid, (unsigned long long)cpu->pc, ill_insn);
         }
 #endif

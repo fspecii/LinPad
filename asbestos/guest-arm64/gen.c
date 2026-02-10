@@ -2169,7 +2169,7 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
 
             if (is_pre || is_unscaled) {
                 gen(state, (unsigned long) gadget_calc_addr_imm);
-                gen(state, rn | ((uint64_t)(uint32_t)imm9 << 8));
+                gen(state, rn | ((int64_t)(int32_t)imm9 << 8));
             } else if (mode == 1) {
                 // Post-indexed
                 gen(state, (unsigned long) gadget_calc_addr_base);
@@ -2208,18 +2208,10 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
             gen(state, rt);  // SIMD register number
 
             // Handle writeback for pre/post-indexed modes
+            // Use update_base to preserve full 64-bit register semantics
             if (mode == 1 || mode == 3) {
-                // Writeback base register: store computed address to base register
-                // For pre-indexed: address = base + offset, already computed
-                // For post-indexed: address = base, need to add offset
-                if (mode == 1) {
-                    // Post-indexed: need to compute base + offset
-                    gen(state, (unsigned long) gadget_calc_addr_imm);
-                    gen(state, rn | ((uint64_t)(uint32_t)imm9 << 8));
-                }
-                // Store _addr to rn
-                gen(state, (unsigned long) gadget_store_addr_to_reg);
-                gen(state, rn);
+                gen(state, (unsigned long) gadget_update_base);
+                gen(state, rn | ((int64_t)(int32_t)imm9 << 8));
             }
 
             return 1;
@@ -2248,7 +2240,7 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
         if (is_pre_indexed || is_unscaled) {
             // Pre-indexed or unscaled: address = base + offset
             gen(state, (unsigned long) gadget_calc_addr_imm);
-            gen(state, rn | ((uint64_t)(uint32_t)imm9 << 8));
+            gen(state, rn | ((int64_t)(int32_t)imm9 << 8));
         } else {
             // Post-indexed: address = base only
             gen(state, (unsigned long) gadget_calc_addr_base);
@@ -2302,13 +2294,12 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
         if (!is_unscaled) {
             if (is_pre_indexed) {
                 // Pre-indexed: base = address (which is base + offset)
-                // The address is still in _addr, so just write it back
                 gen(state, (unsigned long) gadget_writeback_addr);
                 gen(state, rn);
             } else {
                 // Post-indexed: base = base + offset
                 gen(state, (unsigned long) gadget_update_base);
-                gen(state, rn | ((uint64_t)(uint32_t)imm9 << 8));
+                gen(state, rn | ((int64_t)(int32_t)imm9 << 8));
             }
         }
 

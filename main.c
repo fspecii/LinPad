@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
@@ -34,6 +35,9 @@ static void crash_handler(int sig, siginfo_t *info, void *ctx) {
 }
 
 int main(int argc, char *const argv[]) {
+    // Redirect printk output (fd 666) to stderr
+    dup2(STDERR_FILENO, 666);
+
     static char altstack[SIGSTKSZ];
     stack_t ss = {.ss_sp = altstack, .ss_size = SIGSTKSZ};
     sigaltstack(&ss, NULL);
