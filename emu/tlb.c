@@ -40,6 +40,15 @@ static void watch_log_mapping(const char *label, addr_t addr) {
 void tlb_refresh(struct tlb *tlb, struct mmu *mmu) {
     if (tlb->mmu == mmu && tlb->mem_changes == mmu->changes)
         return;
+    if (tlb->mmu != mmu) {
+        // Address space changed (execve); block cache and ret_cache are invalid
+        memset(tlb->block_cache, 0, sizeof(tlb->block_cache));
+        tlb->block_cache_gen = 0;
+        if (tlb->frame != NULL) {
+            free(tlb->frame);
+            tlb->frame = NULL;
+        }
+    }
     tlb->mmu = mmu;
     tlb->dirty_page = TLB_PAGE_EMPTY;
     tlb->mem_changes = mmu->changes;

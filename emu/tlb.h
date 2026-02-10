@@ -12,6 +12,9 @@ struct tlb_entry {
 };
 #define TLB_BITS 10
 #define TLB_SIZE (1 << TLB_BITS)
+struct fiber_block;
+struct fiber_frame;
+
 struct tlb {
     struct mmu *mmu;
     page_t dirty_page;
@@ -20,6 +23,13 @@ struct tlb {
     // yes, this sucks
     addr_t segfault_addr;
     struct tlb_entry entries[TLB_SIZE];
+
+    // Persistent block cache across syscalls (avoids re-lookup after every interrupt)
+    struct fiber_block *block_cache[TLB_SIZE];
+    unsigned block_cache_gen; // tracks asbestos->invalidate_gen for invalidation
+
+    // Persistent fiber_frame (avoids malloc/free + ret_cache zeroing per syscall)
+    struct fiber_frame *frame;
 };
 
 #define TLB_INDEX(addr) (((addr >> PAGE_BITS) & (TLB_SIZE - 1)) ^ (addr >> (PAGE_BITS + TLB_BITS)))

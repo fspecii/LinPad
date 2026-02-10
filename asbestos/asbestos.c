@@ -57,6 +57,7 @@ static inline struct list *blocks_list(struct asbestos *asbestos, page_t page, i
 
 void asbestos_invalidate_range(struct asbestos *absestos, page_t start, page_t end) {
     lock(&absestos->lock);
+    bool did_invalidate = false;
     struct fiber_block *block, *tmp;
     for (page_t page = start; page < end; page++) {
         for (int i = 0; i <= 1; i++) {
@@ -67,9 +68,12 @@ void asbestos_invalidate_range(struct asbestos *absestos, page_t start, page_t e
                 fiber_block_disconnect(absestos, block);
                 block->is_jetsam = true;
                 list_add(&absestos->jetsam, &block->jetsam);
+                did_invalidate = true;
             }
         }
     }
+    if (did_invalidate)
+        absestos->invalidate_gen++;
     unlock(&absestos->lock);
 }
 
@@ -187,11 +191,28 @@ static inline size_t fiber_cache_hash(addr_t ip) {
 
 static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     struct asbestos *asbestos = cpu->mmu->asbestos;
-    read_wrlock(&asbestos->jetsam_lock);
+    bool single_thread = (__atomic_load_n(&asbestos->active_threads, __ATOMIC_RELAXED) == 1);
+    if (!single_thread)
+        read_wrlock(&asbestos->jetsam_lock);
 
-    struct fiber_block **cache = calloc(FIBER_CACHE_SIZE, sizeof(*cache));
-    struct fiber_frame *frame = malloc(sizeof(struct fiber_frame));
-    memset(frame, 0, sizeof(*frame));
+    // Use persistent block cache and frame from TLB; invalidate when blocks are jetsam'd
+    bool caches_stale = (tlb->block_cache_gen != asbestos->invalidate_gen);
+    struct fiber_block **cache = tlb->block_cache;
+    if (caches_stale) {
+        memset(cache, 0, sizeof(tlb->block_cache));
+        tlb->block_cache_gen = asbestos->invalidate_gen;
+    }
+
+    // Use persistent frame from TLB (avoids malloc/free + ret_cache zeroing)
+    struct fiber_frame *frame = tlb->frame;
+    if (frame == NULL) {
+        frame = calloc(1, sizeof(struct fiber_frame));
+        tlb->frame = frame;
+    } else if (caches_stale) {
+        // ret_cache holds pointers into block->code; must clear on invalidation
+        memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+    }
+    frame->last_block = NULL;
     frame->cpu = *cpu;
     assert(asbestos->mmu == cpu->mmu);
 
@@ -214,22 +235,23 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         }
         struct fiber_block *last_block = frame->last_block;
         if (last_block != NULL &&
+                !last_block->is_jetsam && !block->is_jetsam &&
                 (last_block->jump_ip[0] != NULL ||
                  last_block->jump_ip[1] != NULL)) {
-            lock(&asbestos->lock);
-            // can't mint new pointers to a block that has been marked jetsam
-            // and is thus assumed to have no pointers left
-            if (!last_block->is_jetsam && !block->is_jetsam) {
-                for (int i = 0; i <= 1; i++) {
-                    if (last_block->jump_ip[i] != NULL &&
-                            (*last_block->jump_ip[i] & 0xffffffff) == block->addr) {
-                        *last_block->jump_ip[i] = (unsigned long) block->code;
-                        list_add(&block->jumps_from[i], &last_block->jumps_from_links[i]);
+            if (trylock(&asbestos->lock) == 0) {
+                // can't mint new pointers to a block that has been marked jetsam
+                // and is thus assumed to have no pointers left
+                if (!last_block->is_jetsam && !block->is_jetsam) {
+                    for (int i = 0; i <= 1; i++) {
+                        if (last_block->jump_ip[i] != NULL &&
+                                (*last_block->jump_ip[i] & 0xffffffff) == block->addr) {
+                            *last_block->jump_ip[i] = (unsigned long) block->code;
+                            list_add(&block->jumps_from[i], &last_block->jumps_from_links[i]);
+                        }
                     }
                 }
+                unlock(&asbestos->lock);
             }
-
-            unlock(&asbestos->lock);
         }
         frame->last_block = block;
 
@@ -239,16 +261,15 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         TRACE("%d %08x --- cycle %ld\n", current_pid(), ip, frame->cpu.cycle);
 
         interrupt = fiber_enter(block, frame, tlb);
-        if (interrupt == INT_NONE && __atomic_exchange_n(cpu->poked_ptr, false, __ATOMIC_SEQ_CST))
+        if (interrupt == INT_NONE && __atomic_exchange_n(frame->cpu.poked_ptr, false, __ATOMIC_ACQUIRE))
             interrupt = INT_TIMER;
         if (interrupt == INT_NONE && ++frame->cpu.cycle % (1 << 10) == 0)
             interrupt = INT_TIMER;
-        *cpu = frame->cpu;
     }
+    *cpu = frame->cpu;
 
-    free(frame);
-    free(cache);
-    read_wrunlock(&asbestos->jetsam_lock);
+    if (!single_thread)
+        read_wrunlock(&asbestos->jetsam_lock);
     return interrupt;
 }
 
@@ -278,11 +299,13 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     // ensuring STXR will fail if the monitor was set in a previous run.
     cpu->excl_addr = UINT64_MAX;
 #endif
+    struct asbestos *asbestos = cpu->mmu->asbestos;
+    __atomic_add_fetch(&asbestos->active_threads, 1, __ATOMIC_RELAXED);
     tlb_refresh(tlb, cpu->mmu);
     int interrupt = (CPU_HAS_SINGLE_STEP ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb);
     cpu->trapno = interrupt;
+    __atomic_sub_fetch(&asbestos->active_threads, 1, __ATOMIC_RELAXED);
 
-    struct asbestos *asbestos = cpu->mmu->asbestos;
     lock(&asbestos->lock);
     if (!list_empty(&asbestos->jetsam)) {
         // Try to write-lock the jetsam_lock to wait until other asbestos
