@@ -15,6 +15,7 @@
 #include "asbestos/asbestos.h"
 #include "kernel/vdso.h"
 #include "kernel/task.h"
+#include "kernel/resource.h"
 #include "fs/fd.h"
 
 // increment the change count
@@ -87,7 +88,7 @@ void mem_next_page(struct mem *mem, page_t *page) {
 page_t pt_find_hole(struct mem *mem, pages_t size) {
     page_t hole_end = 0; // this can never be used before initializing but gcc doesn't realize
     bool in_hole = false;
-    for (page_t page = 0xf7ffd; page > 0x40000; page--) {
+    for (page_t page = 0xefffd; page > 0x40000; page--) {
         // I don't know how this works but it does
         if (!in_hole && mem_pt(mem, page) == NULL) {
             in_hole = true;
@@ -262,6 +263,16 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         if (!(mem_pt(mem, p)->flags & P_GROWSDOWN))
             return NULL;
 
+        // Enforce RLIMIT_STACK: don't grow stack beyond the limit.
+        // Stack top is at page 0xffffe (guard page), stack grows down from 0xffffd.
+        // The stack size is (0xffffe - page) pages = (0xffffe - page) * PAGE_SIZE bytes.
+        rlim_t_ stack_limit = rlimit(RLIMIT_STACK_);
+        if (stack_limit != RLIM_INFINITY_) {
+            pages_t stack_pages = 0xffffe - page;
+            if ((uint64_t)stack_pages * PAGE_SIZE > stack_limit)
+                return NULL;
+        }
+
         // Changing memory maps must be done with the write lock. But this is
         // called with the read lock.
         read_wrunlock(&mem->lock);
@@ -285,15 +296,22 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         asbestos_invalidate_page(mem->mmu.asbestos, page);
         // if page is cow, ~~milk~~ copy it
         if (entry->flags & P_COW) {
-            void *data = (char *) entry->data->data + entry->offset;
             void *copy = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
                     MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
 
-            // copy/paste from above
             read_wrunlock(&mem->lock);
             write_wrlock(&mem->lock);
-            memcpy(copy, data, PAGE_SIZE);
-            pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW);
+            // Re-fetch entry after lock upgrade — another thread may have
+            // already resolved this CoW while we were waiting for the lock.
+            entry = mem_pt(mem, page);
+            if (entry != NULL && (entry->flags & P_COW)) {
+                void *data = (char *) entry->data->data + entry->offset;
+                memcpy(copy, data, PAGE_SIZE);
+                pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW);
+                mem_changed(mem);
+            } else {
+                munmap(copy, PAGE_SIZE);
+            }
             write_wrunlock(&mem->lock);
             read_wrlock(&mem->lock);
         }

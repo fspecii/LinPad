@@ -50,8 +50,9 @@
     // For regular registers, store 64-bit address (ARM64 guest uses 64-bit addresses)
     str _addr, [x9, x8, lsl #3]
     b 2f
-1:  // For x31, we need to update SP
-    str _addr, [_cpu, #CPU_sp]
+1:  // For x31, update SP (mask to 32 bits for safety)
+    and x9, _addr, #0xffffffff
+    str x9, [_cpu, #CPU_sp]
 2:  add _pc, _pc, #8
     gret
 
@@ -6727,6 +6728,7 @@ make_across_minmax sminv, "sminv b1, v0.16b", "sminv b1, v0.8b", "sminv h1, v0.8
     mov _addr, x25
     gret
     write_bullshit 128, stp_simd_d_1
+
 
 /*
  * STP Qt, Qt2, [addr] - Store pair of 128-bit SIMD registers

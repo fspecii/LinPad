@@ -53,9 +53,6 @@ NAME(fiber_enter):
     // _tlb needs to point to TLB_entries
     add _tlb, x2, #TLB_entries
 
-    // DEBUG: Store block address for debugging
-    mov x8, x0              // save block ptr
-
     // Jump to first gadget (gret equivalent)
     gret
 
@@ -123,26 +120,6 @@ fiber_exit:
 
     // x0 (_tmp) already contains return value
     ret
-
-/*
- * sp_corrupted - Guest SP has non-zero high 32 bits
- * x8 = corrupted SP value
- * Save state and call C helper to report
- */
-sp_corrupted:
-    // Store the corrupted SP and current guest PC for debugging
-    // x8 still has the bad SP value
-    str x8, [_cpu, #CPU_sp]         // write it back so C code can see it
-    // Get guest PC from current block
-    ldr w9, [_pc, #(-FIBER_BLOCK_code + FIBER_BLOCK_addr)]
-    str x9, [_cpu, #CPU_pc]
-    // Exit with a special interrupt to report the corruption
-    // Use INT_GPF (page fault) which will dump registers
-    str x8, [_cpu, #CPU_segfault_addr]
-    mov w9, #0
-    strb w9, [_cpu, #CPU_segfault_was_write]
-    mov w0, #INT_GPF
-    b fiber_exit
 
 /*
  * handle_read_miss - Handle a TLB read miss

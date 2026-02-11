@@ -38,7 +38,7 @@ int_t sys_socket(dword_t domain, dword_t type, dword_t protocol) {
     STRACE("socket(%d, %d, %d)", domain, type, protocol);
     int real_domain = sock_family_to_real(domain);
     if (real_domain < 0)
-        return _EINVAL;
+        return _EAFNOSUPPORT;
     int real_type = sock_type_to_real(type, protocol);
     if (real_type < 0)
         return _EINVAL;
@@ -544,7 +544,7 @@ int_t sys_socketpair(dword_t domain, dword_t type, dword_t protocol, addr_t sock
     STRACE("socketpair(%d, %d, %d, 0x%x)", domain, type, protocol, sockets_addr);
     int real_domain = sock_family_to_real(domain);
     if (real_domain < 0)
-        return _EINVAL;
+        return _EAFNOSUPPORT;
     int real_type = sock_type_to_real(type, protocol);
     if (real_type < 0)
         return _EINVAL;

@@ -314,6 +314,7 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
 
     // release the pipe
     if (--poll_->waiters == 0) {
+        real_poll_update(&poll_->real, poll_->notify_pipe[0], 0, NULL);
         close(poll_->notify_pipe[0]);
         close(poll_->notify_pipe[1]);
         poll_->notify_pipe[0] = -1;

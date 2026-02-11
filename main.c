@@ -2,15 +2,36 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <setjmp.h>
 #include <execinfo.h>
 #include <mach/mach.h>
 #include <pthread.h>
 #include "kernel/calls.h"
 #include "kernel/task.h"
+#include "emu/cpu.h"
 #include "xX_main_Xx.h"
 
+// Thread-local JIT recovery state (defined in asbestos.c)
+extern __thread sigjmp_buf jit_recover_buf;
+extern __thread volatile sig_atomic_t in_jit;
+
 static void crash_handler(int sig, siginfo_t *info, void *ctx) {
-    // Use raw write to avoid stdio buffering issues in signal handler
+#ifdef __aarch64__
+    // If we're inside JIT code and got SIGSEGV/SIGBUS, recover via siglongjmp.
+    // This handles stale TLB pointers from concurrent CoW resolution.
+    if ((sig == SIGSEGV || sig == SIGBUS) && in_jit) {
+        ucontext_t *uc = (ucontext_t *)ctx;
+        // x7 = _addr (guest fault address), x1 = _cpu pointer
+        uint32_t guest_addr = (uint32_t)uc->uc_mcontext->__ss.__x[7];
+        struct cpu_state *cpu = (struct cpu_state *)uc->uc_mcontext->__ss.__x[1];
+        cpu->segfault_addr = guest_addr;
+        cpu->segfault_was_write = true; // conservative: assume write
+        siglongjmp(jit_recover_buf, 1);
+        // not reached
+    }
+#endif
+
+    // Non-JIT crash: dump state and exit
     char buf[512];
     int len;
     ucontext_t *uc = (ucontext_t *)ctx;

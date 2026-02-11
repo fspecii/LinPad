@@ -1,5 +1,7 @@
 #define DEFAULT_CHANNEL instr
 #include "debug.h"
+#include <setjmp.h>
+#include <signal.h>
 #include "asbestos/asbestos.h"
 #include "asbestos/gen.h"
 #include "asbestos/frame.h"
@@ -7,6 +9,14 @@
 #include "emu/interrupt.h"
 #include "emu/tlb.h"
 #include "util/list.h"
+
+// Thread-local recovery state for JIT crash handling.
+// When a host SIGSEGV occurs inside JIT code (due to a stale TLB pointer
+// from a concurrent CoW), the signal handler uses siglongjmp to recover
+// instead of crashing. The interrupt is converted to INT_GPF, which
+// handle_interrupt resolves via mem_ptr (CoW/GROWSDOWN).
+__thread sigjmp_buf jit_recover_buf;
+__thread volatile sig_atomic_t in_jit;
 
 // Architecture-specific instruction pointer access
 #if defined(GUEST_ARM64)
@@ -260,7 +270,15 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
         TRACE("%d %08x --- cycle %ld\n", current_pid(), ip, frame->cpu.cycle);
 
-        interrupt = fiber_enter(block, frame, tlb);
+        in_jit = 1;
+        if (sigsetjmp(jit_recover_buf, 1) == 0) {
+            interrupt = fiber_enter(block, frame, tlb);
+        } else {
+            // Recovered from host SIGSEGV inside JIT code.
+            // crash_handler set segfault_addr/segfault_was_write on frame->cpu.
+            interrupt = INT_GPF;
+        }
+        in_jit = 0;
         if (interrupt == INT_NONE && __atomic_exchange_n(frame->cpu.poked_ptr, false, __ATOMIC_ACQUIRE))
             interrupt = INT_TIMER;
         if (interrupt == INT_NONE && ++frame->cpu.cycle % (1 << 10) == 0)

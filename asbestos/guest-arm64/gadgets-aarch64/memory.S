@@ -30,18 +30,16 @@
     // and handles large unsigned offsets like SIMD Q-class up to 65520)
     asr x10, x8, #8
 
-    // Load base register (or SP if rn == 31)
+    // Load base register (or SP if rn == 31); add w7 truncates to 32-bit
     add x11, _cpu, #CPU_x0
     cmp x9, #31
     b.eq 1f
     ldr x12, [x11, x9, lsl #3]
-    and x12, x12, #0xffffffff   // truncate to 32-bit guest address
     b 2f
-1:  ldr x12, [_cpu, #CPU_sp]
-    and x12, x12, #0xffffffff
+1:  ldr w12, [_cpu, #CPU_sp]
 2:
-    // Calculate address (32-bit base + signed offset)
-    add _addr, x12, x10
+    // Calculate address: 32-bit add naturally wraps at 32 bits
+    add w7, w12, w10
 
     gret
 
@@ -64,21 +62,18 @@
     ubfx x11, x8, #16, #3   // extend type
     ubfx x12, x8, #24, #3   // shift amount
 
-    // Load base (truncate to 32-bit: guest addresses are 32-bit)
+    // Load base; add w7 truncates to 32-bit
     add x13, _cpu, #CPU_x0
     cmp x9, #31
     b.eq 1f
     ldr x14, [x13, x9, lsl #3]
-    and x14, x14, #0xffffffff
     b 2f
-1:  ldr x14, [_cpu, #CPU_sp]
-    and x14, x14, #0xffffffff
+1:  ldr w14, [_cpu, #CPU_sp]
 2:
-    // Load index (truncate to 32-bit: guest register values used as index)
+    // Load index; add w7 truncates to 32-bit
     cmp x10, #31
     b.eq 3f
     ldr x15, [x13, x10, lsl #3]
-    and x15, x15, #0xffffffff
     b 4f
 3:  mov x15, #0
 4:
@@ -115,8 +110,8 @@
     // Apply shift
     lsl x15, x15, x12
 
-    // Calculate address (full 64-bit for ARM64 guest)
-    add _addr, x14, x15
+    // Calculate address: 32-bit add naturally wraps at 32 bits
+    add w7, w14, w15
     gret
 
 /*
@@ -288,10 +283,9 @@
     cmp x9, #31
     b.eq 1f
     ldr x12, [x11, x9, lsl #3]
-    and x12, x12, #0xffffffff
     b 2f
-1:  ldr x12, [_cpu, #CPU_sp]
-2:  add _addr, x12, x10
+1:  ldr w12, [_cpu, #CPU_sp]
+2:  add w7, w12, w10
     mov x24, _addr
     read_prep 64, load64_imm_1
     ldr _tmp, [_addr]
@@ -314,10 +308,9 @@
     cmp x9, #31
     b.eq 1f
     ldr x12, [x11, x9, lsl #3]
-    and x12, x12, #0xffffffff
     b 2f
-1:  ldr x12, [_cpu, #CPU_sp]
-2:  add _addr, x12, x10
+1:  ldr w12, [_cpu, #CPU_sp]
+2:  add w7, w12, w10
     mov x24, _addr
     read_prep 32, load32_imm_1
     ldr w0, [_addr]
@@ -340,10 +333,9 @@
     cmp x9, #31
     b.eq 1f
     ldr x12, [x11, x9, lsl #3]
-    and x12, x12, #0xffffffff
     b 2f
-1:  ldr x12, [_cpu, #CPU_sp]
-2:  add _addr, x12, x10
+1:  ldr w12, [_cpu, #CPU_sp]
+2:  add w7, w12, w10
     mov x24, _addr
     read_prep 16, load16_imm_1
     ldrh w0, [_addr]
@@ -366,10 +358,9 @@
     cmp x9, #31
     b.eq 1f
     ldr x12, [x11, x9, lsl #3]
-    and x12, x12, #0xffffffff  // 32-bit load: truncates to guest address
     b 2f
 1:  ldr w12, [_cpu, #CPU_sp]
-2:  add _addr, x12, x10
+2:  add w7, w12, w10
     mov x24, _addr
     read_prep 8, load8_imm_1
     ldrb w0, [_addr]
@@ -392,10 +383,9 @@
     cmp x9, #31
     b.eq 1f
     ldr x12, [x11, x9, lsl #3]
-    and x12, x12, #0xffffffff
     b 2f
-1:  ldr x12, [_cpu, #CPU_sp]
-2:  add _addr, x12, x10
+1:  ldr w12, [_cpu, #CPU_sp]
+2:  add w7, w12, w10
     mov x24, _addr
     read_prep 32, load32_sx_imm_1
     ldrsw _tmp, [_addr]
@@ -424,10 +414,9 @@
     cmp x9, #31
     b.eq 3f
     ldr x12, [x11, x9, lsl #3]
-    and x12, x12, #0xffffffff
     b 4f
-3:  ldr x12, [_cpu, #CPU_sp]
-4:  add _addr, x12, x10
+3:  ldr w12, [_cpu, #CPU_sp]
+4:  add w7, w12, w10
     mov x24, _addr
     write_prep 64, store64_imm_1
     str x23, [_addr]
@@ -452,10 +441,9 @@
     cmp x9, #31
     b.eq 3f
     ldr x12, [x11, x9, lsl #3]
-    and x12, x12, #0xffffffff
     b 4f
-3:  ldr x12, [_cpu, #CPU_sp]
-4:  add _addr, x12, x10
+3:  ldr w12, [_cpu, #CPU_sp]
+4:  add w7, w12, w10
     mov x24, _addr
     write_prep 32, store32_imm_1
     str w23, [_addr]
@@ -480,10 +468,9 @@
     cmp x9, #31
     b.eq 3f
     ldr x12, [x11, x9, lsl #3]
-    and x12, x12, #0xffffffff
     b 4f
-3:  ldr x12, [_cpu, #CPU_sp]
-4:  add _addr, x12, x10
+3:  ldr w12, [_cpu, #CPU_sp]
+4:  add w7, w12, w10
     mov x24, _addr
     write_prep 16, store16_imm_1
     strh w23, [_addr]
@@ -508,10 +495,9 @@
     cmp x9, #31
     b.eq 3f
     ldr x12, [x11, x9, lsl #3]
-    and x12, x12, #0xffffffff
     b 4f
-3:  ldr x12, [_cpu, #CPU_sp]
-4:  add _addr, x12, x10
+3:  ldr w12, [_cpu, #CPU_sp]
+4:  add w7, w12, w10
     mov x24, _addr
     write_prep 8, store8_imm_1
     strb w23, [_addr]
@@ -548,23 +534,20 @@
     ubfx x10, x22, #16, #5      // rm
     ubfx x12, x22, #24, #3      // shift
     add x11, _cpu, #CPU_x0
-    // Load base
+    // Load base; add w7 truncates to 32-bit
     cmp x9, #31
     b.eq 1f
     ldr x14, [x11, x9, lsl #3]
-    and x14, x14, #0xffffffff
     b 2f
-1:  ldr x14, [_cpu, #CPU_sp]
-    and x14, x14, #0xffffffff
-2:  // Load index
+1:  ldr w14, [_cpu, #CPU_sp]
+2:  // Load index as 32-bit (auto zero-extends)
     cmp x10, #31
     b.eq 3f
     ldr x15, [x11, x10, lsl #3]
-    and x15, x15, #0xffffffff
     b 4f
 3:  mov x15, #0
 4:  lsl x15, x15, x12           // apply shift
-    add _addr, x14, x15
+    add w7, w14, w15
     mov x24, _addr
     read_prep 32, load32_sx_reg_1
     ldrsw _tmp, [_addr]
@@ -588,18 +571,15 @@
     cmp x9, #31
     b.eq 1f
     ldr x14, [x11, x9, lsl #3]
-    and x14, x14, #0xffffffff
     b 2f
-1:  ldr x14, [_cpu, #CPU_sp]
-    and x14, x14, #0xffffffff
+1:  ldr w14, [_cpu, #CPU_sp]
 2:  cmp x10, #31
     b.eq 3f
     ldr x15, [x11, x10, lsl #3]
-    and x15, x15, #0xffffffff
     b 4f
 3:  mov x15, #0
 4:  lsl x15, x15, x12
-    add _addr, x14, x15
+    add w7, w14, w15
     mov x24, _addr
     read_prep 64, load64_reg_1
     ldr _tmp, [_addr]
@@ -623,18 +603,15 @@
     cmp x9, #31
     b.eq 1f
     ldr x14, [x11, x9, lsl #3]
-    and x14, x14, #0xffffffff
     b 2f
-1:  ldr x14, [_cpu, #CPU_sp]
-    and x14, x14, #0xffffffff
+1:  ldr w14, [_cpu, #CPU_sp]
 2:  cmp x10, #31
     b.eq 3f
     ldr x15, [x11, x10, lsl #3]
-    and x15, x15, #0xffffffff
     b 4f
 3:  mov x15, #0
 4:  lsl x15, x15, x12
-    add _addr, x14, x15
+    add w7, w14, w15
     mov x24, _addr
     read_prep 32, load32_reg_1
     ldr w0, [_addr]
@@ -658,18 +635,15 @@
     cmp x9, #31
     b.eq 1f
     ldr x14, [x11, x9, lsl #3]
-    and x14, x14, #0xffffffff
     b 2f
-1:  ldr x14, [_cpu, #CPU_sp]
-    and x14, x14, #0xffffffff
+1:  ldr w14, [_cpu, #CPU_sp]
 2:  cmp x10, #31
     b.eq 3f
     ldr x15, [x11, x10, lsl #3]
-    and x15, x15, #0xffffffff
     b 4f
 3:  mov x15, #0
 4:  lsl x15, x15, x12
-    add _addr, x14, x15
+    add w7, w14, w15
     mov x24, _addr
     read_prep 16, load16_reg_1
     ldrh w0, [_addr]
@@ -693,18 +667,15 @@
     cmp x9, #31
     b.eq 1f
     ldr x14, [x11, x9, lsl #3]
-    and x14, x14, #0xffffffff
     b 2f
-1:  ldr x14, [_cpu, #CPU_sp]
-    and x14, x14, #0xffffffff
+1:  ldr w14, [_cpu, #CPU_sp]
 2:  cmp x10, #31
     b.eq 3f
     ldr x15, [x11, x10, lsl #3]
-    and x15, x15, #0xffffffff
     b 4f
 3:  mov x15, #0
 4:  lsl x15, x15, x12
-    add _addr, x14, x15
+    add w7, w14, w15
     mov x24, _addr
     read_prep 8, load8_reg_1
     ldrb w0, [_addr]
@@ -734,18 +705,15 @@
     cmp x9, #31
     b.eq 3f
     ldr x14, [x11, x9, lsl #3]
-    and x14, x14, #0xffffffff
     b 4f
-3:  ldr x14, [_cpu, #CPU_sp]
-    and x14, x14, #0xffffffff
+3:  ldr w14, [_cpu, #CPU_sp]
 4:  cmp x10, #31
     b.eq 5f
     ldr x15, [x11, x10, lsl #3]
-    and x15, x15, #0xffffffff
     b 6f
 5:  mov x15, #0
 6:  lsl x15, x15, x12
-    add _addr, x14, x15
+    add w7, w14, w15
     mov x24, _addr
     write_prep 64, store64_reg_1
     str x23, [_addr]
@@ -771,18 +739,15 @@
     cmp x9, #31
     b.eq 3f
     ldr x14, [x11, x9, lsl #3]
-    and x14, x14, #0xffffffff
     b 4f
-3:  ldr x14, [_cpu, #CPU_sp]
-    and x14, x14, #0xffffffff
+3:  ldr w14, [_cpu, #CPU_sp]
 4:  cmp x10, #31
     b.eq 5f
     ldr x15, [x11, x10, lsl #3]
-    and x15, x15, #0xffffffff
     b 6f
 5:  mov x15, #0
 6:  lsl x15, x15, x12
-    add _addr, x14, x15
+    add w7, w14, w15
     mov x24, _addr
     write_prep 32, store32_reg_1
     str w23, [_addr]
@@ -808,18 +773,15 @@
     cmp x9, #31
     b.eq 3f
     ldr x14, [x11, x9, lsl #3]
-    and x14, x14, #0xffffffff
     b 4f
-3:  ldr x14, [_cpu, #CPU_sp]
-    and x14, x14, #0xffffffff
+3:  ldr w14, [_cpu, #CPU_sp]
 4:  cmp x10, #31
     b.eq 5f
     ldr x15, [x11, x10, lsl #3]
-    and x15, x15, #0xffffffff
     b 6f
 5:  mov x15, #0
 6:  lsl x15, x15, x12
-    add _addr, x14, x15
+    add w7, w14, w15
     mov x24, _addr
     write_prep 16, store16_reg_1
     strh w23, [_addr]
@@ -845,18 +807,15 @@
     cmp x9, #31
     b.eq 3f
     ldr x14, [x11, x9, lsl #3]
-    and x14, x14, #0xffffffff
     b 4f
-3:  ldr x14, [_cpu, #CPU_sp]
-    and x14, x14, #0xffffffff
+3:  ldr w14, [_cpu, #CPU_sp]
 4:  cmp x10, #31
     b.eq 5f
     ldr x15, [x11, x10, lsl #3]
-    and x15, x15, #0xffffffff
     b 6f
 5:  mov x15, #0
 6:  lsl x15, x15, x12
-    add _addr, x14, x15
+    add w7, w14, w15
     mov x24, _addr
     write_prep 8, store8_reg_1
     strb w23, [_addr]
@@ -1023,9 +982,6 @@ atomic_cas_segfault:
     str _addr, [x11, x9, lsl #3]
     gret
 1:  // SP writeback
-    // DEBUG: validate addr before writing to SP
-    lsr x10, _addr, #32
-    cbnz x10, sp_write_bad_addr
     str _addr, [_cpu, #CPU_sp]
     gret
 
@@ -1150,6 +1106,155 @@ atomic_cas_segfault:
     write_bullshit 64, stp32_1
 
 /*
+ * Fused LDP/STP with signed-offset addressing (mode==2)
+ *
+ * Combines calc_addr_imm + ldp/stp into a single gadget dispatch.
+ * Used for the most common LDP/STP encoding: signed offset mode.
+ *
+ * Code stream: [gadget addr][rt | rt2<<8 | rn<<16 | offset<<24]
+ *   bits 0-4:   rt  (5 bits)
+ *   bits 8-12:  rt2 (5 bits)
+ *   bits 16-20: rn  (5 bits)
+ *   bits 24-39: signed offset in bytes (16-bit, sign-extracted via sbfx)
+ *
+ * Register usage:
+ *   x22: packed parameter (callee-saved)
+ *   x23, x25: load/store values (callee-saved)
+ *   x24: saved _addr (callee-saved)
+ *   x8-x12: scratch
+ */
+
+// Fused LDP Xt, Xt2, [Xn, #imm] - 64-bit load pair with signed offset
+.gadget ldp64_imm
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    // Unpack parameters
+    ubfx x9, x22, #16, #5          // rn
+    sbfx x10, x22, #24, #16        // signed offset in bytes
+    // Load base register or SP
+    add x11, _cpu, #CPU_x0
+    cmp x9, #31
+    b.eq 1f
+    ldr x12, [x11, x9, lsl #3]
+    b 2f
+1:  ldr w12, [_cpu, #CPU_sp]
+2:  add w7, w12, w10                // 32-bit add wraps naturally
+    mov x24, _addr
+    read_prep 128, ldp64_imm_1      // 16 bytes
+    ldr x23, [_addr]                // val1
+    ldr x25, [_addr, #8]            // val2
+    and x8, x22, #0x1f              // rt
+    ubfx x9, x22, #8, #5            // rt2
+    add x10, _cpu, #CPU_x0
+    cmp x8, #31
+    b.eq 3f
+    str x23, [x10, x8, lsl #3]
+3:  cmp x9, #31
+    b.eq 4f
+    str x25, [x10, x9, lsl #3]
+4:  mov _addr, x24
+    gret
+    read_bullshit 128, ldp64_imm_1
+
+// Fused LDP Wt, Wt2, [Xn, #imm] - 32-bit load pair with signed offset
+.gadget ldp32_imm
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    ubfx x9, x22, #16, #5
+    sbfx x10, x22, #24, #16
+    add x11, _cpu, #CPU_x0
+    cmp x9, #31
+    b.eq 1f
+    ldr x12, [x11, x9, lsl #3]
+    b 2f
+1:  ldr w12, [_cpu, #CPU_sp]
+2:  add w7, w12, w10
+    mov x24, _addr
+    read_prep 64, ldp32_imm_1       // 8 bytes (2x4)
+    ldr w23, [_addr]                // val1 (zero-extended)
+    ldr w25, [_addr, #4]            // val2 (zero-extended)
+    and x8, x22, #0x1f
+    ubfx x9, x22, #8, #5
+    add x10, _cpu, #CPU_x0
+    cmp x8, #31
+    b.eq 3f
+    str x23, [x10, x8, lsl #3]     // store zero-extended 64-bit
+3:  cmp x9, #31
+    b.eq 4f
+    str x25, [x10, x9, lsl #3]
+4:  mov _addr, x24
+    gret
+    read_bullshit 64, ldp32_imm_1
+
+// Fused STP Xt, Xt2, [Xn, #imm] - 64-bit store pair with signed offset
+.gadget stp64_imm
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    // Load register values before write_prep (which clobbers x8-x10)
+    and x8, x22, #0x1f              // rt
+    ubfx x9, x22, #8, #5            // rt2
+    add x10, _cpu, #CPU_x0
+    mov x23, #0
+    cmp x8, #31
+    b.eq 1f
+    ldr x23, [x10, x8, lsl #3]
+1:  mov x25, #0
+    cmp x9, #31
+    b.eq 2f
+    ldr x25, [x10, x9, lsl #3]
+2:  // Calculate address
+    ubfx x9, x22, #16, #5           // rn
+    sbfx x10, x22, #24, #16         // signed offset
+    add x11, _cpu, #CPU_x0
+    cmp x9, #31
+    b.eq 3f
+    ldr x12, [x11, x9, lsl #3]
+    b 4f
+3:  ldr w12, [_cpu, #CPU_sp]
+4:  add w7, w12, w10
+    mov x24, _addr
+    write_prep 128, stp64_imm_1     // 16 bytes
+    str x23, [_addr]
+    str x25, [_addr, #8]
+    write_done 128, stp64_imm_1
+    mov _addr, x24
+    gret
+    write_bullshit 128, stp64_imm_1
+
+// Fused STP Wt, Wt2, [Xn, #imm] - 32-bit store pair with signed offset
+.gadget stp32_imm
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    and x8, x22, #0x1f
+    ubfx x9, x22, #8, #5
+    add x10, _cpu, #CPU_x0
+    mov x23, #0
+    cmp x8, #31
+    b.eq 1f
+    ldr x23, [x10, x8, lsl #3]
+1:  mov x25, #0
+    cmp x9, #31
+    b.eq 2f
+    ldr x25, [x10, x9, lsl #3]
+2:  ubfx x9, x22, #16, #5
+    sbfx x10, x22, #24, #16
+    add x11, _cpu, #CPU_x0
+    cmp x9, #31
+    b.eq 3f
+    ldr x12, [x11, x9, lsl #3]
+    b 4f
+3:  ldr w12, [_cpu, #CPU_sp]
+4:  add w7, w12, w10
+    mov x24, _addr
+    write_prep 64, stp32_imm_1      // 8 bytes (2x4)
+    str w23, [_addr]
+    str w25, [_addr, #4]
+    write_done 64, stp32_imm_1
+    mov _addr, x24
+    gret
+    write_bullshit 64, stp32_imm_1
+
+/*
  * Interleaved SIMD load/store gadgets (LD2/LD3/LD4, ST2/ST3/ST4)
  * These call C helper functions for the deinterleaving/interleaving logic.
  * Code stream: [gadget addr][rt | (num_regs<<8) | (elem_size<<16) | (Q<<24)]
@@ -1253,6 +1358,7 @@ simd_interleaved_write_segfault:
     ldr x13, [_cpu, #CPU_sp]
     and x13, x13, #0xffffffff
     add x13, x13, x12
+    and x13, x13, #0xffffffff
     str x13, [_cpu, #CPU_sp]
     gret
 
@@ -1531,20 +1637,6 @@ ld1r_store_64:
     write_bullshit 64, st1_single_d_1
 
 /*
- * SP corruption detected within a block (during calc_addr_imm with rn=31)
- * x12 = corrupted SP value
- * Reports via page fault with the corrupted SP value
- */
-sp_corrupted_in_block:
-    // x12 has the bad SP value
-    str x12, [_cpu, #CPU_segfault_addr]
-    str x12, [_cpu, #CPU_sp]  // write it so page fault handler can dump it
-    mov w8, #0
-    strb w8, [_cpu, #CPU_segfault_was_write]
-    mov w0, #INT_GPF
-    b fiber_exit
-
-/*
  * LDXR — Load exclusive with exclusive monitor save
  * Code stream: [gadget addr][rt | (size << 8)]
  * Expects _addr = guest address (from calc_addr_imm)
@@ -1677,14 +1769,3 @@ stxr_segfault:
     mov w0, #INT_GPF
     b fiber_exit
 
-/*
- * Bad address being written to SP via writeback_addr
- * _addr has the bad value
- */
-sp_write_bad_addr:
-    str _addr, [_cpu, #CPU_segfault_addr]
-    str _addr, [_cpu, #CPU_sp]
-    mov w8, #1
-    strb w8, [_cpu, #CPU_segfault_was_write]
-    mov w0, #INT_GPF
-    b fiber_exit

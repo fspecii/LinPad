@@ -1149,9 +1149,92 @@ dword_t sys_sendfile64(fd_t out_fd, fd_t in_fd, addr_t offset_addr, dword_t coun
 dword_t sys_splice(fd_t UNUSED(in_fd), addr_t UNUSED(in_off_addr), fd_t UNUSED(out_fd), addr_t UNUSED(out_off_addr), dword_t UNUSED(count), dword_t UNUSED(flags)) {
     return _EINVAL;
 }
-dword_t sys_copy_file_range(fd_t UNUSED(in_fd), addr_t UNUSED(in_off), fd_t UNUSED(out_fd),
-        addr_t UNUSED(out_off), dword_t UNUSED(len), uint_t UNUSED(flags)) {
-    return _EPERM; // good enough for ruby
+dword_t sys_copy_file_range(fd_t in_fd, addr_t in_off_addr, fd_t out_fd,
+        addr_t out_off_addr, dword_t len, uint_t flags) {
+    STRACE("copy_file_range(%d, 0x%x, %d, 0x%x, %d, %d)", in_fd, in_off_addr, out_fd, out_off_addr, len, flags);
+    if (flags != 0)
+        return _EINVAL;
+    struct fd *in = f_get(in_fd);
+    if (in == NULL)
+        return _EBADF;
+    struct fd *out = f_get(out_fd);
+    if (out == NULL)
+        return _EBADF;
+    if (!in->ops->read && !in->ops->pread)
+        return _EINVAL;
+    if (!out->ops->write && !out->ops->pwrite)
+        return _EINVAL;
+
+    off_t_ in_off = -1, out_off = -1;
+    if (in_off_addr != 0) {
+        if (user_get(in_off_addr, in_off))
+            return _EFAULT;
+    }
+    if (out_off_addr != 0) {
+        if (user_get(out_off_addr, out_off))
+            return _EFAULT;
+    }
+
+    char buf[4096];
+    dword_t remaining = len, total = 0;
+    while (remaining > 0) {
+        size_t chunk = remaining < sizeof(buf) ? remaining : sizeof(buf);
+        ssize_t nread;
+        if (in_off >= 0) {
+            if (in->ops->pread) {
+                do { nread = in->ops->pread(in, buf, chunk, in_off); } while (nread == _EINTR);
+            } else {
+                do { nread = in->ops->read(in, buf, chunk); } while (nread == _EINTR);
+            }
+            if (nread > 0) in_off += nread;
+        } else {
+            if (in->ops->read) {
+                do { nread = in->ops->read(in, buf, chunk); } while (nread == _EINTR);
+            } else {
+                do { nread = in->ops->pread(in, buf, chunk, in->offset); } while (nread == _EINTR);
+                if (nread > 0) in->offset += nread;
+            }
+        }
+        if (nread <= 0) {
+            if (nread < 0 && total == 0) return nread;
+            break;
+        }
+
+        ssize_t nwritten;
+        if (out_off >= 0) {
+            if (out->ops->pwrite) {
+                do { nwritten = out->ops->pwrite(out, buf, nread, out_off); } while (nwritten == _EINTR);
+            } else {
+                do { nwritten = out->ops->write(out, buf, nread); } while (nwritten == _EINTR);
+            }
+            if (nwritten > 0) out_off += nwritten;
+        } else {
+            if (out->ops->write) {
+                do { nwritten = out->ops->write(out, buf, nread); } while (nwritten == _EINTR);
+            } else {
+                do { nwritten = out->ops->pwrite(out, buf, nread, out->offset); } while (nwritten == _EINTR);
+                if (nwritten > 0) out->offset += nwritten;
+            }
+        }
+        if (nwritten <= 0) {
+            if (nwritten < 0 && total == 0) return nwritten;
+            break;
+        }
+        total += nwritten;
+        remaining -= nwritten;
+        if (nwritten < nread)
+            break;
+    }
+
+    if (in_off_addr != 0) {
+        if (user_put(in_off_addr, in_off))
+            return _EFAULT;
+    }
+    if (out_off_addr != 0) {
+        if (user_put(out_off_addr, out_off))
+            return _EFAULT;
+    }
+    return total;
 }
 
 dword_t sys_xattr_stub(addr_t UNUSED(path_addr), addr_t UNUSED(name_addr),

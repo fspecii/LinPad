@@ -92,6 +92,8 @@ retry:
 }
 
 void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
+    if (task->sighand == NULL)
+        return;
     lock(&task->sighand->lock);
     deliver_signal_unlocked(task, sig, info);
     unlock(&task->sighand->lock);
@@ -105,6 +107,8 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
         return;
 
     struct sighand *sighand = task->sighand;
+    if (sighand == NULL)
+        return;
     lock(&sighand->lock);
     if (signal_action(sighand, sig) != SIGNAL_IGNORE) {
         deliver_signal_unlocked(task, sig, info);

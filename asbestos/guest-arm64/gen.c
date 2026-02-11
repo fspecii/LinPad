@@ -708,6 +708,11 @@ extern void gadget_ldp64(void);
 extern void gadget_ldp32(void);
 extern void gadget_stp64(void);
 extern void gadget_stp32(void);
+// Fused load/store pair with signed-offset addressing
+extern void gadget_ldp64_imm(void);
+extern void gadget_ldp32_imm(void);
+extern void gadget_stp64_imm(void);
+extern void gadget_stp32_imm(void);
 
 static void gen(struct gen_state *state, unsigned long thing) {
     assert(state->size <= state->capacity);
@@ -1510,6 +1515,18 @@ static int gen_branch(struct gen_state *state, uint32_t insn) {
             return 1;
         }
 
+        // Cache maintenance instructions (DC, IC) — NOP in emulation
+        // DC CIVAC (Clean and Invalidate by VA to PoC): d50b7e2x
+        // DC CVAU  (Clean by VA to PoU):                d50b7b2x
+        // DC CVAC  (Clean by VA to PoC):                d50b7a2x
+        // IC IVAU  (Invalidate by VA to PoU):           d50b752x
+        if ((insn & 0xffffffe0) == 0xd50b7e20 ||  // DC CIVAC
+            (insn & 0xffffffe0) == 0xd50b7b20 ||  // DC CVAU
+            (insn & 0xffffffe0) == 0xd50b7a20 ||  // DC CVAC
+            (insn & 0xffffffe0) == 0xd50b7520) {  // IC IVAU
+            return 1;  // NOP — no cache to maintain
+        }
+
         // MSR/MRS for TPIDR_EL0 (TLS pointer)
         // MSR: d51bd04t (write Xt to TPIDR_EL0)
         // MRS: d53bd04t (read TPIDR_EL0 to Xt)
@@ -2098,38 +2115,52 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
             return 0;
         }
 
+        // Fused path for signed-offset mode (most common LDP/STP encoding)
+        if (is_offset) {
+            int16_t off16 = (int16_t)offset;
+            uint64_t param = (uint64_t)(rt & 0x1f)
+                           | ((uint64_t)(rt2 & 0x1f) << 8)
+                           | ((uint64_t)(rn & 0x1f) << 16)
+                           | (((uint64_t)(uint16_t)off16) << 24);
+            void *gadget;
+            if (L)
+                gadget = is64 ? gadget_ldp64_imm : gadget_ldp32_imm;
+            else
+                gadget = is64 ? gadget_stp64_imm : gadget_stp32_imm;
+            gen(state, (unsigned long) gadget);
+            gen(state, param);
+            return 1;
+        }
+
+        // Pre/post-indexed: use separate calc_addr + ldp/stp + writeback
+
         // Step 1: Calculate address
         if (is_post) {
             // Post-indexed: use base register directly
             gen(state, (unsigned long) gadget_calc_addr_base);
             gen(state, rn);
         } else {
-            // Pre-indexed or signed offset: add offset to base
+            // Pre-indexed: add offset to base
             gen(state, (unsigned long) gadget_calc_addr_imm);
             gen(state, rn | ((uint64_t)offset << 8));
         }
 
         // Step 2: Perform the load/store pair
         if (L) {
-            // LDP: load pair
             gen(state, (unsigned long) (is64 ? gadget_ldp64 : gadget_ldp32));
         } else {
-            // STP: store pair
             gen(state, (unsigned long) (is64 ? gadget_stp64 : gadget_stp32));
         }
         gen(state, rt | (rt2 << 8));
 
         // Step 3: Writeback for pre/post-indexed
-        if (is_pre || is_post) {
-            if (is_post) {
-                // Post-indexed: update base with offset
-                gen(state, (unsigned long) gadget_update_base);
-                gen(state, rn | ((uint64_t)offset << 8));
-            } else {
-                // Pre-indexed: writeback calculated address
-                gen(state, (unsigned long) gadget_writeback_addr);
-                gen(state, rn);
-            }
+        if (is_post) {
+            gen(state, (unsigned long) gadget_update_base);
+            gen(state, rn | ((uint64_t)offset << 8));
+        } else {
+            // Pre-indexed: writeback calculated address
+            gen(state, (unsigned long) gadget_writeback_addr);
+            gen(state, rn);
         }
 
         return 1;
@@ -3935,16 +3966,42 @@ static int gen_simd_fp(struct gen_state *state, uint32_t insn) {
         }
 
         if (cmode == 0xf) {
-            // cmode=0xf: FMOV (immediate) for floating-point
-            if (op == 1) {
-                // Reserved
-                gen_interrupt(state, INT_UNDEFINED);
-                return 0;
+            // cmode=0xf: FMOV (immediate) for floating-point vectors
+            // VFPExpandImm expands imm8 to a FP constant at compile time.
+            if (op == 0) {
+                // FMOV single-precision: Vd.2S (Q=0) or Vd.4S (Q=1)
+                // VFPExpandImm for single: aBBBBBbcdefgh0..0 (32-bit)
+                uint32_t a = (imm8 >> 7) & 1;
+                uint32_t b = (imm8 >> 6) & 1;
+                uint32_t cdefgh = imm8 & 0x3f;
+                uint32_t exp = ((1 - b) << 7) | ((b * 0x1f) << 2) | ((cdefgh >> 4) & 3);
+                uint32_t frac = (cdefgh & 0xf) << 19;
+                uint32_t fp32 = (a << 31) | (exp << 23) | frac;
+                uint64_t elem64 = ((uint64_t)fp32 << 32) | fp32;
+                gen(state, (unsigned long) gadget_set_vec_imm);
+                gen(state, rd);
+                gen(state, elem64);
+                gen(state, Q ? elem64 : 0);
+                return 1;
+            } else {
+                // op=1: FMOV double-precision: Vd.2D (Q must be 1)
+                if (!Q) {
+                    gen_interrupt(state, INT_UNDEFINED);
+                    return 0;
+                }
+                // VFPExpandImm for double: aBBBBBBBBbcdefgh0..0 (64-bit)
+                uint64_t a = (imm8 >> 7) & 1;
+                uint64_t b = (imm8 >> 6) & 1;
+                uint64_t cdefgh = imm8 & 0x3f;
+                uint64_t exp = ((1 - b) << 10) | ((b * 0xff) << 2) | ((cdefgh >> 4) & 3);
+                uint64_t frac = (cdefgh & 0xfULL) << 48;
+                uint64_t fp64 = (a << 63) | (exp << 52) | frac;
+                gen(state, (unsigned long) gadget_set_vec_imm);
+                gen(state, rd);
+                gen(state, fp64);
+                gen(state, fp64);
+                return 1;
             }
-            // FMOV (immediate) - interpret imm8 as FP immediate
-            // For now, treat as undefined (complex FP immediate expansion)
-            gen_interrupt(state, INT_UNDEFINED);
-            return 0;
         }
 
         // ORR/BIC use odd cmode values for integer immediates (e.g., 0x1/0x3/0x5/0x7/0x9/0xb).

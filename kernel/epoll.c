@@ -23,8 +23,15 @@ fd_t sys_epoll_create0() {
 
 struct epoll_event_ {
     uint32_t events;
+#ifdef GUEST_ARM64
+    uint32_t __pad;
+#endif
     uint64_t data;
-} __attribute__((packed));
+}
+#ifndef GUEST_ARM64
+__attribute__((packed))
+#endif
+;
 
 #define EPOLL_CTL_ADD_ 1
 #define EPOLL_CTL_DEL_ 2

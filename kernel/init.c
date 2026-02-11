@@ -1,6 +1,7 @@
 #include <signal.h>
 #include <string.h>
 #include <sys/stat.h>
+#include "fs/dev.h"
 #include "fs/devices.h"
 #include "fs/fd.h"
 #include "fs/real.h"
@@ -35,7 +36,7 @@ static struct rlimit_ init_rlimits[16] = {
     [RLIMIT_CPU_]        = {RLIM_INFINITY_, RLIM_INFINITY_},
     [RLIMIT_FSIZE_]      = {RLIM_INFINITY_, RLIM_INFINITY_},
     [RLIMIT_DATA_]       = {RLIM_INFINITY_, RLIM_INFINITY_},
-    [RLIMIT_STACK_]      = {8*1024*1024, RLIM_INFINITY_},
+    [RLIMIT_STACK_]      = {128*1024*1024, RLIM_INFINITY_},
     [RLIMIT_CORE_]       = {0, RLIM_INFINITY_},
     [RLIMIT_RSS_]        = {RLIM_INFINITY_, RLIM_INFINITY_},
     [RLIMIT_NPROC_]      = {1024, 1024},
@@ -158,6 +159,27 @@ static struct fd *open_fd_from_actual_fd(int fd_no) {
     }
     fd->real_fd = fd_no;
     fd->dir = NULL;
+    // Populate stat from host fd so guest fstat() returns valid metadata.
+    // Node.js (libuv) calls fstat on stdout/stderr to determine if it's a
+    // TTY, pipe, or file — all-zero stat causes console.log to silently fail.
+    struct stat real_stat;
+    if (fstat(fd_no, &real_stat) == 0) {
+        fd->stat.mode = real_stat.st_mode;
+        fd->stat.rdev = dev_fake_from_real(real_stat.st_rdev);
+        fd->stat.inode = real_stat.st_ino;
+        fd->stat.size = real_stat.st_size;
+        // On macOS, piped/redirected fds may appear as sockets (S_IFSOCK).
+        // Guest programs (especially Node.js/libuv) don't recognize sockets
+        // as valid stdio types and fail to initialize stdout/stderr handles.
+        // Report sockets as character devices (S_IFCHR) which is what Linux
+        // shows for TTY fds. This allows node's libuv uv_guess_handle() to
+        // detect them as TTY-like (when combined with isatty/TCGETS support)
+        // or fall back to a generic stream.
+        if (S_ISSOCK(fd->stat.mode)) {
+            fd->stat.mode = S_IFCHR | 0620;
+            fd->stat.rdev = dev_make(TTY_PSEUDO_SLAVE_MAJOR, 0);
+        }
+    }
     return fd;
 }
 
