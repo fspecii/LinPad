@@ -933,6 +933,15 @@ atomic_cas_segfault:
     b fiber_exit
 
 /*
+ * Memory barrier gadget for DMB/DSB/ISB and acquire/release semantics.
+ * Since guest threads run as real host threads sharing the same physical
+ * memory, guest memory ordering must be enforced with real host barriers.
+ */
+.gadget dmb
+    dmb ish
+    gret
+
+/*
  * Base register update gadget for post/pre-indexed addressing
  * Code stream: [gadget addr][rn | offset<<8]
  * Updates: Rn = Rn + offset

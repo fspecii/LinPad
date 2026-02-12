@@ -35,6 +35,16 @@ struct asbestos {
     // When 1, we can skip jetsam_lock (no other thread to synchronize with).
     unsigned active_threads;
 
+    // === RCU-like Optimization ===
+    // Atomic counter: number of threads currently executing JIT code.
+    // Jetsam cleanup waits until this reaches 0 before freeing blocks.
+    // This avoids read lock overhead on every JIT enter/exit.
+    _Atomic unsigned jit_active_threads;
+
+    // Generation number for jetsam cleanup. Incremented when jetsam list
+    // becomes non-empty. Threads check this to know when cleanup is needed.
+    _Atomic unsigned jetsam_gen;
+
     lock_t lock;
     wrlock_t jetsam_lock;
 };

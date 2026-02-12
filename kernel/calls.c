@@ -134,7 +134,18 @@ void handle_interrupt(int interrupt) {
 #if defined(GUEST_X86) || !defined(GUEST_ARM64)
             printk("%d page fault on 0x%x at 0x%x\n", current->pid, cpu->segfault_addr, cpu->eip);
 #elif defined(GUEST_ARM64)
-            printk("%d page fault on 0x%llx at 0x%llx\n", current->pid, (unsigned long long)cpu->segfault_addr, (unsigned long long)cpu->pc);
+            printk("%d page fault on 0x%llx at 0x%llx (%s)\n", current->pid, (unsigned long long)cpu->segfault_addr, (unsigned long long)cpu->pc, cpu->segfault_was_write ? "write" : "read");
+            // Decode a few instructions around the faulting PC
+            for (int i = -2; i <= 2; i++) {
+                uint32_t insn = 0;
+                bool ok = true;
+                for (int j = 0; j < 4; j++) {
+                    uint8_t b;
+                    if (user_get(cpu->pc + i*4 + j, b)) { ok = false; break; }
+                    insn |= (uint32_t)b << (j*8);
+                }
+                if (ok) printk("  [pc%+d] %08x %s\n", i*4, insn, i==0 ? "<-- here" : "");
+            }
             printk("  x0=%llx x1=%llx x2=%llx x3=%llx\n", (unsigned long long)cpu->regs[0], (unsigned long long)cpu->regs[1], (unsigned long long)cpu->regs[2], (unsigned long long)cpu->regs[3]);
             printk("  x4=%llx x5=%llx x6=%llx x7=%llx\n", (unsigned long long)cpu->regs[4], (unsigned long long)cpu->regs[5], (unsigned long long)cpu->regs[6], (unsigned long long)cpu->regs[7]);
             printk("  x8=%llx x9=%llx x10=%llx x11=%llx\n", (unsigned long long)cpu->regs[8], (unsigned long long)cpu->regs[9], (unsigned long long)cpu->regs[10], (unsigned long long)cpu->regs[11]);

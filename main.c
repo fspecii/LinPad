@@ -21,11 +21,14 @@ static void crash_handler(int sig, siginfo_t *info, void *ctx) {
     // This handles stale TLB pointers from concurrent CoW resolution.
     if ((sig == SIGSEGV || sig == SIGBUS) && in_jit) {
         ucontext_t *uc = (ucontext_t *)ctx;
-        // x7 = _addr (guest fault address), x1 = _cpu pointer
-        uint32_t guest_addr = (uint32_t)uc->uc_mcontext->__ss.__x[7];
+        // x1 = _cpu pointer (reserved JIT register, always valid)
         struct cpu_state *cpu = (struct cpu_state *)uc->uc_mcontext->__ss.__x[1];
-        cpu->segfault_addr = guest_addr;
-        cpu->segfault_was_write = true; // conservative: assume write
+        // segfault_addr is already set by the TLB lookup in read_prep/write_prep
+        // (stored BEFORE _addr is overwritten with the host pointer).
+        // Determine read/write from the host ESR (Exception Syndrome Register).
+        // Bit 6 (WnR): 0 = read fault, 1 = write fault.
+        uint64_t esr = uc->uc_mcontext->__es.__esr;
+        cpu->segfault_was_write = (esr & 0x40) != 0;
         siglongjmp(jit_recover_buf, 1);
         // not reached
     }

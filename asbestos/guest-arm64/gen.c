@@ -703,6 +703,9 @@ extern void gadget_writeback_addr(void);
 extern void gadget_atomic_rmw(void);
 extern void gadget_atomic_cas(void);
 
+// Memory barrier (DMB ISH) for acquire/release semantics
+extern void gadget_dmb(void);
+
 // Load/store pair gadgets
 extern void gadget_ldp64(void);
 extern void gadget_ldp32(void);
@@ -1510,8 +1513,9 @@ static int gen_branch(struct gen_state *state, uint32_t insn) {
         if ((insn & 0xfffff0ff) == 0xd50330bf ||  // DMB
             (insn & 0xfffff0ff) == 0xd503309f ||  // DSB
             (insn & 0xfffff0ff) == 0xd50330df) {  // ISB
-            // For emulation, barriers are essentially NOPs since we're single-threaded
-            // and memory ordering is handled by the host
+            // Guest threads run as real host threads sharing host memory,
+            // so guest barriers must issue real host barriers for correctness.
+            gen(state, (unsigned long) gadget_dmb);
             return 1;
         }
 
@@ -1639,8 +1643,11 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
 
     // Atomic memory operations (LSE): LDADD/LDCLR/LDEOR/LDSET/LDUMAX/LDUMIN/LDSMAX/LDSMIN/SWP
     // Encoding: size:111000:A:R:1:Rs:op:Rn:Rt (bits29-24=111000, bit21=1, bits11-10=00)
+    // A=acquire (bit23), R=release (bit22)
     if ((insn & 0x3f200c00) == 0x38200000) {
         uint32_t size = (insn >> 30) & 0x3;
+        uint32_t A = (insn >> 23) & 1;    // acquire
+        uint32_t R = (insn >> 22) & 1;    // release
         uint32_t rs = (insn >> 16) & 0x1f;
         uint32_t rn = (insn >> 5) & 0x1f;
         uint32_t rt = insn & 0x1f;
@@ -1656,9 +1663,11 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
         gen(state, (unsigned long) gadget_calc_addr_imm);
         gen(state, rn | (0ULL << 8));  // offset = 0
 
+        if (R) gen(state, (unsigned long) gadget_dmb);  // release barrier before
         // Perform atomic RMW (returns old value in _tmp)
         gen(state, (unsigned long) gadget_atomic_rmw);
         gen(state, rs | ((uint64_t)size << 8) | ((uint64_t)op << 16));
+        if (A) gen(state, (unsigned long) gadget_dmb);  // acquire barrier after
 
         // Store old value to Rt
         gen(state, (unsigned long) gadget_store_reg);
@@ -1667,9 +1676,12 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
     }
 
     // Atomic compare-and-swap (CAS/CASA/CASL/CASAL)
-    // Encoding: size:001000:1:A:1:Rs:1:op(111):Rn:Rt (bits29-24=001000, bit21=1, bits11-10=11)
+    // Encoding: size:001000:1:A:1:Rs:R:11111:Rn:Rt
+    // A=acquire (bit23), R=release (bit15)
     if ((insn & 0x3f200c00) == 0x08200c00) {
         uint32_t size = (insn >> 30) & 0x3;
+        uint32_t A = (insn >> 23) & 1;    // acquire
+        uint32_t R = (insn >> 15) & 1;    // release
         uint32_t rs = (insn >> 16) & 0x1f;  // expected value (and result)
         uint32_t rn = (insn >> 5) & 0x1f;
         uint32_t rt = insn & 0x1f;          // new value
@@ -1678,9 +1690,11 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
         gen(state, (unsigned long) gadget_calc_addr_imm);
         gen(state, rn | (0ULL << 8));  // offset = 0
 
+        if (R) gen(state, (unsigned long) gadget_dmb);  // release barrier before
         // Perform CAS (returns old value in _tmp)
         gen(state, (unsigned long) gadget_atomic_cas);
         gen(state, rs | ((uint64_t)rt << 8) | ((uint64_t)size << 16));
+        if (A) gen(state, (unsigned long) gadget_dmb);  // acquire barrier after
 
         // Store old value back to Rs (CAS writes old value to expected register)
         gen(state, (unsigned long) gadget_store_reg);
@@ -2351,10 +2365,10 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
         uint32_t rn = (insn >> 5) & 0x1f;
         uint32_t rt = insn & 0x1f;
 
-        (void)o0;  // Acquire/release semantics ignored for single-threaded
+        // o0: acquire/release flag — o0=1 means LDAXR/STLXR (with barrier)
 
         // o2=1: STLR/LDAR/LDLAR/STLLR — non-exclusive, non-pair load/store with
-        // acquire/release semantics. Treat as simple load/store.
+        // acquire/release semantics (always have barrier).
         // o2=0, o1=1: STXP/LDXP/STLXP/LDAXP — exclusive pair operations.
         // o2=0, o1=0: STXR/LDXR/STLXR/LDAXR — exclusive register operations.
 
@@ -2376,7 +2390,9 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
                 }
                 gen(state, (unsigned long) ldp_gadget);
                 gen(state, rt | ((uint64_t)rt2 << 8));
+                if (o0) gen(state, (unsigned long) gadget_dmb);  // LDAXP: acquire
             } else {
+                if (o0) gen(state, (unsigned long) gadget_dmb);  // STLXP: release
                 // STXP/STLXP - Store pair
                 void (*stp_gadget)(void) = NULL;
                 switch (size) {
@@ -2404,8 +2420,10 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
 
         if (o2 == 1) {
             // STLR/LDAR/LDLAR/STLLR — non-exclusive, non-pair
-            // Treat as simple load/store (no exclusive monitor)
+            // With acquire/release memory ordering via DMB barriers.
+            // Guest threads share host memory, so real barriers are required.
             if (L) {
+                // LDAR (load-acquire): load + DMB after
                 gen(state, (unsigned long) gadget_calc_addr_imm);
                 gen(state, rn | (0ULL << 8));
                 void (*load_gadget)(void) = NULL;
@@ -2416,13 +2434,16 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
                 case 3: load_gadget = gadget_load64; break;
                 }
                 gen(state, (unsigned long) load_gadget);
+                gen(state, (unsigned long) gadget_dmb);
                 gen(state, (unsigned long) gadget_store_reg);
                 gen(state, rt);
             } else {
+                // STLR (store-release): DMB before + store
                 gen(state, (unsigned long) gadget_load_reg);
                 gen(state, rt);
                 gen(state, (unsigned long) gadget_calc_addr_imm);
                 gen(state, rn | (0ULL << 8));
+                gen(state, (unsigned long) gadget_dmb);
                 void (*store_gadget)(void) = NULL;
                 switch (size) {
                 case 0: store_gadget = gadget_store8; break;
@@ -2434,22 +2455,15 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
                 // No Rs writeback for STLR/STLLR (non-exclusive)
             }
         } else if (L) {
-            // LDXR, LDAXR - Load exclusive
-            // Generate address from Rn, then use gadget_ldxr which:
-            // 1. Loads value from [addr] with appropriate size
-            // 2. Saves addr + value to exclusive monitor (cpu->excl_addr, excl_val)
-            // 3. Stores result to Rt
+            // LDXR/LDAXR - Load exclusive
             gen(state, (unsigned long) gadget_calc_addr_imm);
             gen(state, rn | (0ULL << 8));  // offset = 0
             gen(state, (unsigned long) gadget_ldxr);
             gen(state, rt | ((uint64_t)size << 8));
+            if (o0) gen(state, (unsigned long) gadget_dmb);  // LDAXR: acquire
         } else {
-            // STXR, STLXR - Store exclusive
-            // Generate address from Rn, then use gadget_stxr which:
-            // 1. Checks excl_addr matches current addr
-            // 2. Calls c_stxr_cas() for atomic CAS
-            // 3. Stores success/failure to Rs
-            // 4. Invalidates exclusive monitor
+            // STXR/STLXR - Store exclusive
+            if (o0) gen(state, (unsigned long) gadget_dmb);  // STLXR: release
             gen(state, (unsigned long) gadget_calc_addr_imm);
             gen(state, rn | (0ULL << 8));  // offset = 0
             gen(state, (unsigned long) gadget_stxr);

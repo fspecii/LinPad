@@ -113,6 +113,12 @@ _addr   .req x7    // Changed from x3/x4 to x7 to avoid conflict with guest low 
     b.ne handle_miss_\id
 
     ldr x10, [x9, #TLB_ENTRY_data_minus_addr]
+    // Save guest address for JIT crash recovery before TLB clobbers _addr.
+    // If a host SIGSEGV occurs during the subsequent load/store (e.g., stale
+    // TLB from concurrent CoW), the crash handler needs the guest address,
+    // not the host pointer that _addr will become after the add below.
+    // The read/write flag is determined from the host ESR in the crash handler.
+    str w7, [_cpu, #CPU_segfault_addr]
     add x7, x10, w7, uxtw          // host_addr = data_minus_addr + (uint32_t)addr
 back_\id:
 .endm

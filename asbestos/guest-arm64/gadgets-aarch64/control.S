@@ -33,7 +33,9 @@
  */
 .macro inline_chain reg, unchained_label
     tbnz \reg, #63, \unchained_label
-    // Chained fast path — poke check only (no cycle counter, matches x86)
+    // Chained fast path — poke check only (no inline cycle counter)
+    // Cycle checking happens in main loop (every ~1024 unchained blocks)
+    // This eliminates per-chain overhead for maximum performance.
     ldr w11, [\reg, #(-FIBER_BLOCK_code + FIBER_BLOCK_addr)]
     str x11, [_cpu, #CPU_pc]
     ldr x8, [_cpu, #CPU_poked_ptr]
@@ -107,8 +109,8 @@
     add x9, _cpu, #CPU_x0
     ldr x10, [x9, x8, lsl #3]
 
-    // Store guest PC
-    str x10, [_cpu, #CPU_pc]
+    // Store guest PC (w10 truncates to 32-bit, matching 32-bit address space)
+    str w10, [_cpu, #CPU_pc]
     // Indirect branch: always return to main loop
     b fiber_ret
 
@@ -128,8 +130,8 @@
     // Save return address to X30
     str x11, [_cpu, #(CPU_x0 + 30*8)]
 
-    // Store guest PC
-    str x10, [_cpu, #CPU_pc]
+    // Store guest PC (w10 truncates to 32-bit, matching 32-bit address space)
+    str w10, [_cpu, #CPU_pc]
     // Indirect branch: always return to main loop
     b fiber_ret
 
@@ -148,8 +150,8 @@
     and x8, x8, #0x1f
     add x9, _cpu, #CPU_x0
     ldr x10, [x9, x8, lsl #3]   // x10 = return address (guest PC)
-    // Always set CPU_pc first
-    str x10, [_cpu, #CPU_pc]
+    // Always set CPU_pc first (w10 truncates to 32-bit address space)
+    str w10, [_cpu, #CPU_pc]
     // Look up return address in ret_cache
     ubfx w12, w10, #4, #12
     add x13, _cpu, #LOCAL_ret_cache
@@ -158,7 +160,7 @@
     cbz x14, ret_no_cache
     // Validate: saved return_addr must match actual return address
     ldr x9, [x14, #8]            // x14[1] = return_addr
-    cmp x10, x9
+    cmp w10, w9
     b.ne ret_no_cache
     // Cache hit — load return continuation
     ldr _pc, [x14, #16]          // x14[2] = return_cont (block->code or fake_ip)
