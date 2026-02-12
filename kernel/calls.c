@@ -1,10 +1,17 @@
 #include <string.h>
+#include <errno.h>
+#include <unistd.h>
+#include <sys/stat.h>
 #include "debug.h"
 #include "kernel/calls.h"
 #include "emu/interrupt.h"
 #include "kernel/memory.h"
 #include "kernel/signal.h"
 #include "kernel/task.h"
+#include "fs/stat.h"
+#include "fs/fd.h"
+#include "fs/dev.h"
+#include "fs/real.h"
 
 dword_t syscall_stub(void) {
     return _ENOSYS;
@@ -25,6 +32,13 @@ extern size_t syscall_table_size;
 
 void dump_stack(int lines);
 void dump_maps(void);
+
+// Fast path syscall handlers (forward declarations)
+#ifdef GUEST_ARM64
+static inline int fast_fstat64(struct cpu_state *cpu);
+static inline int fast_read(struct cpu_state *cpu);
+static inline int fast_write(struct cpu_state *cpu);
+#endif
 
 void handle_interrupt(int interrupt) {
     struct cpu_state *cpu = &current->cpu;
@@ -47,31 +61,67 @@ void handle_interrupt(int interrupt) {
 #elif defined(GUEST_ARM64)
         // ARM64: syscall number in x8, args in x0-x5, return in x0
         unsigned syscall_num = cpu->regs[8];
-        if (syscall_num >= syscall_table_size || syscall_table[syscall_num] == NULL) {
-            printk("%d(%s) missing syscall %d\n", current->pid, current->comm, syscall_num);
-            cpu->regs[0] = (uint32_t)_ENOSYS;
-        } else {
-            if (syscall_table[syscall_num] == (syscall_t) syscall_stub) {
-                printk("%d(%s) stub syscall %d\n", current->pid, current->comm, syscall_num);
-            }
-            STRACE("%d call %-3d ", current->pid, syscall_num);
-            int result = syscall_table[syscall_num](
-                cpu->regs[0], cpu->regs[1], cpu->regs[2],
-                cpu->regs[3], cpu->regs[4], cpu->regs[5]);
-            STRACE(" = 0x%x\n", result);
-            // ARM64 ABI: error codes are -1 to -4095 (sign-extended), success is 0 or positive.
-            // We need to check if result is in the error range (-1 to -4095).
-            // Since we run a 32-bit address space, addresses like 0xf7ff2000 are valid
-            // but would appear as "negative" if treated as int32_t.
-            // Linux ARM64 syscall ABI: return value is in x0, errors are negative (-errno).
-            // Valid error range: -1 to -4095 (MAX_ERRNO is typically 4095)
-            int32_t signed_result = (int32_t)result;
+
+        // === FAST PATH: Hot syscalls ===
+        int fast_result = -1;  // -1 means fast path not taken
+        bool fast_path_taken = false;
+
+        // Fast path 1: fstat64 (syscall 80) - most common during Python import
+        if (syscall_num == 80) {
+            fast_result = fast_fstat64(cpu);
+            if (fast_result != -1)
+                fast_path_taken = true;
+        }
+        // Fast path 2: read (syscall 63) - small buffer reads
+        else if (syscall_num == 63) {
+            fast_result = fast_read(cpu);
+            if (fast_result != -1)
+                fast_path_taken = true;
+        }
+        // Fast path 3: write (syscall 64) - small buffer writes
+        else if (syscall_num == 64) {
+            fast_result = fast_write(cpu);
+            if (fast_result != -1)
+                fast_path_taken = true;
+        }
+
+        if (fast_path_taken) {
+            // Fast path succeeded, return immediately
+            STRACE("%d call %-3d (fast) = 0x%x\n", current->pid, syscall_num, fast_result);
+            int32_t signed_result = (int32_t)fast_result;
             if (signed_result >= -4095 && signed_result < 0) {
-                // Error code: sign-extend to 64-bit
                 cpu->regs[0] = (uint64_t)(int64_t)signed_result;
             } else {
-                // Success: zero-extend the 32-bit value
-                cpu->regs[0] = (uint32_t)result;
+                cpu->regs[0] = (uint32_t)fast_result;
+            }
+        } else {
+            // === SLOW PATH: Full syscall ===
+            if (syscall_num >= syscall_table_size || syscall_table[syscall_num] == NULL) {
+                printk("%d(%s) missing syscall %d\n", current->pid, current->comm, syscall_num);
+                cpu->regs[0] = (uint32_t)_ENOSYS;
+            } else {
+                if (syscall_table[syscall_num] == (syscall_t) syscall_stub) {
+                    printk("%d(%s) stub syscall %d\n", current->pid, current->comm, syscall_num);
+                }
+                STRACE("%d call %-3d ", current->pid, syscall_num);
+                int result = syscall_table[syscall_num](
+                    cpu->regs[0], cpu->regs[1], cpu->regs[2],
+                    cpu->regs[3], cpu->regs[4], cpu->regs[5]);
+                STRACE(" = 0x%x\n", result);
+                // ARM64 ABI: error codes are -1 to -4095 (sign-extended), success is 0 or positive.
+                // We need to check if result is in the error range (-1 to -4095).
+                // Since we run a 32-bit address space, addresses like 0xf7ff2000 are valid
+                // but would appear as "negative" if treated as int32_t.
+                // Linux ARM64 syscall ABI: return value is in x0, errors are negative (-errno).
+                // Valid error range: -1 to -4095 (MAX_ERRNO is typically 4095)
+                int32_t signed_result = (int32_t)result;
+                if (signed_result >= -4095 && signed_result < 0) {
+                    // Error code: sign-extend to 64-bit
+                    cpu->regs[0] = (uint64_t)(int64_t)signed_result;
+                } else {
+                    // Success: zero-extend the 32-bit value
+                    cpu->regs[0] = (uint32_t)result;
+                }
             }
         }
 #endif
@@ -210,3 +260,145 @@ void dump_stack(int lines) {
 #ifdef LOG_OVERRIDE
 int log_override = 0;
 #endif
+
+// === Fast Path Implementations ===
+#ifdef GUEST_ARM64
+
+// Fast path for fstat64 (syscall 80)
+// Bypasses generic_statat path normalization when fd is already validated realfs
+static inline int fast_fstat64(struct cpu_state *cpu) {
+    fd_t fd_no = (fd_t)cpu->regs[0];
+    addr_t statbuf_addr = (addr_t)cpu->regs[1];
+
+    // Quick validation: fd must be valid
+    struct fd *fd = f_get(fd_no);
+    if (fd == NULL)
+        return -1;  // Fall back to slow path
+
+    // Fast path condition: fd is realfs (not adhoc, not procfs, etc.)
+    if (fd->ops != &realfs_fdops)
+        return -1;  // Fall back to slow path
+
+    // Direct host fstat call (bypass generic layers)
+    struct stat real_stat;
+    if (fstat(fd->real_fd, &real_stat) < 0)
+        return errno_map();
+
+    // Convert to guest statbuf
+    struct statbuf fake_stat = {};
+    fake_stat.dev = dev_fake_from_real(real_stat.st_dev);
+    fake_stat.inode = real_stat.st_ino;
+    fake_stat.mode = real_stat.st_mode;
+    fake_stat.nlink = real_stat.st_nlink;
+    fake_stat.uid = real_stat.st_uid;
+    fake_stat.gid = real_stat.st_gid;
+    fake_stat.rdev = dev_fake_from_real(real_stat.st_rdev);
+    fake_stat.size = real_stat.st_size;
+    fake_stat.blksize = real_stat.st_blksize;
+    fake_stat.blocks = real_stat.st_blocks;
+    fake_stat.atime = real_stat.st_atime;
+    fake_stat.mtime = real_stat.st_mtime;
+    fake_stat.ctime = real_stat.st_ctime;
+#if __APPLE__
+    fake_stat.atime_nsec = real_stat.st_atimespec.tv_nsec;
+    fake_stat.mtime_nsec = real_stat.st_mtimespec.tv_nsec;
+    fake_stat.ctime_nsec = real_stat.st_ctimespec.tv_nsec;
+#elif __linux__
+    fake_stat.atime_nsec = real_stat.st_atim.tv_nsec;
+    fake_stat.mtime_nsec = real_stat.st_mtim.tv_nsec;
+    fake_stat.ctime_nsec = real_stat.st_ctim.tv_nsec;
+#endif
+
+    // Convert to ARM64 stat structure
+    struct stat_arm64 arm64stat = {};
+    arm64stat.dev = fake_stat.dev;
+    arm64stat.ino = fake_stat.inode;
+    arm64stat.mode = fake_stat.mode;
+    arm64stat.nlink = fake_stat.nlink;
+    arm64stat.uid = fake_stat.uid;
+    arm64stat.gid = fake_stat.gid;
+    arm64stat.rdev = fake_stat.rdev;
+    arm64stat.__pad1 = 0;
+    arm64stat.size = fake_stat.size;
+    arm64stat.blksize = fake_stat.blksize;
+    arm64stat.__pad2 = 0;
+    arm64stat.blocks = fake_stat.blocks;
+    arm64stat.atime_ = fake_stat.atime;
+    arm64stat.atime_nsec = fake_stat.atime_nsec;
+    arm64stat.mtime_ = fake_stat.mtime;
+    arm64stat.mtime_nsec = fake_stat.mtime_nsec;
+    arm64stat.ctime_ = fake_stat.ctime;
+    arm64stat.ctime_nsec = fake_stat.ctime_nsec;
+    arm64stat.__unused4 = 0;
+    arm64stat.__unused5 = 0;
+
+    // Copy to user space
+    if (user_put(statbuf_addr, arm64stat))
+        return _EFAULT;
+
+    return 0;  // Success
+}
+
+// Fast path for read (syscall 63) - small buffers only
+static inline int fast_read(struct cpu_state *cpu) {
+    fd_t fd_no = (fd_t)cpu->regs[0];
+    addr_t buf_addr = (addr_t)cpu->regs[1];
+    dword_t size = (dword_t)cpu->regs[2];
+
+    // Fast path condition: small buffer (≤ 4KB) and realfs fd
+    if (size > 4096)
+        return -1;
+
+    struct fd *fd = f_get(fd_no);
+    if (fd == NULL || fd->ops != &realfs_fdops)
+        return -1;
+
+    // Direct host read (with EINTR retry)
+    char buf[4096];
+    ssize_t res;
+    do {
+        res = read(fd->real_fd, buf, size);
+    } while (res < 0 && errno == EINTR);
+
+    if (res < 0)
+        return errno_map();
+
+    // Copy to guest memory
+    if (res > 0 && user_write(buf_addr, buf, res))
+        return _EFAULT;
+
+    return res;
+}
+
+// Fast path for write (syscall 64) - small buffers only
+static inline int fast_write(struct cpu_state *cpu) {
+    fd_t fd_no = (fd_t)cpu->regs[0];
+    addr_t buf_addr = (addr_t)cpu->regs[1];
+    dword_t size = (dword_t)cpu->regs[2];
+
+    // Fast path condition: small buffer (≤ 4KB) and realfs fd
+    if (size > 4096)
+        return -1;
+
+    struct fd *fd = f_get(fd_no);
+    if (fd == NULL || fd->ops != &realfs_fdops)
+        return -1;
+
+    // Copy from guest memory
+    char buf[4096];
+    if (user_read(buf_addr, buf, size))
+        return _EFAULT;
+
+    // Direct host write (with EINTR retry)
+    ssize_t res;
+    do {
+        res = write(fd->real_fd, buf, size);
+    } while (res < 0 && errno == EINTR);
+
+    if (res < 0)
+        return errno_map();
+
+    return res;
+}
+
+#endif // GUEST_ARM64

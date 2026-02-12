@@ -23,8 +23,42 @@ void fs_register(const struct fs_ops *fs) {
     assert(!"reached filesystem limit");
 }
 
+// === MOUNT CACHE: Thread-local cache for mount lookups ===
+// Most file operations use the same mount point (e.g., realfs at "/")
+// Caching the last lookup can save repeated list traversals
+static __thread struct mount *last_mount_cache = NULL;
+static __thread uint64_t mount_cache_version = 0;
+static uint64_t global_mount_version = 0;  // Incremented on mount/umount
+
+// Check if cached mount is valid for given path
+static inline bool mount_cache_check(struct mount *cached, const char *path) {
+    if (cached == NULL)
+        return false;
+
+    // Check if mount table changed (mount/umount invalidates cache)
+    if (mount_cache_version != global_mount_version)
+        return false;
+
+    // Check if path is under cached mount point
+    size_t n = strlen(cached->point);
+    return (strncmp(path, cached->point, n) == 0 &&
+            (path[n] == '/' || path[n] == '\0'));
+}
+
 struct mount *mount_find(char *path) {
     assert(path_is_normalized(path));
+
+    // === FAST PATH: Check thread-local cache ===
+    struct mount *cached = last_mount_cache;
+    if (mount_cache_check(cached, path)) {
+        // Cache hit - just increment refcount
+        lock(&mounts_lock);
+        cached->refcount++;
+        unlock(&mounts_lock);
+        return cached;
+    }
+
+    // === SLOW PATH: Full mount table search ===
     lock(&mounts_lock);
     struct mount *mount = NULL;
     assert(!list_empty(&mounts)); // this would mean there's no root FS mounted
@@ -34,6 +68,11 @@ struct mount *mount_find(char *path) {
             break;
     }
     mount->refcount++;
+
+    // Update cache
+    last_mount_cache = mount;
+    mount_cache_version = global_mount_version;
+
     unlock(&mounts_lock);
     return mount;
 }
@@ -78,6 +117,10 @@ int do_mount(const struct fs_ops *fs, const char *source, const char *point, con
             break;
     }
     list_add_before(&mount->mounts, &new_mount->mounts);
+
+    // Invalidate all mount caches
+    global_mount_version++;
+
     return 0;
 }
 
@@ -92,6 +135,10 @@ int mount_remove(struct mount *mount) {
     free((void *) mount->source);
     free((void *) mount->point);
     free(mount);
+
+    // Invalidate all mount caches
+    global_mount_version++;
+
     return 0;
 }
 
