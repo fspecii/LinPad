@@ -114,10 +114,19 @@ struct sigqueue {
 };
 
 struct sigevent_ {
-    union sigval_ value;
-    int_t signo;
-    int_t method;
+    union sigval_ value;  // offset 0, size 8
+    int_t signo;          // offset 8, size 4
+    int_t method;         // offset 12, size 4
+#ifdef GUEST_ARM64
+    // ARM64: struct sigevent is 64 bytes with additional fields
+    // sigev_notify_function, sigev_notify_attributes, padding
+    union {
+        pid_t_ tid;       // for SIGEV_THREAD_ID
+        char _pad[48];    // padding to reach 64 bytes total (8+4+4+48=64)
+    };
+#else
     pid_t_ tid;
+#endif
 };
 
 // send a signal

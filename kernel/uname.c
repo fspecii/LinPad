@@ -115,10 +115,6 @@ dword_t sys_sysinfo(addr_t info_addr) {
     if (user_get(info_addr, existing_value) == 0) {
         // Check if this looks like a canary: non-zero, low byte is 0
         if (existing_value != 0 && (existing_value & 0xFF) == 0) {
-#if SYSINFO_DEBUG
-            fprintf(stderr, "[SYSINFO] Preserving canary at 0x%x = 0x%llx\n",
-                    info_addr, (unsigned long long)existing_value);
-#endif
             // Write sysinfo data starting AFTER the canary (skip first 8 bytes)
             // This means info.uptime won't be written, which is acceptable
             if (user_write(info_addr + 8, ((char*)&info) + 8, sizeof(info) - 8))

@@ -1241,3 +1241,58 @@ dword_t sys_xattr_stub(addr_t UNUSED(path_addr), addr_t UNUSED(name_addr),
         addr_t UNUSED(value_addr), dword_t UNUSED(size), dword_t UNUSED(flags)) {
     return _ENOTSUP;
 }
+
+#ifdef GUEST_ARM64
+// ARM64: posix_fadvise64 (syscall 223)
+// Advises the kernel about file access patterns.
+// Since we don't do kernel I/O optimization, we can safely ignore these hints.
+dword_t sys_fadvise64(fd_t f, uint64_t offset, uint64_t len, dword_t advice) {
+    STRACE("fadvise64(%d, %llu, %llu, %d)", f, offset, len, advice);
+
+    // Validate file descriptor
+    struct fd *fd = f_get(f);
+    if (fd == NULL)
+        return _EBADF;
+
+    // All advice values are valid hints that we simply ignore
+    // POSIX_FADV_NORMAL, POSIX_FADV_SEQUENTIAL, POSIX_FADV_RANDOM,
+    // POSIX_FADV_NOREUSE, POSIX_FADV_WILLNEED, POSIX_FADV_DONTNEED
+
+    return 0;  // Success - hint acknowledged (and ignored)
+}
+
+// ARM64: mincore (syscall 232)
+// Determines which pages of a memory mapping are currently in RAM.
+// For our emulator, we just pretend all pages are in memory.
+dword_t sys_mincore(addr_t addr, dword_t length, addr_t vec_addr) {
+    STRACE("mincore(%#x, %u, %#x)", addr, length, vec_addr);
+
+    // Page size is 4096
+    size_t page_size = 4096;
+    size_t pages = (length + page_size - 1) / page_size;
+
+    // Write 1 (page in memory) for each page
+    for (size_t i = 0; i < pages; i++) {
+        unsigned char in_mem = 1;
+        if (user_put(vec_addr + i, in_mem))
+            return _EFAULT;
+    }
+
+    return 0;  // Success
+}
+#else
+// x86: fadvise64 has different signature/calling convention
+dword_t sys_fadvise64(fd_t f, dword_t offset_low, dword_t offset_high,
+                      dword_t len_low, dword_t len_high, dword_t advice) {
+    uint64_t offset = ((uint64_t)offset_high << 32) | offset_low;
+    uint64_t len = ((uint64_t)len_high << 32) | len_low;
+
+    STRACE("fadvise64(%d, %llu, %llu, %d)", f, offset, len, advice);
+
+    struct fd *fd = f_get(f);
+    if (fd == NULL)
+        return _EBADF;
+
+    return 0;  // Success
+}
+#endif

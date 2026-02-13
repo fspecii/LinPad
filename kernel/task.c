@@ -61,6 +61,13 @@ struct task *task_create_(struct task *parent) {
     task->pid = pid->id;
     pid->task = task;
 
+#ifdef GUEST_ARM64
+    // Invalidate exclusive monitor after copying parent state.
+    // Child must not inherit parent's LDXR reservation, as any context
+    // switch or interrupt (including fork/clone) invalidates exclusive state.
+    task->cpu.excl_addr = UINT64_MAX;
+#endif
+
     list_init(&task->children);
     list_init(&task->siblings);
     if (parent != NULL) {

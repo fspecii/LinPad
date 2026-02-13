@@ -733,13 +733,6 @@ static void gen(struct gen_state *state, unsigned long thing) {
 
 // Generate interrupt and end the block
 static void gen_interrupt(struct gen_state *state, int interrupt_type) {
-#if defined(GUEST_ARM64) && !defined(NDEBUG)
-    static unsigned unimp_count = 0;
-    if (interrupt_type == INT_UNDEFINED && unimp_count++ < 500) {
-        fprintf(stderr, "[UNIMP] ip=0x%08x insn=0x%08x\n",
-                state->orig_ip, state->last_insn);
-    }
-#endif
     // Set guest PC to the faulting instruction so signal handlers see the correct address
     gen(state, (unsigned long) gadget_set_pc);
     gen(state, state->orig_ip);
@@ -2617,7 +2610,7 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
     if ((insn & 0xbf9f0000) == 0x0d000000) {
         uint32_t Q = (insn >> 30) & 1;
         uint32_t L = (insn >> 22) & 1;
-        uint32_t R = (insn >> 21) & 1;  // should be 0 for no post-index
+        // uint32_t R = (insn >> 21) & 1;  // should be 0 for no post-index (unused)
         uint32_t opcode = (insn >> 13) & 0x7;
         uint32_t S = (insn >> 12) & 1;
         uint32_t size = (insn >> 10) & 0x3;

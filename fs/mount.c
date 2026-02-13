@@ -41,6 +41,11 @@ static inline bool mount_cache_check(struct mount *cached, const char *path) {
 
     // Check if path is under cached mount point
     size_t n = strlen(cached->point);
+    if (n == 0) {
+        // Root mount: only cache if path doesn't start with any other mount point
+        // For now, don't cache root mount lookups since they're ambiguous
+        return false;
+    }
     return (strncmp(path, cached->point, n) == 0 &&
             (path[n] == '/' || path[n] == '\0'));
 }
@@ -64,8 +69,9 @@ struct mount *mount_find(char *path) {
     assert(!list_empty(&mounts)); // this would mean there's no root FS mounted
     list_for_each_entry(&mounts, mount, mounts) {
         size_t n = strlen(mount->point);
-        if (strncmp(path, mount->point, n) == 0 && (path[n] == '/' || path[n] == '\0'))
+        if (strncmp(path, mount->point, n) == 0 && (path[n] == '/' || path[n] == '\0')) {
             break;
+        }
     }
     mount->refcount++;
 

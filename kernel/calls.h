@@ -62,6 +62,16 @@ dword_t sys_mbind(addr_t addr, dword_t len, int_t mode, addr_t nodemask, dword_t
 int_t sys_mlock(addr_t addr, dword_t len);
 int_t sys_msync(addr_t addr, dword_t len, int_t flags);
 
+#ifdef GUEST_ARM64
+// ARM64-specific memory management syscalls
+dword_t sys_fadvise64(fd_t f, uint64_t offset, uint64_t len, dword_t advice);
+dword_t sys_mincore(addr_t addr, dword_t length, addr_t vec_addr);
+#else
+// x86 versions with different signatures
+dword_t sys_fadvise64(fd_t f, dword_t offset_low, dword_t offset_high,
+                      dword_t len_low, dword_t len_high, dword_t advice);
+#endif
+
 // file descriptor things
 #define LOCK_SH_ 1
 #define LOCK_EX_ 2

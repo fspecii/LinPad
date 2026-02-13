@@ -1,6 +1,7 @@
 // ARM64 (AArch64) Linux syscall table
 // Syscall numbers follow the Linux aarch64 ABI (asm-generic based)
 
+#include <stddef.h>
 #include "kernel/calls.h"
 
 #if is_gcc(8)
@@ -233,7 +234,7 @@ syscall_t syscall_table[] = {
     [220] = (syscall_t) sys_clone,
     [221] = (syscall_t) sys_execve,
     [222] = (syscall_t) sys_mmap64,
-    [223] = (syscall_t) syscall_stub, // fadvise64
+    [223] = (syscall_t) sys_fadvise64, // fadvise64
     [224] = (syscall_t) syscall_stub, // swapon
     [225] = (syscall_t) syscall_stub, // swapoff
     [226] = (syscall_t) sys_mprotect,
@@ -242,7 +243,7 @@ syscall_t syscall_table[] = {
     [229] = (syscall_t) syscall_stub, // munlock
     [230] = (syscall_t) syscall_stub, // mlockall
     [231] = (syscall_t) syscall_stub, // munlockall
-    [232] = (syscall_t) syscall_stub, // mincore
+    [232] = (syscall_t) sys_mincore, // mincore
     [233] = (syscall_t) sys_madvise,
     [234] = (syscall_t) syscall_stub, // remap_file_pages
     [235] = (syscall_t) sys_mbind,
@@ -286,10 +287,6 @@ syscall_t syscall_table[] = {
     [289] = (syscall_t) syscall_stub, // pkey_alloc
     [290] = (syscall_t) syscall_stub, // pkey_free
     [291] = (syscall_t) sys_statx,
-    // Clone syscall for arm64
-    [220] = (syscall_t) sys_clone,
-    // Fork/vfork are implemented via clone on arm64, no separate syscalls
-    // If needed, userspace should use clone() with appropriate flags
 };
 
 #define NUM_SYSCALLS (sizeof(syscall_table) / sizeof(syscall_table[0]))

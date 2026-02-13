@@ -87,6 +87,15 @@ static inline int xX_main_Xx(int argc, char *const argv[], const char *envp) {
     become_first_process();
     current->thread = pthread_self();
 
+    // Create essential device nodes (only works with fakefs)
+    if (fs != &realfs) {
+        generic_mknodat(AT_PWD, "/dev/null", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_NULL_MINOR));
+        generic_mknodat(AT_PWD, "/dev/zero", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_ZERO_MINOR));
+        generic_mknodat(AT_PWD, "/dev/full", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_FULL_MINOR));
+        generic_mknodat(AT_PWD, "/dev/random", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_RANDOM_MINOR));
+        generic_mknodat(AT_PWD, "/dev/urandom", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_URANDOM_MINOR));
+    }
+
     char cwd[MAX_PATH + 1];
     if (root == NULL && workdir == NULL) {
         getcwd(cwd, sizeof(cwd));

@@ -17,6 +17,7 @@
 #include "kernel/calls.h"
 #include "kernel/fs.h"
 #include "fs/dev.h"
+#include "fs/devices.h"
 #include "fs/real.h"
 #include "fs/tty.h"
 #include "util/fchdir.h"
@@ -61,6 +62,38 @@ static int open_flags_fake_from_real(int flags) {
 }
 
 struct fd *realfs_open(struct mount *mount, const char *path, int flags, int mode) {
+    // Check if this is a special device file in /dev
+    if (strncmp(path, "/dev/", 5) == 0) {
+        const char *devname = path + 5;
+        dev_t_ devnum = 0;
+
+        // Map common device names to their device numbers
+        if (strcmp(devname, "null") == 0)
+            devnum = dev_make(MEM_MAJOR, DEV_NULL_MINOR);
+        else if (strcmp(devname, "zero") == 0)
+            devnum = dev_make(MEM_MAJOR, DEV_ZERO_MINOR);
+        else if (strcmp(devname, "full") == 0)
+            devnum = dev_make(MEM_MAJOR, DEV_FULL_MINOR);
+        else if (strcmp(devname, "random") == 0)
+            devnum = dev_make(MEM_MAJOR, DEV_RANDOM_MINOR);
+        else if (strcmp(devname, "urandom") == 0)
+            devnum = dev_make(MEM_MAJOR, DEV_URANDOM_MINOR);
+
+        // If we recognized a device, open it as a character device
+        if (devnum != 0) {
+            struct fd *fd = fd_create(NULL);
+            int err = dev_open(dev_major(devnum), dev_minor(devnum), DEV_CHAR, fd);
+            if (err < 0) {
+                fd_close(fd);
+                return ERR_PTR(err);
+            }
+            fd->mount = mount;
+            fd->stat.mode = S_IFCHR | 0666;
+            fd->stat.rdev = devnum;
+            return fd;
+        }
+    }
+
     int real_flags = open_flags_real_from_fake(flags);
     int fd_no = openat(mount->root_fd, fix_path(path), real_flags, mode);
     if (fd_no < 0)

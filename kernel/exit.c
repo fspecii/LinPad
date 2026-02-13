@@ -1,6 +1,10 @@
 #include <pthread.h>
 #include <signal.h>
 #include <string.h>
+#include <time.h>
+#if __APPLE__
+#include <malloc/malloc.h>
+#endif
 #include "kernel/calls.h"
 #include "kernel/mm.h"
 #include "kernel/futex.h"
@@ -92,6 +96,14 @@ noreturn void do_exit(int status) {
     if (exit_tgroup(current)) {
         // notify parent that we died
         struct task *parent = leader->parent;
+        if (parent == NULL && current->pid != 1) {
+            // Non-init process with no parent - try to find one
+            // This can happen during reparenting or if parent exited first
+            parent = pid_get_task(1); // Reparent to init
+            if (parent != NULL)
+                leader->parent = parent;
+        }
+
         if (parent == NULL) {
             // init died
             halt_system();
@@ -126,28 +138,117 @@ noreturn void do_exit_group(int status) {
     struct tgroup *group = current->group;
     lock(&pids_lock);
     lock(&group->lock);
+    bool is_group_leader = false;
     if (!group->doing_group_exit) {
         group->doing_group_exit = true;
         group->group_exit_code = status;
+        is_group_leader = true;  // First thread to call exit_group
     } else {
         status = group->group_exit_code;
     }
 
     // kill everyone else in the group
+    int thread_count = 0;
     struct task *task;
     list_for_each_entry(&group->threads, task, group_links) {
+        thread_count++;
         deliver_signal(task, SIGKILL_, SIGINFO_NIL);
         task->group->stopped = false;
         notify(&task->group->stopped_cond);
     }
+    if (is_group_leader && thread_count > 1) {
+        printk("exit_group[%d]: group leader killing %d threads, waiting...\n",
+               current->pid, thread_count);
+    }
+
+    // Only the first thread (group leader) waits for others to exit
+    // Other threads exit immediately to avoid deadlock
+    if (is_group_leader && thread_count > 1) {
+        unlock(&group->lock);
+        unlock(&pids_lock);
+
+        // Wait for threads to exit (they're DETACHED so we can't join)
+        // Poll the thread count until only current thread remains
+        int max_wait_ms = 2000;  // 2 seconds max (should be enough)
+        int wait_interval_ms = 10;  // Check every 10ms
+        int waited_ms = 0;
+        int last_remaining = -1;
+
+        while (waited_ms < max_wait_ms) {
+            lock(&pids_lock);
+            lock(&group->lock);
+
+            // Count threads still in the group (excluding current)
+            int remaining = 0;
+            list_for_each_entry(&group->threads, task, group_links) {
+                if (task != current) {
+                    remaining++;
+                }
+            }
+
+            unlock(&group->lock);
+            unlock(&pids_lock);
+
+            if (remaining != last_remaining) {
+                printk("exit_group[%d]: %d threads remaining\n", current->pid, remaining);
+                last_remaining = remaining;
+            }
+
+            if (remaining == 0) {
+                break;
+            }
+
+            // Sleep a bit to let threads exit
+            struct timespec ts = {0, wait_interval_ms * 1000000L};
+            nanosleep(&ts, NULL);
+            waited_ms += wait_interval_ms;
+        }
+
+        if (waited_ms >= max_wait_ms) {
+            printk("exit_group[%d]: timeout after %dms, %d threads still remain\n",
+                   current->pid, waited_ms, last_remaining);
+        } else {
+            printk("exit_group[%d]: all threads exited after %dms\n", current->pid, waited_ms);
+
+            // Give extra time for pthread cleanup on host system
+            // This ensures:
+            // 1. pthread_exit() completes for all threads
+            // 2. TLS destructors run
+            // 3. Host malloc/arena cleanup happens
+            // 4. Stack unwinding completes (glibc on ARM64)
+            struct timespec extra_delay = {0, 500 * 1000000L};  // 500ms (increased from 200ms)
+            nanosleep(&extra_delay, NULL);
+
+#if __APPLE__
+            // Force malloc zone cleanup to release thread-specific caches
+            // This helps prevent pollution between guest processes
+            malloc_zone_pressure_relief(NULL, 0);
+#endif
+        }
+
+        lock(&pids_lock);
+        lock(&group->lock);
+    }
 
     unlock(&group->lock);
     unlock(&pids_lock);
+
+    // On multi-threaded exit, pthread cleanup on host can sometimes trigger
+    // SIGSEGV during stack unwinding (see https://github.com/beehive-lab/mambo/issues/22)
+    // Block SIGSEGV temporarily to prevent cosmetic crashes during final cleanup
+    if (is_group_leader && thread_count > 1) {
+        sigset_t set, oldset;
+        sigemptyset(&set);
+        sigaddset(&set, SIGSEGV);
+        pthread_sigmask(SIG_BLOCK, &set, &oldset);
+    }
+
     do_exit(status);
 }
 
 // always called from init process
 static void halt_system(void) {
+    int max_iterations = 10; // Timeout: wait maximum 10 seconds
     for (int state = 0; state < 3; state++) {
         int tasks_found = 0;
         for (int i = 2; i < MAX_PID; i++) {
@@ -168,8 +269,14 @@ static void halt_system(void) {
         }
         if (tasks_found == 0)
             break;
-        if (state != 2)
+        if (state != 2) {
             sleep(1);
+            // Timeout protection: if we've waited too long, force exit
+            if (--max_iterations <= 0) {
+                printk("halt_system: timeout after 10 seconds, %d tasks remaining\n", tasks_found);
+                break;
+            }
+        }
     }
 
     // unmount all filesystems
@@ -299,9 +406,16 @@ retry:
                     goto found_something;
             }
         }
-        err = _ECHILD;
-        if (no_children)
+        if (no_children) {
+            if (options & WNOHANG_) {
+                // WNOHANG with no children: return 0 with pid=0
+                info->child.pid = 0;
+                info->sig = SIGCHLD_;
+                goto found_something;
+            }
+            err = _ECHILD;
             goto error;
+        }
     } else {
         // check if this child is a zombie
         struct task *task = pid_get_task_zombie(id);

@@ -765,6 +765,9 @@ dword_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
         envp[0] = envp[1] = '\0';
     }
 
+    if (strstr(filename, "node")) {
+        printk("exec[%d]: %s\n", current->pid, filename);
+    }
     STRACE("execve(\"%.1000s\", {", filename);
     const char *args = argv;
     while (*args != '\0') {

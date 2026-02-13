@@ -152,6 +152,9 @@ fail_free_mem:
 }
 
 dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t ctid) {
+    if (!(flags & CLONE_THREAD_)) {
+        printk("fork[%d] → ", current->pid);
+    }
     STRACE("clone(0x%x, 0x%x, 0x%x, 0x%x, 0x%x)", flags, stack, ptid, tls, ctid);
     if (flags & ~CSIGNAL_ & ~IMPLEMENTED_FLAGS) {
         FIXME("unimplemented clone flags 0x%x", flags & ~CSIGNAL_ & ~IMPLEMENTED_FLAGS);
@@ -165,6 +168,9 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
     struct task *task = task_create_(current);
     if (task == NULL)
         return _ENOMEM;
+    if (!(flags & CLONE_THREAD_)) {
+        printk("%d\n", task->pid);
+    }
     int err = copy_task(task, flags, stack, ptid, tls, ctid);
     if (err < 0) {
         // FIXME: there is a window between task_create_ and task_destroy where
