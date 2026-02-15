@@ -13,10 +13,14 @@
 
 // Thread-local recovery state for JIT crash handling.
 // When a host SIGSEGV occurs inside JIT code (due to a stale TLB pointer
-// from a concurrent CoW), the signal handler uses siglongjmp to recover
+// from a concurrent CoW), the signal handler uses _longjmp to recover
 // instead of crashing. The interrupt is converted to INT_GPF, which
 // handle_interrupt resolves via mem_ptr (CoW/GROWSDOWN).
-__thread sigjmp_buf jit_recover_buf;
+//
+// We use _setjmp/_longjmp instead of sigsetjmp/siglongjmp to avoid calling
+// sigprocmask (a syscall) on every JIT cycle. The crash handler manually
+// unblocks SIGSEGV/SIGBUS before _longjmp.
+__thread jmp_buf jit_recover_buf;
 __thread volatile sig_atomic_t in_jit;
 
 // Architecture-specific instruction pointer access
@@ -91,6 +95,18 @@ void asbestos_invalidate_range(struct asbestos *absestos, page_t start, page_t e
 }
 
 void asbestos_invalidate_page(struct asbestos *asbestos, page_t page) {
+    // Fast path: skip lock if no blocks exist on this page.
+    // page_hash is only modified under asbestos->lock, and list_null is a
+    // single pointer read, so a racy false-negative just means we take
+    // the slow path unnecessarily (safe). A false-positive is impossible
+    // because blocks are always added before being linked into page_hash.
+    for (int i = 0; i <= 1; i++) {
+        struct list *blocks = blocks_list(asbestos, page, i);
+        if (!list_null(blocks))
+            goto slow_path;
+    }
+    return;
+slow_path:
     asbestos_invalidate_range(asbestos, page, page + 1);
 }
 void asbestos_invalidate_all(struct asbestos *asbestos) {
@@ -281,7 +297,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         TRACE("%d %08x --- cycle %ld\n", current_pid(), ip, frame->cpu.cycle);
 
         in_jit = 1;
-        if (sigsetjmp(jit_recover_buf, 1) == 0) {
+        if (_setjmp(jit_recover_buf) == 0) {
             interrupt = fiber_enter(block, frame, tlb);
         } else {
             // Recovered from host SIGSEGV inside JIT code.

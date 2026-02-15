@@ -246,7 +246,9 @@ static void *mem_ptr_nofault(struct mem *mem, addr_t addr, int type) {
 }
 
 void *mem_ptr(struct mem *mem, addr_t addr, int type) {
+#ifndef NDEBUG
     void *old_ptr = mem_ptr_nofault(mem, addr, type); // just for an assert
+#endif
 
     page_t page = PAGE(addr);
     struct pt_entry *entry = mem_pt(mem, page);
@@ -318,7 +320,9 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
     }
 
     void *ptr = mem_ptr_nofault(mem, addr, type);
+#ifndef NDEBUG
     assert(old_ptr == NULL || old_ptr == ptr || type == MEM_WRITE_PTRACE);
+#endif
     return ptr;
 }
 

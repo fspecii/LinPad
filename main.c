@@ -12,7 +12,7 @@
 #include "xX_main_Xx.h"
 
 // Thread-local JIT recovery state (defined in asbestos.c)
-extern __thread sigjmp_buf jit_recover_buf;
+extern __thread jmp_buf jit_recover_buf;
 extern __thread volatile sig_atomic_t in_jit;
 
 static void crash_handler(int sig, siginfo_t *info, void *ctx) {
@@ -29,7 +29,13 @@ static void crash_handler(int sig, siginfo_t *info, void *ctx) {
         // Bit 6 (WnR): 0 = read fault, 1 = write fault.
         uint64_t esr = uc->uc_mcontext->__es.__esr;
         cpu->segfault_was_write = (esr & 0x40) != 0;
-        siglongjmp(jit_recover_buf, 1);
+        // We use _longjmp (no signal mask restore) for performance.
+        // Must manually unblock the signal so the handler can fire again.
+        sigset_t unblock;
+        sigemptyset(&unblock);
+        sigaddset(&unblock, sig);
+        sigprocmask(SIG_UNBLOCK, &unblock, NULL);
+        _longjmp(jit_recover_buf, 1);
         // not reached
     }
 #endif

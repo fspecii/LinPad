@@ -82,6 +82,7 @@ struct fd *realfs_open(struct mount *mount, const char *path, int flags, int mod
         // If we recognized a device, open it as a character device
         if (devnum != 0) {
             struct fd *fd = fd_create(NULL);
+            fd->real_fd = -1; // no host fd for virtual devices
             int err = dev_open(dev_major(devnum), dev_minor(devnum), DEV_CHAR, fd);
             if (err < 0) {
                 fd_close(fd);
@@ -107,6 +108,8 @@ struct fd *realfs_open(struct mount *mount, const char *path, int flags, int mod
 int realfs_close(struct fd *fd) {
     if (fd->dir != NULL)
         closedir(fd->dir);
+    if (fd->real_fd == -1)
+        return 0; // virtual device, no host fd to close
     int err = close(fd->real_fd);
     if (err < 0)
         return errno_map();
@@ -147,6 +150,11 @@ int realfs_stat(struct mount *mount, const char *path, struct statbuf *fake_stat
 }
 
 int realfs_fstat(struct fd *fd, struct statbuf *fake_stat) {
+    if (fd->real_fd == -1) {
+        // Virtual device fd (e.g. /dev/null opened via fast path)
+        *fake_stat = fd->stat;
+        return 0;
+    }
     struct stat real_stat;
     if (fstat(fd->real_fd, &real_stat) < 0)
         return errno_map();

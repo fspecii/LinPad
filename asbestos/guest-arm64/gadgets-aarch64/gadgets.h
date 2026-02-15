@@ -95,10 +95,11 @@ _addr   .req x7    // Changed from x3/x4 to x7 to avoid conflict with guest low 
         str w8, [_tlb, #(-TLB_entries+TLB_dirty_page)]
     .endif
 
-    // TLB lookup: index = ((addr >> 12) & 0x3ff) ^ ((addr >> 22) & 0x3ff)
-    // Must use w7 (32-bit) to match C code's addr_t truncation
-    ubfx w9, w7, #12, #10       // (addr >> 12) & 0x3ff (32-bit extract)
-    eor w9, w9, w7, lsr #22    // XOR with (addr >> 22) — w7 ensures 32-bit
+    // TLB lookup: index = ((addr >> 12) & (TLB_SIZE-1)) ^ (addr >> (12 + TLB_BITS))
+    // Must match C macro: TLB_INDEX(addr) = ((addr>>PAGE_BITS) & (TLB_SIZE-1)) ^ (addr>>(PAGE_BITS+TLB_BITS))
+    // With TLB_BITS=11: ((addr>>12) & 0x7ff) ^ (addr>>23)
+    ubfx w9, w7, #12, #11       // (addr >> 12) & 0x7ff (TLB_BITS=11)
+    eor w9, w9, w7, lsr #23    // XOR with (addr >> 23) = (addr >> (12+11))
     // sizeof(tlb_entry) = 16 bytes
     lsl x9, x9, #4
     add x9, x9, _tlb

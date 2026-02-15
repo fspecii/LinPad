@@ -10,7 +10,7 @@ struct tlb_entry {
     page_t page_if_writable;
     uintptr_t data_minus_addr;
 };
-#define TLB_BITS 11  // Optimized: 2048 entries (32 KB) for better Python module loading
+#define TLB_BITS 11  // 2048 entries (32 KB) for Python module loading
 #define TLB_SIZE (1 << TLB_BITS)
 struct fiber_block;
 struct fiber_frame;
