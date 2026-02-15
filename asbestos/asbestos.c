@@ -215,7 +215,7 @@ static void fiber_free_jetsam(struct asbestos *asbestos) {
 int fiber_enter(struct fiber_block *block, struct fiber_frame *frame, struct tlb *tlb);
 
 static inline size_t fiber_cache_hash(addr_t ip) {
-    return (ip ^ (ip >> 12)) % FIBER_CACHE_SIZE;
+    return (ip ^ (ip >> 12)) & (FIBER_CACHE_SIZE - 1);
 }
 
 static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
@@ -307,7 +307,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         in_jit = 0;
         if (interrupt == INT_NONE && __atomic_exchange_n(frame->cpu.poked_ptr, false, __ATOMIC_ACQUIRE))
             interrupt = INT_TIMER;
-        if (interrupt == INT_NONE && ++frame->cpu.cycle % (1 << 10) == 0)
+        if (interrupt == INT_NONE && (++frame->cpu.cycle & ((1 << 10) - 1)) == 0)
             interrupt = INT_TIMER;
     }
     *cpu = frame->cpu;

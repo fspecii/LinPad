@@ -6,7 +6,7 @@
 #include "util/sync.h"
 
 #define FIBER_INITIAL_HASH_SIZE (1 << 10)
-#define FIBER_CACHE_SIZE (1 << 10)
+#define FIBER_CACHE_SIZE (1 << 12)  // 4096 entries
 #define FIBER_PAGE_HASH_SIZE (1 << 10)
 
 struct asbestos {

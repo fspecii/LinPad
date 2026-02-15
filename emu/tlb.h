@@ -25,7 +25,8 @@ struct tlb {
     struct tlb_entry entries[TLB_SIZE];
 
     // Persistent block cache across syscalls (avoids re-lookup after every interrupt)
-    struct fiber_block *block_cache[TLB_SIZE];
+    // Size defined by FIBER_CACHE_SIZE in asbestos.h
+    struct fiber_block *block_cache[1 << 12];  // must match FIBER_CACHE_SIZE
     unsigned block_cache_gen; // tracks asbestos->invalidate_gen for invalidation
 
     // Persistent fiber_frame (avoids malloc/free + ret_cache zeroing per syscall)
