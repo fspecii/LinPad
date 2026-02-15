@@ -11,6 +11,7 @@
 #pragma GCC diagnostic ignored "-Waddress-of-packed-member"
 #endif
 
+
 int xsave_extra = 0;
 int fxsave_extra = 0;
 static void sigmask_set(sigset_t_ set);
@@ -495,6 +496,8 @@ void receive_signals() {
     unlock(&current->group->lock);
 
     struct sighand *sighand = current->sighand;
+    if (sighand == NULL)
+        return;
     lock(&sighand->lock);
 
     // A saved mask means that the last system call was a call like sigsuspend
@@ -850,8 +853,10 @@ dword_t sys_sigaltstack(addr_t ss_addr, addr_t old_ss_addr) {
         if (ss.flags & SS_DISABLE_) {
             sighand->altstack = 0;
         } else {
-            if (ss.size < MINSIGSTKSZ_)
+            if (ss.size < MINSIGSTKSZ_) {
+                unlock(&sighand->lock);
                 return _ENOMEM;
+            }
             sighand->altstack = ss.stack;
             sighand->altstack_size = ss.size;
         }
