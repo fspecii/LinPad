@@ -5914,6 +5914,34 @@ make_across_minmax smaxv, "smaxv b1, v0.16b", "smaxv b1, v0.8b", "smaxv h1, v0.8
 make_across_minmax sminv, "sminv b1, v0.16b", "sminv b1, v0.8b", "sminv h1, v0.8h", "sminv h1, v0.4h", "sminv s1, v0.4s", "sminp v1.2s, v0.2s, v0.2s"
 
 /*
+ * FMAXV/FMINV/FMAXNMV/FMINNMV - FP max/min across vector lanes
+ * Only valid for .4s (Q=1, single precision)
+ * Code stream: [gadget addr][rd | rn<<8]
+ */
+.macro make_fp_across name, op
+.gadget \name\()_vec
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14       // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15       // &Vn
+    ldr q0, [x15]
+    \op s1, v0.4s
+    stp xzr, xzr, [x14]
+    str s1, [x14]
+    gret
+.endm
+
+make_fp_across fmaxv, fmaxv
+make_fp_across fminv, fminv
+make_fp_across fmaxnmv, fmaxnmv
+make_fp_across fminnmv, fminnmv
+
+/*
  * ADD - Vector add
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
  *
@@ -13136,6 +13164,124 @@ make_fp2_scalar fabd, fabd, fabd
     str xzr, [x16, #8]
     gret
 
+/*
+ * FMAXP (scalar) - Floating-point Maximum Pair of elements
+ * Code stream: [gadget addr][rd | rn<<8 | sz<<16]
+ * sz=0: FMAXP Sd, Vn.2S, sz=1: FMAXP Dd, Vn.2D
+ */
+.gadget fmaxp_scalar
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x12, x8, #16, #2   // sz
+    add x13, _cpu, #CPU_fp
+    lsl x14, x10, #4
+    add x14, x13, x14       // &Vn
+    lsl x16, x9, #4
+    add x16, x13, x16       // &Vd
+    cbz x12, .Lfmaxp_scalar_single
+    ldr q0, [x14]
+    fmaxp d0, v0.2d
+    str d0, [x16]
+    str xzr, [x16, #8]
+    gret
+.Lfmaxp_scalar_single:
+    ldr d0, [x14]
+    fmaxp s0, v0.2s
+    str s0, [x16]
+    str xzr, [x16, #4]
+    str xzr, [x16, #8]
+    gret
+
+/*
+ * FMINP (scalar) - Floating-point Minimum Pair of elements
+ * Code stream: [gadget addr][rd | rn<<8 | sz<<16]
+ * sz=0: FMINP Sd, Vn.2S, sz=1: FMINP Dd, Vn.2D
+ */
+.gadget fminp_scalar
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x12, x8, #16, #2   // sz
+    add x13, _cpu, #CPU_fp
+    lsl x14, x10, #4
+    add x14, x13, x14       // &Vn
+    lsl x16, x9, #4
+    add x16, x13, x16       // &Vd
+    cbz x12, .Lfminp_scalar_single
+    ldr q0, [x14]
+    fminp d0, v0.2d
+    str d0, [x16]
+    str xzr, [x16, #8]
+    gret
+.Lfminp_scalar_single:
+    ldr d0, [x14]
+    fminp s0, v0.2s
+    str s0, [x16]
+    str xzr, [x16, #4]
+    str xzr, [x16, #8]
+    gret
+
+/*
+ * FMAXNMP (scalar) - Floating-point Maximum Number Pair of elements
+ * Code stream: [gadget addr][rd | rn<<8 | sz<<16]
+ */
+.gadget fmaxnmp_scalar
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x12, x8, #16, #2   // sz
+    add x13, _cpu, #CPU_fp
+    lsl x14, x10, #4
+    add x14, x13, x14       // &Vn
+    lsl x16, x9, #4
+    add x16, x13, x16       // &Vd
+    cbz x12, .Lfmaxnmp_scalar_single
+    ldr q0, [x14]
+    fmaxnmp d0, v0.2d
+    str d0, [x16]
+    str xzr, [x16, #8]
+    gret
+.Lfmaxnmp_scalar_single:
+    ldr d0, [x14]
+    fmaxnmp s0, v0.2s
+    str s0, [x16]
+    str xzr, [x16, #4]
+    str xzr, [x16, #8]
+    gret
+
+/*
+ * FMINNMP (scalar) - Floating-point Minimum Number Pair of elements
+ * Code stream: [gadget addr][rd | rn<<8 | sz<<16]
+ */
+.gadget fminnmp_scalar
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x12, x8, #16, #2   // sz
+    add x13, _cpu, #CPU_fp
+    lsl x14, x10, #4
+    add x14, x13, x14       // &Vn
+    lsl x16, x9, #4
+    add x16, x13, x16       // &Vd
+    cbz x12, .Lfminnmp_scalar_single
+    ldr q0, [x14]
+    fminnmp d0, v0.2d
+    str d0, [x16]
+    str xzr, [x16, #8]
+    gret
+.Lfminnmp_scalar_single:
+    ldr d0, [x14]
+    fminnmp s0, v0.2s
+    str s0, [x16]
+    str xzr, [x16, #4]
+    str xzr, [x16, #8]
+    gret
+
 // ADDP (scalar, integer) - Add pair of 64-bit elements to scalar
 // ADDP Dd, Vn.2D: adds two 64-bit elements of Vn, stores in Dd
 // Code stream: [gadget addr][rd | rn<<8]
@@ -14590,6 +14736,129 @@ elem_fp_accum_op_store fmla_elem, fmla
 // FMLS by element
 elem_setup fmls_elem
 elem_fp_accum_op_store fmls_elem, fmls
+
+/*
+ * Scalar FP multiply by element (FMUL/FMLA/FMLS/FMULX Sd/Dd, Sn/Dn, Vm[idx])
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | index<<21 | size<<24]
+ * size=2: single, size=3: double
+ */
+.macro scalar_elem_setup name
+.gadget \name\()_scalar
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f           // rd
+    ubfx x10, x8, #8, #5        // rn
+    ubfx x11, x8, #16, #5       // rm
+    ubfx x20, x8, #21, #3       // index
+    ubfx x12, x8, #24, #2       // size
+
+    add x13, _cpu, #CPU_fp
+    lsl x14, x9, #4
+    add x14, x13, x14           // &Vd
+    lsl x15, x10, #4
+    add x15, x13, x15           // &Vn
+    lsl x16, x11, #4
+    add x16, x13, x16           // &Vm
+
+    cmp x12, #3
+    b.eq .L\name\()_scalar_d
+
+    // size=2: single precision
+    ldr s0, [x15]               // Sn
+    // Extract Vm.s[index]
+    ldr q1, [x16]
+    cmp x20, #0
+    b.eq .L\name\()_scalar_s_idx0
+    cmp x20, #1
+    b.eq .L\name\()_scalar_s_idx1
+    cmp x20, #2
+    b.eq .L\name\()_scalar_s_idx2
+    mov s1, v1.s[3]
+    b .L\name\()_scalar_s_op
+.L\name\()_scalar_s_idx0:
+    // s1 already has v1.s[0] from ldr q1
+    mov s1, v1.s[0]
+    b .L\name\()_scalar_s_op
+.L\name\()_scalar_s_idx1:
+    mov s1, v1.s[1]
+    b .L\name\()_scalar_s_op
+.L\name\()_scalar_s_idx2:
+    mov s1, v1.s[2]
+    b .L\name\()_scalar_s_op
+
+.L\name\()_scalar_d:
+    // size=3: double precision
+    ldr d0, [x15]               // Dn
+    ldr q1, [x16]
+    cbz x20, .L\name\()_scalar_d_idx0
+    mov d1, v1.d[1]
+    b .L\name\()_scalar_d_op
+.L\name\()_scalar_d_idx0:
+    mov d1, v1.d[0]
+    b .L\name\()_scalar_d_op
+.endm
+
+.macro scalar_elem_fp_op name, op
+.L\name\()_scalar_s_op:
+    \op s0, s0, s1
+    str s0, [x14]
+    str xzr, [x14, #4]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_scalar_d_op:
+    \op d0, d0, d1
+    str d0, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+.macro scalar_elem_fp_fmadd_op name
+.L\name\()_scalar_s_op:
+    ldr s2, [x14]               // Sd (accumulator)
+    fmadd s2, s0, s1, s2        // Sd = Sn * Sm[idx] + Sd
+    str s2, [x14]
+    str xzr, [x14, #4]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_scalar_d_op:
+    ldr d2, [x14]               // Dd (accumulator)
+    fmadd d2, d0, d1, d2        // Dd = Dn * Dm[idx] + Dd
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+.macro scalar_elem_fp_fmsub_op name
+.L\name\()_scalar_s_op:
+    ldr s2, [x14]               // Sd (accumulator)
+    fmsub s2, s0, s1, s2        // Sd = -(Sn * Sm[idx]) + Sd = Sd - Sn*Sm[idx]
+    str s2, [x14]
+    str xzr, [x14, #4]
+    str xzr, [x14, #8]
+    gret
+.L\name\()_scalar_d_op:
+    ldr d2, [x14]               // Dd (accumulator)
+    fmsub d2, d0, d1, d2        // Dd = -(Dn * Dm[idx]) + Dd
+    str d2, [x14]
+    str xzr, [x14, #8]
+    gret
+.endm
+
+// FMUL scalar by element
+scalar_elem_setup fmul_elem
+scalar_elem_fp_op fmul_elem, fmul
+
+// FMLA scalar by element: Sd += Sn * Vm.s[idx]
+scalar_elem_setup fmla_elem
+scalar_elem_fp_fmadd_op fmla_elem
+
+// FMLS scalar by element: Sd -= Sn * Vm.s[idx]
+scalar_elem_setup fmls_elem
+scalar_elem_fp_fmsub_op fmls_elem
+
+// FMULX scalar by element
+scalar_elem_setup fmulx_elem
+scalar_elem_fp_op fmulx_elem, fmulx
 
 /*
  * Widening multiply by element (SMULL/UMULL/SMLAL/UMLAL/SMLSL/UMLSL by element)

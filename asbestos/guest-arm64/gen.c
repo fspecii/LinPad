@@ -365,6 +365,10 @@ extern void gadget_umlsl_elem_vec(void);   // UMLSL Vd, Vn, Vm[idx] (unsigned mu
 extern void gadget_fmul_elem_vec(void);    // FMUL Vd, Vn, Vm[idx] (FP multiply by element)
 extern void gadget_fmla_elem_vec(void);    // FMLA Vd, Vn, Vm[idx] (FP multiply-accumulate by element)
 extern void gadget_fmls_elem_vec(void);    // FMLS Vd, Vn, Vm[idx] (FP multiply-subtract by element)
+extern void gadget_fmul_elem_scalar(void); // FMUL Sd/Dd, Sn/Dn, Vm[idx] (scalar FP mul by element)
+extern void gadget_fmla_elem_scalar(void); // FMLA Sd/Dd, Sn/Dn, Vm[idx] (scalar FP mul-accum by element)
+extern void gadget_fmls_elem_scalar(void); // FMLS Sd/Dd, Sn/Dn, Vm[idx] (scalar FP mul-sub by element)
+extern void gadget_fmulx_elem_scalar(void);// FMULX Sd/Dd, Sn/Dn, Vm[idx] (scalar FP mulx by element)
 extern void gadget_sqdmulh_elem_vec(void); // SQDMULH Vd, Vn, Vm[idx] (sat doubling mul high by element)
 extern void gadget_sqrdmulh_elem_vec(void);// SQRDMULH Vd, Vn, Vm[idx] (sat rounding doubling mul high by element)
 extern void gadget_sqdmull_elem_vec(void); // SQDMULL Vd, Vn, Vm[idx] (sat doubling mul long by element)
@@ -418,6 +422,10 @@ extern void gadget_umaxv_vec(void);        // UMAXV Vd, Vn (unsigned max across 
 extern void gadget_uminv_vec(void);        // UMINV Vd, Vn (unsigned min across vector)
 extern void gadget_smaxv_vec(void);        // SMAXV Vd, Vn (signed max across vector)
 extern void gadget_sminv_vec(void);        // SMINV Vd, Vn (signed min across vector)
+extern void gadget_fmaxv_vec(void);       // FMAXV Sd, Vn.4S (FP max across vector)
+extern void gadget_fminv_vec(void);       // FMINV Sd, Vn.4S (FP min across vector)
+extern void gadget_fmaxnmv_vec(void);    // FMAXNMV Sd, Vn.4S (FP maxnum across vector)
+extern void gadget_fminnmv_vec(void);    // FMINNMV Sd, Vn.4S (FP minnum across vector)
 extern void gadget_add_vec(void);          // ADD Vd, Vn, Vm (vector add)
 extern void gadget_sub_vec(void);          // SUB Vd, Vn, Vm (vector subtract)
 extern void gadget_shadd_vec(void);        // SHADD Vd, Vn, Vm (signed halving add)
@@ -529,6 +537,10 @@ extern void gadget_fminnm_scalar(void);   // FMINNM Sn, Sm, Sd / Dn, Dm, Dd
 extern void gadget_fnmul_scalar(void);     // FNMUL Sn, Sm, Sd / Dn, Dm, Dd
 extern void gadget_fabd_scalar(void);      // FABD Sn, Sm, Sd / Dn, Dm, Dd (scalar)
 extern void gadget_faddp_scalar(void);     // FADDP Sd, Vn.2S / Dd, Vn.2D (scalar pairwise add)
+extern void gadget_fmaxp_scalar(void);    // FMAXP Sd, Vn.2S / Dd, Vn.2D (scalar pairwise max)
+extern void gadget_fminp_scalar(void);    // FMINP Sd, Vn.2S / Dd, Vn.2D (scalar pairwise min)
+extern void gadget_fmaxnmp_scalar(void);  // FMAXNMP Sd, Vn.2S / Dd, Vn.2D (scalar pairwise maxnum)
+extern void gadget_fminnmp_scalar(void);  // FMINNMP Sd, Vn.2S / Dd, Vn.2D (scalar pairwise minnum)
 extern void gadget_addp_scalar(void);      // ADDP Dd, Vn.2D (integer scalar pairwise add)
 extern void gadget_cmgt_scalar_zero(void);  // CMGT Dd, Dn, #0 (scalar compare > 0)
 extern void gadget_cmge_scalar_zero(void);  // CMGE Dd, Dn, #0 (scalar compare >= 0)
@@ -4671,14 +4683,14 @@ skip_three_different:
 
     // AdvSIMD two-register misc: FP conversions, rounding, unary, compare-with-zero
     // Format: 0 Q U 01110 size 10000 opcode 10 Rn Rd
-    // Mask 0xbf3bfc00 ignores Q(bit30) and sz(bit22), matches U+size[1]+opcode
+    // Mask 0xbfbbfc00 ignores Q(bit30) and sz(bit22), matches U+size[1]+opcode
     // For FP ops: size[0]=sz selects precision (0=single, 1=double)
     {
         uint32_t Q = (insn >> 30) & 1;
         uint32_t rn = (insn >> 5) & 0x1f;
         uint32_t rd = insn & 0x1f;
         uint32_t sz = (insn >> 22) & 1;  // precision: 0=single, 1=double
-        uint32_t base = insn & 0xbf3bfc00;  // mask out Q and sz
+        uint32_t base = insn & 0xbfbbfc00;  // mask out Q and sz (keep size[1]=bit23)
         void *gadget = NULL;
 
         // Integer to FP conversions (size[1]=0, opcode=0x1b)
@@ -4897,6 +4909,30 @@ skip_three_different:
 
         gen(state, (unsigned long) gadget);
         gen(state, rd | (rn << 8) | (size << 16) | (Q << 24));
+        return 1;
+    }
+
+    // FMAXV/FMINV/FMAXNMV/FMINNMV (across lanes) - FP max/min reduction
+    // These only exist for .4s (Q=1, single precision)
+    // FMAXV:   0 1 1 01110 00 110000 11111 10 Rn Rd  → 0x6e30f800
+    // FMINV:   0 1 1 01110 10 110000 11111 10 Rn Rd  → 0x6eb0f800
+    // FMAXNMV: 0 1 1 01110 00 110000 01100 10 Rn Rd  → 0x6e30c800
+    // FMINNMV: 0 1 1 01110 10 110000 01100 10 Rn Rd  → 0x6eb0c800
+    // Mask 0xfffffc00 (exact match since Q=1 always)
+    if ((insn & 0xfffffc00) == 0x6e30f800 ||
+        (insn & 0xfffffc00) == 0x6eb0f800 ||
+        (insn & 0xfffffc00) == 0x6e30c800 ||
+        (insn & 0xfffffc00) == 0x6eb0c800) {
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t rd = insn & 0x1f;
+        uint32_t base_val = insn & 0xfffffc00;
+        void *gadget = NULL;
+        if (base_val == 0x6e30f800) gadget = gadget_fmaxv_vec;
+        else if (base_val == 0x6eb0f800) gadget = gadget_fminv_vec;
+        else if (base_val == 0x6e30c800) gadget = gadget_fmaxnmv_vec;
+        else gadget = gadget_fminnmv_vec;
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | (rn << 8));
         return 1;
     }
 
@@ -5445,6 +5481,54 @@ skip_three_different:
         return 1;
     }
 
+    // AdvSIMD scalar x indexed element
+    // Pattern: 01 op 11111 size L M Rm opcode H 0 Rn Rd
+    // Fixed: bits[31:30]=01, bits[28:24]=11111, bit[10]=0
+    // Mask: 0xff000400, Value: 0x5f000000
+    if ((insn & 0xff000400) == 0x5f000000) {
+        uint32_t U = (insn >> 29) & 1;
+        uint32_t size = (insn >> 22) & 3;
+        uint32_t L = (insn >> 21) & 1;
+        uint32_t M = (insn >> 20) & 1;
+        uint32_t Rm4 = (insn >> 16) & 0xf;
+        uint32_t opcode_elem = (insn >> 12) & 0xf;
+        uint32_t H = (insn >> 11) & 1;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t rd = insn & 0x1f;
+
+        uint32_t rm, index;
+        if (size == 2) {
+            rm = (M << 4) | Rm4;
+            index = (H << 1) | L;
+        } else if (size == 3) {
+            rm = (M << 4) | Rm4;
+            index = H;
+        } else {
+            gen_interrupt(state, INT_UNDEFINED);
+            return 0;
+        }
+
+        void *gadget = NULL;
+        // Pack: rd | rn<<8 | rm<<16 | index<<21 | size<<24
+        uint64_t packed = rd | (rn << 8) | (rm << 16) | (index << 21) | (size << 24);
+
+        if (U == 0 && opcode_elem == 0x9) {
+            gadget = gadget_fmul_elem_scalar;
+        } else if (U == 0 && opcode_elem == 0x1) {
+            gadget = gadget_fmla_elem_scalar;
+        } else if (U == 0 && opcode_elem == 0x5) {
+            gadget = gadget_fmls_elem_scalar;
+        } else if (U == 1 && opcode_elem == 0x9) {
+            gadget = gadget_fmulx_elem_scalar;
+        }
+
+        if (gadget) {
+            gen(state, (unsigned long) gadget);
+            gen(state, packed);
+            return 1;
+        }
+    }
+
     // AdvSIMD vector x indexed element
     // Pattern: 0 Q U 01111 size L M Rm opcode H 0 Rn Rd
     // Fixed: bit[31]=0, bits[28:24]=01111, bit[10]=0
@@ -5620,6 +5704,47 @@ skip_three_different:
         uint32_t rn = (insn >> 5) & 0x1f;
         uint32_t sz = (insn >> 22) & 1;
         gen(state, (unsigned long) gadget_faddp_scalar);
+        gen(state, rd | (rn << 8) | (sz << 16));
+        return 1;
+    }
+
+    // FMAXP/FMINP (scalar) - Floating-point Max/Min Pair of elements
+    // FMAXP: 0111 1110 0 sz 11000 01111 10 Rn Rd  (U=1, size[1]=0)
+    // FMINP: 0111 1110 1 sz 11000 01111 10 Rn Rd  (U=1, size[1]=1)
+    // Mask: 0xffbffc00 (ignores sz=bit22)
+    if ((insn & 0xffbffc00) == 0x7e30f800) {
+        uint32_t rd = insn & 0x1f;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t sz = (insn >> 22) & 1;
+        gen(state, (unsigned long) gadget_fmaxp_scalar);
+        gen(state, rd | (rn << 8) | (sz << 16));
+        return 1;
+    }
+    if ((insn & 0xffbffc00) == 0x7eb0f800) {
+        uint32_t rd = insn & 0x1f;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t sz = (insn >> 22) & 1;
+        gen(state, (unsigned long) gadget_fminp_scalar);
+        gen(state, rd | (rn << 8) | (sz << 16));
+        return 1;
+    }
+
+    // FMAXNMP/FMINNMP (scalar) - Floating-point MaxNum/MinNum Pair of elements
+    // FMAXNMP: 0111 1110 0 sz 11000 01100 10 Rn Rd  (bit23=0, opcode=01100)
+    // FMINNMP: 0111 1110 1 sz 11000 01100 10 Rn Rd  (bit23=1, opcode=01100)
+    if ((insn & 0xffbffc00) == 0x7e30c800) {
+        uint32_t rd = insn & 0x1f;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t sz = (insn >> 22) & 1;
+        gen(state, (unsigned long) gadget_fmaxnmp_scalar);
+        gen(state, rd | (rn << 8) | (sz << 16));
+        return 1;
+    }
+    if ((insn & 0xffbffc00) == 0x7eb0c800) {
+        uint32_t rd = insn & 0x1f;
+        uint32_t rn = (insn >> 5) & 0x1f;
+        uint32_t sz = (insn >> 22) & 1;
+        gen(state, (unsigned long) gadget_fminnmp_scalar);
         gen(state, rd | (rn << 8) | (sz << 16));
         return 1;
     }
