@@ -36,11 +36,11 @@ struct exec_args {
     const char *args;
 };
 
-static inline dword_t align_stack(dword_t sp);
-static inline ssize_t user_strlen(dword_t p);
+static inline addr_t align_stack(addr_t sp);
+static inline ssize_t user_strlen(addr_t p);
 static inline int user_memset(addr_t start, byte_t val, dword_t len);
-static inline dword_t copy_string(dword_t sp, const char *string);
-static inline dword_t args_copy(dword_t sp, struct exec_args args);
+static inline addr_t copy_string(addr_t sp, const char *string);
+static inline addr_t args_copy(addr_t sp, struct exec_args args);
 static size_t args_size(struct exec_args args);
 
 static int read_header(struct fd *fd, exec_elf_header *header) {
@@ -233,10 +233,17 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
 
         if (!load_addr_set && header.type == ELF_DYNAMIC) {
             // see giant comment in linux/fs/binfmt_elf.c, around line 950
+#ifdef GUEST_ARM64
+            // ARM64: Always use dynamic placement to avoid conflicts with
+            // V8's CodeRange hint at 0x574c0000 (the x86 bias 0x56555000
+            // places large binaries like node right on top of it)
+            bias = find_hole_for_elf(&header, ph);
+#else
             if (interp_name)
                 bias = 0x56555000; // I have no idea how this number was arrived at
             else
                 bias = find_hole_for_elf(&header, ph);
+#endif
         }
 
         if ((err = load_entry(ph[i], bias, fd)) < 0)
@@ -297,19 +304,25 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
 
     // STACK TIME!
 
+#ifdef GUEST_ARM64
+    // ARM64: stack near top of 48-bit address space
+    if ((err = pt_map_nothing(current->mem, STACK_INIT_PAGE, 1, P_WRITE | P_GROWSDOWN)) < 0)
+        goto beyond_hope;
+    if ((err = pt_map_nothing(current->mem, STACK_TOP_PAGE, 1, P_READ)) < 0)
+        goto beyond_hope;
+    write_wrunlock(&current->mem->lock);
+    addr_t sp = STACK_TOP_ADDR;
+#else
     // allocate 1 page of stack at 0xffffd, and let it grow down
     if ((err = pt_map_nothing(current->mem, 0xffffd, 1, P_WRITE | P_GROWSDOWN)) < 0)
         goto beyond_hope;
     // Map a read-only guard page above the stack (page 0xffffe).
-    // SP starts at 0xffffe000 (top of stack). Some programs (e.g. ffmpeg
-    // motion estimation) read slightly past buffer boundaries that abut the
-    // stack. Without this guard page, those reads hit unmapped memory and
-    // cause a fatal SIGSEGV. The guard is read-only so writes still fault.
     if ((err = pt_map_nothing(current->mem, 0xffffe, 1, P_READ)) < 0)
         goto beyond_hope;
     // that was the last memory mapping
     write_wrunlock(&current->mem->lock);
     dword_t sp = 0xffffe000;
+#endif
     // on 32-bit linux, there's 4 empty bytes at the very bottom of the stack.
     // on 64-bit linux, there's 8. make ptraceomatic happy. (a major theme in this file)
     sp -= sizeof(void *);
@@ -317,16 +330,17 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
     err = _EFAULT;
     // first, copy stuff pointed to by argv/envp/auxv
     // filename, argc, argv
+    // Note: lock is already released at this point
     addr_t file_addr = sp = copy_string(sp, file);
     if (sp == 0)
-        goto beyond_hope;
+        goto out_free_interp;
     addr_t envp_addr = sp = args_copy(sp, envp);
     if (sp == 0)
-        goto beyond_hope;
+        goto out_free_interp;
     current->mm->argv_end = sp;
     addr_t argv_addr = sp = args_copy(sp, argv);
     if (sp == 0)
-        goto beyond_hope;
+        goto out_free_interp;
     current->mm->argv_start = sp;
     sp = align_stack(sp);
 
@@ -336,13 +350,13 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
     addr_t platform_addr = sp = copy_string(sp, "i686");
 #endif
     if (sp == 0)
-        goto beyond_hope;
+        goto out_free_interp;
     // 16 random bytes so no system call is needed to seed a userspace RNG
     char random[16] = {};
     get_random(random, sizeof(random)); // if this fails, eh, no one's really using it
     addr_t random_addr = sp -= sizeof(random);
     if (user_put(sp, random))
-        goto beyond_hope;
+        goto out_free_interp;
 
     // the way linux aligns the stack at this point is kinda funky
     // calculate how much space is needed for argv, envp, and auxv, subtract
@@ -491,18 +505,18 @@ static size_t args_size(struct exec_args args) {
     return args_end - args.args;
 }
 
-static inline dword_t align_stack(addr_t sp) {
-    return sp &~ 0xf;
+static inline addr_t align_stack(addr_t sp) {
+    return sp &~ (addr_t)0xf;
 }
 
-static inline dword_t copy_string(addr_t sp, const char *string) {
+static inline addr_t copy_string(addr_t sp, const char *string) {
     sp -= strlen(string) + 1;
     if (user_write_string(sp, string))
         return 0;
     return sp;
 }
 
-static inline dword_t args_copy(addr_t sp, struct exec_args args) {
+static inline addr_t args_copy(addr_t sp, struct exec_args args) {
     size_t size = args_size(args);
     sp -= size;
     if (user_write(sp, args.args, size))

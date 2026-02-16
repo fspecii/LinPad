@@ -303,6 +303,9 @@ extern void gadget_cmhs_vec(void);         // CMHS Vd, Vn, Vm (unsigned compare 
 extern void gadget_cmeq_vec(void);         // CMEQ Vd, Vn, Vm (compare equal)
 extern void gadget_cmeq_zero_vec(void);    // CMEQ Vd, Vn, #0 (compare equal to zero)
 extern void gadget_ld1r_vec(void);          // LD1R {Vt.T}, [Xn] (load single and replicate)
+extern void gadget_ld2r_vec(void);          // LD2R {Vt.T, Vt2.T}, [Xn]
+extern void gadget_ld3r_vec(void);          // LD3R {Vt.T, Vt2.T, Vt3.T}, [Xn]
+extern void gadget_ld4r_vec(void);          // LD4R {Vt.T, Vt2.T, Vt3.T, Vt4.T}, [Xn]
 extern void gadget_shrn_vec(void);          // SHRN/SHRN2 Vd, Vn, #shift (shift right narrow)
 extern void gadget_rshrn_vec(void);         // RSHRN/RSHRN2 Vd, Vn, #shift (rounding shift right narrow)
 extern void gadget_uqrshrn_vec(void);      // UQRSHRN - unsigned saturating rounding shift right narrow
@@ -573,6 +576,7 @@ extern void gadget_st1_single_b(void);     // ST1 {Vt.B}[lane], [Xn]
 extern void gadget_st1_single_h(void);     // ST1 {Vt.H}[lane], [Xn]
 extern void gadget_st1_single_s(void);     // ST1 {Vt.S}[lane], [Xn]
 extern void gadget_st1_single_d(void);     // ST1 {Vt.D}[lane], [Xn]
+extern void gadget_addr_add_imm(void);    // _addr += imm (for multi-element single structure)
 
 // Decode ARM64 FP immediate encoding to IEEE bits.
 // Encoding uses imm8 with bit6 inverted in the instruction encoding.
@@ -631,6 +635,8 @@ extern void gadget_subs_ext(void);
 extern void gadget_msr_tpidr(void);
 extern void gadget_mrs_tpidr(void);
 extern void gadget_mrs_sysreg(void);
+extern void gadget_mrs_nzcv(void);
+extern void gadget_msr_nzcv(void);
 
 // Byte reverse and bit manipulation gadgets
 extern void gadget_rev(void);
@@ -1522,6 +1528,24 @@ static int gen_branch(struct gen_state *state, uint32_t insn) {
             (insn & 0xffffffe0) == 0xd50b7a20 ||  // DC CVAC
             (insn & 0xffffffe0) == 0xd50b7520) {  // IC IVAU
             return 1;  // NOP — no cache to maintain
+        }
+
+        // MRS/MSR NZCV (condition flags register)
+        // MRS Xt, NZCV: d53b4200 | Rt  (op0=3, op1=3, CRn=4, CRm=2, op2=0)
+        // MSR NZCV, Xt: d51b4200 | Rt
+        if ((insn & 0xffffffe0) == 0xd53b4200) {
+            // MRS Xt, NZCV - read condition flags
+            uint32_t rt = insn & 0x1f;
+            gen(state, (unsigned long) gadget_mrs_nzcv);
+            gen(state, rt);
+            return 1;
+        }
+        if ((insn & 0xffffffe0) == 0xd51b4200) {
+            // MSR NZCV, Xt - write condition flags
+            uint32_t rt = insn & 0x1f;
+            gen(state, (unsigned long) gadget_msr_nzcv);
+            gen(state, rt);
+            return 1;
         }
 
         // MSR/MRS for TPIDR_EL0 (TLS pointer)
@@ -2602,101 +2626,114 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
         return 1;
     }
 
-    // LD1/ST1 (single structure) - Advanced SIMD load/store single element
-    // Pattern: 0 Q 001101 0 L R 0 size2 opcode S size Rn Rt
-    // Encoding: 0x0d000000 to 0x0dffffff (and 0x4d000000 for Q=1)
-    // Fixed bits: bit[31]=0, bits[29:24]=001101, bit[21]=0
-    // Mask: 0xbf9f0000, expected: 0x0d000000
-    if ((insn & 0xbf9f0000) == 0x0d000000) {
+    // LD/ST (single structure) - Advanced SIMD load/store single element
+    // Pattern: 0 Q 001101 0 L R 0 xxxx opcode S size Rn Rt
+    // Includes LD1/ST1 single element + LDnR (load and replicate)
+    // Fixed bits: bit[31]=0, bits[29:24]=001101, bit[23]=0
+    // Mask: 0xbf800000, expected: 0x0d000000
+    if ((insn & 0xbf800000) == 0x0d000000) {
         uint32_t Q = (insn >> 30) & 1;
         uint32_t L = (insn >> 22) & 1;
-        // uint32_t R = (insn >> 21) & 1;  // should be 0 for no post-index (unused)
+        uint32_t R = (insn >> 21) & 1;
         uint32_t opcode = (insn >> 13) & 0x7;
         uint32_t S = (insn >> 12) & 1;
         uint32_t size = (insn >> 10) & 0x3;
         uint32_t rn = (insn >> 5) & 0x1f;
         uint32_t rt = insn & 0x1f;
 
-        // Determine element size and lane index
-        // opcode field (bits [15:13]) determines element size:
-        // 000 (0): byte (B)    - lane index = Q:S:size
-        // 010 (2): halfword (H) - lane index = Q:S:size[0]
-        // 100 (4): word (S) when size=00, doubleword (D) when size=01
-        int elem_size = 0; // bytes
-        int lane = 0;
+        // LDnR: Load single element and replicate to all lanes of n registers
+        // opcode=6,R=0 → LD1R; opcode=6,R=1 → LD2R
+        // opcode=7,R=0 → LD3R; opcode=7,R=1 → LD4R
+        if ((opcode == 6 || opcode == 7) && S == 0 && L == 1) {
+            void *gadget;
+            if (opcode == 6 && R == 0) { gadget = gadget_ld1r_vec; }
+            else if (opcode == 6 && R == 1) { gadget = gadget_ld2r_vec; }
+            else if (opcode == 7 && R == 0) { gadget = gadget_ld3r_vec; }
+            else { gadget = gadget_ld4r_vec; }
 
-        if (opcode == 0) {
-            // Byte (opcode = 000)
-            elem_size = 1;
-            lane = (Q << 3) | (S << 2) | size;
-        } else if (opcode == 2) {
-            // Halfword (opcode = 010)
-            elem_size = 2;
-            lane = (Q << 2) | (S << 1) | (size & 1);
-        } else if (opcode == 4 && size == 0) {
-            // Word (opcode = 100, size = 00)
-            elem_size = 4;
-            lane = (Q << 1) | S;
-        } else if (opcode == 4 && size == 1) {
-            // Doubleword (opcode = 100, size = 01)
-            elem_size = 8;
-            lane = Q;
-        } else if (opcode == 0x6 && S == 0 && L == 1) {
-            // LD1R: Load single element and replicate to all lanes
-            // Element size determined by 'size': 0=B, 1=H, 2=S, 3=D
             gen(state, (unsigned long) gadget_calc_addr_imm);
             gen(state, rn | (0ULL << 8));
-            gen(state, (unsigned long) gadget_ld1r_vec);
+            gen(state, (unsigned long) gadget);
             gen(state, rt | (size << 8) | (Q << 16));
             return 1;
+        }
+
+        // Number of registers from R and opcode:
+        // R=0, even opcode(0/2/4): LD1/ST1 (1 reg)
+        // R=1, even opcode(0/2/4): LD2/ST2 (2 regs)
+        // R=0, odd opcode(1/3/5):  LD3/ST3 (3 regs)
+        // R=1, odd opcode(1/3/5):  LD4/ST4 (4 regs)
+        int num_regs;
+        int base_opcode = opcode;
+        if (opcode & 1) {
+            num_regs = R ? 4 : 3;
+            base_opcode = opcode - 1;
         } else {
-            // Unsupported encoding
+            num_regs = R ? 2 : 1;
+        }
+
+        int elem_size = 0;
+        int lane = 0;
+
+        if (base_opcode == 0) {
+            elem_size = 1;
+            lane = (Q << 3) | (S << 2) | size;
+        } else if (base_opcode == 2) {
+            elem_size = 2;
+            lane = (Q << 2) | (S << 1) | (size & 1);
+        } else if (base_opcode == 4 && size == 0) {
+            elem_size = 4;
+            lane = (Q << 1) | S;
+        } else if (base_opcode == 4 && size == 1) {
+            elem_size = 8;
+            lane = Q;
+        } else {
             gen_interrupt(state, INT_UNDEFINED);
             return 0;
         }
 
-        // Calculate offset within vector register
         int lane_offset = lane * elem_size;
 
-        // Generate address calculation
         gen(state, (unsigned long) gadget_calc_addr_imm);
         gen(state, rn | (0ULL << 8));
 
-        // Generate load/store of single element
-        if (L) {
-            // Load: read from memory, write to vector lane
-            // Use appropriate size gadget
-            if (elem_size == 1) {
-                gen(state, (unsigned long) gadget_ld1_single_b);
-            } else if (elem_size == 2) {
-                gen(state, (unsigned long) gadget_ld1_single_h);
-            } else if (elem_size == 4) {
-                gen(state, (unsigned long) gadget_ld1_single_s);
-            } else {
-                gen(state, (unsigned long) gadget_ld1_single_d);
+        for (int i = 0; i < num_regs; i++) {
+            if (i > 0) {
+                gen(state, (unsigned long) gadget_addr_add_imm);
+                gen(state, (uint64_t)elem_size);
             }
-        } else {
-            // Store: read from vector lane, write to memory
-            if (elem_size == 1) {
-                gen(state, (unsigned long) gadget_st1_single_b);
-            } else if (elem_size == 2) {
-                gen(state, (unsigned long) gadget_st1_single_h);
-            } else if (elem_size == 4) {
-                gen(state, (unsigned long) gadget_st1_single_s);
+            uint32_t vr = (rt + i) % 32;
+            if (L) {
+                if (elem_size == 1)
+                    gen(state, (unsigned long) gadget_ld1_single_b);
+                else if (elem_size == 2)
+                    gen(state, (unsigned long) gadget_ld1_single_h);
+                else if (elem_size == 4)
+                    gen(state, (unsigned long) gadget_ld1_single_s);
+                else
+                    gen(state, (unsigned long) gadget_ld1_single_d);
             } else {
-                gen(state, (unsigned long) gadget_st1_single_d);
+                if (elem_size == 1)
+                    gen(state, (unsigned long) gadget_st1_single_b);
+                else if (elem_size == 2)
+                    gen(state, (unsigned long) gadget_st1_single_h);
+                else if (elem_size == 4)
+                    gen(state, (unsigned long) gadget_st1_single_s);
+                else
+                    gen(state, (unsigned long) gadget_st1_single_d);
             }
+            gen(state, vr | (lane_offset << 8));
         }
-        gen(state, rt | (lane_offset << 8));
         return 1;
     }
 
-    // LD1/ST1 (single structure, post-indexed) - with register or immediate post-index
+    // LD/ST (single structure, post-indexed) - with register or immediate post-index
     // Pattern: 0 Q 001101 1 L R Rm opcode S size Rn Rt  (bit23=1)
     // Mask: 0xbf800000, expected: 0x0d800000
     if ((insn & 0xbf800000) == 0x0d800000) {
         uint32_t Q = (insn >> 30) & 1;
         uint32_t L = (insn >> 22) & 1;
+        uint32_t R = (insn >> 21) & 1;
         uint32_t rm = (insn >> 16) & 0x1f;
         uint32_t opcode = (insn >> 13) & 0x7;
         uint32_t S = (insn >> 12) & 1;
@@ -2704,79 +2741,103 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
         uint32_t rn = (insn >> 5) & 0x1f;
         uint32_t rt = insn & 0x1f;
 
-        int elem_size = 0;
-        int lane = 0;
+        // LDnR post-indexed: Load single element and replicate to all lanes
+        if ((opcode == 6 || opcode == 7) && S == 0 && L == 1) {
+            int num_regs;
+            void *gadget;
+            if (opcode == 6 && R == 0) { num_regs = 1; gadget = gadget_ld1r_vec; }
+            else if (opcode == 6 && R == 1) { num_regs = 2; gadget = gadget_ld2r_vec; }
+            else if (opcode == 7 && R == 0) { num_regs = 3; gadget = gadget_ld3r_vec; }
+            else { num_regs = 4; gadget = gadget_ld4r_vec; }
 
-        if (opcode == 0) {
-            // Byte (opcode = 000)
-            elem_size = 1;
-            lane = (Q << 3) | (S << 2) | size;
-        } else if (opcode == 2) {
-            // Halfword (opcode = 010)
-            elem_size = 2;
-            lane = (Q << 2) | (S << 1) | (size & 1);
-        } else if (opcode == 4 && size == 0) {
-            // Word (opcode = 100, size = 00)
-            elem_size = 4;
-            lane = (Q << 1) | S;
-        } else if (opcode == 4 && size == 1) {
-            // Doubleword (opcode = 100, size = 01)
-            elem_size = 8;
-            lane = Q;
-        } else if (opcode == 0x6 && S == 0 && L == 1) {
-            // LD1R post-indexed: Load single element and replicate to all lanes
-            int ld1r_elem_size = 1 << size;
+            int ldnr_elem_size = 1 << size;
+            int total_bytes = ldnr_elem_size * num_regs;
 
             gen(state, (unsigned long) gadget_calc_addr_imm);
             gen(state, rn | (0ULL << 8));
-            gen(state, (unsigned long) gadget_ld1r_vec);
+            gen(state, (unsigned long) gadget);
             gen(state, rt | (size << 8) | (Q << 16));
 
             // Post-index writeback
             if (rm == 31) {
                 gen(state, (unsigned long) gadget_update_base);
-                gen(state, rn | ((uint64_t)ld1r_elem_size << 8));
+                gen(state, rn | ((uint64_t)total_bytes << 8));
             } else {
                 gen(state, (unsigned long) gadget_update_base_reg);
                 gen(state, rn | (rm << 8));
             }
             return 1;
+        }
+
+        // Number of registers (same logic as non-post-indexed)
+        int num_regs;
+        int base_opcode = opcode;
+        if (opcode & 1) {
+            num_regs = R ? 4 : 3;
+            base_opcode = opcode - 1;
+        } else {
+            num_regs = R ? 2 : 1;
+        }
+
+        int elem_size = 0;
+        int lane = 0;
+
+        if (base_opcode == 0) {
+            elem_size = 1;
+            lane = (Q << 3) | (S << 2) | size;
+        } else if (base_opcode == 2) {
+            elem_size = 2;
+            lane = (Q << 2) | (S << 1) | (size & 1);
+        } else if (base_opcode == 4 && size == 0) {
+            elem_size = 4;
+            lane = (Q << 1) | S;
+        } else if (base_opcode == 4 && size == 1) {
+            elem_size = 8;
+            lane = Q;
         } else {
             gen_interrupt(state, INT_UNDEFINED);
             return 0;
         }
 
         int lane_offset = lane * elem_size;
+        int total_bytes = elem_size * num_regs;
 
         gen(state, (unsigned long) gadget_calc_addr_imm);
         gen(state, rn | (0ULL << 8));
 
-        if (L) {
-            if (elem_size == 1)
-                gen(state, (unsigned long) gadget_ld1_single_b);
-            else if (elem_size == 2)
-                gen(state, (unsigned long) gadget_ld1_single_h);
-            else if (elem_size == 4)
-                gen(state, (unsigned long) gadget_ld1_single_s);
-            else
-                gen(state, (unsigned long) gadget_ld1_single_d);
-        } else {
-            if (elem_size == 1)
-                gen(state, (unsigned long) gadget_st1_single_b);
-            else if (elem_size == 2)
-                gen(state, (unsigned long) gadget_st1_single_h);
-            else if (elem_size == 4)
-                gen(state, (unsigned long) gadget_st1_single_s);
-            else
-                gen(state, (unsigned long) gadget_st1_single_d);
+        for (int i = 0; i < num_regs; i++) {
+            if (i > 0) {
+                gen(state, (unsigned long) gadget_addr_add_imm);
+                gen(state, (uint64_t)elem_size);
+            }
+            uint32_t vr = (rt + i) % 32;
+            if (L) {
+                if (elem_size == 1)
+                    gen(state, (unsigned long) gadget_ld1_single_b);
+                else if (elem_size == 2)
+                    gen(state, (unsigned long) gadget_ld1_single_h);
+                else if (elem_size == 4)
+                    gen(state, (unsigned long) gadget_ld1_single_s);
+                else
+                    gen(state, (unsigned long) gadget_ld1_single_d);
+            } else {
+                if (elem_size == 1)
+                    gen(state, (unsigned long) gadget_st1_single_b);
+                else if (elem_size == 2)
+                    gen(state, (unsigned long) gadget_st1_single_h);
+                else if (elem_size == 4)
+                    gen(state, (unsigned long) gadget_st1_single_s);
+                else
+                    gen(state, (unsigned long) gadget_st1_single_d);
+            }
+            gen(state, vr | (lane_offset << 8));
         }
-        gen(state, rt | (lane_offset << 8));
 
         // Post-index writeback
         if (rm == 31) {
-            // Immediate: increment by element size
+            // Immediate: increment by total bytes (num_regs * elem_size)
             gen(state, (unsigned long) gadget_update_base);
-            gen(state, rn | ((uint64_t)elem_size << 8));
+            gen(state, rn | ((uint64_t)total_bytes << 8));
         } else {
             // Register: increment by Xm
             gen(state, (unsigned long) gadget_update_base_reg);

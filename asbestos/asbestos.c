@@ -22,6 +22,7 @@
 // unblocks SIGSEGV/SIGBUS before _longjmp.
 __thread jmp_buf jit_recover_buf;
 __thread volatile sig_atomic_t in_jit;
+__thread volatile uintptr_t jit_crash_host_addr;  // host fault address from last JIT crash
 
 // Architecture-specific instruction pointer access
 #if defined(GUEST_ARM64)
@@ -110,7 +111,25 @@ slow_path:
     asbestos_invalidate_range(asbestos, page, page + 1);
 }
 void asbestos_invalidate_all(struct asbestos *asbestos) {
-    asbestos_invalidate_range(asbestos, 0, MEM_PAGES);
+    lock(&asbestos->lock);
+    bool did_invalidate = false;
+    struct fiber_block *block, *tmp;
+    for (size_t bucket = 0; bucket < FIBER_PAGE_HASH_SIZE; bucket++) {
+        for (int i = 0; i <= 1; i++) {
+            struct list *blocks = &asbestos->page_hash[bucket].blocks[i];
+            if (list_null(blocks))
+                continue;
+            list_for_each_entry_safe(blocks, block, tmp, page[i]) {
+                fiber_block_disconnect(asbestos, block);
+                block->is_jetsam = true;
+                list_add(&asbestos->jetsam, &block->jetsam);
+                did_invalidate = true;
+            }
+        }
+    }
+    if (did_invalidate)
+        asbestos->invalidate_gen++;
+    unlock(&asbestos->lock);
 }
 
 static void fiber_resize_hash(struct asbestos *asbestos, size_t new_size) {
@@ -221,15 +240,9 @@ static inline size_t fiber_cache_hash(addr_t ip) {
 static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     struct asbestos *asbestos = cpu->mmu->asbestos;
 
-    // === RCU-like Optimization: Lock-free JIT entry ===
-    // Instead of holding jetsam_lock read (expensive pthread rwlock),
-    // use atomic counter. Jetsam cleanup waits for this to reach 0.
-    // This eliminates ~2000ms overhead from rwlock on every JIT cycle.
-    atomic_fetch_add(&asbestos->jit_active_threads, 1);
-
-    // Memory barrier: ensure jit_active_threads increment is visible
-    // before we start using cached blocks (prevents use-after-free)
-    atomic_thread_fence(memory_order_seq_cst);
+    // Hold jetsam_lock read during JIT execution.
+    // This prevents jetsam cleanup from freeing blocks while we're executing them.
+    read_wrlock(&asbestos->jetsam_lock);
 
     // Use persistent block cache and frame from TLB; invalidate when blocks are jetsam'd
     bool caches_stale = (tlb->block_cache_gen != asbestos->invalidate_gen);
@@ -253,7 +266,17 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     assert(asbestos->mmu == cpu->mmu);
 
     int interrupt = INT_NONE;
+    int crash_retry_count = 0;
     while (interrupt == INT_NONE) {
+        // Check if blocks were invalidated since last check (e.g. CoW by another thread).
+        // This must be inside the loop, not just at function entry, because invalidation
+        // can happen while we're in the JIT cycle (between fiber_enter calls).
+        if (tlb->block_cache_gen != asbestos->invalidate_gen) {
+            memset(cache, 0, sizeof(tlb->block_cache));
+            tlb->block_cache_gen = asbestos->invalidate_gen;
+            memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+        }
+
         addr_t ip = CPU_IP(&frame->cpu);
         size_t cache_index = fiber_cache_hash(ip);
         struct fiber_block *block = cache[cache_index];
@@ -296,13 +319,37 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
         TRACE("%d %08x --- cycle %ld\n", current_pid(), ip, frame->cpu.cycle);
 
+        // Save guest CPU state before entering JIT.
+        // If a host SIGSEGV occurs mid-block, the crash leaves guest regs
+        // in an inconsistent state (partially-executed gadgets). We restore
+        // this snapshot so the retry starts with a clean state.
+        struct cpu_state saved_cpu = frame->cpu;
+
         in_jit = 1;
         if (_setjmp(jit_recover_buf) == 0) {
             interrupt = fiber_enter(block, frame, tlb);
+            crash_retry_count = 0;  // successful execution resets retry counter
         } else {
             // Recovered from host SIGSEGV inside JIT code.
-            // crash_handler set segfault_addr/segfault_was_write on frame->cpu.
-            interrupt = INT_GPF;
+            // Restore guest CPU state to the snapshot taken before fiber_enter.
+            // This ensures guest registers are consistent for the retry.
+            frame->cpu = saved_cpu;
+
+            // Flush all caches to get fresh host pointers.
+            tlb_flush(tlb);
+            memset(cache, 0, sizeof(tlb->block_cache));
+            tlb->block_cache_gen = asbestos->invalidate_gen;
+            memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+            frame->last_block = NULL;
+
+            crash_retry_count++;
+            if (crash_retry_count >= 16) {
+                // Too many consecutive crashes — escalate to INT_GPF
+                interrupt = INT_GPF;
+                crash_retry_count = 0;
+            } else {
+                interrupt = INT_NONE;
+            }
         }
         in_jit = 0;
         if (interrupt == INT_NONE && __atomic_exchange_n(frame->cpu.poked_ptr, false, __ATOMIC_ACQUIRE))
@@ -312,13 +359,8 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     }
     *cpu = frame->cpu;
 
-    // === RCU-like Optimization: Lock-free JIT exit ===
-    // Decrement active thread counter. When it reaches 0,
-    // jetsam cleanup can proceed safely.
-    atomic_fetch_sub(&asbestos->jit_active_threads, 1);
-
-    // Memory barrier: ensure decrement is visible before returning
-    atomic_thread_fence(memory_order_seq_cst);
+    // Release jetsam_lock read. Jetsam cleanup can now proceed.
+    read_wrunlock(&asbestos->jetsam_lock);
 
     return interrupt;
 }
@@ -358,36 +400,15 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
     lock(&asbestos->lock);
     if (!list_empty(&asbestos->jetsam)) {
-        // === RCU-like Optimization: Wait for JIT threads without rwlock ===
-        // Instead of using jetsam_lock write (which blocks on read locks),
-        // wait for jit_active_threads to reach 0. This allows lock-free
-        // fast path in cpu_step_to_interrupt.
         unlock(&asbestos->lock);
 
-        // Wait for all JIT threads to exit (busy wait is OK, this is rare)
-        // Most of the time jit_active_threads is already 0 (we just exited)
-        unsigned wait_count = 0;
-        while (atomic_load(&asbestos->jit_active_threads) != 0) {
-            // Busy wait with exponential backoff
-            wait_count++;
-            if (wait_count < 10) {
-                // Spin briefly (CPU yield)
-                __asm__ __volatile__("" ::: "memory");
-            } else if (wait_count < 100) {
-                // Short sleep (1 microsecond)
-                struct timespec ts = {0, 1000};
-                nanosleep(&ts, NULL);
-            } else {
-                // Longer sleep (10 microseconds)
-                struct timespec ts = {0, 10000};
-                nanosleep(&ts, NULL);
-            }
-        }
-
-        // All JIT threads have exited, safe to free jetsam blocks
+        // Write lock ensures all JIT threads have exited (they hold read lock).
+        // This is watertight — no TOCTOU race possible.
+        write_wrlock(&asbestos->jetsam_lock);
         lock(&asbestos->lock);
         fiber_free_jetsam(asbestos);
         unlock(&asbestos->lock);
+        write_wrunlock(&asbestos->jetsam_lock);
     } else {
         unlock(&asbestos->lock);
     }

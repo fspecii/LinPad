@@ -26,6 +26,156 @@ static struct mmu_ops mem_mmu_ops;
 extern _Atomic long anon_page_count;
 
 
+#ifdef GUEST_ARM64
+// ============================================================
+// ARM64: 4-level page table for 48-bit address space
+// ============================================================
+
+void mem_init(struct mem *mem) {
+    mem->pgdir = calloc(1, sizeof(struct pt_node));
+    mem->pgdir_used = 0;
+    mem->mmu.ops = &mem_mmu_ops;
+    mem->mmu.asbestos = asbestos_new(&mem->mmu);
+    mem->mmu.changes = 0;
+    wrlock_init(&mem->lock);
+    lock_init(&mem->cow_lock);
+}
+
+// Recursively free page table nodes at given level
+static void pt_node_free(void *node, int level) {
+    if (node == NULL)
+        return;
+    if (level == 3) {
+        // L3: array of pt_entry — just free the array
+        free(node);
+        return;
+    }
+    struct pt_node *n = node;
+    for (int i = 0; i < PT_ENTRIES; i++) {
+        pt_node_free(n->children[i], level + 1);
+    }
+    free(n);
+}
+
+void mem_destroy(struct mem *mem) {
+    write_wrlock(&mem->lock);
+    // Unmap all pages first (frees data/mmap)
+    pt_unmap_always(mem, 0, MEM_PAGES);
+    asbestos_free(mem->mmu.asbestos);
+    // Free the page table tree
+    pt_node_free(mem->pgdir, 0);
+    mem->pgdir = NULL;
+    write_wrunlock(&mem->lock);
+    wrlock_destroy(&mem->lock);
+}
+
+// Navigate 4-level page table to find L3 entry, creating intermediate nodes as needed
+static struct pt_entry *mem_pt_new(struct mem *mem, page_t page) {
+    struct pt_node *l0 = mem->pgdir;
+    int i0 = PT_INDEX(page, 0);
+    struct pt_node *l1 = l0->children[i0];
+    if (l1 == NULL) {
+        l1 = l0->children[i0] = calloc(1, sizeof(struct pt_node));
+        mem->pgdir_used++;
+    }
+
+    int i1 = PT_INDEX(page, 1);
+    struct pt_node *l2 = l1->children[i1];
+    if (l2 == NULL)
+        l2 = l1->children[i1] = calloc(1, sizeof(struct pt_node));
+
+    int i2 = PT_INDEX(page, 2);
+    struct pt_entry *l3 = l2->children[i2];
+    if (l3 == NULL)
+        l3 = l2->children[i2] = calloc(PT_ENTRIES, sizeof(struct pt_entry));
+
+    int i3 = PT_INDEX(page, 3);
+    return &l3[i3];
+}
+
+struct pt_entry *mem_pt(struct mem *mem, page_t page) {
+    struct pt_node *l0 = mem->pgdir;
+    if (l0 == NULL) return NULL;
+
+    struct pt_node *l1 = l0->children[PT_INDEX(page, 0)];
+    if (l1 == NULL) return NULL;
+
+    struct pt_node *l2 = l1->children[PT_INDEX(page, 1)];
+    if (l2 == NULL) return NULL;
+
+    struct pt_entry *l3 = l2->children[PT_INDEX(page, 2)];
+    if (l3 == NULL) return NULL;
+
+    struct pt_entry *entry = &l3[PT_INDEX(page, 3)];
+    if (entry->data == NULL) return NULL;
+    return entry;
+}
+
+static void mem_pt_del(struct mem *mem, page_t page) {
+    struct pt_entry *entry = mem_pt(mem, page);
+    if (entry != NULL)
+        entry->data = NULL;
+}
+
+// Skip over large unallocated regions efficiently by checking intermediate levels
+void mem_next_page(struct mem *mem, page_t *page) {
+    (*page)++;
+    if (*page >= MEM_PAGES)
+        return;
+
+    struct pt_node *l0 = mem->pgdir;
+    if (l0 == NULL) { *page = MEM_PAGES; return; }
+
+    while (*page < MEM_PAGES) {
+        int i0 = PT_INDEX(*page, 0);
+        struct pt_node *l1 = l0->children[i0];
+        if (l1 == NULL) {
+            // Skip entire L0 region (2^27 pages)
+            *page = (((*page >> (PT_BITS * 3)) + 1) << (PT_BITS * 3));
+            continue;
+        }
+
+        int i1 = PT_INDEX(*page, 1);
+        struct pt_node *l2 = l1->children[i1];
+        if (l2 == NULL) {
+            // Skip entire L1 region (2^18 pages)
+            *page = (((*page >> (PT_BITS * 2)) + 1) << (PT_BITS * 2));
+            continue;
+        }
+
+        int i2 = PT_INDEX(*page, 2);
+        struct pt_entry *l3 = l2->children[i2];
+        if (l3 == NULL) {
+            // Skip entire L2 region (2^9 = 512 pages)
+            *page = (((*page >> PT_BITS) + 1) << PT_BITS);
+            continue;
+        }
+        // Found a populated L3 array — page might exist here
+        return;
+    }
+}
+
+page_t pt_find_hole(struct mem *mem, pages_t size) {
+    page_t hole_end = 0;
+    bool in_hole = false;
+    for (page_t page = MMAP_HOLE_START; page > MMAP_HOLE_END; page--) {
+        if (!in_hole && mem_pt(mem, page) == NULL) {
+            in_hole = true;
+            hole_end = page + 1;
+        }
+        if (mem_pt(mem, page) != NULL)
+            in_hole = false;
+        else if (hole_end - page == size)
+            return page;
+    }
+    return BAD_PAGE;
+}
+
+#else
+// ============================================================
+// x86: 2-level flat page table for 32-bit address space
+// ============================================================
+
 void mem_init(struct mem *mem) {
     mem->pgdir = calloc(MEM_PGDIR_SIZE, sizeof(struct pt_entry *));
     mem->pgdir_used = 0;
@@ -86,10 +236,9 @@ void mem_next_page(struct mem *mem, page_t *page) {
 }
 
 page_t pt_find_hole(struct mem *mem, pages_t size) {
-    page_t hole_end = 0; // this can never be used before initializing but gcc doesn't realize
+    page_t hole_end = 0;
     bool in_hole = false;
     for (page_t page = 0xefffd; page > 0x40000; page--) {
-        // I don't know how this works but it does
         if (!in_hole && mem_pt(mem, page) == NULL) {
             in_hole = true;
             hole_end = page + 1;
@@ -101,6 +250,8 @@ page_t pt_find_hole(struct mem *mem, pages_t size) {
     }
     return BAD_PAGE;
 }
+
+#endif // GUEST_ARM64
 
 bool pt_is_hole(struct mem *mem, page_t start, pages_t pages) {
     for (page_t page = start; page < start + pages; page++) {
@@ -257,20 +408,26 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
     if (entry == NULL) {
         // page does not exist
         // look to see if the next VM region is willing to grow down
-        page_t p = page + 1;
+        page_t p = page;
+        mem_next_page(mem, &p);
         while (p < MEM_PAGES && mem_pt(mem, p) == NULL)
-            p++;
+            mem_next_page(mem, &p);
         if (p >= MEM_PAGES)
             return NULL;
         if (!(mem_pt(mem, p)->flags & P_GROWSDOWN))
             return NULL;
 
         // Enforce RLIMIT_STACK: don't grow stack beyond the limit.
+#ifdef GUEST_ARM64
+        // Stack top is at STACK_TOP_PAGE (guard page), stack grows down from STACK_INIT_PAGE.
+        pages_t guard_page = STACK_TOP_PAGE;
+#else
         // Stack top is at page 0xffffe (guard page), stack grows down from 0xffffd.
-        // The stack size is (0xffffe - page) pages = (0xffffe - page) * PAGE_SIZE bytes.
+        pages_t guard_page = 0xffffe;
+#endif
         rlim_t_ stack_limit = rlimit(RLIMIT_STACK_);
         if (stack_limit != RLIM_INFINITY_) {
-            pages_t stack_pages = 0xffffe - page;
+            pages_t stack_pages = guard_page - page;
             if ((uint64_t)stack_pages * PAGE_SIZE > stack_limit)
                 return NULL;
         }
@@ -361,12 +518,12 @@ void mem_coredump(struct mem *mem, const char *file) {
     }
 
     int pages = 0;
-    for (page_t page = 0; page < MEM_PAGES; page++) {
+    for (page_t page = 0; page < MEM_PAGES; mem_next_page(mem, &page)) {
         struct pt_entry *entry = mem_pt(mem, page);
         if (entry == NULL)
             continue;
         pages++;
-        if (lseek(fd, page << PAGE_BITS, SEEK_SET) < 0) {
+        if (lseek(fd, (off_t)(page << PAGE_BITS), SEEK_SET) < 0) {
             perror("lseek");
             return;
         }

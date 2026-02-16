@@ -9,6 +9,9 @@ struct tlb_entry {
     page_t page;
     page_t page_if_writable;
     uintptr_t data_minus_addr;
+#ifdef GUEST_ARM64
+    uintptr_t _pad;  // pad to 32 bytes for efficient JIT indexing (lsl #5)
+#endif
 };
 #define TLB_BITS 11  // 2048 entries (32 KB) for Python module loading
 #define TLB_SIZE (1 << TLB_BITS)
@@ -34,7 +37,11 @@ struct tlb {
 };
 
 #define TLB_INDEX(addr) (((addr >> PAGE_BITS) & (TLB_SIZE - 1)) ^ (addr >> (PAGE_BITS + TLB_BITS)))
-#define TLB_PAGE(addr) (addr & 0xfffff000)
+#ifdef GUEST_ARM64
+#define TLB_PAGE(addr) ((addr) & 0xfffffffffffff000ULL)
+#else
+#define TLB_PAGE(addr) ((addr) & 0xfffff000)
+#endif
 #define TLB_PAGE_EMPTY 1
 void tlb_refresh(struct tlb *tlb, struct mmu *mmu);
 void tlb_free(struct tlb *tlb);

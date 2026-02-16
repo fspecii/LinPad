@@ -435,6 +435,10 @@ __no_instrument int c_atomic_cas(struct tlb *tlb, addr_t addr, uint64_t expected
 // Compares memory at addr with expected_val, if equal stores new_val.
 // Returns 0 on success (CAS succeeded), 1 on failure (CAS lost race),
 // or -1 on segfault.
+//
+// To prevent CoW from invalidating the host pointer between getting it
+// and the CAS, we snapshot mmu->changes before and after. If it changed,
+// another thread did CoW/mmap, so we retry with a fresh TLB lookup.
 __no_instrument int c_stxr_cas(struct tlb *tlb, addr_t addr,
                                uint64_t expected_val, uint64_t new_val,
                                uint32_t size) {

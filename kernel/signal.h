@@ -187,14 +187,24 @@ static inline void sigset_del(sigset_t_ *set, int sig) {
     *set &= ~sig_mask(sig);
 }
 
+#if defined(GUEST_ARM64)
+struct stack_t_ {
+    uint64_t stack;    // ss_sp: 8 bytes on ARM64
+    int32_t flags;     // ss_flags: 4 bytes
+    uint32_t _pad;     // padding for alignment
+    uint64_t size;     // ss_size: 8 bytes on ARM64
+};
+#define MINSIGSTKSZ_ 6144
+#else
 struct stack_t_ {
     addr_t stack;
     dword_t flags;
     dword_t size;
 };
+#define MINSIGSTKSZ_ 2048
+#endif
 #define SS_ONSTACK_ 1
 #define SS_DISABLE_ 2
-#define MINSIGSTKSZ_ 2048
 dword_t sys_sigaltstack(addr_t ss, addr_t old_ss);
 
 int_t sys_rt_sigsuspend(addr_t mask_addr, uint_t size);

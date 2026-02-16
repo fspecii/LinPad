@@ -89,38 +89,34 @@ _addr   .req x7    // Changed from x3/x4 to x7 to avoid conflict with guest low 
         b.hi crosspage_write_prep_\id
     .endif
 
-    // Extract page-aligned address (32-bit — guest addresses are 32-bit range)
-    and w8, w7, #0xfffff000
+    // Extract page-aligned address (48-bit address space, clear low 12 bits)
+    and x8, x7, #0xfffffffffffff000
     .ifc \type,write
-        str w8, [_tlb, #(-TLB_entries+TLB_dirty_page)]
+        str x8, [_tlb, #(-TLB_entries+TLB_dirty_page)]
     .endif
 
     // TLB lookup: index = ((addr >> 12) & (TLB_SIZE-1)) ^ (addr >> (12 + TLB_BITS))
-    // Must match C macro: TLB_INDEX(addr) = ((addr>>PAGE_BITS) & (TLB_SIZE-1)) ^ (addr>>(PAGE_BITS+TLB_BITS))
     // With TLB_BITS=11: ((addr>>12) & 0x7ff) ^ (addr>>23)
-    ubfx w9, w7, #12, #11       // (addr >> 12) & 0x7ff (TLB_BITS=11)
-    eor w9, w9, w7, lsr #23    // XOR with (addr >> 23) = (addr >> (12+11))
-    // sizeof(tlb_entry) = 16 bytes
-    lsl x9, x9, #4
+    ubfx x9, x7, #12, #11       // (addr >> 12) & 0x7ff (TLB_BITS=11)
+    eor x9, x9, x7, lsr #23    // XOR with (addr >> 23) = (addr >> (12+11))
+    and w9, w9, #0x7ff           // mask to TLB_SIZE-1 (higher bits from XOR)
+    // sizeof(tlb_entry) = 32 bytes (padded for ARM64)
+    lsl x9, x9, #5
     add x9, x9, _tlb
 
     .ifc \type,read
-        ldr w10, [x9, #TLB_ENTRY_page]
+        ldr x10, [x9, #TLB_ENTRY_page]
     .else
-        ldr w10, [x9, #TLB_ENTRY_page_if_writable]
+        ldr x10, [x9, #TLB_ENTRY_page_if_writable]
     .endif
 
-    cmp w8, w10
+    cmp x8, x10
     b.ne handle_miss_\id
 
     ldr x10, [x9, #TLB_ENTRY_data_minus_addr]
     // Save guest address for JIT crash recovery before TLB clobbers _addr.
-    // If a host SIGSEGV occurs during the subsequent load/store (e.g., stale
-    // TLB from concurrent CoW), the crash handler needs the guest address,
-    // not the host pointer that _addr will become after the add below.
-    // The read/write flag is determined from the host ESR in the crash handler.
-    str w7, [_cpu, #CPU_segfault_addr]
-    add x7, x10, w7, uxtw          // host_addr = data_minus_addr + (uint32_t)addr
+    str x7, [_cpu, #CPU_segfault_addr]
+    add x7, x10, x7                // host_addr = data_minus_addr + guest_addr
 back_\id:
 .endm
 
@@ -131,8 +127,8 @@ handle_miss_\id :
     mov _addr, x0
     b back_\id
 segfault_\type\()_\id :
-    ldr w8, [_tlb, #(-TLB_entries+TLB_segfault_addr)]
-    str w8, [_cpu, #CPU_segfault_addr]
+    ldr x8, [_tlb, #(-TLB_entries+TLB_segfault_addr)]
+    str x8, [_cpu, #CPU_segfault_addr]
     .ifc \type,read
         strb wzr, [_cpu, #CPU_segfault_was_write]
     .else

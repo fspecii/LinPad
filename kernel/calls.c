@@ -87,18 +87,19 @@ void handle_interrupt(int interrupt) {
 
         if (fast_path_taken) {
             // Fast path succeeded, return immediately
+            // Fast paths return int (small values), safe to use directly
             STRACE("%d call %-3d (fast) = 0x%x\n", current->pid, syscall_num, fast_result);
             int32_t signed_result = (int32_t)fast_result;
             if (signed_result >= -4095 && signed_result < 0) {
                 cpu->regs[0] = (uint64_t)(int64_t)signed_result;
             } else {
-                cpu->regs[0] = (uint32_t)fast_result;
+                cpu->regs[0] = (uint64_t)(uint32_t)fast_result;
             }
         } else {
             // === SLOW PATH: Full syscall ===
             if (syscall_num >= syscall_table_size || syscall_table[syscall_num] == NULL) {
                 printk("%d(%s) missing syscall %d\n", current->pid, current->comm, syscall_num);
-                cpu->regs[0] = (uint32_t)_ENOSYS;
+                cpu->regs[0] = (uint64_t)(int64_t)(int32_t)_ENOSYS;
             } else {
                 if (syscall_table[syscall_num] == (syscall_t) syscall_stub) {
                     printk("%d(%s) stub syscall %d\n", current->pid, current->comm, syscall_num);
@@ -108,19 +109,19 @@ void handle_interrupt(int interrupt) {
                     cpu->regs[0], cpu->regs[1], cpu->regs[2],
                     cpu->regs[3], cpu->regs[4], cpu->regs[5]);
                 STRACE(" = 0x%x\n", result);
-                // ARM64 ABI: error codes are -1 to -4095 (sign-extended), success is 0 or positive.
-                // We need to check if result is in the error range (-1 to -4095).
-                // Since we run a 32-bit address space, addresses like 0xf7ff2000 are valid
-                // but would appear as "negative" if treated as int32_t.
-                // Linux ARM64 syscall ABI: return value is in x0, errors are negative (-errno).
-                // Valid error range: -1 to -4095 (MAX_ERRNO is typically 4095)
+                // ARM64 Linux ABI: return value in x0. Errors are negative
+                // (-1 to -4095). Success values are 0 or positive.
+                // Note: syscall_t returns int (32-bit). Syscalls returning
+                // addr_t (mmap, brk) will have their return truncated to int.
+                // This is safe while addresses fit in 32 bits. When addresses
+                // are raised to 48-bit, syscall_t must change to int64_t.
                 int32_t signed_result = (int32_t)result;
                 if (signed_result >= -4095 && signed_result < 0) {
                     // Error code: sign-extend to 64-bit
                     cpu->regs[0] = (uint64_t)(int64_t)signed_result;
                 } else {
                     // Success: zero-extend the 32-bit value
-                    cpu->regs[0] = (uint32_t)result;
+                    cpu->regs[0] = (uint64_t)(uint32_t)result;
                 }
             }
         }
@@ -244,7 +245,11 @@ void dump_mem(addr_t start, uint_t len) {
     for (addr_t addr = start; addr < start + len; addr += sizeof(dword_t)) {
         unsigned from_left = (addr - start) / sizeof(dword_t) % width;
         if (from_left == 0)
+#ifdef GUEST_ARM64
+            printk("%012llx: ", (unsigned long long)addr);
+#else
             printk("%08x: ", addr);
+#endif
         dword_t word;
         if (user_get(addr, word))
             break;

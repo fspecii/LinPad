@@ -246,8 +246,8 @@ segfault_read_cp:
     ldp x21, x22, [sp, #0x10]
     ldp x19, x20, [sp], #0x60
 
-    ldr w8, [_tlb, #(-TLB_entries+TLB_segfault_addr)]
-    str w8, [_cpu, #CPU_segfault_addr]
+    ldr x8, [_tlb, #(-TLB_entries+TLB_segfault_addr)]
+    str x8, [_cpu, #CPU_segfault_addr]
     strb wzr, [_cpu, #CPU_segfault_was_write]
     mov w0, #INT_GPF
     b fiber_exit
@@ -303,8 +303,8 @@ segfault_write_cp:
     ldp x21, x22, [sp, #0x10]
     ldp x19, x20, [sp], #0x60
 
-    ldr w8, [_tlb, #(-TLB_entries+TLB_segfault_addr)]
-    str w8, [_cpu, #CPU_segfault_addr]
+    ldr x8, [_tlb, #(-TLB_entries+TLB_segfault_addr)]
+    str x8, [_cpu, #CPU_segfault_addr]
     mov w9, #1
     strb w9, [_cpu, #CPU_segfault_was_write]
     mov w0, #INT_GPF

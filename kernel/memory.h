@@ -9,6 +9,49 @@
 #include "util/sync.h"
 #include "misc.h"
 
+#ifdef GUEST_ARM64
+// ARM64: 4-level page table for 48-bit address space
+// L0[512] → L1[512] → L2[512] → L3[512 pt_entry]
+// 9+9+9+9 = 36-bit page number + 12-bit offset = 48-bit address
+#define PT_LEVELS 4
+#define PT_BITS 9
+#define PT_ENTRIES (1 << PT_BITS)  // 512
+
+// Extract level index from page number (36-bit page number)
+#define PT_INDEX(page, level) (((page) >> (PT_BITS * (3 - (level)))) & (PT_ENTRIES - 1))
+
+// Page table intermediate node (L0, L1, L2)
+struct pt_node {
+    void *children[PT_ENTRIES]; // pt_node* for L0-L2, pt_entry* array for L3
+};
+
+struct mem {
+    struct pt_node *pgdir;  // L0 node (512 entries)
+    int pgdir_used;
+
+    struct mmu mmu;
+
+    wrlock_t lock;
+    lock_t cow_lock;
+};
+
+// Address space layout for ARM64 guest.
+// Infrastructure supports 48-bit (4-level page table, 64-bit TLB, 64-bit JIT),
+// but current layout uses 32-bit range. JIT masks addresses to 32 bits.
+// To raise to 48-bit: move stack/mmap above 4GB, change JIT masks to 48-bit.
+#define STACK_TOP_PAGE    0xffffeULL      // guard page (read-only)
+#define STACK_INIT_PAGE   0xffffdULL      // initial stack page (growsdown)
+#define STACK_TOP_ADDR    0xffffe000ULL   // SP starts here
+#define MMAP_HOLE_START   0xefffdULL      // mmap search starts here (below stack)
+#define MMAP_HOLE_END     0x40000ULL      // mmap search ends here
+// Upper bound for valid user addresses (page number, 48-bit / 4K = 36-bit)
+#define USER_ADDR_MAX_PAGE  0xFFFFFFFFFULL
+
+#else
+// x86: 2-level flat page table for 32-bit address space
+// pgdir[1024] → pt_entry[1024]
+#define MEM_PGDIR_SIZE (1 << 10)
+
 struct mem {
     struct pt_entry **pgdir;
     int pgdir_used;
@@ -16,9 +59,9 @@ struct mem {
     struct mmu mmu;
 
     wrlock_t lock;
-    lock_t cow_lock; // serializes COW page copies without upgrading rwlock
+    lock_t cow_lock;
 };
-#define MEM_PGDIR_SIZE (1 << 10)
+#endif
 
 // Initialize the address space
 void mem_init(struct mem *mem);

@@ -213,8 +213,14 @@ void proc_maps_dump(struct task *task, struct proc_data *buf) {
         } else if (data->fd != NULL) {
             generic_getpath(start_pt->data->fd, path);
         }
+#ifdef GUEST_ARM64
+        proc_printf(buf, "%012llx-%012llx %c%c%c%c %08lx 00:00 %-10d %s\n",
+                (unsigned long long)(start << PAGE_BITS),
+                (unsigned long long)(end << PAGE_BITS),
+#else
         proc_printf(buf, "%08x-%08x %c%c%c%c %08lx 00:00 %-10d %s\n",
                 start << PAGE_BITS, end << PAGE_BITS,
+#endif
                 start_pt->flags & P_READ ? 'r' : '-',
                 start_pt->flags & P_WRITE ? 'w' : '-',
                 start_pt->flags & P_EXEC ? 'x' : '-',

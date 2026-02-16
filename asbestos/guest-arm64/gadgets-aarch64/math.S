@@ -3191,6 +3191,41 @@ msub_store:
     str x10, [x9, x8, lsl #3]
 1:  gret
 
+// MRS Xt, NZCV - read condition flags register
+// Code stream: [gadget addr][rt]
+// NZCV value is in bits [31:28] of the word
+.gadget mrs_nzcv
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x8, x8, #0x1f       // rt
+
+    ldr w10, [_cpu, #CPU_nzcv]
+
+    add x9, _cpu, #CPU_x0
+    cmp x8, #31
+    b.eq 1f
+    // Zero-extend to 64-bit and store
+    mov x11, x10
+    str x11, [x9, x8, lsl #3]
+1:  gret
+
+// MSR NZCV, Xt - write condition flags register
+// Code stream: [gadget addr][rt]
+.gadget msr_nzcv
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x8, x8, #0x1f       // rt
+
+    add x9, _cpu, #CPU_x0
+    cmp x8, #31
+    b.eq 1f
+    ldr x10, [x9, x8, lsl #3]
+    b 2f
+1:  mov x10, #0
+2:
+    str w10, [_cpu, #CPU_nzcv]
+    gret
+
 // MRS Xt, <sysreg> - generic system register read
 // Code stream: [gadget addr][rt][sysreg_id]
 // sysreg_id values:

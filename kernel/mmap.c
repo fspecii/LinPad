@@ -67,9 +67,19 @@ static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
         if (PGOFFSET(addr) != 0)
             return _EINVAL;
         page = PAGE(addr);
-        if (!(flags & MMAP_FIXED) && !pt_is_hole(current->mem, page, pages)) {
+#ifdef GUEST_ARM64
+        // Reject hint addresses beyond usable address range.
+        // Currently constrained to 32-bit (stack at 0xffffe000).
+        // When addresses are raised to 48-bit, use USER_ADDR_MAX_PAGE.
+        if (page + pages > MMAP_HOLE_START + 1) {
+            if (flags & MMAP_FIXED)
+                return _ENOMEM;
             addr = 0;
+            page = 0;
         }
+#endif
+        if (addr != 0 && !(flags & MMAP_FIXED) && !pt_is_hole(current->mem, page, pages))
+            addr = 0;
     }
     if (addr == 0) {
         page = pt_find_hole(current->mem, pages);
