@@ -19,6 +19,8 @@
 #include "fs/dev.h"
 #include "fs/devices.h"
 #include "fs/real.h"
+#define ISH_INTERNAL
+#include "fs/fake.h"
 #include "fs/tty.h"
 #include "util/fchdir.h"
 
@@ -385,6 +387,17 @@ int realfs_getpath(struct fd *fd, char *buf) {
     int err = getpath(fd->real_fd, buf);
     if (err < 0)
         return err;
+
+    /* For bind-mounted dirs, F_GETPATH resolves symlinks and returns the
+     * host persistent path (e.g. /Users/.../MinisChat/minis/<sid>/attachments).
+     * This won't start with mount->source, so the normal prefix strip fails.
+     * Detect and translate back to the Linux path. */
+    char linux_path[MAX_PATH];
+    if (fakefs_bind_mount_resolve_path(buf, linux_path, sizeof(linux_path))) {
+        strlcpy(buf, linux_path, MAX_PATH);
+        return 0;
+    }
+
     if (strcmp(fd->mount->source, "/") != 0 || strcmp(buf, "/") == 0) {
         size_t source_len = strlen(fd->mount->source);
         memmove(buf, buf + source_len, MAX_PATH - source_len);

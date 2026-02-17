@@ -28,12 +28,34 @@
 
 struct fakefs_bind_mount {
     char path[PATH_MAX];      /* Linux path prefix, e.g. "/var/minis/offloads" */
+    char host_path[PATH_MAX]; /* Resolved host path the symlink points to */
     int  path_len;
+    int  host_path_len;
     bool active;
 };
 
 static struct fakefs_bind_mount g_bind_mounts[FAKEFS_MAX_BIND_MOUNTS];
 static struct mount *g_fakefs_mount = NULL;
+
+/* Translate a resolved host path back to a Linux path for bind mounts.
+ * e.g. "/Users/.../MinisChat/minis/<sid>/attachments/file.mp4"
+ *   -> "/var/minis/attachments/file.mp4"
+ * Returns true and writes to out_path if a match was found. */
+bool fakefs_bind_mount_resolve_path(const char *resolved, char *out_path, size_t out_size) {
+    for (int i = 0; i < FAKEFS_MAX_BIND_MOUNTS; i++) {
+        if (!g_bind_mounts[i].active)
+            continue;
+        int hlen = g_bind_mounts[i].host_path_len;
+        if (strncmp(resolved, g_bind_mounts[i].host_path, hlen) == 0 &&
+            (resolved[hlen] == '/' || resolved[hlen] == '\0')) {
+            /* Match: replace host prefix with linux prefix */
+            snprintf(out_path, out_size, "%s%s",
+                     g_bind_mounts[i].path, resolved + hlen);
+            return true;
+        }
+    }
+    return false;
+}
 
 /* Check if a path is at or under a bind mount prefix */
 static bool is_under_bind_mount(const char *path) {
@@ -494,6 +516,9 @@ int fakefs_bind_mount(const char *linux_path, const char *host_path) {
             strlcpy(g_bind_mounts[i].path, linux_path,
                     sizeof(g_bind_mounts[i].path));
             g_bind_mounts[i].path_len = strlen(linux_path);
+            strlcpy(g_bind_mounts[i].host_path, host_path,
+                    sizeof(g_bind_mounts[i].host_path));
+            g_bind_mounts[i].host_path_len = strlen(host_path);
             g_bind_mounts[i].active = true;
 
             /* Create symlink on host: data/<linux_path> -> <host_path>
