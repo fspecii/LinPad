@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <sys/file.h>
 #include <sqlite3.h>
+#include <unistd.h>
 
 #include "debug.h"
 #include "kernel/errno.h"
@@ -17,6 +18,68 @@
 #include "fs/fake.h"
 
 // TODO document database
+
+/* ===== Bind Mount Support =====
+ * Allows redirecting fakefs paths to external host directories via symlinks.
+ * Files under bind-mounted paths get auto-created meta.db entries on access.
+ * This avoids the need to copy files into the fakefs data/ directory. */
+
+#define FAKEFS_MAX_BIND_MOUNTS 8
+
+struct fakefs_bind_mount {
+    char path[PATH_MAX];      /* Linux path prefix, e.g. "/var/minis/offloads" */
+    int  path_len;
+    bool active;
+};
+
+static struct fakefs_bind_mount g_bind_mounts[FAKEFS_MAX_BIND_MOUNTS];
+static struct mount *g_fakefs_mount = NULL;
+
+/* Check if a path is at or under a bind mount prefix */
+static bool is_under_bind_mount(const char *path) {
+    for (int i = 0; i < FAKEFS_MAX_BIND_MOUNTS; i++) {
+        if (!g_bind_mounts[i].active)
+            continue;
+        int len = g_bind_mounts[i].path_len;
+        if (strncmp(g_bind_mounts[i].path, path, len) == 0 &&
+            (path[len] == '/' || path[len] == '\0'))
+            return true;
+    }
+    return false;
+}
+
+/* Auto-create a meta.db entry for a path under a bind mount.
+ * Probes the host filesystem to determine if it's a file or directory. */
+static inode_t bind_mount_ensure_inode(struct fakefs_db *fs, struct mount *mount,
+                                       const char *path) {
+    db_begin_read(fs);
+    inode_t ino = path_get_inode(fs, path);
+    db_commit(fs);
+    if (ino != 0)
+        return ino;
+
+    /* Check if it exists on host via the symlink */
+    struct stat host_stat;
+    if (fstatat(mount->root_fd, fix_path(path), &host_stat, AT_SYMLINK_NOFOLLOW) < 0) {
+        /* Might be under a symlink — try without NOFOLLOW */
+        if (fstatat(mount->root_fd, fix_path(path), &host_stat, 0) < 0)
+            return 0;
+    }
+
+    uint32_t mode;
+    if (S_ISDIR(host_stat.st_mode))
+        mode = S_IFDIR | 0755;
+    else if (S_ISLNK(host_stat.st_mode))
+        mode = S_IFLNK | 0777;
+    else
+        mode = S_IFREG | 0644;
+
+    struct ish_stat ishstat = {.mode = mode, .uid = 0, .gid = 0, .rdev = 0};
+    db_begin_write(fs);
+    ino = path_create(fs, path, &ishstat);
+    db_commit(fs);
+    return ino;
+}
 
 // this exists only to override readdir to fix the returned inode numbers
 static struct fd_ops fakefs_fdops;
@@ -41,10 +104,14 @@ static struct fd *fakefs_open(struct mount *mount, const char *path, int flags, 
     }
     db_commit(fs);
     if (fd->fake_inode == 0) {
-        // metadata for this file is missing
-        // TODO unlink the real file
-        fd_close(fd);
-        return ERR_PTR(_ENOENT);
+        /* Auto-create for bind-mounted paths */
+        if (is_under_bind_mount(path)) {
+            fd->fake_inode = bind_mount_ensure_inode(fs, mount, path);
+        }
+        if (fd->fake_inode == 0) {
+            fd_close(fd);
+            return ERR_PTR(_ENOENT);
+        }
     }
     fd->ops = &fakefs_fdops;
     return fd;
@@ -90,6 +157,9 @@ static int fakefs_link(struct mount *mount, const char *src, const char *dst) {
 
 static int fakefs_unlink(struct mount *mount, const char *path) {
     struct fakefs_db *fs = &mount->fakefs;
+    /* Auto-create entry if under bind mount so path_unlink won't die */
+    if (is_under_bind_mount(path))
+        bind_mount_ensure_inode(fs, mount, path);
     db_begin_write(fs);
     int err = realfs.unlink(mount, path);
     if (err < 0) {
@@ -104,6 +174,9 @@ static int fakefs_unlink(struct mount *mount, const char *path) {
 
 static int fakefs_rmdir(struct mount *mount, const char *path) {
     struct fakefs_db *fs = &mount->fakefs;
+    /* Auto-create entry if under bind mount so path_unlink won't die */
+    if (is_under_bind_mount(path))
+        bind_mount_ensure_inode(fs, mount, path);
     db_begin_write(fs);
     int err = realfs.rmdir(mount, path);
     if (err < 0) {
@@ -191,6 +264,24 @@ static int fakefs_stat(struct mount *mount, const char *path, struct statbuf *fa
     ino_t inode;
     if (!path_read_stat(fs, path, &ishstat, &inode)) {
         db_rollback(fs);
+        /* Auto-create for bind-mounted paths */
+        if (is_under_bind_mount(path)) {
+            inode = bind_mount_ensure_inode(fs, mount, path);
+            if (inode != 0) {
+                db_begin_read(fs);
+                path_read_stat(fs, path, &ishstat, &inode);
+                db_commit(fs);
+                int err = realfs.stat(mount, path, fake_stat);
+                if (err < 0)
+                    return err;
+                fake_stat->inode = inode;
+                fake_stat->mode = ishstat.mode;
+                fake_stat->uid = ishstat.uid;
+                fake_stat->gid = ishstat.gid;
+                fake_stat->rdev = ishstat.rdev;
+                return 0;
+            }
+        }
         return _ENOENT;
     }
     int err = realfs.stat(mount, path, fake_stat);
@@ -250,6 +341,18 @@ static int fakefs_setattr(struct mount *mount, const char *path, struct attr att
     ino_t inode;
     if (!path_read_stat(fs, path, &ishstat, &inode)) {
         db_rollback(fs);
+        /* Auto-create for bind-mounted paths */
+        if (is_under_bind_mount(path)) {
+            inode = bind_mount_ensure_inode(fs, mount, path);
+            if (inode != 0) {
+                db_begin_read(fs);
+                path_read_stat(fs, path, &ishstat, &inode);
+                fake_stat_setattr(&ishstat, attr);
+                inode_write_stat(fs, inode, &ishstat);
+                db_commit(fs);
+                return 0;
+            }
+        }
         return _ENOENT;
     }
     fake_stat_setattr(&ishstat, attr);
@@ -346,10 +449,16 @@ retry:
     db_begin_read(fs);
     entry->inode = path_get_inode(fs, entry_path);
     db_commit(fs);
-    // it's quite possible that due to some mishap there's no metadata for this file
-    // so just skip this entry, instead of crashing the program, so there's hope for recovery
-    if (entry->inode == 0)
-        goto retry;
+
+    if (entry->inode == 0) {
+        /* Auto-create for bind-mounted paths */
+        if (is_under_bind_mount(entry_path)) {
+            entry->inode = bind_mount_ensure_inode(fs, fd->mount, entry_path);
+        }
+        /* Still no inode? Skip this entry to avoid crashes */
+        if (entry->inode == 0)
+            goto retry;
+    }
     return res;
 }
 
@@ -357,6 +466,93 @@ static struct fd_ops fakefs_fdops;
 static void __attribute__((constructor)) init_fake_fdops() {
     fakefs_fdops = realfs_fdops;
     fakefs_fdops.readdir = fakefs_readdir;
+}
+
+/* ===== Public Bind Mount API ===== */
+
+int fakefs_bind_mount(const char *linux_path, const char *host_path) {
+    if (g_fakefs_mount == NULL)
+        return _ENODEV;
+
+    /* Verify host path exists and is a directory */
+    struct stat st;
+    if (stat(host_path, &st) < 0 || !S_ISDIR(st.st_mode))
+        return _ENOENT;
+
+    /* Check if already mounted at this path — just update */
+    for (int i = 0; i < FAKEFS_MAX_BIND_MOUNTS; i++) {
+        if (g_bind_mounts[i].active &&
+            strcmp(g_bind_mounts[i].path, linux_path) == 0) {
+            /* Already registered, nothing to change */
+            return 0;
+        }
+    }
+
+    /* Find a free slot */
+    for (int i = 0; i < FAKEFS_MAX_BIND_MOUNTS; i++) {
+        if (!g_bind_mounts[i].active) {
+            strlcpy(g_bind_mounts[i].path, linux_path,
+                    sizeof(g_bind_mounts[i].path));
+            g_bind_mounts[i].path_len = strlen(linux_path);
+            g_bind_mounts[i].active = true;
+
+            /* Create symlink on host: data/<linux_path> -> <host_path>
+             * First remove any existing file/dir at the path */
+            char host_link[PATH_MAX];
+            snprintf(host_link, sizeof(host_link), "%s", fix_path(linux_path));
+
+            /* Remove existing entry (file, dir, or old symlink) */
+            unlinkat(g_fakefs_mount->root_fd, host_link, 0);
+            /* rmdir in case it's an empty directory */
+            unlinkat(g_fakefs_mount->root_fd, host_link, AT_REMOVEDIR);
+
+            /* Create the symlink */
+            int err = symlinkat(host_path, g_fakefs_mount->root_fd, host_link);
+            if (err < 0) {
+                g_bind_mounts[i].active = false;
+                return _EINVAL;
+            }
+
+            /* Ensure the mount point directory exists in meta.db */
+            struct fakefs_db *fs = &g_fakefs_mount->fakefs;
+            db_begin_read(fs);
+            inode_t ino = path_get_inode(fs, linux_path);
+            db_commit(fs);
+            if (ino == 0) {
+                struct ish_stat ishstat = {
+                    .mode = S_IFDIR | 0755, .uid = 0, .gid = 0, .rdev = 0
+                };
+                db_begin_write(fs);
+                path_create(fs, linux_path, &ishstat);
+                db_commit(fs);
+            }
+
+            return 0;
+        }
+    }
+
+    return _ENOMEM; /* no free slots */
+}
+
+int fakefs_bind_unmount(const char *linux_path) {
+    if (g_fakefs_mount == NULL)
+        return _ENODEV;
+
+    for (int i = 0; i < FAKEFS_MAX_BIND_MOUNTS; i++) {
+        if (g_bind_mounts[i].active &&
+            strcmp(g_bind_mounts[i].path, linux_path) == 0) {
+            g_bind_mounts[i].active = false;
+
+            /* Remove the symlink */
+            char host_link[PATH_MAX];
+            snprintf(host_link, sizeof(host_link), "%s", fix_path(linux_path));
+            unlinkat(g_fakefs_mount->root_fd, host_link, 0);
+
+            return 0;
+        }
+    }
+
+    return _ENOENT;
 }
 
 static int fakefs_mount(struct mount *mount) {
@@ -374,6 +570,10 @@ static int fakefs_mount(struct mount *mount) {
     err = fake_db_init(&mount->fakefs, db_path, mount->root_fd);
     if (err < 0)
         return err;
+
+    /* Store global reference for bind mount API */
+    g_fakefs_mount = mount;
+    memset(g_bind_mounts, 0, sizeof(g_bind_mounts));
 
     return 0;
 }
