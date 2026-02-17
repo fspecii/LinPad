@@ -86,6 +86,11 @@ struct task {
 
     struct task_sockrestart sockrestart;
 
+    // Native offload: when is_native_proxy is true, this task is waiting
+    // for a host-native process instead of running emulated code.
+    pid_t native_pid;
+    bool is_native_proxy;
+
     // current condition/lock, so it can be notified in case of a signal
     cond_t *waiting_cond;
     lock_t *waiting_lock;

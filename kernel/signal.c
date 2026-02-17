@@ -4,6 +4,7 @@
 #include "kernel/calls.h"
 #include "kernel/signal.h"
 #include "kernel/task.h"
+#include "kernel/native_offload.h"
 #include "kernel/vdso.h"
 #include "emu/interrupt.h"
 
@@ -105,6 +106,10 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
     if (sig == 0)
         return;
     if (task->zombie || task->exiting)
+        return;
+
+    // Native offload: forward signal to the host native process
+    if (native_offload_forward_signal(task, sig))
         return;
 
     struct sighand *sighand = task->sighand;

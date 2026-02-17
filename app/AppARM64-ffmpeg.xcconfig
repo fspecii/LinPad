@@ -1,0 +1,10 @@
+#include "AppARM64.xcconfig"
+
+// iSH ARM64 ffmpeg test target: enables built-in native handlers (fake_ffmpeg)
+PRODUCT_NAME = iSH ARM64 ffmpeg
+PRODUCT_BUNDLE_IDENTIFIER = $(ROOT_BUNDLE_IDENTIFIER).arm64.ffmpeg
+PRODUCT_APP_GROUP_IDENTIFIER = group.$(ROOT_BUNDLE_IDENTIFIER).arm64.ffmpeg
+
+// Enable native builtins (fake_ffmpeg) via GCC_PREPROCESSOR_DEFINITIONS.
+// This flag is checked by AppDelegate at runtime to call native_builtins_init().
+GCC_PREPROCESSOR_DEFINITIONS = $(inherited) ISH_FFMPEG_TEST=1

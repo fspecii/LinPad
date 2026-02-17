@@ -35,7 +35,7 @@ struct fakefs_bind_mount {
 };
 
 static struct fakefs_bind_mount g_bind_mounts[FAKEFS_MAX_BIND_MOUNTS];
-static struct mount *g_fakefs_mount = NULL;
+struct mount *g_fakefs_mount = NULL;
 
 /* Translate a resolved host path back to a Linux path for bind mounts.
  * e.g. "/Users/.../MinisChat/minis/<sid>/attachments/file.mp4"

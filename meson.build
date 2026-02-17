@@ -156,6 +156,7 @@ if get_option('kernel') == 'ish'
         'kernel/inotify.c',
         'kernel/ipc.c',
         'kernel/ptrace.c',
+        'kernel/native_offload.c',
 
         'kernel/fs.c',
         'kernel/fs_info.c',

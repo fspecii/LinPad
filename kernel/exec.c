@@ -16,6 +16,7 @@
 #include "fs/fd.h"
 #include "kernel/elf.h"
 #include "kernel/vdso.h"
+#include "kernel/native_offload.h"
 #include "tools/ptraceomatic-config.h"
 
 #define ARGV_MAX 32 * PAGE_SIZE
@@ -832,6 +833,20 @@ dword_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
         }
     }
 #endif
+
+    // Native offload: check if this binary should run natively on the host
+    const char *native_path = native_offload_lookup(filename);
+    if (native_path) {
+        // native_offload_exec calls do_exit() on success (never returns).
+        // On failure, fall through to normal emulated exec.
+        err = native_offload_exec(native_path, filename, argc, argv, envp);
+        if (err == 0) {
+            // Should not reach here (do_exit doesn't return), but just in case
+            goto err_free_envp;
+        }
+        // Fall through to emulated exec on failure
+        printk("native_offload: fallback to emulated exec for %s\n", filename);
+    }
 
     err = do_execve(filename, argc, argv, envp);
 

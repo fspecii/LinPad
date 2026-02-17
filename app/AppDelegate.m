@@ -31,6 +31,10 @@
 #if defined(GUEST_ARM64)
 #include "DebugServer.h"
 #endif
+#include "kernel/native_offload.h"
+#ifdef ISH_FFMPEG_TEST
+extern void native_builtins_init(void);
+#endif
 
 #if ISH_LINUX
 #import "LinuxInterop.h"
@@ -89,6 +93,12 @@ static NSString *const kSkipStartupMessage = @"Skip Startup Message";
     err = become_first_process();
     if (err < 0)
         return err;
+
+#ifdef ISH_FFMPEG_TEST
+    // Register built-in native handlers (fake_ffmpeg) for the ffmpeg test target.
+    // This is NOT called in the standard iSH ARM64 target.
+    native_builtins_init();
+#endif
 
     FsInitialize();
 

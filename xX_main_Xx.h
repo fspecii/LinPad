@@ -10,6 +10,7 @@
 #include "fs/dev.h"
 #include "fs/path.h"
 #include "fs/real.h"
+#include "kernel/native_offload.h"
 #ifdef __APPLE__
 #include <sys/resource.h>
 #define IOPOL_TYPE_VFS_HFS_CASE_SENSITIVITY 1
@@ -53,7 +54,7 @@ static inline int xX_main_Xx(int argc, char *const argv[], const char *envp) {
     const char *workdir = NULL;
     const struct fs_ops *fs = &realfs;
     const char *console = "/dev/tty1";
-    while ((opt = getopt(argc, argv, "+r:f:d:c:")) != -1) {
+    while ((opt = getopt(argc, argv, "+r:f:d:c:n:")) != -1) {
         switch (opt) {
             case 'r':
             case 'f':
@@ -67,7 +68,10 @@ static inline int xX_main_Xx(int argc, char *const argv[], const char *envp) {
             case 'c':
                 console = optarg;
                 break;
-
+            case 'n':
+                if (native_offload_add(optarg) < 0)
+                    fprintf(stderr, "warning: ignoring -n %s\n", optarg);
+                break;
         }
     }
 

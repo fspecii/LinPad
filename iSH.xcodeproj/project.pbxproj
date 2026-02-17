@@ -497,6 +497,7 @@
 		0FC2383B2991FB82004C09EC /* mmx.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = mmx.c; sourceTree = "<group>"; };
 		408A2639236440F8008A4E81 /* iOSFS.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = iOSFS.m; sourceTree = "<group>"; };
 		408A263B23644102008A4E81 /* iOSFS.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = iOSFS.h; sourceTree = "<group>"; };
+		40AEF95FC5D957E4D8F5E6A1 /* AppARM64-ffmpeg.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "AppARM64-ffmpeg.xcconfig"; sourceTree = "<group>"; };
 		49087C13295DF0490058075B /* hook.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = hook.h; sourceTree = "<group>"; };
 		49087C14295DF0490058075B /* hook.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = hook.c; sourceTree = "<group>"; };
 		49087C26295DF1350058075B /* mach_exc.defs */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.mig; name = mach_exc.defs; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/mach/mach_exc.defs; sourceTree = DEVELOPER_DIR; };
@@ -666,6 +667,7 @@
 		AA000015AF96D90D00FFB7A4 /* AppARM64.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AppARM64.xcconfig; sourceTree = "<group>"; };
 		AA000131AF96D90D00FFB7A4 /* DebugServer.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = DebugServer.c; sourceTree = "<group>"; };
 		AA000132AF96D90D00FFB7A4 /* DebugServer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DebugServer.h; sourceTree = "<group>"; };
+		AA9C2BB72F44A3DD00F41633 /* iSH ARM64 ffmpeg.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "iSH ARM64 ffmpeg.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB0B848E2586A4CF00208600 /* XcodeDefault.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = XcodeDefault.xcconfig; sourceTree = "<group>"; };
 		BB0B859B2586F13200208600 /* XcodeDebug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = XcodeDebug.xcconfig; sourceTree = "<group>"; };
 		BB0B859C2586F19000208600 /* XcodeRelease.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = XcodeRelease.xcconfig; sourceTree = "<group>"; };
@@ -950,6 +952,7 @@
 			children = (
 				BB0B86CD2586FD8800208600 /* App.xcconfig */,
 				AA000015AF96D90D00FFB7A4 /* AppARM64.xcconfig */,
+				40AEF95FC5D957E4D8F5E6A1 /* AppARM64-ffmpeg.xcconfig */,
 				BBEF192C26806546001225BD /* AppLib.xcconfig */,
 				493B378F290F5320000C41ED /* CLI.xcconfig */,
 				BB0B86D52587009D00208600 /* iOS.xcconfig */,
@@ -1127,6 +1130,7 @@
 				BBECF3A22691314C00DEC937 /* libiSHLinux.a */,
 				BBECF3B8269136E100DEC937 /* liblinux.a */,
 				BBBDDF8F2CE00F6B0071F1F3 /* libiSHLinuxUser.a */,
+				AA9C2BB72F44A3DD00F41633 /* iSH ARM64 ffmpeg.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -1513,6 +1517,31 @@
 			productReference = 497F6D47254E605F00C82F46 /* ish */;
 			productType = "com.apple.product-type.tool";
 		};
+		74B674687BE68C2FE768F439 /* iSH-ARM64-ffmpeg */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ACF7C657334FB697AE177303 /* Build configuration list for PBXNativeTarget "iSH-ARM64-ffmpeg" */;
+			buildPhases = (
+				AA000300AF96D90D00FFB7A4 /* Build Meson (ARM64) */,
+				AA0000081F96D90D00FFB7A4 /* Sources */,
+				AA0000091F96D90D00FFB7A4 /* Frameworks */,
+				AA000011AF96D90D00FFB7A4 /* Download Root */,
+				AA000012AF96D90D00FFB7A4 /* Generate APK Repositories File */,
+				AA000013AF96D90D00FFB7A4 /* Compile JavaScript */,
+				AA000010AF96D90D00FFB7A4 /* Resources */,
+				AA000014AF96D90D00FFB7A4 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+				AA000200AF96D90D00FFB7A4 /* PBXBuildRule */,
+			);
+			dependencies = (
+				AA000060AF96D90D00FFB7A4 /* PBXTargetDependency */,
+				AA000062AF96D90D00FFB7A4 /* PBXTargetDependency */,
+			);
+			name = "iSH-ARM64-ffmpeg";
+			productName = "iSH ARM64 ffmpeg";
+			productReference = AA9C2BB72F44A3DD00F41633 /* iSH ARM64 ffmpeg.app */;
+			productType = "com.apple.product-type.application";
+		};
 		AA0000011F96D90D00FFB7A4 /* iSH-ARM64 */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = AA0000031F96D90D00FFB7A4 /* Build configuration list for PBXNativeTarget "iSH-ARM64" */;
@@ -1842,6 +1871,7 @@
 				BB4A922324ED9402002F5A96 /* iSH pre */,
 				497F6CE3254E5E4C00C82F46 /* MakeXcodeAutoCompleteWork */,
 				497F6D46254E605F00C82F46 /* ish */,
+				74B674687BE68C2FE768F439 /* iSH-ARM64-ffmpeg */,
 			);
 		};
 /* End PBXProject section */
@@ -2631,6 +2661,17 @@
 			};
 			name = Release;
 		};
+		A111B9DA002FA9142419CAE0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 40AEF95FC5D957E4D8F5E6A1 /* AppARM64-ffmpeg.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = K8Q74NT2BG;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+			};
+			name = Release;
+		};
 		AA0000041F96D90D00FFB7A4 /* Debug-ApplePleaseFixFB19282108 */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = AA000015AF96D90D00FFB7A4 /* AppARM64.xcconfig */;
@@ -2662,6 +2703,31 @@
 				DEVELOPMENT_TEAM = K8Q74NT2BG;
 			};
 			name = ReleaseLinux;
+		};
+		AA9C2BB52F44A3C700F41633 /* DebugLinux */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "iSH ARM64 ffmpeg";
+			};
+			name = DebugLinux;
+		};
+		AA9C2BB62F44A3C700F41633 /* ReleaseLinux */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = "iSH ARM64 ffmpeg";
+			};
+			name = ReleaseLinux;
+		};
+		AAB2DDFCA9F64FB629D35CE7 /* Debug-ApplePleaseFixFB19282108 */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 40AEF95FC5D957E4D8F5E6A1 /* AppARM64-ffmpeg.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = K8Q74NT2BG;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+			};
+			name = "Debug-ApplePleaseFixFB19282108";
 		};
 		BB13F7CC200ACC31003D1C4D /* Debug-ApplePleaseFixFB19282108 */ = {
 			isa = XCBuildConfiguration;
@@ -3213,6 +3279,17 @@
 				AA0000051F96D90D00FFB7A4 /* DebugLinux */,
 				AA0000061F96D90D00FFB7A4 /* Release */,
 				AA0000071F96D90D00FFB7A4 /* ReleaseLinux */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		ACF7C657334FB697AE177303 /* Build configuration list for PBXNativeTarget "iSH-ARM64-ffmpeg" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AAB2DDFCA9F64FB629D35CE7 /* Debug-ApplePleaseFixFB19282108 */,
+				A111B9DA002FA9142419CAE0 /* Release */,
+				AA9C2BB52F44A3C700F41633 /* DebugLinux */,
+				AA9C2BB62F44A3C700F41633 /* ReleaseLinux */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
