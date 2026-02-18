@@ -6,6 +6,7 @@
 #include <sys/file.h>
 #include <sqlite3.h>
 #include <unistd.h>
+#include <errno.h>
 
 #include "debug.h"
 #include "kernel/errno.h"
@@ -501,11 +502,27 @@ int fakefs_bind_mount(const char *linux_path, const char *host_path) {
     if (stat(host_path, &st) < 0 || !S_ISDIR(st.st_mode))
         return _ENOENT;
 
-    /* Check if already mounted at this path — just update */
+    /* Check if already mounted at this path — update if host_path changed */
     for (int i = 0; i < FAKEFS_MAX_BIND_MOUNTS; i++) {
         if (g_bind_mounts[i].active &&
             strcmp(g_bind_mounts[i].path, linux_path) == 0) {
-            /* Already registered, nothing to change */
+            if (strcmp(g_bind_mounts[i].host_path, host_path) == 0) {
+                return 0; /* same host_path, nothing to do */
+            }
+            /* host_path changed (e.g. session switch) — update slot and symlink */
+            strlcpy(g_bind_mounts[i].host_path, host_path,
+                    sizeof(g_bind_mounts[i].host_path));
+            g_bind_mounts[i].host_path_len = strlen(host_path);
+
+            char host_link[PATH_MAX];
+            snprintf(host_link, sizeof(host_link), "%s", fix_path(linux_path));
+            unlinkat(g_fakefs_mount->root_fd, host_link, 0);
+            unlinkat(g_fakefs_mount->root_fd, host_link, AT_REMOVEDIR);
+            int err = symlinkat(host_path, g_fakefs_mount->root_fd, host_link);
+            if (err < 0) {
+                g_bind_mounts[i].active = false;
+                return _EINVAL;
+            }
             return 0;
         }
     }
