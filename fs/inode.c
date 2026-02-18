@@ -26,6 +26,8 @@ struct inode_data *inode_get_unlocked(struct mount *mount, ino_t ino) {
     struct inode_data *inode = inode_get_data(mount, ino);
     if (inode == NULL) {
         inode = malloc(sizeof(struct inode_data));
+        if (inode == NULL)
+            return NULL;
         inode->refcount = 0;
         inode->number = ino;
         mount_retain(mount);

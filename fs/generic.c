@@ -59,6 +59,11 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
         goto error;
     }
     fd->inode = inode_get_unlocked(mount, stat.inode);
+    if (fd->inode == NULL) {
+        unlock(&inodes_lock);
+        err = _ENOMEM;
+        goto error;
+    }
     unlock(&inodes_lock);
     fd->type = stat.mode & S_IFMT;
     fd->flags = flags;

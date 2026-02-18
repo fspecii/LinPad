@@ -131,6 +131,10 @@ static int unix_socket_get(const char *path_raw, struct fd *bind_fd, uint32_t *s
 
     // Look up the socket ID for the inode number.
     struct inode_data *inode = inode_get(mount, stat.inode);
+    if (inode == NULL) {
+        err = _ENOMEM;
+        goto out;
+    }
     lock(&inode->lock);
     if (inode->socket_id == 0)
         inode->socket_id = unix_socket_next_id();
