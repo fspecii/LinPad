@@ -400,7 +400,17 @@ int realfs_getpath(struct fd *fd, char *buf) {
 
     if (strcmp(fd->mount->source, "/") != 0 || strcmp(buf, "/") == 0) {
         size_t source_len = strlen(fd->mount->source);
-        memmove(buf, buf + source_len, MAX_PATH - source_len);
+        /* Verify buf actually starts with mount->source before stripping.
+         * F_GETPATH resolves symlinks, so bind-mounted paths may point outside
+         * mount->source when the bind mount table has been cleared (e.g. after
+         * app restart before mountMinis re-registers the mounts). */
+        if (strncmp(buf, fd->mount->source, source_len) == 0) {
+            memmove(buf, buf + source_len, MAX_PATH - source_len);
+        } else {
+            /* Path is outside mount source (stale bind mount symlink resolved
+             * by F_GETPATH). Return root as a safe fallback. */
+            strcpy(buf, "/");
+        }
     }
     return 0;
 }

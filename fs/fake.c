@@ -6,6 +6,7 @@
 #include <sys/file.h>
 #include <sqlite3.h>
 #include <unistd.h>
+#include <dirent.h>
 #include <errno.h>
 
 #include "debug.h"
@@ -493,6 +494,35 @@ static void __attribute__((constructor)) init_fake_fdops() {
 
 /* ===== Public Bind Mount API ===== */
 
+/* Recursively remove a directory tree relative to dir_fd.
+ * Handles non-empty directories that unlinkat(AT_REMOVEDIR) can't delete. */
+static void remove_tree_at(int dir_fd, const char *path) {
+    int fd = openat(dir_fd, path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+    if (fd < 0) {
+        /* Not a directory or doesn't exist — try plain unlink */
+        unlinkat(dir_fd, path, 0);
+        return;
+    }
+    DIR *dir = fdopendir(fd);
+    if (!dir) {
+        close(fd);
+        unlinkat(dir_fd, path, 0);
+        return;
+    }
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+            continue;
+        if (ent->d_type == DT_DIR) {
+            remove_tree_at(dirfd(dir), ent->d_name);
+        } else {
+            unlinkat(dirfd(dir), ent->d_name, 0);
+        }
+    }
+    closedir(dir); /* also closes fd */
+    unlinkat(dir_fd, path, AT_REMOVEDIR);
+}
+
 int fakefs_bind_mount(const char *linux_path, const char *host_path) {
     if (g_fakefs_mount == NULL)
         return _ENODEV;
@@ -516,8 +546,8 @@ int fakefs_bind_mount(const char *linux_path, const char *host_path) {
 
             char host_link[PATH_MAX];
             snprintf(host_link, sizeof(host_link), "%s", fix_path(linux_path));
-            unlinkat(g_fakefs_mount->root_fd, host_link, 0);
-            unlinkat(g_fakefs_mount->root_fd, host_link, AT_REMOVEDIR);
+            /* Remove whatever is at the path (file, symlink, or directory tree) */
+            remove_tree_at(g_fakefs_mount->root_fd, host_link);
             int err = symlinkat(host_path, g_fakefs_mount->root_fd, host_link);
             if (err < 0) {
                 g_bind_mounts[i].active = false;
@@ -539,14 +569,12 @@ int fakefs_bind_mount(const char *linux_path, const char *host_path) {
             g_bind_mounts[i].active = true;
 
             /* Create symlink on host: data/<linux_path> -> <host_path>
-             * First remove any existing file/dir at the path */
+             * First remove any existing file/dir at the path (may be non-empty) */
             char host_link[PATH_MAX];
             snprintf(host_link, sizeof(host_link), "%s", fix_path(linux_path));
 
-            /* Remove existing entry (file, dir, or old symlink) */
-            unlinkat(g_fakefs_mount->root_fd, host_link, 0);
-            /* rmdir in case it's an empty directory */
-            unlinkat(g_fakefs_mount->root_fd, host_link, AT_REMOVEDIR);
+            /* Remove whatever is at the path (file, symlink, or directory tree) */
+            remove_tree_at(g_fakefs_mount->root_fd, host_link);
 
             /* Create the symlink */
             int err = symlinkat(host_path, g_fakefs_mount->root_fd, host_link);
