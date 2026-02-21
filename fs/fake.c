@@ -263,12 +263,11 @@ static int fakefs_mknod(struct mount *mount, const char *path, mode_t_ mode, dev
         real_mode |= S_IFREG;
     else
         real_mode |= mode & S_IFMT;
-    db_begin_write(fs);
     int err = realfs.mknod(mount, path, real_mode, 0);
-    if (err < 0) {
-        db_rollback(fs);
+    if (err < 0 && err != _EEXIST) {
         return err;
     }
+    db_begin_write(fs);
     struct ish_stat stat;
     stat.mode = mode;
     stat.uid = current->euid;
@@ -276,9 +275,10 @@ static int fakefs_mknod(struct mount *mount, const char *path, mode_t_ mode, dev
     stat.rdev = 0;
     if (S_ISBLK(mode) || S_ISCHR(mode))
         stat.rdev = dev;
-    path_create(fs, path, &stat);
+    if (path_get_inode(fs, path) == 0)
+        path_create(fs, path, &stat);
     db_commit(fs);
-    return err;
+    return 0;
 }
 
 static int fakefs_stat(struct mount *mount, const char *path, struct statbuf *fake_stat) {

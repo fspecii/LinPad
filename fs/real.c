@@ -63,40 +63,31 @@ static int open_flags_fake_from_real(int flags) {
     return fake_flags;
 }
 
+// Map well-known /dev paths to device numbers. Returns 0 if not recognized.
+static dev_t_ realfs_devnum_for_path(const char *path) {
+    if (strncmp(path, "/dev/", 5) != 0)
+        return 0;
+    const char *devname = path + 5;
+    if (strcmp(devname, "null") == 0)
+        return dev_make(MEM_MAJOR, DEV_NULL_MINOR);
+    if (strcmp(devname, "zero") == 0)
+        return dev_make(MEM_MAJOR, DEV_ZERO_MINOR);
+    if (strcmp(devname, "full") == 0)
+        return dev_make(MEM_MAJOR, DEV_FULL_MINOR);
+    if (strcmp(devname, "random") == 0)
+        return dev_make(MEM_MAJOR, DEV_RANDOM_MINOR);
+    if (strcmp(devname, "urandom") == 0)
+        return dev_make(MEM_MAJOR, DEV_URANDOM_MINOR);
+    if (strcmp(devname, "tty") == 0)
+        return dev_make(TTY_ALTERNATE_MAJOR, DEV_TTY_MINOR);
+    if (strcmp(devname, "console") == 0)
+        return dev_make(TTY_ALTERNATE_MAJOR, DEV_CONSOLE_MINOR);
+    if (strcmp(devname, "ptmx") == 0)
+        return dev_make(TTY_ALTERNATE_MAJOR, DEV_PTMX_MINOR);
+    return 0;
+}
+
 struct fd *realfs_open(struct mount *mount, const char *path, int flags, int mode) {
-    // Check if this is a special device file in /dev
-    if (strncmp(path, "/dev/", 5) == 0) {
-        const char *devname = path + 5;
-        dev_t_ devnum = 0;
-
-        // Map common device names to their device numbers
-        if (strcmp(devname, "null") == 0)
-            devnum = dev_make(MEM_MAJOR, DEV_NULL_MINOR);
-        else if (strcmp(devname, "zero") == 0)
-            devnum = dev_make(MEM_MAJOR, DEV_ZERO_MINOR);
-        else if (strcmp(devname, "full") == 0)
-            devnum = dev_make(MEM_MAJOR, DEV_FULL_MINOR);
-        else if (strcmp(devname, "random") == 0)
-            devnum = dev_make(MEM_MAJOR, DEV_RANDOM_MINOR);
-        else if (strcmp(devname, "urandom") == 0)
-            devnum = dev_make(MEM_MAJOR, DEV_URANDOM_MINOR);
-
-        // If we recognized a device, open it as a character device
-        if (devnum != 0) {
-            struct fd *fd = fd_create(NULL);
-            fd->real_fd = -1; // no host fd for virtual devices
-            int err = dev_open(dev_major(devnum), dev_minor(devnum), DEV_CHAR, fd);
-            if (err < 0) {
-                fd_close(fd);
-                return ERR_PTR(err);
-            }
-            fd->mount = mount;
-            fd->stat.mode = S_IFCHR | 0666;
-            fd->stat.rdev = devnum;
-            return fd;
-        }
-    }
-
     int real_flags = open_flags_real_from_fake(flags);
     int fd_no = openat(mount->root_fd, fix_path(path), real_flags, mode);
     if (fd_no < 0)
@@ -110,8 +101,6 @@ struct fd *realfs_open(struct mount *mount, const char *path, int flags, int mod
 int realfs_close(struct fd *fd) {
     if (fd->dir != NULL)
         closedir(fd->dir);
-    if (fd->real_fd == -1)
-        return 0; // virtual device, no host fd to close
     int err = close(fd->real_fd);
     if (err < 0)
         return errno_map();
@@ -148,15 +137,16 @@ int realfs_stat(struct mount *mount, const char *path, struct statbuf *fake_stat
     if (fstatat(mount->root_fd, fix_path(path), &real_stat, AT_SYMLINK_NOFOLLOW) < 0)
         return errno_map();
     copy_stat(fake_stat, &real_stat);
+    // Override mode/rdev for well-known device paths backed by placeholder files
+    dev_t_ devnum = realfs_devnum_for_path(path);
+    if (devnum != 0) {
+        fake_stat->mode = S_IFCHR | 0666;
+        fake_stat->rdev = devnum;
+    }
     return 0;
 }
 
 int realfs_fstat(struct fd *fd, struct statbuf *fake_stat) {
-    if (fd->real_fd == -1) {
-        // Virtual device fd (e.g. /dev/null opened via fast path)
-        *fake_stat = fd->stat;
-        return 0;
-    }
     struct stat real_stat;
     if (fstat(fd->real_fd, &real_stat) < 0)
         return errno_map();
