@@ -285,7 +285,7 @@ int fd_setflags(struct fd *fd, int flags) {
     return 0;
 }
 
-dword_t sys_fcntl(fd_t f, dword_t cmd, dword_t arg) {
+dword_t sys_fcntl(fd_t f, dword_t cmd, addr_t arg) {
     struct fdtable *table = current->files;
     struct fd *fd = f_get(f);
     if (fd == NULL)
@@ -381,7 +381,7 @@ dword_t sys_fcntl(fd_t f, dword_t cmd, dword_t arg) {
     }
 }
 
-dword_t sys_fcntl32(fd_t fd, dword_t cmd, dword_t arg) {
+dword_t sys_fcntl32(fd_t fd, dword_t cmd, addr_t arg) {
     switch (cmd) {
         case F_GETLK64_:
         case F_SETLK64_:

@@ -36,14 +36,16 @@ struct mem {
 };
 
 // Address space layout for ARM64 guest.
-// Infrastructure supports 48-bit (4-level page table, 64-bit TLB, 64-bit JIT),
-// but current layout uses 32-bit range. JIT masks addresses to 32 bits.
-// To raise to 48-bit: move stack/mmap above 4GB, change JIT masks to 48-bit.
-#define STACK_TOP_PAGE    0xffffeULL      // guard page (read-only)
-#define STACK_INIT_PAGE   0xffffdULL      // initial stack page (growsdown)
-#define STACK_TOP_ADDR    0xffffe000ULL   // SP starts here
-#define MMAP_HOLE_START   0xefffdULL      // mmap search starts here (below stack)
-#define MMAP_HOLE_END     0x40000ULL      // mmap search ends here
+// 48-bit address space with 4-level page table and 48-bit JIT masks.
+// Keep stack and mmap in the low 4GB region (same as x86) so that page table
+// walks are shallow (L0[0]→L1[0]→L2→L3 — the first two levels are always
+// index 0 and stay hot in cache). The 48-bit infrastructure remains available
+// for explicit high-address mmap hints (e.g., V8 CodeRange).
+#define STACK_TOP_PAGE    0xffffeULL        // guard page at 0xffffe000
+#define STACK_INIT_PAGE   0xffffdULL        // initial stack page (growsdown)
+#define STACK_TOP_ADDR    0xffffe000ULL     // SP starts here
+#define MMAP_HOLE_START   0xefffdULL        // mmap search starts here (same as x86)
+#define MMAP_HOLE_END     0x40000ULL        // mmap search ends here (program text)
 // Upper bound for valid user addresses (page number, 48-bit / 4K = 36-bit)
 #define USER_ADDR_MAX_PAGE  0xFFFFFFFFFULL
 

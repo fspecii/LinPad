@@ -50,8 +50,8 @@
     // For regular registers, store 64-bit address (ARM64 guest uses 64-bit addresses)
     str _addr, [x9, x8, lsl #3]
     b 2f
-1:  // For x31, update SP (mask to 32 bits for safety)
-    and x9, _addr, #0xffffffff
+1:  // For x31, update SP (mask to 48 bits)
+    and x9, _addr, #0xffffffffffff
     str x9, [_cpu, #CPU_sp]
 2:  add _pc, _pc, #8
     gret
@@ -155,22 +155,20 @@
 
 /*
  * ADR/ADRP - PC-relative address
- * Code stream: [gadget addr][rd][target address]
+ * Code stream: [gadget addr][rd(0:4) | target(8:55)]
+ * Target is a 48-bit guest address packed in bits 8-55.
  */
 .gadget adr
-    ldr x8, [_pc]           // rd
+    ldr x8, [_pc]
     add _pc, _pc, #8
-    ldr x9, [_pc]           // target address
-    add _pc, _pc, #8
-
-    and x8, x8, #0x1f
-    add x10, _cpu, #CPU_x0
-    cmp x8, #31
+    and x9, x8, #0x1f          // rd
+    ubfx x10, x8, #8, #48      // target (48-bit)
+    add x11, _cpu, #CPU_x0
+    cmp x9, #31
     b.eq 1f
-    str x9, [x10, x8, lsl #3]
+    str x10, [x11, x9, lsl #3]
     gret
-1:  // rd=31, ignore (XZR)
-    gret
+1:  gret
 
 /*
  * ADD/SUB immediate
@@ -232,25 +230,10 @@ add_imm_store_result:
 5:  // rd == 31 (XZR or SP)
     cbz x13, 7f             // If not setting flags, write to SP
     gret                    // If setting flags (CMN), discard result
-7:  // CRITICAL: Mask to 32 bits before writing to SP
-    and x16, x16, #0xffffffff
-    // DEBUG: Check if SP is being set to 0
-    cbnz x16, add_imm_sp_ok
-    mov x17, #0xADD1
-    str x17, [_cpu, #LOCAL_value]
-add_imm_sp_ok:
-    // DEBUG: validate SP value
-    lsr x17, x16, #32
-    cbnz x17, add_imm_sp_corrupt
+7:  // Mask to 48 bits before writing to SP
+    and x16, x16, #0xffffffffffff
     str x16, [_cpu, #CPU_sp]
     gret
-add_imm_sp_corrupt:
-    str x16, [_cpu, #CPU_segfault_addr]
-    str x16, [_cpu, #CPU_sp]
-    mov w8, #0
-    strb w8, [_cpu, #CPU_segfault_was_write]
-    mov w0, #INT_GPF
-    b fiber_exit
 
 .gadget sub_imm
     ldr x8, [_pc]
@@ -307,25 +290,10 @@ sub_imm_store_result:
 5:  // rd == 31 (XZR or SP)
     cbz x13, 7f             // If not setting flags, write to SP
     gret                    // If setting flags (CMP), discard result
-7:  // CRITICAL: Mask to 32 bits before writing to SP
-    and x16, x16, #0xffffffff
-    // DEBUG: Check if SP is being set to 0
-    cbnz x16, sub_imm_sp_ok
-    mov x17, #0x5081
-    str x17, [_cpu, #LOCAL_value]
-sub_imm_sp_ok:
-    // DEBUG: validate SP value
-    lsr x17, x16, #32
-    cbnz x17, sub_imm_sp_corrupt
+7:  // Mask to 48 bits before writing to SP
+    and x16, x16, #0xffffffffffff
     str x16, [_cpu, #CPU_sp]
     gret
-sub_imm_sp_corrupt:
-    str x16, [_cpu, #CPU_segfault_addr]
-    str x16, [_cpu, #CPU_sp]
-    mov w8, #0
-    strb w8, [_cpu, #CPU_segfault_was_write]
-    mov w0, #INT_GPF
-    b fiber_exit
 
 /*
  * ADD/SUB register
@@ -410,18 +378,10 @@ add_shift_asr32:
     cbz x12, 9f
     b 10f
 9:  and x17, x17, #0xffffffff
-10: // DEBUG: validate SP value
-    lsr x16, x17, #32
-    cbnz x16, add_reg_sp_corrupt
+10: // Mask to 48 bits before writing to SP
+    and x17, x17, #0xffffffffffff
     str x17, [_cpu, #CPU_sp]
     gret
-add_reg_sp_corrupt:
-    str x17, [_cpu, #CPU_segfault_addr]
-    str x17, [_cpu, #CPU_sp]
-    mov w8, #0
-    strb w8, [_cpu, #CPU_segfault_was_write]
-    mov w0, #INT_GPF
-    b fiber_exit
 
 // SUB (register, with optional shift)
 // Code stream: [gadget addr][rd | rn<<8 | rm<<16 | sf<<24 | S<<25 | shift_type<<26 | imm6<<32]
@@ -502,18 +462,10 @@ sub_shift_asr32:
     cbz x12, 9f
     b 10f
 9:  and x17, x17, #0xffffffff
-10: // DEBUG: validate SP value
-    lsr x16, x17, #32
-    cbnz x16, sub_reg_sp_corrupt
+10: // Mask to 48 bits before writing to SP
+    and x17, x17, #0xffffffffffff
     str x17, [_cpu, #CPU_sp]
     gret
-sub_reg_sp_corrupt:
-    str x17, [_cpu, #CPU_segfault_addr]
-    str x17, [_cpu, #CPU_sp]
-    mov w8, #0
-    strb w8, [_cpu, #CPU_segfault_was_write]
-    mov w0, #INT_GPF
-    b fiber_exit
 
 /*
  * ADDS (register with shift) - sets NZCV flags
@@ -1009,42 +961,60 @@ and_shifted_store:
     b 4f
 3:  mov x16, #0
 4:
-    // If 32-bit, zero-extend Rm
-    cbnz x12, orr_shifted_apply_shift
-    and x16, x16, #0xffffffff
+    cbz x12, orr_shifted_32
 
-orr_shifted_apply_shift:
-    // Apply shift: x21=type, x20=amount
-    cbz x20, orr_shifted_no_shift  // No shift if amount is 0
+    // 64-bit shift
+    cbz x20, orr_shifted_no_shift64
     cmp x21, #0
-    b.eq orr_shift_lsl
+    b.eq orr_shift_lsl64
     cmp x21, #1
-    b.eq orr_shift_lsr
+    b.eq orr_shift_lsr64
     cmp x21, #2
-    b.eq orr_shift_asr
-    // ROR (type 3)
+    b.eq orr_shift_asr64
     ror x16, x16, x20
-    b orr_shifted_no_shift
-orr_shift_lsl:
+    b orr_shifted_no_shift64
+orr_shift_lsl64:
     lsl x16, x16, x20
-    b orr_shifted_no_shift
-orr_shift_lsr:
+    b orr_shifted_no_shift64
+orr_shift_lsr64:
     lsr x16, x16, x20
-    b orr_shifted_no_shift
-orr_shift_asr:
+    b orr_shifted_no_shift64
+orr_shift_asr64:
     asr x16, x16, x20
 
-orr_shifted_no_shift:
-    // If N=1 (ORN), invert rm
-    cbz x19, orr_shifted_no_invert
+orr_shifted_no_shift64:
+    cbz x19, orr_shifted_no_invert64
     mvn x16, x16
-orr_shifted_no_invert:
+orr_shifted_no_invert64:
     orr x17, x15, x16
+    b orr_shifted_store
 
-    // If 32-bit, truncate result
-    cbnz x12, 6f
-    and x17, x17, #0xffffffff
-6:
+orr_shifted_32:
+    cbz x20, orr_shifted_no_shift32
+    cmp x21, #0
+    b.eq orr_shift_lsl32
+    cmp x21, #1
+    b.eq orr_shift_lsr32
+    cmp x21, #2
+    b.eq orr_shift_asr32
+    ror w16, w16, w20
+    b orr_shifted_no_shift32
+orr_shift_lsl32:
+    lsl w16, w16, w20
+    b orr_shifted_no_shift32
+orr_shift_lsr32:
+    lsr w16, w16, w20
+    b orr_shifted_no_shift32
+orr_shift_asr32:
+    asr w16, w16, w20
+
+orr_shifted_no_shift32:
+    cbz x19, orr_shifted_no_invert32
+    mvn w16, w16
+orr_shifted_no_invert32:
+    orr w17, w15, w16
+
+orr_shifted_store:
     // Store result (unless rd is XZR)
     cmp x9, #31
     b.eq 7f
@@ -1181,6 +1151,32 @@ orr_reg_no_invert:
     str x17, [x14, x9, lsl #3]
 7:  gret
 
+// MOV Xd, Xm (64-bit) — fast path for ORR Xd, XZR, Xm
+// gen.c guarantees rd!=31 and rm!=31, so no SP/XZR checks needed
+// Code stream: [gadget addr][rd | rm<<16]
+.gadget mov_reg
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f          // rd
+    ubfx x11, x8, #16, #5     // rm
+    add x14, _cpu, #CPU_x0
+    ldr x16, [x14, x11, lsl #3]
+    str x16, [x14, x9, lsl #3]
+    gret
+
+// MOV Wd, Wm (32-bit) — fast path for ORR Wd, WZR, Wm
+// Code stream: [gadget addr][rd | rm<<16]
+.gadget mov_reg32
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f          // rd
+    ubfx x11, x8, #16, #5     // rm
+    add x14, _cpu, #CPU_x0
+    ldr x16, [x14, x11, lsl #3]  // load full 64-bit reg
+    and x16, x16, #0xffffffff    // zero-extend 32→64
+    str x16, [x14, x9, lsl #3]
+    gret
+
 .gadget eor_reg
     ldr x8, [_pc]
     add _pc, _pc, #8
@@ -1286,7 +1282,7 @@ and_imm_store_result:
     // AND (S=0) with rd=31 → write to SP
     cbnz x13, 5f             // If S=1 (ANDS/TST), discard result
     // AND with rd=31: write to SP
-    and x17, x17, #0xffffffff   // Mask to 32-bit address space
+    and x17, x17, #0xffffffffffff   // Mask to 48-bit address space
     str x17, [_cpu, #CPU_sp]
 5:  gret
 
@@ -1854,6 +1850,56 @@ ccmni_set_nzcv:
     gret
 
 /*
+ * Fast-path variable shifts (sf=1, rd/rn/rm != 31)
+ * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
+ */
+
+// LSLV 64-bit fast path
+.gadget lslv_64
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    ldr x16, [x14, x11, lsl #3]
+    and x16, x16, #63
+    lsl x17, x15, x16
+    str x17, [x14, x9, lsl #3]
+    gret
+
+// LSRV 64-bit fast path
+.gadget lsrv_64
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    ldr x16, [x14, x11, lsl #3]
+    and x16, x16, #63
+    lsr x17, x15, x16
+    str x17, [x14, x9, lsl #3]
+    gret
+
+// ASRV 64-bit fast path
+.gadget asrv_64
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    ldr x16, [x14, x11, lsl #3]
+    and x16, x16, #63
+    asr x17, x15, x16
+    str x17, [x14, x9, lsl #3]
+    gret
+
+/*
  * Data Processing (2 source) - Variable shifts and divides
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | sf<<24]
  */
@@ -1891,8 +1937,7 @@ ccmni_set_nzcv:
 lslv_32:
     and x16, x16, #31
     lsl w17, w15, w16
-    // Zero-extend to 64 bits
-    mov w17, w17
+    // w-reg operations implicitly zero-extend to 64 bits
 
 lslv_store:
     cmp x9, #31
@@ -2178,6 +2223,133 @@ ubfm_32_insert:
     mvn w14, w14
     and w0, w0, w14
     lsl w0, w0, w12
+    gret
+
+/*
+ * Fused UBFM - loads rn and stores to rd internally (no load_reg/store_reg dispatch)
+ * Code stream: [gadget addr][immr(0:5) | imms(8:13) | sf(16) | rn(20:24) | rd(28:32)]
+ * gen.c emits this when rn!=31 and rd!=31.
+ */
+.gadget ubfm_fused
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x3f       // immr
+    ubfx x10, x8, #8, #6    // imms
+    ubfx x11, x8, #16, #1   // sf
+    ubfx x3, x8, #20, #5    // rn
+    ubfx x4, x8, #28, #5    // rd
+    // Load source register rn
+    add x14, _cpu, #CPU_x0
+    ldr x0, [x14, x3, lsl #3]
+    // Execute UBFM logic (same as gadget_ubfm)
+    cbz x11, ubfm_f_32
+    // 64-bit
+    cmp x10, x9
+    b.lt ubfm_f_64_insert
+    sub x12, x10, x9
+    add x12, x12, #1
+    lsr x0, x0, x9
+    cmp x12, #64
+    b.eq ubfm_f_store
+    mov x13, #-1
+    lsl x13, x13, x12
+    mvn x13, x13
+    and x0, x0, x13
+    b ubfm_f_store
+ubfm_f_64_insert:
+    mov x12, #64
+    sub x12, x12, x9
+    add x13, x10, #1
+    mov x5, #-1
+    lsl x5, x5, x13
+    mvn x5, x5
+    and x0, x0, x5
+    lsl x0, x0, x12
+    b ubfm_f_store
+ubfm_f_32:
+    cmp x10, x9
+    b.lt ubfm_f_32_insert
+    sub w12, w10, w9
+    add w12, w12, #1
+    lsr w0, w0, w9
+    cmp w12, #32
+    b.eq ubfm_f_store
+    mov w13, #-1
+    lsl w13, w13, w12
+    mvn w13, w13
+    and w0, w0, w13
+    b ubfm_f_store
+ubfm_f_32_insert:
+    mov w12, #32
+    sub w12, w12, w9
+    add w13, w10, #1
+    mov w5, #-1
+    lsl w5, w5, w13
+    mvn w5, w5
+    and w0, w0, w5
+    lsl w0, w0, w12
+ubfm_f_store:
+    str x0, [x14, x4, lsl #3]
+    gret
+
+/*
+ * Fused SBFM - loads rn and stores to rd internally
+ * Code stream: [gadget addr][immr(0:5) | imms(8:13) | sf(16) | rn(20:24) | rd(28:32)]
+ */
+.gadget sbfm_fused
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x3f       // immr
+    ubfx x10, x8, #8, #6    // imms
+    ubfx x11, x8, #16, #1   // sf
+    ubfx x3, x8, #20, #5    // rn
+    ubfx x4, x8, #28, #5    // rd
+    add x14, _cpu, #CPU_x0
+    ldr x0, [x14, x3, lsl #3]
+    cbz x11, sbfm_f_32
+    // 64-bit
+    cmp x10, x9
+    b.lt sbfm_f_64_insert
+    sub x12, x10, x9
+    add x12, x12, #1
+    asr x0, x0, x9
+    mov x13, #64
+    sub x13, x13, x12
+    lsl x0, x0, x13
+    asr x0, x0, x13
+    b sbfm_f_store
+sbfm_f_64_insert:
+    mov x12, #64
+    sub x12, x12, x9
+    add x13, x10, #1
+    mov x5, #64
+    sub x5, x5, x13
+    lsl x0, x0, x5
+    asr x0, x0, x5
+    lsl x0, x0, x12
+    b sbfm_f_store
+sbfm_f_32:
+    cmp x10, x9
+    b.lt sbfm_f_32_insert
+    sub w12, w10, w9
+    add w12, w12, #1
+    asr w0, w0, w9
+    mov w13, #32
+    sub w13, w13, w12
+    lsl w0, w0, w13
+    asr w0, w0, w13
+    b sbfm_f_store
+sbfm_f_32_insert:
+    mov w12, #32
+    sub w12, w12, w9
+    add w13, w10, #1
+    mov w5, #32
+    sub w5, w5, w13
+    lsl w0, w0, w5
+    asr w0, w0, w5
+    lsl w0, w0, w12
+sbfm_f_store:
+    str x0, [x14, x4, lsl #3]
     gret
 
 /*
@@ -2499,8 +2671,8 @@ add_ext_store:
     str x19, [x16, x9, lsl #3]
     gret
 add_ext_store_sp:
-    // CRITICAL: Mask to 32 bits before writing to SP
-    and x19, x19, #0xffffffff
+    // Mask to 48 bits before writing to SP
+    and x19, x19, #0xffffffffffff
     str x19, [_cpu, #CPU_sp]
     gret
 
@@ -2576,8 +2748,8 @@ sub_ext_store:
     str x19, [x16, x9, lsl #3]
     gret
 sub_ext_store_sp:
-    // CRITICAL: Mask to 32 bits before writing to SP
-    and x19, x19, #0xffffffff
+    // Mask to 48 bits before writing to SP
+    and x19, x19, #0xffffffffffff
     str x19, [_cpu, #CPU_sp]
     gret
 
@@ -10182,6 +10354,9 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
 
 .Laddp_8_q1:
     // Q=1: 8 pairs from Vn (low+high) -> result[0..7]
+    // Pre-load Vm before writing Vd (handles Vd==Vm aliasing, e.g. vpaddq(x,x))
+    ldr x3, [x16]            // Vm low (pre-loaded before Vd write)
+    ldr x4, [x16, #8]        // Vm high (pre-loaded before Vd write)
     ldr x20, [x15]           // Vn low
     ldr x21, [x15, #8]       // Vn high
     mov x22, #0
@@ -10237,8 +10412,9 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
     str x22, [x14]
 
     // Q=1: 8 pairs from Vm (low+high) -> result[8..15]
-    ldr x20, [x16]           // Vm low
-    ldr x21, [x16, #8]       // Vm high
+    // Use pre-loaded Vm values (x3/x4) instead of re-reading from [x16]
+    mov x20, x3              // Vm low (from pre-load)
+    mov x21, x4              // Vm high (from pre-load)
     mov x22, #0
 
     ubfx x23, x20, #0, #8
@@ -10331,6 +10507,9 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
 
 .Laddp_16_q1:
     // Q=1: 4 pairs from Vn (low+high) -> result[0..3]
+    // Pre-load Vm before writing Vd (handles Vd==Vm aliasing)
+    ldr x3, [x16]            // Vm low (pre-loaded)
+    ldr x4, [x16, #8]        // Vm high (pre-loaded)
     ldr x20, [x15]
     ldr x21, [x15, #8]
     mov x22, #0
@@ -10362,8 +10541,8 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
     str x22, [x14]
 
     // Q=1: 4 pairs from Vm (low+high) -> result[4..7]
-    ldr x20, [x16]
-    ldr x21, [x16, #8]
+    mov x20, x3              // Vm low (from pre-load)
+    mov x21, x4              // Vm high (from pre-load)
     mov x22, #0
 
     ubfx x23, x20, #0, #16
@@ -10418,6 +10597,9 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
 
 .Laddp_32_q1:
     // Q=1: Vn low pair -> result[0], Vn high pair -> result[1]
+    // Pre-load Vm before writing Vd (handles Vd==Vm aliasing)
+    ldr x3, [x16]            // Vm low (pre-loaded)
+    ldr x4, [x16, #8]        // Vm high (pre-loaded)
     ldr x20, [x15]
     ldr x21, [x15, #8]
 
@@ -10435,8 +10617,8 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
     str x22, [x14]
 
     // Q=1: Vm low pair -> result[2], Vm high pair -> result[3]
-    ldr x20, [x16]
-    ldr x21, [x16, #8]
+    mov x20, x3              // Vm low (from pre-load)
+    mov x21, x4              // Vm high (from pre-load)
 
     and x23, x20, #0xffffffff
     lsr x24, x20, #32
@@ -10454,13 +10636,16 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
 
 .Laddp_64:
     // 64-bit elements - only valid for Q=1 (128-bit vectors)
+    // Pre-load Vm before writing Vd (handles Vd==Vm aliasing)
+    ldr x3, [x16]            // Vm[0] (pre-loaded)
+    ldr x4, [x16, #8]        // Vm[1] (pre-loaded)
     ldr x20, [x15]           // Vn[0]
     ldr x23, [x15, #8]       // Vn[1]
     add x22, x20, x23          // result[0] = Vn[0] + Vn[1]
     str x22, [x14]
 
-    ldr x20, [x16]           // Vm[0]
-    ldr x23, [x16, #8]       // Vm[1]
+    mov x20, x3              // Vm[0] (from pre-load)
+    mov x23, x4              // Vm[1] (from pre-load)
     add x22, x20, x23          // result[1] = Vm[0] + Vm[1]
     str x22, [x14, #8]
     gret
@@ -10563,6 +10748,9 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
 
 .Lumaxp_8_q1:
     // Q=1: 8 pairs from Vn (low+high) -> result[0..7]
+    // Pre-load Vm before writing Vd (handles Vd==Vm aliasing)
+    ldr x3, [x16]            // Vm low (pre-loaded)
+    ldr x4, [x16, #8]        // Vm high (pre-loaded)
     ldr x20, [x15]           // Vn low
     ldr x21, [x15, #8]       // Vn high
     mov x22, #0
@@ -10618,8 +10806,9 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
     str x22, [x14]
 
     // Q=1: 8 pairs from Vm (low+high) -> result[8..15]
-    ldr x20, [x16]           // Vm low
-    ldr x21, [x16, #8]       // Vm high
+    // Use pre-loaded Vm values (x3/x4) instead of re-reading from [x16]
+    mov x20, x3              // Vm low (from pre-load)
+    mov x21, x4              // Vm high (from pre-load)
     mov x22, #0
 
     ubfx x23, x20, #0, #8
@@ -10710,6 +10899,9 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
 
 .Lumaxp_16_q1:
     // Q=1: 4 pairs from Vn (low+high) -> result[0..3]
+    // Pre-load Vm before writing Vd (handles Vd==Vm aliasing)
+    ldr x3, [x16]            // Vm low (pre-loaded)
+    ldr x4, [x16, #8]        // Vm high (pre-loaded)
     ldr x20, [x15]
     ldr x21, [x15, #8]
     mov x22, #0
@@ -10741,8 +10933,9 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
     str x22, [x14]
 
     // Q=1: 4 pairs from Vm (low+high) -> result[4..7]
-    ldr x20, [x16]
-    ldr x21, [x16, #8]
+    // Use pre-loaded Vm values (x3/x4) instead of re-reading from [x16]
+    mov x20, x3              // Vm low (from pre-load)
+    mov x21, x4              // Vm high (from pre-load)
     mov x22, #0
 
     ubfx x23, x20, #0, #16
@@ -10795,6 +10988,9 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
 
 .Lumaxp_32_q1:
     // Q=1: Vn low pair -> result[0], Vn high pair -> result[1]
+    // Pre-load Vm before writing Vd (handles Vd==Vm aliasing)
+    ldr x3, [x16]            // Vm low (pre-loaded)
+    ldr x4, [x16, #8]        // Vm high (pre-loaded)
     ldr x20, [x15]
     ldr x21, [x15, #8]
 
@@ -10812,8 +11008,9 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
     str x22, [x14]
 
     // Q=1: Vm low pair -> result[2], Vm high pair -> result[3]
-    ldr x20, [x16]
-    ldr x21, [x16, #8]
+    // Use pre-loaded Vm values (x3/x4) instead of re-reading from [x16]
+    mov x20, x3              // Vm low (from pre-load)
+    mov x21, x4              // Vm high (from pre-load)
 
     and x23, x20, #0xffffffff
     lsr x24, x20, #32
@@ -10831,14 +11028,17 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
 
 .Lumaxp_64:
     // 64-bit elements (only valid for Q=1)
+    // Pre-load Vm before writing Vd (handles Vd==Vm aliasing)
+    ldr x3, [x16]            // Vm[0] (pre-loaded)
+    ldr x4, [x16, #8]        // Vm[1] (pre-loaded)
     ldr x20, [x15]           // Vn[0]
     ldr x23, [x15, #8]       // Vn[1]
     cmp x20, x23
     csel x22, x20, x23, hs   // result[0] = max(Vn[0], Vn[1])
     str x22, [x14]
 
-    ldr x20, [x16]           // Vm[0]
-    ldr x23, [x16, #8]       // Vm[1]
+    mov x20, x3              // Vm[0] (from pre-load)
+    mov x23, x4              // Vm[1] (from pre-load)
     cmp x20, x23
     csel x22, x20, x23, hs   // result[1] = max(Vm[0], Vm[1])
     str x22, [x14, #8]
@@ -10942,6 +11142,9 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
 
 .Luminp_8_q1:
     // Q=1: 8 pairs from Vn (low+high) -> result[0..7]
+    // Pre-load Vm before writing Vd (handles Vd==Vm aliasing)
+    ldr x3, [x16]            // Vm low (pre-loaded)
+    ldr x4, [x16, #8]        // Vm high (pre-loaded)
     ldr x20, [x15]           // Vn low
     ldr x21, [x15, #8]       // Vn high
     mov x22, #0
@@ -10997,8 +11200,9 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
     str x22, [x14]
 
     // Q=1: 8 pairs from Vm (low+high) -> result[8..15]
-    ldr x20, [x16]           // Vm low
-    ldr x21, [x16, #8]       // Vm high
+    // Use pre-loaded Vm values (x3/x4) instead of re-reading from [x16]
+    mov x20, x3              // Vm low (from pre-load)
+    mov x21, x4              // Vm high (from pre-load)
     mov x22, #0
 
     ubfx x23, x20, #0, #8
@@ -11089,6 +11293,9 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
 
 .Luminp_16_q1:
     // Q=1: 4 pairs from Vn (low+high) -> result[0..3]
+    // Pre-load Vm before writing Vd (handles Vd==Vm aliasing)
+    ldr x3, [x16]            // Vm low (pre-loaded)
+    ldr x4, [x16, #8]        // Vm high (pre-loaded)
     ldr x20, [x15]
     ldr x21, [x15, #8]
     mov x22, #0
@@ -11120,8 +11327,9 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
     str x22, [x14]
 
     // Q=1: 4 pairs from Vm (low+high) -> result[4..7]
-    ldr x20, [x16]
-    ldr x21, [x16, #8]
+    // Use pre-loaded Vm values (x3/x4) instead of re-reading from [x16]
+    mov x20, x3              // Vm low (from pre-load)
+    mov x21, x4              // Vm high (from pre-load)
     mov x22, #0
 
     ubfx x23, x20, #0, #16
@@ -11174,6 +11382,9 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
 
 .Luminp_32_q1:
     // Q=1: Vn low pair -> result[0], Vn high pair -> result[1]
+    // Pre-load Vm before writing Vd (handles Vd==Vm aliasing)
+    ldr x3, [x16]            // Vm low (pre-loaded)
+    ldr x4, [x16, #8]        // Vm high (pre-loaded)
     ldr x20, [x15]
     ldr x21, [x15, #8]
 
@@ -11191,8 +11402,9 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
     str x22, [x14]
 
     // Q=1: Vm low pair -> result[2], Vm high pair -> result[3]
-    ldr x20, [x16]
-    ldr x21, [x16, #8]
+    // Use pre-loaded Vm values (x3/x4) instead of re-reading from [x16]
+    mov x20, x3              // Vm low (from pre-load)
+    mov x21, x4              // Vm high (from pre-load)
 
     and x23, x20, #0xffffffff
     lsr x24, x20, #32
@@ -11210,14 +11422,17 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
 
 .Luminp_64:
     // 64-bit elements (only valid for Q=1)
+    // Pre-load Vm before writing Vd (handles Vd==Vm aliasing)
+    ldr x3, [x16]            // Vm[0] (pre-loaded)
+    ldr x4, [x16, #8]        // Vm[1] (pre-loaded)
     ldr x20, [x15]           // Vn[0]
     ldr x23, [x15, #8]       // Vn[1]
     cmp x20, x23
     csel x22, x20, x23, lo   // result[0] = min(Vn[0], Vn[1])
     str x22, [x14]
 
-    ldr x20, [x16]           // Vm[0]
-    ldr x23, [x16, #8]       // Vm[1]
+    mov x20, x3              // Vm[0] (from pre-load)
+    mov x23, x4              // Vm[1] (from pre-load)
     cmp x20, x23
     csel x22, x20, x23, lo   // result[1] = min(Vm[0], Vm[1])
     str x22, [x14, #8]
@@ -13714,6 +13929,33 @@ make_fp2_scalar fabd, fabd, fabd
     ldr x15, [x14, x10, lsl #3] // Rn
     sub x16, x15, x11
     str x16, [x14, x9, lsl #3]  // Rd
+    gret
+
+// ADD (immediate, 64-bit, no flags, SP source, no LSL#12)
+// Condition: sf=1, S=0, sh=0, rn==31, rd!=31
+// Code stream: [gadget addr][rd | imm12<<16]
+.gadget add_imm_sp_src_64
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f           // rd
+    ubfx x11, x8, #16, #12      // imm12
+    ldr x15, [_cpu, #CPU_sp]     // load SP directly
+    add x16, x15, x11
+    add x14, _cpu, #CPU_x0
+    str x16, [x14, x9, lsl #3]  // Rd
+    gret
+
+// SUB (immediate, 64-bit, no flags, SP source, no LSL#12)
+// Condition: sf=1, S=0, sh=0, rn==31, rd!=31
+.gadget sub_imm_sp_src_64
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x11, x8, #16, #12
+    ldr x15, [_cpu, #CPU_sp]
+    sub x16, x15, x11
+    add x14, _cpu, #CPU_x0
+    str x16, [x14, x9, lsl #3]
     gret
 
 // ADDS (immediate, 64-bit, flag-setting, no SP source, no LSL#12)

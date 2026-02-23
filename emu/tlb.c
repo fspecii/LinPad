@@ -75,11 +75,21 @@ __no_instrument void *tlb_handle_miss(struct tlb *tlb, addr_t addr, int type) {
 
     struct tlb_entry *tlb_ent = &tlb->entries[TLB_INDEX(addr)];
     tlb_ent->page = TLB_PAGE(addr);
-    if (type == MEM_WRITE)
-        tlb_ent->page_if_writable = tlb_ent->page;
-    else
-        tlb_ent->page_if_writable = TLB_PAGE_EMPTY;
     tlb_ent->data_minus_addr = (uintptr_t) ptr - TLB_PAGE(addr);
+
+    if (type == MEM_WRITE) {
+        tlb_ent->page_if_writable = TLB_PAGE(addr);
+    } else {
+        // On read miss, speculatively check if the page is also writable.
+        // Uses nofault check: no CoW, no GROWSDOWN, no locking — just a
+        // page table flag check. Eliminates ~25% of misses (read→write upgrades).
+        if (tlb->mmu->ops->translate_write_nofault) {
+            char *wptr = tlb->mmu->ops->translate_write_nofault(tlb->mmu, TLB_PAGE(addr));
+            tlb_ent->page_if_writable = wptr ? TLB_PAGE(addr) : TLB_PAGE_EMPTY;
+        } else {
+            tlb_ent->page_if_writable = TLB_PAGE_EMPTY;
+        }
+    }
 
     void *result = (void *) (tlb_ent->data_minus_addr + addr);
     return result;
@@ -122,13 +132,6 @@ __no_instrument int c_load64(struct tlb *tlb, addr_t addr, uint64_t *out) {
         return -1;  // segfault_addr already set by tlb_handle_miss
     }
     *out = *(uint64_t *)ptr;
-    // Debug: trace specific address result
-// Debug: trace loads that return values in the rodata range (might be source of bad pointers)
-#if defined(GUEST_ARM64) && 0  // Disabled to reduce noise
-    if (*out >= RODATA_START && *out < RODATA_END) {
-        uint64_t pc = current ? current->cpu.pc : 0;
-    }
-#endif
     return 0;
 }
 
@@ -207,45 +210,6 @@ __no_instrument int c_load8_sx32(struct tlb *tlb, addr_t addr, int32_t *out) {
 
 // Store functions - return 0 on success, -1 on segfault
 __no_instrument int c_store64(struct tlb *tlb, addr_t addr, uint64_t value) {
-#if 0  // Debug: track stores to help debug SIMD STP
-#define DEBUG_STORE_ADDR 0x7fffd8c0ULL  // buf_size address (FILE+0x60 where FILE is at 0x7fffd860)
-    // Debug: specifically trace stores to buf_size (FILE+0x60 = 0x7fffd8e8)
-    static int store_to_file_count = 0;
-    // Track stores to buf_size location specifically
-    if (addr == 0x7fffd8e8ULL) {  // buf_size address
-        uint64_t pc = current ? current->cpu.pc : 0;
-    }
-    // Also track all FILE struct stores
-    if (addr >= 0x7fffd880ULL && addr < 0x7fffd960ULL) {
-        uint64_t pc = current ? current->cpu.pc : 0;
-        int64_t file_offset = (int64_t)(addr - 0x7fffd888ULL);
-        if (store_to_file_count > 200) store_to_file_count = 0;
-    }
-
-    // Debug: trace stores of the specific error string pointer
-    if (value == ERROR_STRING_ADDR || (value >= ERROR_STRING_ADDR && value < ERROR_STRING_ADDR + 0x100)) {
-        uint64_t pc = current ? current->cpu.pc : 0;
-        // Read the instruction at PC to help identify what's happening
-        uint32_t insn = 0;
-        void *iptr = __tlb_read_ptr(tlb, (addr_t)pc);
-        if (iptr != NULL)
-            insn = *(uint32_t *)iptr;
-        // Print FILE struct offset (addr - FILE base on stack)
-        // The FILE struct is allocated on stack at sp+0x38 in vdprintf
-        // Let's show more context
-        if (current) {
-            // Try to determine FILE base - it's at different stack offsets in different functions
-            // In __stdio_write, x24 is the FILE pointer
-            uint64_t file_base = current->cpu.x24;  // Usually FILE* is in x24 or similar
-        }
-    }
-#endif
-    // Debug: disable store logging for now
-#if 0
-    // Looking for stores around the failing qsort comparison area
-    if (addr >= 0xf7ff3200 && addr < 0xf7ff3300) {
-    }
-#endif
     // Handle unaligned access by writing byte-by-byte
     if ((addr & 7) != 0) {
         // Unaligned - write each byte separately (little-endian)
@@ -507,11 +471,6 @@ __no_instrument int c_ldp32(struct tlb *tlb, addr_t addr, uint32_t *val1, uint32
 }
 
 __no_instrument int c_stp64(struct tlb *tlb, addr_t addr, uint64_t val1, uint64_t val2) {
-    // DEBUG: Check if storing the suspicious value 0xfffffffffffffff8
-#if 0  // Disabled - too noisy
-    if (val1 == 0xfffffffffffffff8ULL || val2 == 0xfffffffffffffff8ULL) {
-    }
-#endif
     void *ptr1 = __tlb_write_ptr(tlb, addr);
     if (ptr1 == NULL) {
         return -1;

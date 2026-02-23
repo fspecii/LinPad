@@ -41,6 +41,9 @@ struct mmu {
 struct mmu_ops {
     // type is MEM_READ or MEM_WRITE
     void *(*translate)(struct mmu *mmu, addr_t addr, int type);
+    // Like translate(MEM_WRITE) but returns NULL instead of triggering CoW/GROWSDOWN.
+    // Used by TLB to speculatively populate write permission on read miss.
+    void *(*translate_write_nofault)(struct mmu *mmu, addr_t addr);
 };
 
 static inline void *mmu_translate(struct mmu *mmu, addr_t addr, int type) {

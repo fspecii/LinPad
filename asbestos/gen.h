@@ -17,6 +17,7 @@ struct gen_state {
     unsigned block_patch_ip; // for call/call_indir gadgets
     uint32_t last_insn;
     struct tlb *tlb; // for peephole optimization (peek at next instruction)
+    unsigned b_follow_depth; // how many unconditional B's we've followed inline
 };
 
 void gen_start(addr_t addr, struct gen_state *state);

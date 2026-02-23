@@ -24,10 +24,11 @@ int_t sys_sendto(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags, a
 int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags, addr_t sockaddr_addr, addr_t sockaddr_len_addr);
 int_t sys_shutdown(fd_t sock_fd, dword_t how);
 int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t value_len);
-int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t len_addr);
+int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, addr_t len_addr);
 int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags);
 int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags);
 int_t sys_sendmmsg(fd_t sock_fd, addr_t msgvec_addr, uint_t msgvec_len, int_t flags);
+int_t sys_recvmmsg(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags, addr_t timeout_addr);
 
 #define SOCKADDR_DATA_MAX 108
 
@@ -195,6 +196,7 @@ static inline int sock_flags_from_real(int real) {
 #define SO_RCVBUF_ 8
 #define SO_KEEPALIVE_ 9
 #define SO_LINGER_ 13
+#define SO_REUSEPORT_ 15
 #define SO_PEERCRED_ 17
 #define SO_TIMESTAMP_ 29
 #define SO_PROTOCOL_ 38
@@ -231,6 +233,7 @@ static inline int sock_opt_to_real(int fake, int level) {
             case SO_TIMESTAMP_: return SO_TIMESTAMP;
             case SO_RCVTIMEO_: return SO_RCVTIMEO;
             case SO_SNDTIMEO_: return SO_SNDTIMEO;
+            case SO_REUSEPORT_: return SO_REUSEPORT;
         } break;
         case IPPROTO_TCP: switch (fake) {
             case TCP_NODELAY_: return TCP_NODELAY;

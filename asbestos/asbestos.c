@@ -23,6 +23,8 @@
 __thread jmp_buf jit_recover_buf;
 __thread volatile sig_atomic_t in_jit;
 __thread volatile uintptr_t jit_crash_host_addr;  // host fault address from last JIT crash
+__thread volatile uint64_t jit_crash_segfault_addr;  // reconstructed guest fault address
+__thread volatile int jit_crash_segfault_was_write;   // read/write from ESR
 
 // Architecture-specific instruction pointer access
 #if defined(GUEST_ARM64)
@@ -334,6 +336,11 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             // Restore guest CPU state to the snapshot taken before fiber_enter.
             // This ensures guest registers are consistent for the retry.
             frame->cpu = saved_cpu;
+
+            // Apply crash recovery info AFTER restore (crash_handler stored
+            // these in thread-locals because saved_cpu restore overwrites cpu).
+            frame->cpu.segfault_addr = jit_crash_segfault_addr;
+            frame->cpu.segfault_was_write = jit_crash_segfault_was_write;
 
             // Flush all caches to get fresh host pointers.
             tlb_flush(tlb);

@@ -22,8 +22,7 @@
 static void mem_changed(struct mem *mem);
 static struct mmu_ops mem_mmu_ops;
 
-// Global anonymous page counter for mmap limit enforcement (defined in mmap.c)
-extern _Atomic long anon_page_count;
+#include "kernel/mm.h"
 
 
 #ifdef GUEST_ARM64
@@ -59,10 +58,8 @@ static void pt_node_free(void *node, int level) {
 
 void mem_destroy(struct mem *mem) {
     write_wrlock(&mem->lock);
-    // Unmap all pages first (frees data/mmap)
     pt_unmap_always(mem, 0, MEM_PAGES);
     asbestos_free(mem->mmu.asbestos);
-    // Free the page table tree
     pt_node_free(mem->pgdir, 0);
     mem->pgdir = NULL;
     write_wrunlock(&mem->lock);
@@ -156,17 +153,70 @@ void mem_next_page(struct mem *mem, page_t *page) {
 }
 
 page_t pt_find_hole(struct mem *mem, pages_t size) {
+    // Scan downward from MMAP_HOLE_START, skipping unallocated page table
+    // subtrees for efficiency (each L0 entry covers 2^27 pages = 512GB,
+    // L1 covers 2^18 pages = 1GB, L2 covers 2^9 pages = 2MB).
+    struct pt_node *l0 = mem->pgdir;
     page_t hole_end = 0;
     bool in_hole = false;
-    for (page_t page = MMAP_HOLE_START; page > MMAP_HOLE_END; page--) {
-        if (!in_hole && mem_pt(mem, page) == NULL) {
-            in_hole = true;
-            hole_end = page + 1;
+
+    page_t page = MMAP_HOLE_START;
+    while (page > MMAP_HOLE_END) {
+        // Fast-skip unallocated L0 subtrees
+        int i0 = PT_INDEX(page, 0);
+        struct pt_node *l1 = l0 ? l0->children[i0] : NULL;
+        if (l1 == NULL) {
+            // Entire L0 subtree (2^27 pages) is unmapped
+            pages_t l0_size = (pages_t)1 << (PT_BITS * 3);
+            page_t l0_base = (page_t)i0 << (PT_BITS * 3);
+            if (!in_hole) { in_hole = true; hole_end = page + 1; }
+            // The entire range [l0_base, page] is a hole
+            page_t effective_base = (l0_base > MMAP_HOLE_END) ? l0_base : MMAP_HOLE_END + 1;
+            if (in_hole && hole_end - effective_base >= size)
+                return hole_end - size;
+            if (l0_base == 0) break;
+            page = l0_base - 1;
+            continue;
         }
-        if (mem_pt(mem, page) != NULL)
+
+        // Fast-skip unallocated L1 subtrees
+        int i1 = PT_INDEX(page, 1);
+        struct pt_node *l2 = l1->children[i1];
+        if (l2 == NULL) {
+            page_t l1_base = ((page_t)i0 << (PT_BITS * 3)) | ((page_t)i1 << (PT_BITS * 2));
+            if (!in_hole) { in_hole = true; hole_end = page + 1; }
+            page_t effective_base = (l1_base > MMAP_HOLE_END) ? l1_base : MMAP_HOLE_END + 1;
+            if (in_hole && hole_end - effective_base >= size)
+                return hole_end - size;
+            if (l1_base == 0) break;
+            page = l1_base - 1;
+            continue;
+        }
+
+        // Fast-skip unallocated L2 subtrees
+        int i2 = PT_INDEX(page, 2);
+        struct pt_entry *l3 = l2->children[i2];
+        if (l3 == NULL) {
+            page_t l2_base = ((page_t)i0 << (PT_BITS * 3)) | ((page_t)i1 << (PT_BITS * 2)) | ((page_t)i2 << PT_BITS);
+            if (!in_hole) { in_hole = true; hole_end = page + 1; }
+            page_t effective_base = (l2_base > MMAP_HOLE_END) ? l2_base : MMAP_HOLE_END + 1;
+            if (in_hole && hole_end - effective_base >= size)
+                return hole_end - size;
+            if (l2_base == 0) break;
+            page = l2_base - 1;
+            continue;
+        }
+
+        // L3 exists — check individual pages
+        if (mem_pt(mem, page) != NULL) {
             in_hole = false;
-        else if (hole_end - page == size)
-            return page;
+        } else {
+            if (!in_hole) { in_hole = true; hole_end = page + 1; }
+            if (hole_end - page >= size)
+                return page;
+        }
+        if (page == 0) break;
+        page--;
     }
     return BAD_PAGE;
 }
@@ -309,13 +359,17 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
 
         asbestos_invalidate_page(mem->mmu.asbestos, page);
         struct data *data = pt->data;
-        bool is_anon = (pt->flags & P_ANONYMOUS) != 0;
+#if ANON_MMAP_LIMIT_PAGES > 0
+        // Decrement per-page for anonymous mappings. This correctly handles
+        // partial unmaps (munmap of subset of original mmap region) where the
+        // data object's refcount doesn't reach 0 but the guest page is gone.
+        if (pt->flags & P_ANONYMOUS)
+            atomic_fetch_sub(&anon_page_count, 1);
+#endif
         mem_pt_del(mem, page);
         if (--data->refcount == 0) {
             // vdso wasn't allocated with mmap, it's just in our data segment
             if (data->data != vdso_data) {
-                if (is_anon)
-                    atomic_fetch_sub(&anon_page_count, (long)(data->size / PAGE_SIZE));
                 int err = munmap(data->data, data->size);
                 if (err != 0)
                     die("munmap(%p, %lu) failed: %s", data->data, data->size, strerror(errno));
@@ -337,6 +391,10 @@ int pt_map_nothing(struct mem *mem, page_t start, pages_t pages, unsigned flags)
     return pt_map(mem, start, pages, memory, 0, flags | P_ANONYMOUS);
 }
 
+// Metadata flags that must be preserved across mprotect — they track
+// allocation type and state, not user-visible protection bits.
+#define P_META_FLAGS (P_ANONYMOUS | P_GROWSDOWN | P_COW | P_SHARED)
+
 int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
     for (page_t page = start; page < start + pages; page++)
         if (mem_pt(mem, page) == NULL)
@@ -344,7 +402,7 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
     for (page_t page = start; page < start + pages; page++) {
         struct pt_entry *entry = mem_pt(mem, page);
         int old_flags = entry->flags;
-        entry->flags = flags;
+        entry->flags = flags | (old_flags & P_META_FLAGS);
 
         // check if protection is increasing
         if ((flags & ~old_flags) & (P_READ|P_WRITE)) {
@@ -362,6 +420,9 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
 }
 
 int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t pages) {
+#if ANON_MMAP_LIMIT_PAGES > 0
+    long anon_copied = 0;
+#endif
     for (page_t page = start; page < start + pages; mem_next_page(src, &page)) {
         struct pt_entry *entry = mem_pt(src, page);
         if (entry == NULL)
@@ -375,7 +436,16 @@ int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t page
         dst_entry->data = entry->data;
         dst_entry->offset = entry->offset;
         dst_entry->flags = entry->flags;
+#if ANON_MMAP_LIMIT_PAGES > 0
+        if (entry->flags & P_ANONYMOUS)
+            anon_copied++;
+#endif
     }
+#if ANON_MMAP_LIMIT_PAGES > 0
+    // The child process now has its own set of anonymous pages.
+    // These will be decremented per-page when the child's mm is freed.
+    atomic_fetch_add(&anon_page_count, anon_copied);
+#endif
     mem_changed(src);
     mem_changed(dst);
     return 0;
@@ -436,6 +506,9 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         // called with the read lock.
         read_wrunlock(&mem->lock);
         write_wrlock(&mem->lock);
+#if ANON_MMAP_LIMIT_PAGES > 0
+        atomic_fetch_add(&anon_page_count, 1);
+#endif
         pt_map_nothing(mem, page, 1, P_WRITE | P_GROWSDOWN);
         write_wrunlock(&mem->lock);
         read_wrlock(&mem->lock);
@@ -466,6 +539,12 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
             if (entry != NULL && (entry->flags & P_COW)) {
                 void *data = (char *) entry->data->data + entry->offset;
                 memcpy(copy, data, PAGE_SIZE);
+#if ANON_MMAP_LIMIT_PAGES > 0
+                // pt_map will unmap the old page (decrementing anon_page_count),
+                // so pre-increment for the new CoW copy to keep balance.
+                if (entry->flags & P_ANONYMOUS)
+                    atomic_fetch_add(&anon_page_count, 1);
+#endif
                 pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW);
                 mem_changed(mem);
             } else {
@@ -490,8 +569,13 @@ static void *mem_mmu_translate(struct mmu *mmu, addr_t addr, int type) {
     return mem_ptr(container_of(mmu, struct mem, mmu), addr, type);
 }
 
+static void *mem_mmu_translate_write_nofault(struct mmu *mmu, addr_t addr) {
+    return mem_ptr_nofault(container_of(mmu, struct mem, mmu), addr, MEM_WRITE);
+}
+
 static struct mmu_ops mem_mmu_ops = {
     .translate = mem_mmu_translate,
+    .translate_write_nofault = mem_mmu_translate_write_nofault,
 };
 
 int mem_segv_reason(struct mem *mem, addr_t addr) {

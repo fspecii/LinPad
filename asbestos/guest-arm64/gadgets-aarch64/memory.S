@@ -40,7 +40,7 @@
 2:
     // Calculate address (64-bit for 48-bit address space)
     add _addr, x12, x10
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
 
     gret
 
@@ -113,7 +113,7 @@
 
     // Calculate address (64-bit for 48-bit address space)
     add _addr, x14, x15
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     gret
 
 /*
@@ -288,7 +288,7 @@
     b 2f
 1:  ldr x12, [_cpu, #CPU_sp]
 2:  add _addr, x12, x10
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     read_prep 64, load64_imm_1
     ldr _tmp, [_addr]
@@ -314,7 +314,7 @@
     b 2f
 1:  ldr x12, [_cpu, #CPU_sp]
 2:  add _addr, x12, x10
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     read_prep 32, load32_imm_1
     ldr w0, [_addr]
@@ -340,7 +340,7 @@
     b 2f
 1:  ldr x12, [_cpu, #CPU_sp]
 2:  add _addr, x12, x10
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     read_prep 16, load16_imm_1
     ldrh w0, [_addr]
@@ -366,7 +366,7 @@
     b 2f
 1:  ldr x12, [_cpu, #CPU_sp]
 2:  add _addr, x12, x10
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     read_prep 8, load8_imm_1
     ldrb w0, [_addr]
@@ -392,7 +392,7 @@
     b 2f
 1:  ldr x12, [_cpu, #CPU_sp]
 2:  add _addr, x12, x10
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     read_prep 32, load32_sx_imm_1
     ldrsw _tmp, [_addr]
@@ -424,7 +424,7 @@
     b 4f
 3:  ldr x12, [_cpu, #CPU_sp]
 4:  add _addr, x12, x10
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     write_prep 64, store64_imm_1
     str x23, [_addr]
@@ -452,7 +452,7 @@
     b 4f
 3:  ldr x12, [_cpu, #CPU_sp]
 4:  add _addr, x12, x10
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     write_prep 32, store32_imm_1
     str w23, [_addr]
@@ -480,7 +480,7 @@
     b 4f
 3:  ldr x12, [_cpu, #CPU_sp]
 4:  add _addr, x12, x10
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     write_prep 16, store16_imm_1
     strh w23, [_addr]
@@ -508,7 +508,7 @@
     b 4f
 3:  ldr x12, [_cpu, #CPU_sp]
 4:  add _addr, x12, x10
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     write_prep 8, store8_imm_1
     strb w23, [_addr]
@@ -516,6 +516,94 @@
     mov _addr, x24
     gret
     write_bullshit 8, store8_imm_1
+
+/*
+ * Fast-path fused load/store gadgets (no SP/XZR checks)
+ *
+ * gen.c guarantees rn!=31 (not SP) and rd/rt!=31 (not XZR/WZR).
+ * Saves ~4 instructions per operation by skipping the cmp+b.eq pairs.
+ * Same code-stream format: [gadget addr][rd_or_rt | rn<<8 | offset<<16]
+ */
+
+// LDR Xd, [Xn, #imm] - fast path (rn!=31, rd!=31)
+.gadget load64_imm_fast
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    ubfx x9, x22, #8, #5       // rn (guaranteed != 31)
+    lsr x10, x22, #16           // offset (unsigned)
+    add x11, _cpu, #CPU_x0
+    ldr x12, [x11, x9, lsl #3]  // load base (no SP check)
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+    read_prep 64, load64_imm_fast_1
+    ldr _tmp, [_addr]
+    and x8, x22, #0x1f          // rd (guaranteed != 31)
+    add x11, _cpu, #CPU_x0
+    str _tmp, [x11, x8, lsl #3]
+    mov _addr, x24
+    gret
+    read_bullshit 64, load64_imm_fast_1
+
+// LDR Wd, [Xn, #imm] - fast path (rn!=31, rd!=31)
+.gadget load32_imm_fast
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    ubfx x9, x22, #8, #5
+    lsr x10, x22, #16
+    add x11, _cpu, #CPU_x0
+    ldr x12, [x11, x9, lsl #3]
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+    read_prep 32, load32_imm_fast_1
+    ldr w0, [_addr]
+    and x8, x22, #0x1f
+    add x11, _cpu, #CPU_x0
+    str x0, [x11, x8, lsl #3]   // zero-extended 32→64
+    mov _addr, x24
+    gret
+    read_bullshit 32, load32_imm_fast_1
+
+// STR Xt, [Xn, #imm] - fast path (rn!=31, rt!=31)
+.gadget store64_imm_fast
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    and x8, x22, #0x1f          // rt (guaranteed != 31)
+    add x11, _cpu, #CPU_x0
+    ldr x23, [x11, x8, lsl #3]  // load value (no XZR check)
+    ubfx x9, x22, #8, #5       // rn (guaranteed != 31)
+    lsr x10, x22, #16           // offset
+    ldr x12, [x11, x9, lsl #3]  // load base (no SP check)
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+    write_prep 64, store64_imm_fast_1
+    str x23, [_addr]
+    write_done 64, store64_imm_fast_1
+    mov _addr, x24
+    gret
+    write_bullshit 64, store64_imm_fast_1
+
+// STR Wt, [Xn, #imm] - fast path (rn!=31, rt!=31)
+.gadget store32_imm_fast
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    and x8, x22, #0x1f          // rt (guaranteed != 31)
+    add x11, _cpu, #CPU_x0
+    ldr x23, [x11, x8, lsl #3]
+    ubfx x9, x22, #8, #5
+    lsr x10, x22, #16
+    ldr x12, [x11, x9, lsl #3]
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+    write_prep 32, store32_imm_fast_1
+    str w23, [_addr]
+    write_done 32, store32_imm_fast_1
+    mov _addr, x24
+    gret
+    write_bullshit 32, store32_imm_fast_1
 
 /*
  * Fused register-offset load/store gadgets
@@ -559,7 +647,7 @@
 3:  mov x15, #0
 4:  lsl x15, x15, x12           // apply shift
     add _addr, x14, x15
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     read_prep 32, load32_sx_reg_1
     ldrsw _tmp, [_addr]
@@ -592,7 +680,7 @@
 3:  mov x15, #0
 4:  lsl x15, x15, x12
     add _addr, x14, x15
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     read_prep 64, load64_reg_1
     ldr _tmp, [_addr]
@@ -625,7 +713,7 @@
 3:  mov x15, #0
 4:  lsl x15, x15, x12
     add _addr, x14, x15
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     read_prep 32, load32_reg_1
     ldr w0, [_addr]
@@ -658,7 +746,7 @@
 3:  mov x15, #0
 4:  lsl x15, x15, x12
     add _addr, x14, x15
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     read_prep 16, load16_reg_1
     ldrh w0, [_addr]
@@ -691,7 +779,7 @@
 3:  mov x15, #0
 4:  lsl x15, x15, x12
     add _addr, x14, x15
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     read_prep 8, load8_reg_1
     ldrb w0, [_addr]
@@ -730,7 +818,7 @@
 5:  mov x15, #0
 6:  lsl x15, x15, x12
     add _addr, x14, x15
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     write_prep 64, store64_reg_1
     str x23, [_addr]
@@ -765,7 +853,7 @@
 5:  mov x15, #0
 6:  lsl x15, x15, x12
     add _addr, x14, x15
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     write_prep 32, store32_reg_1
     str w23, [_addr]
@@ -800,7 +888,7 @@
 5:  mov x15, #0
 6:  lsl x15, x15, x12
     add _addr, x14, x15
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     write_prep 16, store16_reg_1
     strh w23, [_addr]
@@ -835,7 +923,7 @@
 5:  mov x15, #0
 6:  lsl x15, x15, x12
     add _addr, x14, x15
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     write_prep 8, store8_reg_1
     strb w23, [_addr]
@@ -981,13 +1069,13 @@ atomic_cas_segfault:
     b.eq 1f
     ldr x12, [x11, x9, lsl #3]
     add x12, x12, x10
-    and x12, x12, #0xffffffff
+    and x12, x12, #0xffffffffffff
     str x12, [x11, x9, lsl #3]
     gret
 1:  // SP update
     ldr x12, [_cpu, #CPU_sp]
     add x12, x12, x10
-    and x12, x12, #0xffffffff
+    and x12, x12, #0xffffffffffff
     str x12, [_cpu, #CPU_sp]
     gret
 
@@ -1147,6 +1235,53 @@ atomic_cas_segfault:
  *   x8-x12: scratch
  */
 
+// Fast-path LDP Xt, Xt2, [Xn, #imm] (rn!=31, rt!=31, rt2!=31)
+.gadget ldp64_imm_fast
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    ubfx x9, x22, #16, #5          // rn
+    sbfx x10, x22, #24, #16        // signed offset
+    add x11, _cpu, #CPU_x0
+    ldr x12, [x11, x9, lsl #3]     // base (no SP check)
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+    read_prep 128, ldp64_imm_fast_1
+    ldr x23, [_addr]
+    ldr x25, [_addr, #8]
+    and x8, x22, #0x1f              // rt
+    ubfx x9, x22, #8, #5            // rt2
+    add x10, _cpu, #CPU_x0
+    str x23, [x10, x8, lsl #3]     // no XZR check
+    str x25, [x10, x9, lsl #3]
+    mov _addr, x24
+    gret
+    read_bullshit 128, ldp64_imm_fast_1
+
+// Fast-path STP Xt, Xt2, [Xn, #imm] (rn!=31, rt!=31, rt2!=31)
+.gadget stp64_imm_fast
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    and x8, x22, #0x1f              // rt
+    ubfx x9, x22, #8, #5            // rt2
+    add x10, _cpu, #CPU_x0
+    ldr x23, [x10, x8, lsl #3]     // no XZR check
+    ldr x25, [x10, x9, lsl #3]
+    ubfx x9, x22, #16, #5           // rn
+    sbfx x10, x22, #24, #16         // signed offset
+    add x11, _cpu, #CPU_x0
+    ldr x12, [x11, x9, lsl #3]     // no SP check
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+    write_prep 128, stp64_imm_fast_1
+    str x23, [_addr]
+    str x25, [_addr, #8]
+    write_done 128, stp64_imm_fast_1
+    mov _addr, x24
+    gret
+    write_bullshit 128, stp64_imm_fast_1
+
 // Fused LDP Xt, Xt2, [Xn, #imm] - 64-bit load pair with signed offset
 .gadget ldp64_imm
     ldr x22, [_pc]
@@ -1162,7 +1297,7 @@ atomic_cas_segfault:
     b 2f
 1:  ldr x12, [_cpu, #CPU_sp]
 2:  add _addr, x12, x10
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     read_prep 128, ldp64_imm_1      // 16 bytes
     ldr x23, [_addr]                // val1
@@ -1193,7 +1328,7 @@ atomic_cas_segfault:
     b 2f
 1:  ldr x12, [_cpu, #CPU_sp]
 2:  add _addr, x12, x10
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     read_prep 64, ldp32_imm_1       // 8 bytes (2x4)
     ldr w23, [_addr]                // val1 (zero-extended)
@@ -1237,7 +1372,7 @@ atomic_cas_segfault:
     b 4f
 3:  ldr x12, [_cpu, #CPU_sp]
 4:  add _addr, x12, x10
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     write_prep 128, stp64_imm_1     // 16 bytes
     str x23, [_addr]
@@ -1271,7 +1406,7 @@ atomic_cas_segfault:
     b 4f
 3:  ldr x12, [_cpu, #CPU_sp]
 4:  add _addr, x12, x10
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     mov x24, _addr
     write_prep 64, stp32_imm_1      // 8 bytes (2x4)
     str w23, [_addr]
@@ -1280,6 +1415,40 @@ atomic_cas_segfault:
     mov _addr, x24
     gret
     write_bullshit 64, stp32_imm_1
+
+/*
+ * Fused ADRP+LDR64 gadget
+ * When ADRP Xd, #page is immediately followed by LDR Xt, [Xd, #offset],
+ * we can compute the final address directly and do a single TLB lookup.
+ * Code stream: [gadget addr][ldr_rt(0:4) | rd(5:9) | ldr_offset(16:31)][adrp_target (48-bit)]
+ */
+.gadget fused_adrp_ldr64
+    ldr x22, [_pc]
+    ldr x23, [_pc, #8]          // adrp_target (48-bit address in 64-bit word)
+    add _pc, _pc, #16
+
+    // Store ADRP result to rd (so subsequent code can use it)
+    ubfx x9, x22, #5, #5        // rd (ADRP destination register)
+    add x11, _cpu, #CPU_x0
+    str x23, [x11, x9, lsl #3]  // cpu->x[rd] = adrp_target
+
+    // Compute final address = adrp_target + ldr_offset
+    ubfx x10, x22, #16, #16     // ldr_offset (unsigned, scaled)
+    add _addr, x23, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+
+    // TLB read lookup + load 64-bit
+    read_prep 64, fused_adrp_ldr64_1
+    ldr _tmp, [_addr]
+
+    // Store to guest ldr_rt
+    and x8, x22, #0x1f          // ldr_rt
+    add x11, _cpu, #CPU_x0
+    str _tmp, [x11, x8, lsl #3]
+    mov _addr, x24
+    gret
+    read_bullshit 64, fused_adrp_ldr64_1
 
 /*
  * Interleaved SIMD load/store gadgets (LD2/LD3/LD4, ST2/ST3/ST4)
@@ -1377,13 +1546,13 @@ simd_interleaved_write_segfault:
     b.eq 3f
     ldr x13, [x11, x9, lsl #3]
     add x13, x13, x12
-    and x13, x13, #0xffffffff
+    and x13, x13, #0xffffffffffff
     str x13, [x11, x9, lsl #3]
     gret
 3:  // Update SP
     ldr x13, [_cpu, #CPU_sp]
     add x13, x13, x12
-    and x13, x13, #0xffffffff
+    and x13, x13, #0xffffffffffff
     str x13, [_cpu, #CPU_sp]
     gret
 
@@ -1396,7 +1565,7 @@ simd_interleaved_write_segfault:
     ldr x8, [_pc]
     add _pc, _pc, #8
     add _addr, _addr, x8
-    and _addr, _addr, #0xffffffff
+    and _addr, _addr, #0xffffffffffff
     gret
 
 /*

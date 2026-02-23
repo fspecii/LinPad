@@ -57,6 +57,6 @@ struct user_ {
     char padding[286 - sizeof(struct user_regs_struct_)];
 };
 
-dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data);
+dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, addr_t data);
 
 #endif /* KERNEL_PTRACE_H */

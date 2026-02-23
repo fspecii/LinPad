@@ -1,8 +1,9 @@
 /*
  * ARM64 Cryptographic Extension Gadgets
  *
- * These gadgets implement the ARMv8 cryptographic instructions.
- * They call C helper functions for the actual crypto operations.
+ * AES, SHA1, SHA256, and SHA512 gadgets use native .inst instructions
+ * for near-native performance. Other crypto gadgets (EOR3, SM3, SM4,
+ * PMULL, TBL/TBX, SVE) still use C helper functions.
  */
 
 #include "gadgets.h"
@@ -14,61 +15,25 @@
  * Performs AddRoundKey, SubBytes, and ShiftRows
  * Code stream: [gadget addr][rd | rn<<8]
  *
- * Vd = SubBytes(ShiftRows(Vd XOR Vn))
+ * Native AESE does XOR(Vd,Vn) then SubBytes+ShiftRows in one instruction
  */
 .gadget aese
     ldr x8, [_pc]
     add _pc, _pc, #8
 
     and x9, x8, #0x1f       // rd
-    ubfx x10, x8, #8, #5    // rn (key)
+    ubfx x10, x8, #8, #5    // rn
 
-    add x11, _cpu, #CPU_fp
-    lsl x12, x9, #4         // rd offset
-    add x12, x11, x12       // &Vd
-    lsl x13, x10, #4        // rn offset
-    add x13, x11, x13       // &Vn (key)
+    add x12, _cpu, #CPU_fp
+    lsl x13, x9, #4
+    ldr q0, [x12, x13]      // q0 = Vd
+    lsl x14, x10, #4
+    ldr q1, [x12, x14]      // q1 = Vn (round key)
 
-    // Load Vd and Vn
-    ldr q0, [x12]
-    ldr q1, [x13]
+    // Native AESE: v0 = SubBytes(ShiftRows(v0 XOR v1))
+    .inst 0x4e284820         // aese v0.16b, v1.16b
 
-    // XOR with round key (AddRoundKey)
-    eor v0.16b, v0.16b, v1.16b
-
-    // Save callee-saved registers and call C helper
-    stp x19, x20, [sp, #-0x60]!
-    stp x21, x22, [sp, #0x10]
-    stp x23, x24, [sp, #0x20]
-    stp x25, x26, [sp, #0x30]
-    stp x27, x28, [sp, #0x40]
-    str lr, [sp, #0x50]
-
-    // Save x12 (&Vd) in callee-saved register
-    mov x19, x12
-
-    save_c
-    // Store state to stack for C function
-    sub sp, sp, #32
-    str q0, [sp]
-    mov x0, sp              // state pointer
-    bl NAME(aes_subbytes_shiftrows)
-    ldr q0, [sp]
-    add sp, sp, #32
-    restore_c
-
-    // Restore x12 from callee-saved register before it gets popped
-    mov x12, x19
-
-    ldr lr, [sp, #0x50]
-    ldp x27, x28, [sp, #0x40]
-    ldp x25, x26, [sp, #0x30]
-    ldp x23, x24, [sp, #0x20]
-    ldp x21, x22, [sp, #0x10]
-    ldp x19, x20, [sp], #0x60
-
-    // Store result
-    str q0, [x12]
+    str q0, [x12, x13]
 
     gret
 
@@ -81,50 +46,19 @@
     ldr x8, [_pc]
     add _pc, _pc, #8
 
-    and x9, x8, #0x1f
-    ubfx x10, x8, #8, #5
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
 
-    add x11, _cpu, #CPU_fp
-    lsl x12, x9, #4
-    add x12, x11, x12
-    lsl x13, x10, #4
-    add x13, x11, x13
+    add x12, _cpu, #CPU_fp
+    lsl x13, x9, #4
+    ldr q0, [x12, x13]      // q0 = Vd
+    lsl x14, x10, #4
+    ldr q1, [x12, x14]      // q1 = Vn
 
-    ldr q0, [x12]
-    ldr q1, [x13]
+    // Native AESD: v0 = InvSubBytes(InvShiftRows(v0 XOR v1))
+    .inst 0x4e285820         // aesd v0.16b, v1.16b
 
-    eor v0.16b, v0.16b, v1.16b
-
-    stp x19, x20, [sp, #-0x60]!
-    stp x21, x22, [sp, #0x10]
-    stp x23, x24, [sp, #0x20]
-    stp x25, x26, [sp, #0x30]
-    stp x27, x28, [sp, #0x40]
-    str lr, [sp, #0x50]
-
-    // Save x12 (&Vd) in callee-saved register
-    mov x19, x12
-
-    save_c
-    sub sp, sp, #32
-    str q0, [sp]
-    mov x0, sp
-    bl NAME(aes_inv_subbytes_shiftrows)
-    ldr q0, [sp]
-    add sp, sp, #32
-    restore_c
-
-    // Restore x12
-    mov x12, x19
-
-    ldr lr, [sp, #0x50]
-    ldp x27, x28, [sp, #0x40]
-    ldp x25, x26, [sp, #0x30]
-    ldp x23, x24, [sp, #0x20]
-    ldp x21, x22, [sp, #0x10]
-    ldp x19, x20, [sp], #0x60
-
-    str q0, [x12]
+    str q0, [x12, x13]
 
     gret
 
@@ -136,47 +70,18 @@
     ldr x8, [_pc]
     add _pc, _pc, #8
 
-    and x9, x8, #0x1f
-    ubfx x10, x8, #8, #5
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
 
-    add x11, _cpu, #CPU_fp
-    lsl x12, x9, #4
-    add x12, x11, x12
-    lsl x13, x10, #4
-    add x13, x11, x13
+    add x12, _cpu, #CPU_fp
+    lsl x13, x9, #4
+    lsl x14, x10, #4
+    ldr q0, [x12, x14]      // q0 = Vn
 
-    ldr q0, [x13]   // load Vn
+    // Native AESMC: v0 = MixColumns(v0)
+    .inst 0x4e286800         // aesmc v0.16b, v0.16b
 
-    stp x19, x20, [sp, #-0x60]!
-    stp x21, x22, [sp, #0x10]
-    stp x23, x24, [sp, #0x20]
-    stp x25, x26, [sp, #0x30]
-    stp x27, x28, [sp, #0x40]
-    str lr, [sp, #0x50]
-
-    // Save x12 (&Vd) in callee-saved register
-    mov x19, x12
-
-    save_c
-    sub sp, sp, #32
-    str q0, [sp]
-    mov x0, sp
-    bl NAME(aes_mixcolumns)
-    ldr q0, [sp]
-    add sp, sp, #32
-    restore_c
-
-    // Restore x12
-    mov x12, x19
-
-    ldr lr, [sp, #0x50]
-    ldp x27, x28, [sp, #0x40]
-    ldp x25, x26, [sp, #0x30]
-    ldp x23, x24, [sp, #0x20]
-    ldp x21, x22, [sp, #0x10]
-    ldp x19, x20, [sp], #0x60
-
-    str q0, [x12]
+    str q0, [x12, x13]      // store to Vd
 
     gret
 
@@ -188,52 +93,23 @@
     ldr x8, [_pc]
     add _pc, _pc, #8
 
-    and x9, x8, #0x1f
-    ubfx x10, x8, #8, #5
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
 
-    add x11, _cpu, #CPU_fp
-    lsl x12, x9, #4
-    add x12, x11, x12
-    lsl x13, x10, #4
-    add x13, x11, x13
+    add x12, _cpu, #CPU_fp
+    lsl x13, x9, #4
+    lsl x14, x10, #4
+    ldr q0, [x12, x14]      // q0 = Vn
 
-    ldr q0, [x13]
+    // Native AESIMC: v0 = InvMixColumns(v0)
+    .inst 0x4e287800         // aesimc v0.16b, v0.16b
 
-    stp x19, x20, [sp, #-0x60]!
-    stp x21, x22, [sp, #0x10]
-    stp x23, x24, [sp, #0x20]
-    stp x25, x26, [sp, #0x30]
-    stp x27, x28, [sp, #0x40]
-    str lr, [sp, #0x50]
-
-    // Save x12 (&Vd) in callee-saved register
-    mov x19, x12
-
-    save_c
-    sub sp, sp, #32
-    str q0, [sp]
-    mov x0, sp
-    bl NAME(aes_inv_mixcolumns)
-    ldr q0, [sp]
-    add sp, sp, #32
-    restore_c
-
-    // Restore x12
-    mov x12, x19
-
-    ldr lr, [sp, #0x50]
-    ldp x27, x28, [sp, #0x40]
-    ldp x25, x26, [sp, #0x30]
-    ldp x23, x24, [sp, #0x20]
-    ldp x21, x22, [sp, #0x10]
-    ldp x19, x20, [sp], #0x60
-
-    str q0, [x12]
+    str q0, [x12, x13]      // store to Vd
 
     gret
 
 /*
- * SHA1 instructions - these are complex, use C helpers
+ * SHA1 instructions - native .inst implementations
  */
 
 // SHA1H Sd, Sn - SHA1 fixed rotate
@@ -245,20 +121,21 @@
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
 
-    // Load Sn (lower 32 bits of Vn)
-    add x11, _cpu, #CPU_fp
-    lsl x12, x10, #4
-    ldr w13, [x11, x12]     // load 32-bit value
+    add x12, _cpu, #CPU_fp
+    lsl x14, x10, #4
+    ldr s0, [x12, x14]      // s0 = Sn (32-bit scalar)
 
-    // SHA1H performs a fixed rotate left by 30
-    ror w13, w13, #2        // ror by 2 = rol by 30
+    // Native SHA1H: s0 = FixedRotate(s1)
+    // Encoding: SHA1H Sd, Sn = 0101_1110_0010_1000_0000_10nn_nnnd_dddd
+    // sha1h s0, s0 → 0x5e280800
+    .inst 0x5e280800         // sha1h s0, s0
 
-    // Store to Sd and clear upper bits
-    lsl x14, x9, #4
-    add x14, x11, x14       // &Vd
-    str w13, [x14]          // store 32-bit result
-    str xzr, [x14, #4]      // clear bits 32-63 (use #4 offset)
-    str xzr, [x14, #8]      // clear bits 64-127
+    // Store s0 to Sd and clear upper bits
+    lsl x13, x9, #4
+    add x15, x12, x13
+    str s0, [x15]            // store 32-bit result
+    str xzr, [x15, #4]      // clear bits 32-63
+    str xzr, [x15, #8]      // clear bits 64-127
 
     gret
 
@@ -268,36 +145,21 @@
     ldr x8, [_pc]
     add _pc, _pc, #8
 
-    and x9, x8, #0x1f
-    ubfx x10, x8, #8, #5
-    ubfx x11, x8, #16, #5
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
 
     add x12, _cpu, #CPU_fp
+    lsl x13, x9, #4
+    ldr q0, [x12, x13]      // q0 = Qd
+    lsl x14, x10, #4
+    ldr s1, [x12, x14]      // s1 = Sn (32-bit hash state)
+    lsl x15, x11, #4
+    ldr q2, [x12, x15]      // q2 = Vm.4S
 
-    stp x19, x20, [sp, #-0x60]!
-    stp x21, x22, [sp, #0x10]
-    stp x23, x24, [sp, #0x20]
-    stp x25, x26, [sp, #0x30]
-    stp x27, x28, [sp, #0x40]
-    str lr, [sp, #0x50]
+    .inst 0x5e020020         // sha1c q0, s1, v2.4s
 
-    save_c
-    // Call C helper: sha1c(rd_ptr, sn_val, vm_ptr)
-    lsl x0, x9, #4
-    add x0, x12, x0         // rd_ptr
-    lsl x13, x10, #4
-    ldr w1, [x12, x13]      // sn_val (32-bit)
-    lsl x2, x11, #4
-    add x2, x12, x2         // vm_ptr
-    bl NAME(sha1c_helper)
-    restore_c
-
-    ldr lr, [sp, #0x50]
-    ldp x27, x28, [sp, #0x40]
-    ldp x25, x26, [sp, #0x30]
-    ldp x23, x24, [sp, #0x20]
-    ldp x21, x22, [sp, #0x10]
-    ldp x19, x20, [sp], #0x60
+    str q0, [x12, x13]      // store result to Qd
 
     gret
 
@@ -306,35 +168,21 @@
     ldr x8, [_pc]
     add _pc, _pc, #8
 
-    and x9, x8, #0x1f
-    ubfx x10, x8, #8, #5
-    ubfx x11, x8, #16, #5
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
 
     add x12, _cpu, #CPU_fp
+    lsl x13, x9, #4
+    ldr q0, [x12, x13]      // q0 = Qd
+    lsl x14, x10, #4
+    ldr s1, [x12, x14]      // s1 = Sn
+    lsl x15, x11, #4
+    ldr q2, [x12, x15]      // q2 = Vm.4S
 
-    stp x19, x20, [sp, #-0x60]!
-    stp x21, x22, [sp, #0x10]
-    stp x23, x24, [sp, #0x20]
-    stp x25, x26, [sp, #0x30]
-    stp x27, x28, [sp, #0x40]
-    str lr, [sp, #0x50]
+    .inst 0x5e022020         // sha1m q0, s1, v2.4s
 
-    save_c
-    lsl x0, x9, #4
-    add x0, x12, x0
-    lsl x13, x10, #4
-    ldr w1, [x12, x13]
-    lsl x2, x11, #4
-    add x2, x12, x2
-    bl NAME(sha1m_helper)
-    restore_c
-
-    ldr lr, [sp, #0x50]
-    ldp x27, x28, [sp, #0x40]
-    ldp x25, x26, [sp, #0x30]
-    ldp x23, x24, [sp, #0x20]
-    ldp x21, x22, [sp, #0x10]
-    ldp x19, x20, [sp], #0x60
+    str q0, [x12, x13]
 
     gret
 
@@ -343,35 +191,21 @@
     ldr x8, [_pc]
     add _pc, _pc, #8
 
-    and x9, x8, #0x1f
-    ubfx x10, x8, #8, #5
-    ubfx x11, x8, #16, #5
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
 
     add x12, _cpu, #CPU_fp
+    lsl x13, x9, #4
+    ldr q0, [x12, x13]      // q0 = Qd
+    lsl x14, x10, #4
+    ldr s1, [x12, x14]      // s1 = Sn
+    lsl x15, x11, #4
+    ldr q2, [x12, x15]      // q2 = Vm.4S
 
-    stp x19, x20, [sp, #-0x60]!
-    stp x21, x22, [sp, #0x10]
-    stp x23, x24, [sp, #0x20]
-    stp x25, x26, [sp, #0x30]
-    stp x27, x28, [sp, #0x40]
-    str lr, [sp, #0x50]
+    .inst 0x5e021020         // sha1p q0, s1, v2.4s
 
-    save_c
-    lsl x0, x9, #4
-    add x0, x12, x0
-    lsl x13, x10, #4
-    ldr w1, [x12, x13]
-    lsl x2, x11, #4
-    add x2, x12, x2
-    bl NAME(sha1p_helper)
-    restore_c
-
-    ldr lr, [sp, #0x50]
-    ldp x27, x28, [sp, #0x40]
-    ldp x25, x26, [sp, #0x30]
-    ldp x23, x24, [sp, #0x20]
-    ldp x21, x22, [sp, #0x10]
-    ldp x19, x20, [sp], #0x60
+    str q0, [x12, x13]
 
     gret
 
@@ -380,35 +214,21 @@
     ldr x8, [_pc]
     add _pc, _pc, #8
 
-    and x9, x8, #0x1f
-    ubfx x10, x8, #8, #5
-    ubfx x11, x8, #16, #5
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
 
     add x12, _cpu, #CPU_fp
+    lsl x13, x9, #4
+    ldr q0, [x12, x13]      // q0 = Vd
+    lsl x14, x10, #4
+    ldr q1, [x12, x14]      // q1 = Vn
+    lsl x15, x11, #4
+    ldr q2, [x12, x15]      // q2 = Vm
 
-    stp x19, x20, [sp, #-0x60]!
-    stp x21, x22, [sp, #0x10]
-    stp x23, x24, [sp, #0x20]
-    stp x25, x26, [sp, #0x30]
-    stp x27, x28, [sp, #0x40]
-    str lr, [sp, #0x50]
+    .inst 0x5e023020         // sha1su0 v0.4s, v1.4s, v2.4s
 
-    save_c
-    lsl x0, x9, #4
-    add x0, x12, x0
-    lsl x1, x10, #4
-    add x1, x12, x1
-    lsl x2, x11, #4
-    add x2, x12, x2
-    bl NAME(sha1su0_helper)
-    restore_c
-
-    ldr lr, [sp, #0x50]
-    ldp x27, x28, [sp, #0x40]
-    ldp x25, x26, [sp, #0x30]
-    ldp x23, x24, [sp, #0x20]
-    ldp x21, x22, [sp, #0x10]
-    ldp x19, x20, [sp], #0x60
+    str q0, [x12, x13]
 
     gret
 
@@ -417,32 +237,18 @@
     ldr x8, [_pc]
     add _pc, _pc, #8
 
-    and x9, x8, #0x1f
-    ubfx x10, x8, #8, #5
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
 
     add x12, _cpu, #CPU_fp
+    lsl x13, x9, #4
+    ldr q0, [x12, x13]      // q0 = Vd
+    lsl x14, x10, #4
+    ldr q1, [x12, x14]      // q1 = Vn
 
-    stp x19, x20, [sp, #-0x60]!
-    stp x21, x22, [sp, #0x10]
-    stp x23, x24, [sp, #0x20]
-    stp x25, x26, [sp, #0x30]
-    stp x27, x28, [sp, #0x40]
-    str lr, [sp, #0x50]
+    .inst 0x5e281820         // sha1su1 v0.4s, v1.4s
 
-    save_c
-    lsl x0, x9, #4
-    add x0, x12, x0
-    lsl x1, x10, #4
-    add x1, x12, x1
-    bl NAME(sha1su1_helper)
-    restore_c
-
-    ldr lr, [sp, #0x50]
-    ldp x27, x28, [sp, #0x40]
-    ldp x25, x26, [sp, #0x30]
-    ldp x23, x24, [sp, #0x20]
-    ldp x21, x22, [sp, #0x10]
-    ldp x19, x20, [sp], #0x60
+    str q0, [x12, x13]
 
     gret
 
@@ -455,35 +261,21 @@
     ldr x8, [_pc]
     add _pc, _pc, #8
 
-    and x9, x8, #0x1f
-    ubfx x10, x8, #8, #5
-    ubfx x11, x8, #16, #5
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
 
     add x12, _cpu, #CPU_fp
+    lsl x13, x9, #4
+    ldr q0, [x12, x13]      // q0 = Qd
+    lsl x14, x10, #4
+    ldr q1, [x12, x14]      // q1 = Qn
+    lsl x15, x11, #4
+    ldr q2, [x12, x15]      // q2 = Vm.4S
 
-    stp x19, x20, [sp, #-0x60]!
-    stp x21, x22, [sp, #0x10]
-    stp x23, x24, [sp, #0x20]
-    stp x25, x26, [sp, #0x30]
-    stp x27, x28, [sp, #0x40]
-    str lr, [sp, #0x50]
+    .inst 0x5e024020         // sha256h q0, q1, v2.4s
 
-    save_c
-    lsl x0, x9, #4
-    add x0, x12, x0
-    lsl x1, x10, #4
-    add x1, x12, x1
-    lsl x2, x11, #4
-    add x2, x12, x2
-    bl NAME(sha256h_helper)
-    restore_c
-
-    ldr lr, [sp, #0x50]
-    ldp x27, x28, [sp, #0x40]
-    ldp x25, x26, [sp, #0x30]
-    ldp x23, x24, [sp, #0x20]
-    ldp x21, x22, [sp, #0x10]
-    ldp x19, x20, [sp], #0x60
+    str q0, [x12, x13]
 
     gret
 
@@ -492,35 +284,21 @@
     ldr x8, [_pc]
     add _pc, _pc, #8
 
-    and x9, x8, #0x1f
-    ubfx x10, x8, #8, #5
-    ubfx x11, x8, #16, #5
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
 
     add x12, _cpu, #CPU_fp
+    lsl x13, x9, #4
+    ldr q0, [x12, x13]      // q0 = Qd
+    lsl x14, x10, #4
+    ldr q1, [x12, x14]      // q1 = Qn
+    lsl x15, x11, #4
+    ldr q2, [x12, x15]      // q2 = Vm.4S
 
-    stp x19, x20, [sp, #-0x60]!
-    stp x21, x22, [sp, #0x10]
-    stp x23, x24, [sp, #0x20]
-    stp x25, x26, [sp, #0x30]
-    stp x27, x28, [sp, #0x40]
-    str lr, [sp, #0x50]
+    .inst 0x5e025020         // sha256h2 q0, q1, v2.4s
 
-    save_c
-    lsl x0, x9, #4
-    add x0, x12, x0
-    lsl x1, x10, #4
-    add x1, x12, x1
-    lsl x2, x11, #4
-    add x2, x12, x2
-    bl NAME(sha256h2_helper)
-    restore_c
-
-    ldr lr, [sp, #0x50]
-    ldp x27, x28, [sp, #0x40]
-    ldp x25, x26, [sp, #0x30]
-    ldp x23, x24, [sp, #0x20]
-    ldp x21, x22, [sp, #0x10]
-    ldp x19, x20, [sp], #0x60
+    str q0, [x12, x13]
 
     gret
 
@@ -529,32 +307,18 @@
     ldr x8, [_pc]
     add _pc, _pc, #8
 
-    and x9, x8, #0x1f
-    ubfx x10, x8, #8, #5
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
 
     add x12, _cpu, #CPU_fp
+    lsl x13, x9, #4
+    ldr q0, [x12, x13]      // q0 = Vd
+    lsl x14, x10, #4
+    ldr q1, [x12, x14]      // q1 = Vn
 
-    stp x19, x20, [sp, #-0x60]!
-    stp x21, x22, [sp, #0x10]
-    stp x23, x24, [sp, #0x20]
-    stp x25, x26, [sp, #0x30]
-    stp x27, x28, [sp, #0x40]
-    str lr, [sp, #0x50]
+    .inst 0x5e282820         // sha256su0 v0.4s, v1.4s
 
-    save_c
-    lsl x0, x9, #4
-    add x0, x12, x0
-    lsl x1, x10, #4
-    add x1, x12, x1
-    bl NAME(sha256su0_helper)
-    restore_c
-
-    ldr lr, [sp, #0x50]
-    ldp x27, x28, [sp, #0x40]
-    ldp x25, x26, [sp, #0x30]
-    ldp x23, x24, [sp, #0x20]
-    ldp x21, x22, [sp, #0x10]
-    ldp x19, x20, [sp], #0x60
+    str q0, [x12, x13]
 
     gret
 
@@ -563,35 +327,21 @@
     ldr x8, [_pc]
     add _pc, _pc, #8
 
-    and x9, x8, #0x1f
-    ubfx x10, x8, #8, #5
-    ubfx x11, x8, #16, #5
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #5   // rm
 
     add x12, _cpu, #CPU_fp
+    lsl x13, x9, #4
+    ldr q0, [x12, x13]      // q0 = Vd
+    lsl x14, x10, #4
+    ldr q1, [x12, x14]      // q1 = Vn
+    lsl x15, x11, #4
+    ldr q2, [x12, x15]      // q2 = Vm
 
-    stp x19, x20, [sp, #-0x60]!
-    stp x21, x22, [sp, #0x10]
-    stp x23, x24, [sp, #0x20]
-    stp x25, x26, [sp, #0x30]
-    stp x27, x28, [sp, #0x40]
-    str lr, [sp, #0x50]
+    .inst 0x5e026020         // sha256su1 v0.4s, v1.4s, v2.4s
 
-    save_c
-    lsl x0, x9, #4
-    add x0, x12, x0
-    lsl x1, x10, #4
-    add x1, x12, x1
-    lsl x2, x11, #4
-    add x2, x12, x2
-    bl NAME(sha256su1_helper)
-    restore_c
-
-    ldr lr, [sp, #0x50]
-    ldp x27, x28, [sp, #0x40]
-    ldp x25, x26, [sp, #0x30]
-    ldp x23, x24, [sp, #0x20]
-    ldp x21, x22, [sp, #0x10]
-    ldp x19, x20, [sp], #0x60
+    str q0, [x12, x13]
 
     gret
 

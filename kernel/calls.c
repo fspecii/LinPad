@@ -105,23 +105,24 @@ void handle_interrupt(int interrupt) {
                     printk("%d(%s) stub syscall %d\n", current->pid, current->comm, syscall_num);
                 }
                 STRACE("%d call %-3d ", current->pid, syscall_num);
-                int result = syscall_table[syscall_num](
+                int64_t result = syscall_table[syscall_num](
                     cpu->regs[0], cpu->regs[1], cpu->regs[2],
                     cpu->regs[3], cpu->regs[4], cpu->regs[5]);
-                STRACE(" = 0x%x\n", result);
+                STRACE(" = 0x%llx\n", (unsigned long long)result);
                 // ARM64 Linux ABI: return value in x0. Errors are negative
-                // (-1 to -4095). Success values are 0 or positive.
-                // Note: syscall_t returns int (32-bit). Syscalls returning
-                // addr_t (mmap, brk) will have their return truncated to int.
-                // This is safe while addresses fit in 32 bits. When addresses
-                // are raised to 48-bit, syscall_t must change to int64_t.
-                int32_t signed_result = (int32_t)result;
-                if (signed_result >= -4095 && signed_result < 0) {
-                    // Error code: sign-extend to 64-bit
-                    cpu->regs[0] = (uint64_t)(int64_t)signed_result;
+                // (-1 to -4095). Success values are 0 or positive (up to 48-bit
+                // addresses from mmap/brk).
+                // Most syscalls return dword_t (uint32_t). On ARM64 ABI, returning
+                // uint32_t sets w0 only; upper x0 is zero. Error codes like -EFAULT
+                // become 0x00000000FFFFFFF2 instead of 0xFFFFFFFFFFFFFFF2.
+                // Detect this: if low 32 bits are a valid errno (0xFFFFF001-0xFFFFFFFF)
+                // but upper 32 bits are 0, sign-extend the 32-bit value.
+                uint32_t low32 = (uint32_t)result;
+                if ((result >> 32) == 0 && (int32_t)low32 >= -4095 && (int32_t)low32 < 0) {
+                    // 32-bit errno from dword_t-returning syscall — sign-extend
+                    cpu->regs[0] = (uint64_t)(int64_t)(int32_t)low32;
                 } else {
-                    // Success: zero-extend the 32-bit value
-                    cpu->regs[0] = (uint64_t)(uint32_t)result;
+                    cpu->regs[0] = (uint64_t)result;
                 }
             }
         }

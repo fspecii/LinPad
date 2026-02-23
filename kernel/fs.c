@@ -528,7 +528,7 @@ dword_t sys_pwrite(fd_t f, addr_t buf_addr, dword_t size, off_t_ off) {
     return res;
 }
 
-static int fd_ioctl(struct fd *fd, dword_t cmd, dword_t arg) {
+static int fd_ioctl(struct fd *fd, dword_t cmd, addr_t arg) {
     ssize_t size = -1;
     if (fd->ops->ioctl_size)
         size = fd->ops->ioctl_size(cmd);
@@ -561,8 +561,8 @@ static int set_nonblock(struct fd *fd, addr_t nb_addr) {
     return fd_setflags(fd, flags);
 }
 
-dword_t sys_ioctl(fd_t f, dword_t cmd, dword_t arg) {
-    STRACE("ioctl(%d, 0x%x, 0x%x)", f, cmd, arg);
+dword_t sys_ioctl(fd_t f, dword_t cmd, addr_t arg) {
+    STRACE("ioctl(%d, 0x%x, 0x%llx)", f, cmd, (unsigned long long)arg);
     struct fd *fd = f_get(f);
     if (fd == NULL)
         return _EBADF;

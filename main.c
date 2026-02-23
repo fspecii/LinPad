@@ -16,6 +16,8 @@
 extern __thread jmp_buf jit_recover_buf;
 extern __thread volatile sig_atomic_t in_jit;
 extern __thread volatile uintptr_t jit_crash_host_addr;
+extern __thread volatile uint64_t jit_crash_segfault_addr;
+extern __thread volatile int jit_crash_segfault_was_write;
 
 static void crash_handler(int sig, siginfo_t *info, void *ctx) {
 #ifdef __aarch64__
@@ -23,15 +25,19 @@ static void crash_handler(int sig, siginfo_t *info, void *ctx) {
     // This handles stale TLB pointers from concurrent CoW resolution.
     if ((sig == SIGSEGV || sig == SIGBUS) && in_jit) {
         ucontext_t *uc = (ucontext_t *)ctx;
-        // x1 = _cpu pointer (reserved JIT register, always valid)
-        struct cpu_state *cpu = (struct cpu_state *)uc->uc_mcontext->__ss.__x[1];
         // Save host fault address for recovery logic in asbestos.c
         jit_crash_host_addr = (uintptr_t)info->si_addr;
-        // segfault_addr was saved by read_prep/write_prep before TLB clobber.
+        // Reconstruct guest segfault_addr from ucontext registers.
+        // At fault point: x7 = host_addr (data_minus_addr + guest_addr),
+        //                 x10 = data_minus_addr (from TLB entry).
+        // Guest addr = (x7 - x10) & 0xffffffffffff.
+        uint64_t x7 = uc->uc_mcontext->__ss.__x[7];
+        uint64_t x10 = uc->uc_mcontext->__ss.__x[10];
+        jit_crash_segfault_addr = (x7 - x10) & 0xffffffffffffULL;
         // Determine read/write from the host ESR (Exception Syndrome Register).
         // Bit 6 (WnR): 0 = read fault, 1 = write fault.
         uint64_t esr = uc->uc_mcontext->__es.__esr;
-        cpu->segfault_was_write = (esr & 0x40) != 0;
+        jit_crash_segfault_was_write = (esr & 0x40) != 0;
         // We use _longjmp (no signal mask restore) for performance.
         // Must manually unblock the signal so the handler can fire again.
         sigset_t unblock;
@@ -91,7 +97,6 @@ int main(int argc, char *const argv[]) {
     p += snprintf(envp + p, sizeof(envp) - p, "HOME=/root") + 1;
     p += snprintf(envp + p, sizeof(envp) - p, "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin") + 1;
 #ifdef GUEST_ARM64
-    p += snprintf(envp + p, sizeof(envp) - p, "OPENSSL_armcap=0") + 1;
     p += snprintf(envp + p, sizeof(envp) - p, "PYTHONMALLOC=malloc") + 1;
 #endif
     int err = xX_main_Xx(argc, argv, envp);

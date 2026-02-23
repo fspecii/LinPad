@@ -1,8 +1,20 @@
 #ifndef KERNEL_MM_H
 #define KERNEL_MM_H
 
+#include <stdatomic.h>
 #include "kernel/memory.h"
 #include "misc.h"
+
+// Maximum anonymous mmap pages across ALL processes (host memory cap).
+// Prevents iOS app from being killed by jetsam.
+// 0 = no limit. Non-zero = hard limit in pages (4KB each).
+// Go runtime alone needs ~1.1GB for page summary reservations (PROT_NONE).
+// 524288 pages = 2GB.
+#define ANON_MMAP_LIMIT_PAGES 524288
+
+#if ANON_MMAP_LIMIT_PAGES > 0
+extern _Atomic long anon_page_count;
+#endif
 
 // uses mem.lock instead of having a lock of its own
 struct mm {

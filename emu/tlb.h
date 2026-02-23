@@ -13,7 +13,7 @@ struct tlb_entry {
     uintptr_t _pad;  // pad to 32 bytes for efficient JIT indexing (lsl #5)
 #endif
 };
-#define TLB_BITS 11  // 2048 entries (32 KB) for Python module loading
+#define TLB_BITS 13  // 8192 entries — covers ~7K unique pages for yt-dlp/Python
 #define TLB_SIZE (1 << TLB_BITS)
 struct fiber_block;
 struct fiber_frame;
@@ -25,6 +25,7 @@ struct tlb {
     // this is basically one of the return values of tlb_handle_miss, tlb_{read,write}, and __tlb_{read,write}_cross_page
     // yes, this sucks
     addr_t segfault_addr;
+
     struct tlb_entry entries[TLB_SIZE];
 
     // Persistent block cache across syscalls (avoids re-lookup after every interrupt)
@@ -36,7 +37,7 @@ struct tlb {
     struct fiber_frame *frame;
 };
 
-#define TLB_INDEX(addr) (((addr >> PAGE_BITS) & (TLB_SIZE - 1)) ^ (addr >> (PAGE_BITS + TLB_BITS)))
+#define TLB_INDEX(addr) ((((addr >> PAGE_BITS) ^ (addr >> (PAGE_BITS + TLB_BITS))) & (TLB_SIZE - 1)))
 #ifdef GUEST_ARM64
 #define TLB_PAGE(addr) ((addr) & 0xfffffffffffff000ULL)
 #else

@@ -52,11 +52,14 @@ extern void gadget_orr_reg_shifted(void);
 extern void gadget_and_reg_shifted(void);
 extern void gadget_eor_reg_shifted(void);
 extern void gadget_eor_reg(void);
+extern void gadget_mov_reg(void);
+extern void gadget_mov_reg32(void);
 extern void gadget_and_imm(void);
 extern void gadget_orr_imm(void);
 extern void gadget_eor_imm(void);
 extern void gadget_adr(void);
 extern void gadget_adrp(void);
+extern void gadget_fused_adrp_ldr64(void);
 extern void gadget_sxtw(void);
 extern void gadget_sxth(void);
 extern void gadget_sxtb(void);
@@ -65,6 +68,8 @@ extern void gadget_uxth(void);
 extern void gadget_uxtb(void);
 extern void gadget_ubfm(void);
 extern void gadget_sbfm(void);
+extern void gadget_ubfm_fused(void);
+extern void gadget_sbfm_fused(void);
 extern void gadget_bfm(void);
 extern void gadget_extr(void);
 
@@ -76,6 +81,10 @@ extern void gadget_branch_link_reg(void);
 extern void gadget_ret(void);
 extern void gadget_cbz(void);
 extern void gadget_cbnz(void);
+extern void gadget_cbz_64(void);
+extern void gadget_cbz_32(void);
+extern void gadget_cbnz_64(void);
+extern void gadget_cbnz_32(void);
 extern void gadget_tbz(void);
 extern void gadget_tbnz(void);
 extern void gadget_bcond(void);
@@ -88,6 +97,8 @@ extern void gadget_adds_reg(void);
 // Specialized ALU gadgets (64-bit fast paths)
 extern void gadget_add_imm_64(void);
 extern void gadget_sub_imm_64(void);
+extern void gadget_add_imm_sp_src_64(void);
+extern void gadget_sub_imm_sp_src_64(void);
 extern void gadget_adds_imm_64(void);
 extern void gadget_subs_imm_64(void);
 extern void gadget_adds_imm_64_sh(void);
@@ -636,6 +647,9 @@ extern void gadget_lslv(void);
 extern void gadget_lsrv(void);
 extern void gadget_asrv(void);
 extern void gadget_rorv(void);
+extern void gadget_lslv_64(void);
+extern void gadget_lsrv_64(void);
+extern void gadget_asrv_64(void);
 
 // Add/subtract extended register
 extern void gadget_add_ext(void);
@@ -698,8 +712,12 @@ extern void gadget_load32_imm(void);
 extern void gadget_load16_imm(void);
 extern void gadget_load8_imm(void);
 extern void gadget_load32_sx_imm(void);
+extern void gadget_load64_imm_fast(void);
+extern void gadget_load32_imm_fast(void);
 extern void gadget_store64_imm(void);
 extern void gadget_store32_imm(void);
+extern void gadget_store64_imm_fast(void);
+extern void gadget_store32_imm_fast(void);
 extern void gadget_store16_imm(void);
 extern void gadget_store8_imm(void);
 // Fused register-offset load/store gadgets (option=3/UXTX only)
@@ -734,6 +752,8 @@ extern void gadget_ldp64_imm(void);
 extern void gadget_ldp32_imm(void);
 extern void gadget_stp64_imm(void);
 extern void gadget_stp32_imm(void);
+extern void gadget_ldp64_imm_fast(void);
+extern void gadget_stp64_imm_fast(void);
 
 static void gen(struct gen_state *state, unsigned long thing) {
     assert(state->size <= state->capacity);
@@ -763,6 +783,7 @@ void gen_start(addr_t addr, struct gen_state *state) {
     state->size = 0;
     state->ip = addr;
     state->last_insn = 0;
+    state->b_follow_depth = 0;
     for (int i = 0; i <= 1; i++) {
         state->jump_ip[i] = 0;
     }
@@ -1086,10 +1107,34 @@ static int gen_dp_imm(struct gen_state *state, uint32_t insn) {
             target = state->orig_ip + imm;
         }
 
+        // Try fused ADRP+LDR64: ADRP Xd, #page; LDR Xt, [Xd, #imm]
+        if (is_adrp && rd != 31) {
+            uint32_t next;
+            if (gen_peek_next_insn(state, &next)) {
+                // LDR Xt (64-bit, unsigned offset): 1111 1001 01 imm12 Rn Rt
+                if ((next & 0xffc00000) == 0xf9400000) {
+                    uint32_t ldr_rt = next & 0x1f;
+                    uint32_t ldr_rn = (next >> 5) & 0x1f;
+                    uint32_t ldr_imm12 = (next >> 10) & 0xfff;
+                    uint32_t ldr_offset = ldr_imm12 << 3; // scale by 8 for 64-bit
+                    if (ldr_rn == rd && ldr_rt != 31) {
+                        // Fuse: emit single gadget, consume the LDR
+                        // Param 1: ldr_rt[0:4] | rd[5:9] | ldr_offset[16:31]
+                        // Param 2: adrp_target (32-bit, zero-extended)
+                        state->ip += 4;
+                        gen(state, (unsigned long) gadget_fused_adrp_ldr64);
+                        gen(state, ldr_rt | ((uint64_t)rd << 5) | ((uint64_t)ldr_offset << 16));
+                        gen(state, target & 0xffffffffffffULL);
+                        return 1;
+                    }
+                }
+            }
+        }
+
         // Generate: store immediate to register
+        // Pack rd(0:4) | target(8:55) in single code-stream word
         gen(state, (unsigned long) gadget_adr);
-        gen(state, rd);
-        gen(state, target);
+        gen(state, rd | ((uint64_t)(target & 0xffffffffffffULL) << 8));
         return 1;
     }
 
@@ -1156,7 +1201,14 @@ static int gen_dp_imm(struct gen_state *state, uint32_t insn) {
             return 1;
         }
 
-        // Generic path: handles SP, LSL#12 with 32-bit, and other edge cases
+        // SP-source specialization: ADD/SUB Xd, SP, #imm (sf=1, S=0, sh=0, rn==31, rd!=31)
+        if (sf && !sh && rn == 31 && !S && rd != 31) {
+            gen(state, (unsigned long)(op ? gadget_sub_imm_sp_src_64 : gadget_add_imm_sp_src_64));
+            gen(state, rd | ((uint64_t)imm12 << 16));
+            return 1;
+        }
+
+        // Generic path: handles remaining SP cases, LSL#12 with 32-bit, etc.
         if (op == 0) {
             gen(state, (unsigned long) gadget_add_imm);
         } else {
@@ -1257,65 +1309,65 @@ static int gen_dp_imm(struct gen_state *state, uint32_t insn) {
         uint32_t rn = (insn >> 5) & 0x1f;
         uint32_t rd = insn & 0x1f;
 
-        // Load source register
-        gen(state, (unsigned long) gadget_load_reg);
-        gen(state, rn);
+        // Fused parameter for UBFM/SBFM: immr | imms<<8 | sf<<16 | rn<<20 | rd<<28
+        uint64_t fused_param = immr | (imms << 8) | ((uint64_t)sf << 16)
+                              | ((uint64_t)rn << 20) | ((uint64_t)rd << 28);
+        bool can_fuse = (rn != 31 && rd != 31 && opc != 1);
 
-        // Handle common sign-extend aliases (SBFM with opc=0)
+        // Handle SBFM (opc=0) and UBFM (opc=2) with fused fast path
         if (opc == 0) {
-            if (immr == 0 && imms == 31 && sf == 1) {
-                // SXTW Xd, Wn: sign-extend word to doubleword
+            if (can_fuse) {
+                gen(state, (unsigned long) gadget_sbfm_fused);
+                gen(state, fused_param);
+                return 1;
+            }
+            // Fallback: load_reg + alias/generic + store_reg
+            gen(state, (unsigned long) gadget_load_reg);
+            gen(state, rn);
+            if (immr == 0 && imms == 31 && sf == 1)
                 gen(state, (unsigned long) gadget_sxtw);
-            } else if (immr == 0 && imms == 15) {
-                // SXTH: sign-extend halfword
+            else if (immr == 0 && imms == 15) {
                 gen(state, (unsigned long) gadget_sxth);
                 gen(state, sf);
             } else if (immr == 0 && imms == 7) {
-                // SXTB: sign-extend byte
                 gen(state, (unsigned long) gadget_sxtb);
                 gen(state, sf);
             } else {
-                // General SBFM: handles ASR, SBFX, SBFIZ
                 gen(state, (unsigned long) gadget_sbfm);
-                // Pack: immr | imms<<8 | sf<<16
                 gen(state, immr | (imms << 8) | ((uint64_t)sf << 16));
             }
-        }
-        // Handle zero-extend aliases (UBFM with opc=2)
-        else if (opc == 2) {
-            if (immr == 0 && imms == 31 && sf == 1) {
-                // UXTW (or just MOV for 32-bit): zero-extend word
+        } else if (opc == 2) {
+            if (can_fuse) {
+                gen(state, (unsigned long) gadget_ubfm_fused);
+                gen(state, fused_param);
+                return 1;
+            }
+            gen(state, (unsigned long) gadget_load_reg);
+            gen(state, rn);
+            if (immr == 0 && imms == 31 && sf == 1)
                 gen(state, (unsigned long) gadget_uxtw);
-            } else if (immr == 0 && imms == 15) {
-                // UXTH: zero-extend halfword
+            else if (immr == 0 && imms == 15) {
                 gen(state, (unsigned long) gadget_uxth);
                 gen(state, sf);
             } else if (immr == 0 && imms == 7) {
-                // UXTB: zero-extend byte
                 gen(state, (unsigned long) gadget_uxtb);
                 gen(state, sf);
             } else {
-                // General UBFM: handles LSL, LSR, UBFX, UBFIZ
                 gen(state, (unsigned long) gadget_ubfm);
-                // Pack: immr | imms<<8 | sf<<16
                 gen(state, immr | (imms << 8) | ((uint64_t)sf << 16));
             }
-        }
-        // BFM (opc=1) - Bitfield Move (preserves other bits in destination)
-        else if (opc == 1) {
-            // BFM needs both source (Rn) and destination (Rd) values
-            // The source value is already in _tmp from gadget_load_reg above
-            // Now we need to also load the destination register
+        } else if (opc == 1) {
+            // BFM needs both source and destination — not fused
+            gen(state, (unsigned long) gadget_load_reg);
+            gen(state, rn);
             gen(state, (unsigned long) gadget_bfm);
-            // Pack: immr | imms<<8 | sf<<16 | rd<<24
             gen(state, immr | (imms << 8) | ((uint64_t)sf << 16) | ((uint64_t)rd << 24));
-        }
-        else {
+        } else {
             gen_interrupt(state, INT_UNDEFINED);
             return 0;
         }
 
-        // Store result to destination register
+        // Store result for non-fused paths
         gen(state, (unsigned long) gadget_store_reg);
         gen(state, rd);
         return 1;
@@ -1367,6 +1419,15 @@ static int gen_branch(struct gen_state *state, uint32_t insn) {
             state->jump_ip[0] = state->size - 2;
             state->jump_ip[1] = state->size - 1;
         } else {
+            // Extended basic block: follow unconditional B inline if safe
+            // Same-page + forward-only prevents infinite loops and page-tracking issues
+            if (PAGE(target) == PAGE(state->block->addr) &&
+                target > state->orig_ip &&
+                state->b_follow_depth < 3) {
+                state->ip = target;
+                state->b_follow_depth++;
+                return 1;  // continue compiling from target
+            }
             gen(state, (unsigned long) gadget_branch);
             gen(state, fake_target);
             state->jump_ip[0] = state->size - 1;
@@ -1436,12 +1497,20 @@ static int gen_branch(struct gen_state *state, uint32_t insn) {
         unsigned long fake_target = (unsigned long)target | (1UL << 63);
         unsigned long fake_fallthrough = (unsigned long)state->ip | (1UL << 63);
 
-        if (is_cbnz) {
-            gen(state, (unsigned long) gadget_cbnz);
+        if (rt != 31) {
+            // Fast path: specialized gadgets skip XZR check and sf check
+            void *gadget;
+            if (is_cbnz)
+                gadget = sf ? gadget_cbnz_64 : gadget_cbnz_32;
+            else
+                gadget = sf ? gadget_cbz_64 : gadget_cbz_32;
+            gen(state, (unsigned long) gadget);
+            gen(state, (uint64_t)rt);
         } else {
-            gen(state, (unsigned long) gadget_cbz);
+            // Fallback: generic gadget handles XZR (rt==31)
+            gen(state, (unsigned long)(is_cbnz ? gadget_cbnz : gadget_cbz));
+            gen(state, rt | ((uint64_t)sf << 8));
         }
-        gen(state, rt | ((uint64_t)sf << 8));
         gen(state, fake_target);
         gen(state, fake_fallthrough);
 
@@ -1745,8 +1814,8 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
         // Sign-extend imm19 and multiply by 4
         if (imm19 & 0x40000) imm19 |= (int32_t)~0x7ffff;
         int32_t offset = imm19 << 2;
-        // Keep target as 32-bit address (guest runs in 32-bit address space)
-        uint32_t target = (uint32_t)state->orig_ip + offset;
+        // Compute target as full-width address
+        addr_t target = state->orig_ip + offset;
 
 
         if (V) {
@@ -1874,13 +1943,15 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
             // Fused gadget: [gadget addr][rd_or_rt | rn<<8 | offset<<16]
             uint64_t fused_param = (is_load ? rt : rt) | ((uint64_t)rn << 8) | ((uint64_t)offset << 16);
 
+            bool fast = (rn != 31 && rt != 31);
             if (is_load) {
                 void *gadget;
                 switch (size) {
                     case 0: gadget = gadget_load8_imm; break;
                     case 1: gadget = gadget_load16_imm; break;
-                    case 2: gadget = sign_extend ? gadget_load32_sx_imm : gadget_load32_imm; break;
-                    case 3: gadget = gadget_load64_imm; break;
+                    case 2: gadget = sign_extend ? gadget_load32_sx_imm :
+                                     (fast ? gadget_load32_imm_fast : gadget_load32_imm); break;
+                    case 3: gadget = fast ? gadget_load64_imm_fast : gadget_load64_imm; break;
                     default: gen_interrupt(state, INT_UNDEFINED); return 0;
                 }
                 gen(state, (unsigned long) gadget);
@@ -1890,8 +1961,8 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
                 switch (size) {
                     case 0: gadget = gadget_store8_imm; break;
                     case 1: gadget = gadget_store16_imm; break;
-                    case 2: gadget = gadget_store32_imm; break;
-                    case 3: gadget = gadget_store64_imm; break;
+                    case 2: gadget = fast ? gadget_store32_imm_fast : gadget_store32_imm; break;
+                    case 3: gadget = fast ? gadget_store64_imm_fast : gadget_store64_imm; break;
                     default: gen_interrupt(state, INT_UNDEFINED); return 0;
                 }
                 gen(state, (unsigned long) gadget);
@@ -2090,7 +2161,7 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
             // SIMD/FP load/store pair
             // opc=00 -> 32-bit (S), opc=01 -> 64-bit (D), opc=10 -> 128-bit (Q)
             uint32_t size_bytes = (opc == 0) ? 4 : (opc == 1) ? 8 : 16;
-            int64_t simd_offset = imm7 * size_bytes;
+            int64_t simd_offset = (int64_t)imm7 * size_bytes;
 
             bool is_pre = (mode == 3);
             bool is_post = (mode == 1);
@@ -2165,11 +2236,12 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
                            | ((uint64_t)(rt2 & 0x1f) << 8)
                            | ((uint64_t)(rn & 0x1f) << 16)
                            | (((uint64_t)(uint16_t)off16) << 24);
+            bool fast_pair = is64 && rn != 31 && rt != 31 && rt2 != 31;
             void *gadget;
             if (L)
-                gadget = is64 ? gadget_ldp64_imm : gadget_ldp32_imm;
+                gadget = (fast_pair ? gadget_ldp64_imm_fast : (is64 ? gadget_ldp64_imm : gadget_ldp32_imm));
             else
-                gadget = is64 ? gadget_stp64_imm : gadget_stp32_imm;
+                gadget = (fast_pair ? gadget_stp64_imm_fast : (is64 ? gadget_stp64_imm : gadget_stp32_imm));
             gen(state, (unsigned long) gadget);
             gen(state, param);
             return 1;
@@ -2909,6 +2981,13 @@ static int gen_dp_reg(struct gen_state *state, uint32_t insn) {
             return 1;
         }
 
+        // Fast path: MOV Xd, Xm is ORR Xd, XZR, Xm (opc=1, N=0, rn=31)
+        if (opc == 1 && N == 0 && rn == 31 && rd != 31 && rm != 31) {
+            gen(state, (unsigned long)(sf ? gadget_mov_reg : gadget_mov_reg32));
+            gen(state, rd | (rm << 16));
+            return 1;
+        }
+
         void *gadget;
         switch (opc) {
             case 0: gadget = N ? gadget_and_reg : gadget_and_reg; break;  // AND/BIC
@@ -3095,6 +3174,23 @@ static int gen_dp_reg(struct gen_state *state, uint32_t insn) {
             return 0;
         }
 
+        // Try 64-bit fast path for shifts (sf=1, rd/rn/rm != 31)
+        bool shift_fast = sf && rd != 31 && rn != 31 && rm != 31;
+        if (shift_fast) {
+            void *fast = NULL;
+            switch (opcode) {
+                case 0x08: fast = gadget_lslv_64; break;
+                case 0x09: fast = gadget_lsrv_64; break;
+                case 0x0a: fast = gadget_asrv_64; break;
+            }
+            if (fast) {
+                gen(state, (unsigned long) fast);
+                gen(state, rd | (rn << 8) | (rm << 16));
+                return 1;
+            }
+        }
+
+        // Generic path
         void *gadget = NULL;
         switch (opcode) {
             case 0x02: gadget = gadget_udiv; break;  // UDIV

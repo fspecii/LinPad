@@ -36,7 +36,7 @@
     // Chained fast path — poke check only (no inline cycle counter)
     // Cycle checking happens in main loop (every ~1024 unchained blocks)
     // This eliminates per-chain overhead for maximum performance.
-    ldr w11, [\reg, #(-FIBER_BLOCK_code + FIBER_BLOCK_addr)]
+    ldr x11, [\reg, #(-FIBER_BLOCK_code + FIBER_BLOCK_addr)]
     str x11, [_cpu, #CPU_pc]
     ldr x8, [_cpu, #CPU_poked_ptr]
     ldrb w8, [x8]
@@ -62,7 +62,7 @@
     ldr x9, [_pc]
     inline_chain x9, 1f
 1:  // Unchained: guest PC is low 32 bits of fake_ip
-    and x11, x9, #0xffffffff
+    and x11, x9, #0xffffffffffff
     str x11, [_cpu, #CPU_pc]
     mov _pc, x9
     b fiber_ret_chain
@@ -92,7 +92,7 @@
     ldr x9, [_pc, #24]
     inline_chain x9, 1f
 1:  // Unchained: guest PC is low 32 bits of fake_ip
-    and x11, x9, #0xffffffff
+    and x11, x9, #0xffffffffffff
     str x11, [_cpu, #CPU_pc]
     mov _pc, x9
     b fiber_ret_chain
@@ -109,8 +109,8 @@
     add x9, _cpu, #CPU_x0
     ldr x10, [x9, x8, lsl #3]
 
-    // Store guest PC (w10 truncates to 32-bit, matching 32-bit address space)
-    str w10, [_cpu, #CPU_pc]
+    // Store guest PC (full 48-bit address)
+    str x10, [_cpu, #CPU_pc]
     // Indirect branch: always return to main loop
     b fiber_ret
 
@@ -130,8 +130,8 @@
     // Save return address to X30
     str x11, [_cpu, #(CPU_x0 + 30*8)]
 
-    // Store guest PC (w10 truncates to 32-bit, matching 32-bit address space)
-    str w10, [_cpu, #CPU_pc]
+    // Store guest PC (full 48-bit address)
+    str x10, [_cpu, #CPU_pc]
     // Indirect branch: always return to main loop
     b fiber_ret
 
@@ -150,8 +150,8 @@
     and x8, x8, #0x1f
     add x9, _cpu, #CPU_x0
     ldr x10, [x9, x8, lsl #3]   // x10 = return address (guest PC)
-    // Always set CPU_pc first (w10 truncates to 32-bit address space)
-    str w10, [_cpu, #CPU_pc]
+    // Always set CPU_pc first (full 48-bit address)
+    str x10, [_cpu, #CPU_pc]
     // Look up return address in ret_cache
     ubfx w12, w10, #4, #12
     add x13, _cpu, #LOCAL_ret_cache
@@ -160,7 +160,7 @@
     cbz x14, ret_no_cache
     // Validate: saved return_addr must match actual return address
     ldr x9, [x14, #8]            // x14[1] = return_addr
-    cmp w10, w9
+    cmp x10, x9
     b.ne ret_no_cache
     // Cache hit — load return continuation
     ldr _pc, [x14, #16]          // x14[2] = return_cont (block->code or fake_ip)
@@ -212,7 +212,7 @@ ret_no_cache:
     // Not zero - use fallthrough (x10)
     inline_chain x10, cbz_nt_unchained
 cbz_nt_unchained:
-    and x11, x10, #0xffffffff
+    and x11, x10, #0xffffffffffff
     str x11, [_cpu, #CPU_pc]
     mov _pc, x10
     b fiber_ret_chain
@@ -220,7 +220,7 @@ cbz_taken:
     // Zero - use target (x9)
     inline_chain x9, cbz_t_unchained
 cbz_t_unchained:
-    and x11, x9, #0xffffffff
+    and x11, x9, #0xffffffffffff
     str x11, [_cpu, #CPU_pc]
     mov _pc, x9
     b fiber_ret_chain
@@ -254,7 +254,7 @@ cbz_t_unchained:
     // Zero - use fallthrough (x10)
     inline_chain x10, cbnz_nt_unchained
 cbnz_nt_unchained:
-    and x11, x10, #0xffffffff
+    and x11, x10, #0xffffffffffff
     str x11, [_cpu, #CPU_pc]
     mov _pc, x10
     b fiber_ret_chain
@@ -262,7 +262,111 @@ cbnz_taken:
     // Not zero - use target (x9)
     inline_chain x9, cbnz_t_unchained
 cbnz_t_unchained:
-    and x11, x9, #0xffffffff
+    and x11, x9, #0xffffffffffff
+    str x11, [_cpu, #CPU_pc]
+    mov _pc, x9
+    b fiber_ret_chain
+
+/*
+ * Specialized CBZ/CBNZ gadgets (rt!=31, sf known at compile time)
+ *
+ * Saves ~8 instructions vs generic by eliminating XZR check and sf check.
+ * Code stream: [gadget addr][rt (64-bit)][fake_target (64-bit)][fake_fallthrough (64-bit)]
+ * gen.c emits these when rt!=31, falls back to generic gadget_cbz/gadget_cbnz for rt==31.
+ */
+
+// CBZ Xt, target (64-bit, rt!=31)
+.gadget cbz_64
+    ldr x8, [_pc]              // rt
+    add _pc, _pc, #8
+    ldr x9, [_pc]              // target
+    add _pc, _pc, #8
+    ldr x10, [_pc]             // fallthrough
+    add x13, _cpu, #CPU_x0
+    ldr x14, [x13, x8, lsl #3] // load 64-bit register value
+    cbz x14, cbz_64_taken
+    inline_chain x10, cbz_64_nt_unchained
+cbz_64_nt_unchained:
+    and x11, x10, #0xffffffffffff
+    str x11, [_cpu, #CPU_pc]
+    mov _pc, x10
+    b fiber_ret_chain
+cbz_64_taken:
+    inline_chain x9, cbz_64_t_unchained
+cbz_64_t_unchained:
+    and x11, x9, #0xffffffffffff
+    str x11, [_cpu, #CPU_pc]
+    mov _pc, x9
+    b fiber_ret_chain
+
+// CBZ Wt, target (32-bit, rt!=31)
+.gadget cbz_32
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    ldr x9, [_pc]
+    add _pc, _pc, #8
+    ldr x10, [_pc]
+    add x13, _cpu, #CPU_x0
+    ldr x14, [x13, x8, lsl #3] // load 64-bit, check only low 32
+    cbz w14, cbz_32_taken       // w14 tests only lower 32 bits
+    inline_chain x10, cbz_32_nt_unchained
+cbz_32_nt_unchained:
+    and x11, x10, #0xffffffffffff
+    str x11, [_cpu, #CPU_pc]
+    mov _pc, x10
+    b fiber_ret_chain
+cbz_32_taken:
+    inline_chain x9, cbz_32_t_unchained
+cbz_32_t_unchained:
+    and x11, x9, #0xffffffffffff
+    str x11, [_cpu, #CPU_pc]
+    mov _pc, x9
+    b fiber_ret_chain
+
+// CBNZ Xt, target (64-bit, rt!=31)
+.gadget cbnz_64
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    ldr x9, [_pc]
+    add _pc, _pc, #8
+    ldr x10, [_pc]
+    add x13, _cpu, #CPU_x0
+    ldr x14, [x13, x8, lsl #3]
+    cbnz x14, cbnz_64_taken
+    inline_chain x10, cbnz_64_nt_unchained
+cbnz_64_nt_unchained:
+    and x11, x10, #0xffffffffffff
+    str x11, [_cpu, #CPU_pc]
+    mov _pc, x10
+    b fiber_ret_chain
+cbnz_64_taken:
+    inline_chain x9, cbnz_64_t_unchained
+cbnz_64_t_unchained:
+    and x11, x9, #0xffffffffffff
+    str x11, [_cpu, #CPU_pc]
+    mov _pc, x9
+    b fiber_ret_chain
+
+// CBNZ Wt, target (32-bit, rt!=31)
+.gadget cbnz_32
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    ldr x9, [_pc]
+    add _pc, _pc, #8
+    ldr x10, [_pc]
+    add x13, _cpu, #CPU_x0
+    ldr x14, [x13, x8, lsl #3]
+    cbnz w14, cbnz_32_taken
+    inline_chain x10, cbnz_32_nt_unchained
+cbnz_32_nt_unchained:
+    and x11, x10, #0xffffffffffff
+    str x11, [_cpu, #CPU_pc]
+    mov _pc, x10
+    b fiber_ret_chain
+cbnz_32_taken:
+    inline_chain x9, cbnz_32_t_unchained
+cbnz_32_t_unchained:
+    and x11, x9, #0xffffffffffff
     str x11, [_cpu, #CPU_pc]
     mov _pc, x9
     b fiber_ret_chain
@@ -375,7 +479,7 @@ bcond_taken:
     // x9 = target (fake_ip or chained block->code)
     inline_chain x9, bcond_taken_unchained
 bcond_taken_unchained:
-    and x11, x9, #0xffffffff
+    and x11, x9, #0xffffffffffff
     str x11, [_cpu, #CPU_pc]
     mov _pc, x9
     b fiber_ret_chain
@@ -384,7 +488,7 @@ bcond_not_taken:
     // x10 = fallthrough (fake_ip or chained block->code)
     inline_chain x10, bcond_not_taken_unchained
 bcond_not_taken_unchained:
-    and x11, x10, #0xffffffff
+    and x11, x10, #0xffffffffffff
     str x11, [_cpu, #CPU_pc]
     mov _pc, x10
     b fiber_ret_chain
@@ -397,7 +501,7 @@ bcond_not_taken_unchained:
  */
 .gadget svc
     ldr x8, [_pc]           // Load next instruction address
-    str x8, [_cpu, #CPU_pc] // Store as guest PC (32-bit)
+    str x8, [_cpu, #CPU_pc] // Store as guest PC
     mov w0, #INT_SYSCALL
     b fiber_exit
 
@@ -558,7 +662,7 @@ csel_store:
     // Bit is zero - take branch (x9)
     inline_chain x9, tbz_t_unchained
 tbz_t_unchained:
-    and x11, x9, #0xffffffff
+    and x11, x9, #0xffffffffffff
     str x11, [_cpu, #CPU_pc]
     mov _pc, x9
     b fiber_ret_chain
@@ -567,7 +671,7 @@ tbz_not_taken:
     // bit is set - fall through (x10)
     inline_chain x10, tbz_nt_unchained
 tbz_nt_unchained:
-    and x11, x10, #0xffffffff
+    and x11, x10, #0xffffffffffff
     str x11, [_cpu, #CPU_pc]
     mov _pc, x10
     b fiber_ret_chain
@@ -605,7 +709,7 @@ tbz_nt_unchained:
     // Bit is set - take branch (x9)
     inline_chain x9, tbnz_t_unchained
 tbnz_t_unchained:
-    and x11, x9, #0xffffffff
+    and x11, x9, #0xffffffffffff
     str x11, [_cpu, #CPU_pc]
     mov _pc, x9
     b fiber_ret_chain
@@ -614,7 +718,7 @@ tbnz_not_taken:
     // bit is zero - fall through (x10)
     inline_chain x10, tbnz_nt_unchained
 tbnz_nt_unchained:
-    and x11, x10, #0xffffffff
+    and x11, x10, #0xffffffffffff
     str x11, [_cpu, #CPU_pc]
     mov _pc, x10
     b fiber_ret_chain

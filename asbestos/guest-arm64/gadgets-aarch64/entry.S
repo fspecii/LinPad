@@ -82,7 +82,7 @@ fiber_ret_chain:
 
 poke:
     // Timer interrupt pending — load guest PC from block->addr and return
-    ldr w8, [_pc, #(-FIBER_BLOCK_code + FIBER_BLOCK_addr)]
+    ldr x8, [_pc, #(-FIBER_BLOCK_code + FIBER_BLOCK_addr)]
     str x8, [_cpu, #CPU_pc]
     sub x8, _pc, #FIBER_BLOCK_code
     str x8, [_cpu, #LOCAL_last_block]
@@ -312,10 +312,10 @@ segfault_write_cp:
 
 /*
  * Debug gadget: record guest PC for crash diagnosis
- * Code stream: [gadget_set_pc addr][guest_pc (32-bit in 64-bit slot)]
+ * Code stream: [gadget_set_pc addr][guest_pc (64-bit)]
  */
 .gadget set_pc
-    ldr w8, [_pc]
+    ldr x8, [_pc]
     str x8, [_cpu, #CPU_pc]
     add _pc, _pc, #8
     gret
@@ -331,9 +331,9 @@ segfault_write_cp:
     b fiber_exit
 
 // gadget_exit - Exit the block and return to dispatcher
-// Code stream: [gadget_exit addr][next IP (32-bit)]
+// Code stream: [gadget_exit addr][next IP (64-bit)]
 .gadget exit
-    ldr w8, [_pc]          // Load next IP from code stream
+    ldr x8, [_pc]          // Load next IP from code stream (64-bit)
     str x8, [_cpu, #CPU_pc] // Store as guest PC
     mvn w0, wzr            // Return INT_NONE (-1)
     b fiber_exit

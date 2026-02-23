@@ -727,7 +727,7 @@ int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
     return 0;
 }
 
-int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t len_addr) {
+int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, addr_t len_addr) {
     STRACE("getsockopt(%d, %d, %d, %#x, %#x)", sock_fd, level, option, value_addr, len_addr);
     struct fd *sock = sock_getfd(sock_fd);
     if (sock == NULL)
@@ -1205,6 +1205,36 @@ struct mmsghdr64_ {
     uint32_t _pad;
 };
 #endif
+
+int_t sys_recvmmsg(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags, addr_t timeout_addr) {
+    STRACE("recvmmsg(%d, %#x, %d, %d)", sock_fd, msg_vec, vec_len, flags);
+    int num_recv = 0;
+#ifdef GUEST_ARM64
+    size_t mmsghdr_size = sizeof(struct mmsghdr64_);
+    size_t len_offset = offsetof(struct mmsghdr64_, len);
+#else
+    size_t mmsghdr_size = sizeof(struct mmsghdr_);
+    size_t len_offset = offsetof(struct mmsghdr_, len);
+#endif
+    for (unsigned i = 0; i < vec_len; i++) {
+        addr_t msghdr = msg_vec + i * mmsghdr_size;
+        int_t res = sys_recvmsg(sock_fd, msghdr, flags);
+        if (res >= 0) {
+            addr_t msg_len_addr = msghdr + len_offset;
+            if (user_put(msg_len_addr, res))
+                res = _EFAULT;
+        }
+        if (res < 0) {
+            if (num_recv > 0)
+                break;
+            return res;
+        }
+        num_recv++;
+        if (res == 0)
+            break;
+    }
+    return num_recv;
+}
 
 int_t sys_sendmmsg(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags) {
     int num_sent = 0;

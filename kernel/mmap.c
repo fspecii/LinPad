@@ -8,6 +8,10 @@
 #include "kernel/memory.h"
 #include "kernel/mm.h"
 
+#if ANON_MMAP_LIMIT_PAGES > 0
+_Atomic long anon_page_count;
+#endif
+
 struct mm *mm_new() {
     struct mm *mm = malloc(sizeof(struct mm));
     if (mm == NULL)
@@ -48,16 +52,6 @@ void mm_release(struct mm *mm) {
     }
 }
 
-// Maximum anonymous mmap pages across ALL processes (host memory cap).
-// Prevents iOS app from being killed by jetsam.
-// 0 = no limit. Non-zero = hard limit in pages (4KB each).
-// 262144 pages = 1GB.
-#define ANON_MMAP_LIMIT_PAGES 262144
-
-#if ANON_MMAP_LIMIT_PAGES > 0
-_Atomic long anon_page_count;
-#endif
-
 static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
     int err;
     pages_t pages = PAGE_ROUND_UP(len);
@@ -68,10 +62,13 @@ static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
             return _EINVAL;
         page = PAGE(addr);
 #ifdef GUEST_ARM64
-        // Reject hint addresses beyond usable address range.
-        // Currently constrained to 32-bit (stack at 0xffffe000).
-        // When addresses are raised to 48-bit, use USER_ADDR_MAX_PAGE.
-        if (page + pages > MMAP_HOLE_START + 1) {
+        // Reject hints beyond the mmap hole range. Go's runtime tries arenas
+        // at 0x4000000000 (16GB) and computes scavengeIndex metadata addresses
+        // relative to that base; those metadata addresses land at 0x80000 which
+        // collides with the program's text segment. By limiting hints to
+        // MMAP_HOLE_START, Go falls back to lower arenas where the metadata
+        // doesn't collide. MAP_FIXED above the hole still returns ENOMEM.
+        if (page + pages > MMAP_HOLE_START) {
             if (flags & MMAP_FIXED)
                 return _ENOMEM;
             addr = 0;
@@ -186,7 +183,7 @@ int_t sys_munmap(addr_t addr, uint_t len) {
 #define MREMAP_MAYMOVE_ 1
 #define MREMAP_FIXED_ 2
 
-int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags) {
+addr_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags) {
     STRACE("mremap(%#x, %#x, %#x, %d)", addr, old_len, new_len, flags);
     if (PGOFFSET(addr) != 0)
         return _EINVAL;

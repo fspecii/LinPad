@@ -370,7 +370,7 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
 #endif
         {AX_SYSINFO_EHDR, current->mm->vdso},
 #if defined(GUEST_ARM64)
-        {AX_HWCAP, 0x03}, // FP|ASIMD only — crypto NEON instructions not fully implemented
+        {AX_HWCAP, 0x6b}, // FP|ASIMD|AES|SHA1|SHA2 — native crypto gadgets
 #else
         {AX_HWCAP, 0x00000000}, // suck that
 #endif
@@ -801,7 +801,6 @@ dword_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
     // Force-inject environment variables into every execve'd process.
     // mode=0: inject only if not present, mode=1: replace existing value
     static const struct { const char *kv; size_t prefix_len; int mode; } inject_envs[] = {
-        { "OPENSSL_armcap=0", 15, 1 },        // FORCE disable NEON crypto (mode=1: always replace)
         { "PYTHONMALLOC=malloc", 13, 1 },      // FORCE bypass pymalloc arenas (mode=1: always replace)
         { "NO_COLOR=1", 9, 0 },                // Disable color output
         { "PIP_PROGRESS_BAR=off", 17, 0 },     // Disable pip progress bar

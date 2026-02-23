@@ -95,12 +95,10 @@ _addr   .req x7    // Changed from x3/x4 to x7 to avoid conflict with guest low 
         str x8, [_tlb, #(-TLB_entries+TLB_dirty_page)]
     .endif
 
-    // TLB lookup: index = ((addr >> 12) & (TLB_SIZE-1)) ^ (addr >> (12 + TLB_BITS))
-    // With TLB_BITS=11: ((addr>>12) & 0x7ff) ^ (addr>>23)
-    ubfx x9, x7, #12, #11       // (addr >> 12) & 0x7ff (TLB_BITS=11)
-    eor x9, x9, x7, lsr #23    // XOR with (addr >> 23) = (addr >> (12+11))
-    and w9, w9, #0x7ff           // mask to TLB_SIZE-1 (higher bits from XOR)
-    // sizeof(tlb_entry) = 32 bytes (padded for ARM64)
+    // TLB index calculation: (addr >> 12) ^ (addr >> 25) masked to TLB_SIZE-1
+    ubfx x9, x7, #12, #13       // (addr >> 12) & 0x1fff (TLB_BITS=13)
+    eor x9, x9, x7, lsr #25    // XOR with (addr >> 25) = (addr >> (12+13))
+    and w9, w9, #0x1fff          // mask to TLB_SIZE-1
     lsl x9, x9, #5
     add x9, x9, _tlb
 
@@ -114,8 +112,10 @@ _addr   .req x7    // Changed from x3/x4 to x7 to avoid conflict with guest low 
     b.ne handle_miss_\id
 
     ldr x10, [x9, #TLB_ENTRY_data_minus_addr]
-    // Save guest address for JIT crash recovery before TLB clobbers _addr.
-    str x7, [_cpu, #CPU_segfault_addr]
+
+    // NOTE: segfault_addr is NOT stored here for performance.
+    // On JIT crash (stale TLB SIGSEGV), crash_handler reconstructs
+    // guest_addr = (x7 - x10) & 0xffffffffffff from ucontext registers.
     add x7, x10, x7                // host_addr = data_minus_addr + guest_addr
 back_\id:
 .endm

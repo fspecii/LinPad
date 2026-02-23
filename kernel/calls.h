@@ -56,7 +56,7 @@ addr_t sys_mmap64(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd
 #endif
 int_t sys_munmap(addr_t addr, uint_t len);
 int_t sys_mprotect(addr_t addr, uint_t len, int_t prot);
-int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags);
+addr_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags);
 dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice);
 dword_t sys_mbind(addr_t addr, dword_t len, int_t mode, addr_t nodemask, dword_t maxnode, uint_t flags);
 int_t sys_mlock(addr_t addr, dword_t len);
@@ -98,9 +98,9 @@ dword_t sys_lseek(fd_t f, dword_t off, dword_t whence);
 qword_t sys_lseek64(fd_t f, sqword_t off, dword_t whence);
 dword_t sys_pread(fd_t f, addr_t buf_addr, dword_t buf_size, off_t_ off);
 dword_t sys_pwrite(fd_t f, addr_t buf_addr, dword_t size, off_t_ off);
-dword_t sys_ioctl(fd_t f, dword_t cmd, dword_t arg);
-dword_t sys_fcntl(fd_t f, dword_t cmd, dword_t arg);
-dword_t sys_fcntl32(fd_t fd, dword_t cmd, dword_t arg);
+dword_t sys_ioctl(fd_t f, dword_t cmd, addr_t arg);
+dword_t sys_fcntl(fd_t f, dword_t cmd, addr_t arg);
+dword_t sys_fcntl32(fd_t fd, dword_t cmd, addr_t arg);
 dword_t sys_dup(fd_t fd);
 dword_t sys_dup2(fd_t fd, fd_t new_fd);
 dword_t sys_dup3(fd_t f, fd_t new_f, int_t flags);
@@ -247,7 +247,7 @@ dword_t sys_setsid(void);
 dword_t sys_getsid(void);
 
 int_t sys_sched_yield(void);
-int_t sys_prctl(dword_t option, uint_t arg2, uint_t arg3, uint_t arg4, uint_t arg5);
+int_t sys_prctl(dword_t option, addr_t arg2, addr_t arg3, addr_t arg4, addr_t arg5);
 int_t sys_arch_prctl(int_t code, addr_t addr);
 int_t sys_reboot(int_t magic, int_t magic2, int_t cmd);
 
@@ -318,7 +318,8 @@ int_t sys_ipc(uint_t call, int_t first, int_t second, int_t third, addr_t ptr, i
 #ifdef GUEST_ARM64
 // ARM64 syscalls pass 64-bit register values; functions taking dword_t
 // will implicitly truncate, while those taking off_t_/qword_t get full values.
-typedef int (*syscall_t)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+// Returns int64_t so addr_t-returning syscalls (mmap, brk) can pass 48-bit values.
+typedef int64_t (*syscall_t)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 #else
 typedef int (*syscall_t)(dword_t, dword_t, dword_t, dword_t, dword_t, dword_t);
 #endif

@@ -172,7 +172,6 @@ static NSString *const kSkipStartupMessage = @"Skip Startup Message";
         "HOME=/root\0"
         "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\0"
 #if defined(GUEST_ARM64)
-        "OPENSSL_armcap=0\0"
         "PYTHONMALLOC=malloc\0"
 #endif
         ;

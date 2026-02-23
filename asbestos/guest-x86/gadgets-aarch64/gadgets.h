@@ -44,8 +44,9 @@ _xaddr .req x3
     b.hi crosspage_load_\id
     and w8, _addr, #0xfffff000
     str w8, [_tlb, #(-TLB_entries+TLB_dirty_page)]
-    ubfx x9, _xaddr, 12, 10
-    eor x9, x9, _xaddr, lsr 22
+    ubfx x9, _xaddr, 12, 13
+    eor x9, x9, _xaddr, lsr 25
+    and w9, w9, #0x1fff
     lsl x9, x9, 4
     add x9, x9, _tlb
     .ifc \type,read
