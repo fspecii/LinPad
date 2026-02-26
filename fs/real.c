@@ -384,9 +384,13 @@ int realfs_getpath(struct fd *fd, char *buf) {
      * Detect and translate back to the Linux path. */
     char linux_path[MAX_PATH];
     if (fakefs_bind_mount_resolve_path(buf, linux_path, sizeof(linux_path))) {
+        if (strstr(buf, "minis") != NULL)
+            fprintf(stderr, "realfs_getpath: bind_mount_resolve OK: \"%s\" -> \"%s\"\n", buf, linux_path);
         strlcpy(buf, linux_path, MAX_PATH);
         return 0;
     }
+    if (strstr(buf, "minis") != NULL)
+        fprintf(stderr, "realfs_getpath: bind_mount_resolve MISS: F_GETPATH=\"%s\" source=\"%s\"\n", buf, fd->mount->source);
 
     if (strcmp(fd->mount->source, "/") != 0 || strcmp(buf, "/") == 0) {
         size_t source_len = strlen(fd->mount->source);
@@ -396,6 +400,12 @@ int realfs_getpath(struct fd *fd, char *buf) {
          * app restart before mountMinis re-registers the mounts). */
         if (strncmp(buf, fd->mount->source, source_len) == 0) {
             memmove(buf, buf + source_len, MAX_PATH - source_len);
+        } else if (strncmp(fd->mount->source, "/var/", 5) == 0 &&
+                   strncmp(buf, "/private", 8) == 0 &&
+                   strncmp(buf + 8, fd->mount->source, source_len) == 0) {
+            /* F_GETPATH returns /private/var/... but mount->source is /var/...
+             * Strip /private prefix + mount->source from buf. */
+            memmove(buf, buf + 8 + source_len, MAX_PATH - 8 - source_len);
         } else {
             /* Path is outside mount source (stale bind mount symlink resolved
              * by F_GETPATH). Return root as a safe fallback. */
