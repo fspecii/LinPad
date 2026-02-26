@@ -237,15 +237,11 @@ static struct fd *fakefs_open(struct mount *mount, const char *path, int flags, 
         if (flags & O_NONBLOCK_) real_flags |= O_NONBLOCK;
         int fd_no = open(host_abs, real_flags, 0666);
         if (fd_no < 0) {
-            if (strncmp(path, "/var/minis", 10) == 0)
-                fprintf(stderr, "fakefs_open: direct open FAILED for \"%s\" -> \"%s\" errno=%d\n", path, host_abs, errno);
             return ERR_PTR(errno_map());
         }
         fd = fd_create(&realfs_fdops);
         fd->real_fd = fd_no;
         fd->dir = NULL;
-        if (strncmp(path, "/var/minis", 10) == 0)
-            fprintf(stderr, "fakefs_open: direct open OK \"%s\" -> \"%s\" fd=%d\n", path, host_abs, fd_no);
     } else {
         fd = realfs.open(mount, path, flags, 0666);
         if (IS_ERR(fd))
@@ -593,19 +589,12 @@ static ssize_t fakefs_readlink(struct mount *mount, const char *path, char *buf,
     struct ish_stat ishstat;
     if (!path_read_stat(fs, path, &ishstat, NULL)) {
         db_rollback(fs);
-        if (strncmp(path, "/var/minis", 10) == 0)
-            fprintf(stderr, "fakefs_readlink: \"%s\" -> ENOENT (not in meta.db)\n", path);
         return _ENOENT;
     }
     if (!S_ISLNK(ishstat.mode)) {
         db_rollback(fs);
-        if (strncmp(path, "/var/minis", 10) == 0)
-            fprintf(stderr, "fakefs_readlink: \"%s\" -> EINVAL (mode=0x%x, not symlink)\n", path, ishstat.mode);
         return _EINVAL;
     }
-    if (strncmp(path, "/var/minis", 10) == 0)
-        fprintf(stderr, "fakefs_readlink: \"%s\" IS a symlink in meta.db (mode=0x%x)\n", path, ishstat.mode);
-
     ssize_t err = realfs.readlink(mount, path, buf, bufsize);
     if (err == _EINVAL)
         err = file_readlink(mount, path, buf, bufsize);
