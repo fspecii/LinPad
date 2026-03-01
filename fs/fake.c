@@ -746,10 +746,15 @@ int fakefs_bind_mount(const char *linux_path, const char *host_path) {
         }
     }
 
-    /* Verify host path exists and is a directory */
+    /* Verify host path exists (directory or regular file) */
     struct stat st;
-    if (stat(host_path, &st) < 0 || !S_ISDIR(st.st_mode)) {
-        fprintf(stderr, "fakefs_bind_mount: FAIL host_path does not exist or is not a dir\n");
+    if (stat(host_path, &st) < 0) {
+        fprintf(stderr, "fakefs_bind_mount: FAIL host_path does not exist\n");
+        return _ENOENT;
+    }
+    bool is_file_mount = S_ISREG(st.st_mode);
+    if (!S_ISDIR(st.st_mode) && !is_file_mount) {
+        fprintf(stderr, "fakefs_bind_mount: FAIL host_path is neither a dir nor a regular file\n");
         return _ENOENT;
     }
 
@@ -825,14 +830,15 @@ int fakefs_bind_mount(const char *linux_path, const char *host_path) {
                 fprintf(stderr, "fakefs_bind_mount: slot[%d] VERIFY readlinkat(\"%s\") FAILED (errno=%d)\n", i, host_link, errno);
             }
 
-            /* Ensure the mount point directory exists in meta.db */
+            /* Ensure the mount point exists in meta.db (dir or file) */
             struct fakefs_db *fs = &g_fakefs_mount->fakefs;
             db_begin_read(fs);
             inode_t ino = path_get_inode(fs, linux_path);
             db_commit(fs);
             if (ino == 0) {
                 struct ish_stat ishstat = {
-                    .mode = S_IFDIR | 0755, .uid = 0, .gid = 0, .rdev = 0
+                    .mode = (is_file_mount ? S_IFREG | 0644 : S_IFDIR | 0755),
+                    .uid = 0, .gid = 0, .rdev = 0
                 };
                 db_begin_write(fs);
                 path_create(fs, linux_path, &ishstat);

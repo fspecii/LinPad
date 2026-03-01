@@ -359,7 +359,7 @@ static void register_new_files(size_t argc, const char *packed_argv) {
     p += strlen(p) + 1; // skip argv[0]
 
     for (size_t i = 1; i < argc; i++) {
-        if (p[0] == '/' || (p[0] == '.' && p[1] == '/')) {
+        if ((p[0] == '/' || (p[0] == '.' && p[1] == '/')) && !strstr(p, "://")) {
             // It's a path — check both as file and scan its parent dir
             char host_path[PATH_MAX];
             const char *rel = p;
@@ -524,8 +524,10 @@ static int exec_handler(native_handler_func handler, const char *guest_file,
 
     const char *p = argv;
     for (size_t i = 0; i < argc; i++) {
-        if (root_source && p[0] == '/') {
+        if (root_source && p[0] == '/' && !strstr(p, "://")) {
             // Absolute guest path → host path: prepend root_source
+            // Skip URLs (e.g. https://...) which don't start with '/'
+            // but also skip any arg containing "://" to be safe
             char host_path[PATH_MAX];
             snprintf(host_path, sizeof(host_path), "%s%s", root_source, p);
             handler_argv[i] = strdup(host_path);
