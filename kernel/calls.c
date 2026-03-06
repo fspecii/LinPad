@@ -114,20 +114,29 @@ void handle_interrupt(int interrupt) {
                     cpu->regs[0], cpu->regs[1], cpu->regs[2],
                     cpu->regs[3], cpu->regs[4], cpu->regs[5]);
                 STRACE(" = 0x%llx\n", (unsigned long long)result);
-                // ARM64 Linux ABI: return value in x0. Errors are negative
-                // (-1 to -4095). Success values are 0 or positive (up to 48-bit
-                // addresses from mmap/brk).
-                // Most syscalls return dword_t (uint32_t). On ARM64 ABI, returning
-                // uint32_t sets w0 only; upper x0 is zero. Error codes like -EFAULT
-                // become 0x00000000FFFFFFF2 instead of 0xFFFFFFFFFFFFFFF2.
-                // Detect this: if low 32 bits are a valid errno (0xFFFFF001-0xFFFFFFFF)
-                // but upper 32 bits are 0, sign-extend the 32-bit value.
-                uint32_t low32 = (uint32_t)result;
-                if ((result >> 32) == 0 && (int32_t)low32 >= -4095 && (int32_t)low32 < 0) {
-                    // 32-bit errno from dword_t-returning syscall — sign-extend
-                    cpu->regs[0] = (uint64_t)(int64_t)(int32_t)low32;
+                // sigreturn/rt_sigreturn restore the full CPU state from the
+                // signal frame. Do NOT touch regs[0] — it was already restored
+                // by restore_sigcontext. Any post-processing could corrupt the
+                // restored x0 value (e.g., errno sign-extension).
+                if (syscall_num == 139 /* rt_sigreturn */ ||
+                    syscall_num == 119 /* sigreturn */) {
+                    // x0 already set by restore_sigcontext, skip writeback
                 } else {
-                    cpu->regs[0] = (uint64_t)result;
+                    // ARM64 Linux ABI: return value in x0. Errors are negative
+                    // (-1 to -4095). Success values are 0 or positive (up to 48-bit
+                    // addresses from mmap/brk).
+                    // Most syscalls return dword_t (uint32_t). On ARM64 ABI, returning
+                    // uint32_t sets w0 only; upper x0 is zero. Error codes like -EFAULT
+                    // become 0x00000000FFFFFFF2 instead of 0xFFFFFFFFFFFFFFF2.
+                    // Detect this: if low 32 bits are a valid errno (0xFFFFF001-0xFFFFFFFF)
+                    // but upper 32 bits are 0, sign-extend the 32-bit value.
+                    uint32_t low32 = (uint32_t)result;
+                    if ((result >> 32) == 0 && (int32_t)low32 >= -4095 && (int32_t)low32 < 0) {
+                        // 32-bit errno from dword_t-returning syscall — sign-extend
+                        cpu->regs[0] = (uint64_t)(int64_t)(int32_t)low32;
+                    } else {
+                        cpu->regs[0] = (uint64_t)result;
+                    }
                 }
             }
         }

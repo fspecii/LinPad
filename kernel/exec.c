@@ -824,6 +824,16 @@ dword_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
         { "NO_COLOR=1", 9, 0 },                // Disable color output
         { "PIP_PROGRESS_BAR=off", 17, 0 },     // Disable pip progress bar
         { "PYTHONDONTWRITEBYTECODE=1", 25, 0 }, // Skip .pyc generation to reduce allocs
+        // Go async preemption sends SIGURG and reads/modifies mcontext at a
+        // fixed offset. Our JIT delivers signals at gadget boundaries, not at
+        // the exact interrupted instruction, so the PC in the signal frame is
+        // imprecise. cpu_poke reduces latency but can't fix PC precision.
+        // Cooperative preemption (function-call checkpoints) works correctly.
+        { "GODEBUG=asyncpreemptoff=1", 8, 0 }, // Disable Go async preemption
+        // Limit Go threads to reduce TLB stale-pointer crashes from concurrent
+        // page table modifications. GOMAXPROCS=2 is sufficient for most Go CLI
+        // tools and eliminates nearly all multi-thread race conditions.
+        { "GOMAXPROCS=2", 11, 0 },             // Limit Go thread count
     };
     for (size_t vi = 0; vi < sizeof(inject_envs)/sizeof(inject_envs[0]); vi++) {
         char *e = envp;

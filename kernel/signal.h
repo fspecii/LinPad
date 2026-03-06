@@ -158,8 +158,8 @@ void sighand_release(struct sighand *sighand);
 
 dword_t sys_rt_sigaction(dword_t signum, addr_t action_addr, addr_t oldaction_addr, dword_t sigset_size);
 dword_t sys_sigaction(dword_t signum, addr_t action_addr, addr_t oldaction_addr);
-dword_t sys_rt_sigreturn(void);
-dword_t sys_sigreturn(void);
+int64_t sys_rt_sigreturn(void);
+int64_t sys_sigreturn(void);
 
 #define SIG_BLOCK_ 0
 #define SIG_UNBLOCK_ 1
@@ -238,8 +238,16 @@ struct sigcontext_ {
     uint64_t sp;
     uint64_t pc;
     uint64_t pstate;
-    // Extension area for FPSIMD state - must be 16-byte aligned
-    uint8_t __reserved[4096] __attribute__((aligned(16)));
+    // Extension area for FPSIMD state
+    // NOTE: Do NOT use __attribute__((aligned(16))) here — it forces the
+    // entire sigcontext_ struct to 16-byte alignment, which inserts 8 bytes
+    // of padding before mcontext in ucontext_, shifting mcontext from the
+    // Linux-standard offset 168 to 176. Go's runtime reads mcontext at a
+    // fixed offset (168) from the ucontext pointer, so this misalignment
+    // causes Go's async preemption (SIGURG) to corrupt the signal frame.
+    // The field is naturally 16-byte aligned in practice (offset 448 from
+    // the start of ucontext).
+    uint8_t __reserved[4096];
 };
 
 struct ucontext_ {

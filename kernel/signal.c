@@ -93,6 +93,7 @@ void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
     lock(&task->sighand->lock);
     deliver_signal_unlocked(task, sig, info);
     unlock(&task->sighand->lock);
+    cpu_poke(&task->cpu);
 }
 
 void send_signal(struct task *task, int sig, struct siginfo_ info) {
@@ -117,6 +118,10 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
     lock(&sighand->lock);
     if (signal_action(sighand, sig) != SIGNAL_IGNORE) {
         deliver_signal_unlocked(task, sig, info);
+        // Poke the target CPU so it exits the JIT loop at the next gadget
+        // boundary instead of waiting for INT_TIMER (up to 1024 cycles).
+        // This reduces signal delivery latency from ~1024 to ~1 gadget.
+        cpu_poke(&task->cpu);
     }
     unlock(&sighand->lock);
 
@@ -263,7 +268,10 @@ static int user_put_sigaction_arm64(addr_t addr, dword_t sigset_size, const stru
 
 static void setup_sigcontext(struct sigcontext_ *sc, struct cpu_state *cpu) {
     // Store full ARM64 state needed for sigreturn
-    arm64_sync_nzcv(cpu);
+    // NOTE: Do NOT call arm64_sync_nzcv() here!
+    // The JIT maintains cpu->nzcv directly (via mrs/str in store_flags).
+    // The individual byte flags (nf/zf/cf/vf) are stale and must not
+    // overwrite the correct nzcv value. See also: MEMORY.md NZCV lesson.
 
     // Clear the entire structure first
     memset(sc, 0, sizeof(*sc));
@@ -628,7 +636,7 @@ static void restore_sigcontext(struct sigcontext_ *context, struct cpu_state *cp
 }
 #endif
 
-dword_t sys_rt_sigreturn() {
+int64_t sys_rt_sigreturn() {
     struct cpu_state *cpu = &current->cpu;
     struct rt_sigframe_ frame;
 #if defined(GUEST_ARM64)
@@ -659,13 +667,17 @@ dword_t sys_rt_sigreturn() {
     sigmask_set(frame.uc.sigmask);
     unlock(&current->sighand->lock);
 #if defined(GUEST_ARM64)
-    return cpu->regs[0];
+    // Return the full 64-bit x0 from the restored context.
+    // IMPORTANT: The caller (handle_interrupt) must NOT modify x0 after
+    // this returns, because the full register state was restored from the
+    // signal frame. We return int64_t to preserve all 64 bits.
+    return (int64_t)cpu->regs[0];
 #else
     return cpu->eax;
 #endif
 }
 
-dword_t sys_sigreturn() {
+int64_t sys_sigreturn() {
     struct cpu_state *cpu = &current->cpu;
     struct sigframe_ frame;
 #if defined(GUEST_ARM64)
@@ -695,7 +707,7 @@ dword_t sys_sigreturn() {
 #endif
     unlock(&current->sighand->lock);
 #if defined(GUEST_ARM64)
-    return cpu->regs[0];
+    return (int64_t)cpu->regs[0];
 #else
     return cpu->eax;
 #endif
