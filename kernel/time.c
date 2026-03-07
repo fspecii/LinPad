@@ -5,6 +5,7 @@
 #include "debug.h"
 #include <time.h>
 #include <signal.h>
+#include <sched.h>
 #include <sys/time.h>
 #include "kernel/calls.h"
 #include "kernel/errno.h"
@@ -192,6 +193,18 @@ dword_t sys_nanosleep(addr_t req_addr, addr_t rem_addr) {
     if (user_get(req_addr, req_ts))
         return _EFAULT;
     STRACE("nanosleep({%lld, %lld}, 0x%x", (long long)req_ts.sec, (long long)req_ts.nsec, rem_addr);
+
+    // Short-circuit for ≤1ms sleeps (common in Go runtime timer management)
+    if (req_ts.sec == 0 && req_ts.nsec <= 1000000) {
+        sched_yield();
+        if (rem_addr != 0) {
+            struct timespec_ rem_ts = {.sec = 0, .nsec = 0};
+            if (user_put(rem_addr, rem_ts))
+                return _EFAULT;
+        }
+        return 0;
+    }
+
     struct timespec req;
     req.tv_sec = req_ts.sec;
     req.tv_nsec = req_ts.nsec;

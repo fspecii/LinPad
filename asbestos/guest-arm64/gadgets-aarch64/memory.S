@@ -686,6 +686,89 @@
     write_bullshit 8, store8_imm_fast_1
 
 /*
+ * SP-relative fused load/store gadgets
+ *
+ * For rn==31 (SP-relative) with rd/rt!=31, we skip both the rn==31 branch
+ * and the rd==31 check. Directly loads SP from CPU_sp.
+ * Same code-stream format: [gadget addr][rd_or_rt | rn<<8 | offset<<16]
+ * (rn field is always 31, but we ignore it and load SP directly)
+ */
+
+// LDR Xd, [SP, #imm] - SP-relative 64-bit load (rd!=31)
+.gadget load64_sp_imm
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    lsr x10, x22, #16           // offset (unsigned)
+    ldr x12, [_cpu, #CPU_sp]    // direct SP load
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+    read_prep 64, load64_sp_imm_1
+    ldr _tmp, [_addr]
+    and x8, x22, #0x1f          // rd (guaranteed != 31)
+    add x11, _cpu, #CPU_x0
+    str _tmp, [x11, x8, lsl #3]
+    mov _addr, x24
+    gret
+    read_bullshit 64, load64_sp_imm_1
+
+// LDR Wd, [SP, #imm] - SP-relative 32-bit load (rd!=31)
+.gadget load32_sp_imm
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    lsr x10, x22, #16
+    ldr x12, [_cpu, #CPU_sp]
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+    read_prep 32, load32_sp_imm_1
+    ldr w0, [_addr]
+    and x8, x22, #0x1f
+    add x11, _cpu, #CPU_x0
+    str x0, [x11, x8, lsl #3]   // zero-extended 32→64
+    mov _addr, x24
+    gret
+    read_bullshit 32, load32_sp_imm_1
+
+// STR Xt, [SP, #imm] - SP-relative 64-bit store (rt!=31)
+.gadget store64_sp_imm
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    and x8, x22, #0x1f          // rt (guaranteed != 31)
+    add x11, _cpu, #CPU_x0
+    ldr x23, [x11, x8, lsl #3]  // load value (no XZR check)
+    lsr x10, x22, #16           // offset
+    ldr x12, [_cpu, #CPU_sp]    // direct SP load
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+    write_prep 64, store64_sp_imm_1
+    str x23, [_addr]
+    write_done 64, store64_sp_imm_1
+    mov _addr, x24
+    gret
+    write_bullshit 64, store64_sp_imm_1
+
+// STR Wt, [SP, #imm] - SP-relative 32-bit store (rt!=31)
+.gadget store32_sp_imm
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    and x8, x22, #0x1f
+    add x11, _cpu, #CPU_x0
+    ldr x23, [x11, x8, lsl #3]
+    lsr x10, x22, #16
+    ldr x12, [_cpu, #CPU_sp]
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+    write_prep 32, store32_sp_imm_1
+    str w23, [_addr]
+    write_done 32, store32_sp_imm_1
+    mov _addr, x24
+    gret
+    write_bullshit 32, store32_sp_imm_1
+
+/*
  * Fused register-offset load/store gadgets
  *
  * Combine calc_addr_reg + load/store + store_reg/load_reg into a single dispatch
@@ -1362,6 +1445,53 @@ atomic_cas_segfault:
     gret
     write_bullshit 128, stp64_imm_fast_1
 
+// Fast-path LDP Wt, Wt2, [Xn, #imm] (rn!=31, rt!=31, rt2!=31)
+.gadget ldp32_imm_fast
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    ubfx x9, x22, #16, #5          // rn
+    sbfx x10, x22, #24, #16        // signed offset
+    add x11, _cpu, #CPU_x0
+    ldr x12, [x11, x9, lsl #3]     // base (no SP check)
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+    read_prep 64, ldp32_imm_fast_1   // 8 bytes (2x4)
+    ldr w23, [_addr]
+    ldr w25, [_addr, #4]
+    and x8, x22, #0x1f              // rt
+    ubfx x9, x22, #8, #5            // rt2
+    add x10, _cpu, #CPU_x0
+    str x23, [x10, x8, lsl #3]     // no XZR check, zero-extended
+    str x25, [x10, x9, lsl #3]
+    mov _addr, x24
+    gret
+    read_bullshit 64, ldp32_imm_fast_1
+
+// Fast-path STP Wt, Wt2, [Xn, #imm] (rn!=31, rt!=31, rt2!=31)
+.gadget stp32_imm_fast
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    and x8, x22, #0x1f              // rt
+    ubfx x9, x22, #8, #5            // rt2
+    add x10, _cpu, #CPU_x0
+    ldr x23, [x10, x8, lsl #3]     // no XZR check
+    ldr x25, [x10, x9, lsl #3]
+    ubfx x9, x22, #16, #5           // rn
+    sbfx x10, x22, #24, #16         // signed offset
+    add x11, _cpu, #CPU_x0
+    ldr x12, [x11, x9, lsl #3]     // no SP check
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+    write_prep 64, stp32_imm_fast_1  // 8 bytes (2x4)
+    str w23, [_addr]
+    str w25, [_addr, #4]
+    write_done 64, stp32_imm_fast_1
+    mov _addr, x24
+    gret
+    write_bullshit 64, stp32_imm_fast_1
+
 // Fused LDP Xt, Xt2, [Xn, #imm] - 64-bit load pair with signed offset
 .gadget ldp64_imm
     ldr x22, [_pc]
@@ -1529,6 +1659,28 @@ atomic_cas_segfault:
     mov _addr, x24
     gret
     read_bullshit 64, fused_adrp_ldr64_1
+
+/*
+ * Fused ADRP+ADD gadget
+ * When ADRP Xd, #page is immediately followed by ADD Xd, Xd, #imm12,
+ * we compute the final address directly without intermediate register writes.
+ * Code stream: [gadget addr][rd(0:4) | imm12(8:19)][adrp_target (48-bit)]
+ */
+.gadget fused_adrp_add
+    ldr x22, [_pc]
+    ldr x23, [_pc, #8]          // adrp_target (48-bit)
+    add _pc, _pc, #16
+
+    // Compute final address = adrp_target + imm12
+    ubfx x10, x22, #8, #12      // imm12
+    add x8, x23, x10
+    and x8, x8, #0xffffffffffff
+
+    // Store to rd
+    and x9, x22, #0x1f          // rd
+    add x11, _cpu, #CPU_x0
+    str x8, [x11, x9, lsl #3]
+    gret
 
 /*
  * Interleaved SIMD load/store gadgets (LD2/LD3/LD4, ST2/ST3/ST4)
