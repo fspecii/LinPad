@@ -33,6 +33,7 @@ static struct mmu_ops mem_mmu_ops;
 void mem_init(struct mem *mem) {
     mem->pgdir = calloc(1, sizeof(struct pt_node));
     mem->pgdir_used = 0;
+    mem->mmap_hint = 0;
     mem->mmu.ops = &mem_mmu_ops;
     mem->mmu.asbestos = asbestos_new(&mem->mmu);
     mem->mmu.changes = 0;
@@ -152,25 +153,21 @@ void mem_next_page(struct mem *mem, page_t *page) {
     }
 }
 
-page_t pt_find_hole(struct mem *mem, pages_t size) {
-    // Scan downward from MMAP_HOLE_START, skipping unallocated page table
-    // subtrees for efficiency (each L0 entry covers 2^27 pages = 512GB,
-    // L1 covers 2^18 pages = 1GB, L2 covers 2^9 pages = 2MB).
+// Scan downward from 'start' to MMAP_HOLE_END, skipping unallocated page table
+// subtrees for efficiency (L0 covers 2^27 pages, L1 2^18, L2 2^9).
+static page_t pt_find_hole_from(struct mem *mem, pages_t size, page_t start) {
     struct pt_node *l0 = mem->pgdir;
     page_t hole_end = 0;
     bool in_hole = false;
 
-    page_t page = MMAP_HOLE_START;
+    page_t page = start;
     while (page > MMAP_HOLE_END) {
         // Fast-skip unallocated L0 subtrees
         int i0 = PT_INDEX(page, 0);
         struct pt_node *l1 = l0 ? l0->children[i0] : NULL;
         if (l1 == NULL) {
-            // Entire L0 subtree (2^27 pages) is unmapped
-            pages_t l0_size = (pages_t)1 << (PT_BITS * 3);
             page_t l0_base = (page_t)i0 << (PT_BITS * 3);
             if (!in_hole) { in_hole = true; hole_end = page + 1; }
-            // The entire range [l0_base, page] is a hole
             page_t effective_base = (l0_base > MMAP_HOLE_END) ? l0_base : MMAP_HOLE_END + 1;
             if (in_hole && hole_end - effective_base >= size)
                 return hole_end - size;
@@ -221,6 +218,34 @@ page_t pt_find_hole(struct mem *mem, pages_t size) {
     return BAD_PAGE;
 }
 
+page_t pt_find_hole(struct mem *mem, pages_t size) {
+    // Use mmap_hint to avoid rescanning already-allocated regions.
+    // Consecutive mmap(addr=0) calls allocate downward; the hint tracks
+    // where the last allocation ended so we start just below it.
+    page_t start = mem->mmap_hint;
+    if (start == 0 || start > MMAP_HOLE_START || start <= MMAP_HOLE_END + size)
+        start = MMAP_HOLE_START;
+
+    page_t result = pt_find_hole_from(mem, size, start);
+    if (result != BAD_PAGE) {
+        // Next search starts just below this allocation
+        mem->mmap_hint = (result > 0) ? result - 1 : 0;
+        return result;
+    }
+
+    // Hint region exhausted — wrap around and search from the top.
+    // Only needed if hint was not already at the top.
+    if (start < MMAP_HOLE_START) {
+        result = pt_find_hole_from(mem, size, MMAP_HOLE_START);
+        if (result != BAD_PAGE) {
+            mem->mmap_hint = (result > 0) ? result - 1 : 0;
+            return result;
+        }
+    }
+
+    return BAD_PAGE;
+}
+
 #else
 // ============================================================
 // x86: 2-level flat page table for 32-bit address space
@@ -229,6 +254,7 @@ page_t pt_find_hole(struct mem *mem, pages_t size) {
 void mem_init(struct mem *mem) {
     mem->pgdir = calloc(MEM_PGDIR_SIZE, sizeof(struct pt_entry *));
     mem->pgdir_used = 0;
+    mem->mmap_hint = 0;
     mem->mmu.ops = &mem_mmu_ops;
     mem->mmu.asbestos = asbestos_new(&mem->mmu);
     mem->mmu.changes = 0;
@@ -285,10 +311,10 @@ void mem_next_page(struct mem *mem, page_t *page) {
         *page = (*page - PGDIR_BOTTOM(*page)) + MEM_PGDIR_SIZE;
 }
 
-page_t pt_find_hole(struct mem *mem, pages_t size) {
+static page_t x86_find_hole_from(struct mem *mem, pages_t size, page_t start) {
     page_t hole_end = 0;
     bool in_hole = false;
-    for (page_t page = 0xefffd; page > 0x40000; page--) {
+    for (page_t page = start; page > 0x40000; page--) {
         if (!in_hole && mem_pt(mem, page) == NULL) {
             in_hole = true;
             hole_end = page + 1;
@@ -298,6 +324,28 @@ page_t pt_find_hole(struct mem *mem, pages_t size) {
         else if (hole_end - page == size)
             return page;
     }
+    return BAD_PAGE;
+}
+
+page_t pt_find_hole(struct mem *mem, pages_t size) {
+    page_t start = mem->mmap_hint;
+    if (start == 0 || start > 0xefffd || start <= 0x40000 + size)
+        start = 0xefffd;
+
+    page_t result = x86_find_hole_from(mem, size, start);
+    if (result != BAD_PAGE) {
+        mem->mmap_hint = (result > 0) ? result - 1 : 0;
+        return result;
+    }
+
+    if (start < 0xefffd) {
+        result = x86_find_hole_from(mem, size, 0xefffd);
+        if (result != BAD_PAGE) {
+            mem->mmap_hint = (result > 0) ? result - 1 : 0;
+            return result;
+        }
+    }
+
     return BAD_PAGE;
 }
 
@@ -352,6 +400,11 @@ int pt_unmap(struct mem *mem, page_t start, pages_t pages) {
 }
 
 int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
+    // Reset mmap_hint if freed region is above it, so pt_find_hole can
+    // reuse the freed space on the next mmap(addr=0).
+    if (start + pages - 1 > mem->mmap_hint)
+        mem->mmap_hint = start + pages - 1;
+
     for (page_t page = start; page < start + pages; mem_next_page(mem, &page)) {
         struct pt_entry *pt = mem_pt(mem, page);
         if (pt == NULL)

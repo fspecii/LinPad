@@ -31,6 +31,12 @@ struct mem {
 
     struct mmu mmu;
 
+    // Hint for pt_find_hole: start searching just below the last successful
+    // allocation instead of always from MMAP_HOLE_START. Reset on munmap
+    // when freed pages are above the hint. Avoids O(n) rescanning of already-
+    // allocated regions on every mmap(addr=0).
+    page_t mmap_hint;
+
     wrlock_t lock;
     lock_t cow_lock;
 };
@@ -59,6 +65,8 @@ struct mem {
     int pgdir_used;
 
     struct mmu mmu;
+
+    page_t mmap_hint;
 
     wrlock_t lock;
     lock_t cow_lock;

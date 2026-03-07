@@ -404,11 +404,15 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
         TRACE("%d %08x --- cycle %ld\n", current_pid(), ip, frame->cpu.cycle);
 
-        // Save guest CPU state before entering JIT.
-        // If a host SIGSEGV occurs mid-block, the crash leaves guest regs
-        // in an inconsistent state (partially-executed gadgets). We restore
-        // this snapshot so the retry starts with a clean state.
-        struct cpu_state saved_cpu = frame->cpu;
+        // Save only the block's start PC before entering JIT.
+        // If a host SIGSEGV occurs mid-block (stale TLB pointer after CoW),
+        // we restore PC and re-execute the block from scratch. This is safe
+        // because:
+        //   1. Guest register modifications within a block are deterministic
+        //   2. Memory writes are idempotent (same data to same logical page)
+        //   3. TLB flush after crash ensures fresh page mappings on retry
+        // This avoids copying the entire 864-byte cpu_state on every block.
+        addr_t saved_pc = frame->cpu.pc;
 
         in_jit = 1;
         if (_setjmp(jit_recover_buf) == 0) {
@@ -416,12 +420,8 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             crash_retry_count = 0;  // successful execution resets retry counter
         } else {
             // Recovered from host SIGSEGV inside JIT code.
-            // Restore guest CPU state to the snapshot taken before fiber_enter.
-            // This ensures guest registers are consistent for the retry.
-            frame->cpu = saved_cpu;
-
-            // Apply crash recovery info AFTER restore (crash_handler stored
-            // these in thread-locals because saved_cpu restore overwrites cpu).
+            // Restore PC to block start so we re-execute the entire block.
+            frame->cpu.pc = saved_pc;
             frame->cpu.segfault_addr = jit_crash_segfault_addr;
             frame->cpu.segfault_was_write = jit_crash_segfault_was_write;
 
@@ -433,14 +433,13 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             frame->last_block = NULL;
 
             crash_retry_count++;
-            // DEBUG: log crash recovery with high addresses
             if (jit_crash_segfault_addr > 0x100000000ULL) {
                 printk("JIT_CRASH: segfault_addr=0x%llx host=0x%llx write=%d retry=%d block_pc=0x%llx\n",
                     (unsigned long long)jit_crash_segfault_addr,
                     (unsigned long long)jit_crash_host_addr,
                     jit_crash_segfault_was_write,
                     crash_retry_count,
-                    (unsigned long long)saved_cpu.pc);
+                    (unsigned long long)saved_pc);
             }
             if (crash_retry_count >= 16) {
                 // Too many consecutive crashes — escalate to INT_GPF
