@@ -194,7 +194,7 @@ noreturn void do_exit_group(int status) {
 
         // Wait for threads to exit (they're DETACHED so we can't join)
         // Poll the thread count until only current thread remains
-        int max_wait_ms = 2000;  // 2 seconds max (should be enough)
+        int max_wait_ms = 500;  // 500ms max wait for threads to exit
         int wait_interval_ms = 10;  // Check every 10ms
         int waited_ms = 0;
         int last_remaining = -1;
@@ -234,13 +234,14 @@ noreturn void do_exit_group(int status) {
             lock(&group->lock);
             list_for_each_entry(&group->threads, task, group_links) {
                 if (task != current) {
+                    cpu_poke(&task->cpu);
                     pthread_kill(task->thread, SIGUSR1);
                 }
             }
             unlock(&group->lock);
             unlock(&pids_lock);
             // Give them a brief moment to handle the signal and exit
-            struct timespec ts2 = {0, 200 * 1000000L};  // 200ms
+            struct timespec ts2 = {0, 10 * 1000000L};  // 10ms
             nanosleep(&ts2, NULL);
             // Close stdio fds to signal EOF to parent's pipes.
             // Don't release the full fdtable (stuck threads may crash).
@@ -252,7 +253,7 @@ noreturn void do_exit_group(int status) {
             }
             // Brief delay for pipe EOF to propagate
             {
-                struct timespec ts3 = {0, 100 * 1000000L};  // 100ms
+                struct timespec ts3 = {0, 10 * 1000000L};  // 10ms
                 nanosleep(&ts3, NULL);
             }
             // Notify parent that we're dead.
@@ -283,7 +284,7 @@ noreturn void do_exit_group(int status) {
             // 2. TLS destructors run
             // 3. Host malloc/arena cleanup happens
             // 4. Stack unwinding completes (glibc on ARM64)
-            struct timespec extra_delay = {0, 500 * 1000000L};  // 500ms (increased from 200ms)
+            struct timespec extra_delay = {0, 50 * 1000000L};  // 50ms for pthread cleanup
             nanosleep(&extra_delay, NULL);
 
 #if __APPLE__
