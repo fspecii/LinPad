@@ -194,6 +194,7 @@ void arm64_fcmp_s(struct cpu_state *cpu, int rn, int rm) {
         cpu->cf = 1;
         cpu->vf = 0;
     }
+    arm64_sync_nzcv(cpu);
 }
 
 void arm64_fcmp_d(struct cpu_state *cpu, int rn, int rm) {
@@ -221,6 +222,7 @@ void arm64_fcmp_d(struct cpu_state *cpu, int rn, int rm) {
         cpu->cf = 1;
         cpu->vf = 0;
     }
+    arm64_sync_nzcv(cpu);
 }
 
 // Conversions

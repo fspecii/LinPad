@@ -65,8 +65,6 @@ void handle_interrupt(int interrupt) {
         // ARM64: syscall number in x8, args in x0-x5, return in x0
         unsigned syscall_num = cpu->regs[8];
 
-
-
         // === FAST PATH: Hot syscalls ===
         int fast_result = -1;  // -1 means fast path not taken
         bool fast_path_taken = false;
@@ -641,7 +639,9 @@ void handle_interrupt(int interrupt) {
             .code = TRAP_TRACE_,
         });
         unlock(&pids_lock);
-    } else if (interrupt != INT_TIMER) {
+    } else if (interrupt == INT_TIMER) {
+        // timer handled below
+    } else {
         printk("%d unhandled interrupt %d\n", current->pid, interrupt);
         sys_exit(interrupt);
     }

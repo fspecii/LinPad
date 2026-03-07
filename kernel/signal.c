@@ -364,7 +364,8 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
     int sig = info->sig;
     STRACE("%d receiving signal %d\n", current->pid, sig);
 
-    switch (signal_action(sighand, sig)) {
+    int action_type = signal_action(sighand, sig);
+    switch (action_type) {
         case SIGNAL_IGNORE:
             return;
 
@@ -444,6 +445,8 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
 
     // set up registers for signal handler
 #if defined(GUEST_ARM64)
+    // ARM64 spec: exceptions clear the exclusive monitor
+    current->cpu.excl_addr = UINT64_MAX;
     current->cpu.regs[0] = info->sig;
     current->cpu.pc = sighand->action[info->sig].handler;
     addr_t sp = current->cpu.sp;  // Use addr_t (64-bit) for ARM64

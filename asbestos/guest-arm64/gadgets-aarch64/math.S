@@ -3398,6 +3398,49 @@ msub_store:
     str w10, [_cpu, #CPU_nzcv]
     gret
 
+// MSR FPCR, Xt - write floating-point control register
+// Code stream: [gadget addr][rt]
+.gadget msr_fpcr
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x8, x8, #0x1f       // rt
+
+    add x9, _cpu, #CPU_x0
+    cmp x8, #31
+    b.eq 1f
+    ldr x10, [x9, x8, lsl #3]
+    b 2f
+1:  mov x10, #0
+2:
+    str w10, [_cpu, #CPU_fpcr]
+    gret
+
+// MSR FPSR, Xt - write floating-point status register
+// Code stream: [gadget addr][rt]
+.gadget msr_fpsr
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x8, x8, #0x1f       // rt
+
+    add x9, _cpu, #CPU_x0
+    cmp x8, #31
+    b.eq 1f
+    ldr x10, [x9, x8, lsl #3]
+    b 2f
+1:  mov x10, #0
+2:
+    str w10, [_cpu, #CPU_fpsr]
+    gret
+
+// MSR DAIF, Xt - write interrupt mask register (NOP in emulation)
+// Go runtime uses this for async preemption control.
+// Code stream: [gadget addr][rt]
+.gadget msr_daif
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    // NOP — we don't emulate interrupt masking
+    gret
+
 // MRS Xt, <sysreg> - generic system register read
 // Code stream: [gadget addr][rt][sysreg_id]
 // sysreg_id values:

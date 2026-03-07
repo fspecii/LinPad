@@ -50,6 +50,9 @@ struct task {
     // Set when thread is in a blocking syscall (futex_wait, poll_wait, etc.)
     // Used for deadlock detection: if all threads are blocking, it's a hang.
     bool blocking;
+    // Per-thread pipe for futex_wait wakeup (reused across calls to avoid
+    // pipe creation overhead in Go runtime spin loops)
+    int futex_pipe[2]; // [0]=read, [1]=write; -1 if not yet created
     // Timestamp (CLOCK_MONOTONIC ns) of last time blocking became false.
     // Used by deadlock detector to check how long ALL threads have been stuck.
     uint64_t last_unblocked_ns;

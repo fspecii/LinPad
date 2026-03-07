@@ -497,10 +497,13 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     if (cpu->poked_ptr == NULL)
         cpu->poked_ptr = &cpu->_poked;
 #ifdef GUEST_ARM64
-    // Invalidate exclusive monitor on every entry to JIT.
-    // Any interrupt/exception/context switch clears the exclusive state,
-    // ensuring STXR will fail if the monitor was set in a previous run.
-    cpu->excl_addr = UINT64_MAX;
+    // NOTE: Do NOT invalidate exclusive monitor here.
+    // This function is called once, but the inner loop (cpu_step_to_interrupt)
+    // calls fiber_enter repeatedly. The LDXR/STXR pair may span multiple
+    // fiber_enter calls (unchained blocks). Invalidating here would break
+    // LDXR/STXR atomicity across block boundaries.
+    // The exclusive monitor is invalidated by STXR itself (success or fail)
+    // and by context switches / signal delivery.
 #endif
     struct asbestos *asbestos = cpu->mmu->asbestos;
     __atomic_add_fetch(&asbestos->active_threads, 1, __ATOMIC_RELAXED);

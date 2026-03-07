@@ -66,6 +66,16 @@ noreturn void do_exit(int status) {
         fs_info_release(current->fs);
         current->fs = NULL;
     }
+    // Close per-thread futex wakeup pipe
+    if (current->futex_pipe[0] != -1) {
+        close(current->futex_pipe[0]);
+        current->futex_pipe[0] = -1;
+    }
+    if (current->futex_pipe[1] != -1) {
+        close(current->futex_pipe[1]);
+        current->futex_pipe[1] = -1;
+    }
+
     // sighand must be released below so it can be protected by pids_lock
     // since it can be accessed by other threads
 
@@ -338,6 +348,11 @@ static void halt_system(void) {
     }
     unlock(&mounts_lock);
 
+    // Restore host terminal settings before exiting.
+    // _exit() does not call atexit handlers, so we must do this explicitly.
+    extern void restore_termios(void);
+    restore_termios();
+
     // Force exit the entire host process. Orphaned guest threads
     // (stuck in JIT loops after do_exit_group force cleanup) keep
     // the host process alive indefinitely. _exit is safe here since
@@ -446,6 +461,7 @@ int do_wait(int idtype, pid_t_ id, struct siginfo_ *info, struct rusage_ *rusage
     bool got_signal = false;
 
 retry:
+    ;
     if (idtype != P_PID_) {
         // look for a zombie child
         bool no_children = true;
@@ -464,12 +480,6 @@ retry:
             }
         }
         if (no_children) {
-            if (options & WNOHANG_) {
-                // WNOHANG with no children: return 0 with pid=0
-                info->child.pid = 0;
-                info->sig = SIGCHLD_;
-                goto found_something;
-            }
             err = _ECHILD;
             goto error;
         }

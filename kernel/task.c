@@ -88,6 +88,8 @@ struct task *task_create_(struct task *parent) {
     list_init(&task->queue);
     task->clear_tid = 0;
     task->robust_list = 0;
+    task->futex_pipe[0] = -1;
+    task->futex_pipe[1] = -1;
     task->did_exec = false;
     lock_init(&task->general_lock);
 

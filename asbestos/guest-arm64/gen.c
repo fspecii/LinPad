@@ -664,6 +664,9 @@ extern void gadget_mrs_tpidr(void);
 extern void gadget_mrs_sysreg(void);
 extern void gadget_mrs_nzcv(void);
 extern void gadget_msr_nzcv(void);
+extern void gadget_msr_fpcr(void);
+extern void gadget_msr_fpsr(void);
+extern void gadget_msr_daif(void);
 
 // Byte reverse and bit manipulation gadgets
 extern void gadget_rev(void);
@@ -715,10 +718,14 @@ extern void gadget_load8_imm(void);
 extern void gadget_load32_sx_imm(void);
 extern void gadget_load64_imm_fast(void);
 extern void gadget_load32_imm_fast(void);
+extern void gadget_load16_imm_fast(void);
+extern void gadget_load8_imm_fast(void);
 extern void gadget_store64_imm(void);
 extern void gadget_store32_imm(void);
 extern void gadget_store64_imm_fast(void);
 extern void gadget_store32_imm_fast(void);
+extern void gadget_store16_imm_fast(void);
+extern void gadget_store8_imm_fast(void);
 extern void gadget_store16_imm(void);
 extern void gadget_store8_imm(void);
 // Fused register-offset load/store gadgets (option=3/UXTX only)
@@ -1643,6 +1650,29 @@ static int gen_branch(struct gen_state *state, uint32_t insn) {
             return 1;
         }
 
+        // MSR FPCR, Xt: d51b4400 (op0=3, op1=3, CRn=4, CRm=4, op2=0)
+        if ((insn & 0xffffffe0) == 0xd51b4400) {
+            uint32_t rt = insn & 0x1f;
+            gen(state, (unsigned long) gadget_msr_fpcr);
+            gen(state, rt);
+            return 1;
+        }
+        // MSR FPSR, Xt: d51b4420 (op0=3, op1=3, CRn=4, CRm=4, op2=1)
+        if ((insn & 0xffffffe0) == 0xd51b4420) {
+            uint32_t rt = insn & 0x1f;
+            gen(state, (unsigned long) gadget_msr_fpsr);
+            gen(state, rt);
+            return 1;
+        }
+        // MSR DAIF, Xt: d51b4220 (op0=3, op1=3, CRn=4, CRm=2, op2=1)
+        // Go runtime uses this for async preemption control. NOP in emulation.
+        if ((insn & 0xffffffe0) == 0xd51b4220) {
+            uint32_t rt = insn & 0x1f;
+            gen(state, (unsigned long) gadget_msr_daif);
+            gen(state, rt);
+            return 1;
+        }
+
         // MSR/MRS for TPIDR_EL0 (TLS pointer)
         // MSR: d51bd04t (write Xt to TPIDR_EL0)
         // MRS: d53bd04t (read TPIDR_EL0 to Xt)
@@ -1961,8 +1991,8 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
             if (is_load) {
                 void *gadget;
                 switch (size) {
-                    case 0: gadget = gadget_load8_imm; break;
-                    case 1: gadget = gadget_load16_imm; break;
+                    case 0: gadget = fast ? gadget_load8_imm_fast : gadget_load8_imm; break;
+                    case 1: gadget = fast ? gadget_load16_imm_fast : gadget_load16_imm; break;
                     case 2: gadget = sign_extend ? gadget_load32_sx_imm :
                                      (fast ? gadget_load32_imm_fast : gadget_load32_imm); break;
                     case 3: gadget = fast ? gadget_load64_imm_fast : gadget_load64_imm; break;
@@ -1973,8 +2003,8 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
             } else {
                 void *gadget;
                 switch (size) {
-                    case 0: gadget = gadget_store8_imm; break;
-                    case 1: gadget = gadget_store16_imm; break;
+                    case 0: gadget = fast ? gadget_store8_imm_fast : gadget_store8_imm; break;
+                    case 1: gadget = fast ? gadget_store16_imm_fast : gadget_store16_imm; break;
                     case 2: gadget = fast ? gadget_store32_imm_fast : gadget_store32_imm; break;
                     case 3: gadget = fast ? gadget_store64_imm_fast : gadget_store64_imm; break;
                     default: gen_interrupt(state, INT_UNDEFINED); return 0;

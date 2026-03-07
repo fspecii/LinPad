@@ -605,6 +605,86 @@
     gret
     write_bullshit 32, store32_imm_fast_1
 
+// LDRH Wd, [Xn, #imm] - fast path (rn!=31, rd!=31)
+.gadget load16_imm_fast
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    ubfx x9, x22, #8, #5       // rn (guaranteed != 31)
+    lsr x10, x22, #16           // offset (unsigned)
+    add x11, _cpu, #CPU_x0
+    ldr x12, [x11, x9, lsl #3]  // load base (no SP check)
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+    read_prep 16, load16_imm_fast_1
+    ldrh w0, [_addr]
+    and x8, x22, #0x1f          // rd (guaranteed != 31)
+    add x11, _cpu, #CPU_x0
+    str x0, [x11, x8, lsl #3]   // zero-extended 16→64
+    mov _addr, x24
+    gret
+    read_bullshit 16, load16_imm_fast_1
+
+// LDRB Wd, [Xn, #imm] - fast path (rn!=31, rd!=31)
+.gadget load8_imm_fast
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    ubfx x9, x22, #8, #5
+    lsr x10, x22, #16
+    add x11, _cpu, #CPU_x0
+    ldr x12, [x11, x9, lsl #3]
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+    read_prep 8, load8_imm_fast_1
+    ldrb w0, [_addr]
+    and x8, x22, #0x1f
+    add x11, _cpu, #CPU_x0
+    str x0, [x11, x8, lsl #3]   // zero-extended 8→64
+    mov _addr, x24
+    gret
+    read_bullshit 8, load8_imm_fast_1
+
+// STRH Wt, [Xn, #imm] - fast path (rn!=31, rt!=31)
+.gadget store16_imm_fast
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    and x8, x22, #0x1f          // rt (guaranteed != 31)
+    add x11, _cpu, #CPU_x0
+    ldr x23, [x11, x8, lsl #3]  // load value (no XZR check)
+    ubfx x9, x22, #8, #5       // rn (guaranteed != 31)
+    lsr x10, x22, #16           // offset
+    ldr x12, [x11, x9, lsl #3]  // load base (no SP check)
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+    write_prep 16, store16_imm_fast_1
+    strh w23, [_addr]
+    write_done 16, store16_imm_fast_1
+    mov _addr, x24
+    gret
+    write_bullshit 16, store16_imm_fast_1
+
+// STRB Wt, [Xn, #imm] - fast path (rn!=31, rt!=31)
+.gadget store8_imm_fast
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    and x8, x22, #0x1f
+    add x11, _cpu, #CPU_x0
+    ldr x23, [x11, x8, lsl #3]
+    ubfx x9, x22, #8, #5
+    lsr x10, x22, #16
+    ldr x12, [x11, x9, lsl #3]
+    add _addr, x12, x10
+    and _addr, _addr, #0xffffffffffff
+    mov x24, _addr
+    write_prep 8, store8_imm_fast_1
+    strb w23, [_addr]
+    write_done 8, store8_imm_fast_1
+    mov _addr, x24
+    gret
+    write_bullshit 8, store8_imm_fast_1
+
 /*
  * Fused register-offset load/store gadgets
  *

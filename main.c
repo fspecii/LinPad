@@ -4,6 +4,8 @@
 #include <signal.h>
 #include <setjmp.h>
 #include <execinfo.h>
+#include <termios.h>
+#include <unistd.h>
 #include <mach/mach.h>
 #include <pthread.h>
 #include "kernel/calls.h"
@@ -73,7 +75,23 @@ static void crash_handler(int sig, siginfo_t *info, void *ctx) {
     _exit(139);
 }
 
+static struct termios saved_termios;
+static int saved_termios_valid;
+
+void restore_termios(void) {
+    if (saved_termios_valid)
+        tcsetattr(STDIN_FILENO, TCSANOW, &saved_termios);
+}
+
 int main(int argc, char *const argv[]) {
+    // Save host terminal settings so we can restore on exit
+    if (isatty(STDIN_FILENO)) {
+        if (tcgetattr(STDIN_FILENO, &saved_termios) == 0) {
+            saved_termios_valid = 1;
+            atexit(restore_termios);
+        }
+    }
+
     // Redirect printk output (fd 666) to stderr
     dup2(STDERR_FILENO, 666);
 
