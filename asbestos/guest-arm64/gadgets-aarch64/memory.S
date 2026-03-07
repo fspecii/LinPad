@@ -535,13 +535,11 @@
     ldr x12, [x11, x9, lsl #3]  // load base (no SP check)
     add _addr, x12, x10
     and _addr, _addr, #0xffffffffffff
-    mov x24, _addr
+    mov x24, _addr               // save for crosspage slow path
     read_prep 64, load64_imm_fast_1
     ldr _tmp, [_addr]
     and x8, x22, #0x1f          // rd (guaranteed != 31)
-    add x11, _cpu, #CPU_x0
-    str _tmp, [x11, x8, lsl #3]
-    mov _addr, x24
+    str _tmp, [x11, x8, lsl #3] // x11 survives read_prep
     gret
     read_bullshit 64, load64_imm_fast_1
 
@@ -559,9 +557,7 @@
     read_prep 32, load32_imm_fast_1
     ldr w0, [_addr]
     and x8, x22, #0x1f
-    add x11, _cpu, #CPU_x0
-    str x0, [x11, x8, lsl #3]   // zero-extended 32→64
-    mov _addr, x24
+    str x0, [x11, x8, lsl #3]   // x11 survives read_prep
     gret
     read_bullshit 32, load32_imm_fast_1
 
@@ -581,7 +577,6 @@
     write_prep 64, store64_imm_fast_1
     str x23, [_addr]
     write_done 64, store64_imm_fast_1
-    mov _addr, x24
     gret
     write_bullshit 64, store64_imm_fast_1
 
@@ -601,7 +596,6 @@
     write_prep 32, store32_imm_fast_1
     str w23, [_addr]
     write_done 32, store32_imm_fast_1
-    mov _addr, x24
     gret
     write_bullshit 32, store32_imm_fast_1
 
@@ -619,9 +613,7 @@
     read_prep 16, load16_imm_fast_1
     ldrh w0, [_addr]
     and x8, x22, #0x1f          // rd (guaranteed != 31)
-    add x11, _cpu, #CPU_x0
-    str x0, [x11, x8, lsl #3]   // zero-extended 16→64
-    mov _addr, x24
+    str x0, [x11, x8, lsl #3]   // x11 survives read_prep
     gret
     read_bullshit 16, load16_imm_fast_1
 
@@ -639,9 +631,7 @@
     read_prep 8, load8_imm_fast_1
     ldrb w0, [_addr]
     and x8, x22, #0x1f
-    add x11, _cpu, #CPU_x0
-    str x0, [x11, x8, lsl #3]   // zero-extended 8→64
-    mov _addr, x24
+    str x0, [x11, x8, lsl #3]   // x11 survives read_prep
     gret
     read_bullshit 8, load8_imm_fast_1
 
@@ -661,7 +651,6 @@
     write_prep 16, store16_imm_fast_1
     strh w23, [_addr]
     write_done 16, store16_imm_fast_1
-    mov _addr, x24
     gret
     write_bullshit 16, store16_imm_fast_1
 
@@ -681,7 +670,6 @@
     write_prep 8, store8_imm_fast_1
     strb w23, [_addr]
     write_done 8, store8_imm_fast_1
-    mov _addr, x24
     gret
     write_bullshit 8, store8_imm_fast_1
 
@@ -703,12 +691,11 @@
     add _addr, x12, x10
     and _addr, _addr, #0xffffffffffff
     mov x24, _addr
+    add x11, _cpu, #CPU_x0      // pre-compute, survives read_prep
     read_prep 64, load64_sp_imm_1
     ldr _tmp, [_addr]
     and x8, x22, #0x1f          // rd (guaranteed != 31)
-    add x11, _cpu, #CPU_x0
     str _tmp, [x11, x8, lsl #3]
-    mov _addr, x24
     gret
     read_bullshit 64, load64_sp_imm_1
 
@@ -721,12 +708,11 @@
     add _addr, x12, x10
     and _addr, _addr, #0xffffffffffff
     mov x24, _addr
+    add x11, _cpu, #CPU_x0      // pre-compute, survives read_prep
     read_prep 32, load32_sp_imm_1
     ldr w0, [_addr]
     and x8, x22, #0x1f
-    add x11, _cpu, #CPU_x0
     str x0, [x11, x8, lsl #3]   // zero-extended 32→64
-    mov _addr, x24
     gret
     read_bullshit 32, load32_sp_imm_1
 
@@ -745,7 +731,6 @@
     write_prep 64, store64_sp_imm_1
     str x23, [_addr]
     write_done 64, store64_sp_imm_1
-    mov _addr, x24
     gret
     write_bullshit 64, store64_sp_imm_1
 
@@ -764,7 +749,6 @@
     write_prep 32, store32_sp_imm_1
     str w23, [_addr]
     write_done 32, store32_sp_imm_1
-    mov _addr, x24
     gret
     write_bullshit 32, store32_sp_imm_1
 
@@ -1414,10 +1398,8 @@ atomic_cas_segfault:
     ldr x25, [_addr, #8]
     and x8, x22, #0x1f              // rt
     ubfx x9, x22, #8, #5            // rt2
-    add x10, _cpu, #CPU_x0
-    str x23, [x10, x8, lsl #3]     // no XZR check
-    str x25, [x10, x9, lsl #3]
-    mov _addr, x24
+    str x23, [x11, x8, lsl #3]     // x11 survives read_prep
+    str x25, [x11, x9, lsl #3]
     gret
     read_bullshit 128, ldp64_imm_fast_1
 
@@ -1441,7 +1423,6 @@ atomic_cas_segfault:
     str x23, [_addr]
     str x25, [_addr, #8]
     write_done 128, stp64_imm_fast_1
-    mov _addr, x24
     gret
     write_bullshit 128, stp64_imm_fast_1
 
@@ -1461,10 +1442,8 @@ atomic_cas_segfault:
     ldr w25, [_addr, #4]
     and x8, x22, #0x1f              // rt
     ubfx x9, x22, #8, #5            // rt2
-    add x10, _cpu, #CPU_x0
-    str x23, [x10, x8, lsl #3]     // no XZR check, zero-extended
-    str x25, [x10, x9, lsl #3]
-    mov _addr, x24
+    str x23, [x11, x8, lsl #3]     // x11 survives read_prep
+    str x25, [x11, x9, lsl #3]
     gret
     read_bullshit 64, ldp32_imm_fast_1
 
@@ -1488,7 +1467,6 @@ atomic_cas_segfault:
     str w23, [_addr]
     str w25, [_addr, #4]
     write_done 64, stp32_imm_fast_1
-    mov _addr, x24
     gret
     write_bullshit 64, stp32_imm_fast_1
 

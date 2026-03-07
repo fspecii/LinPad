@@ -117,7 +117,7 @@ _addr   .req x7    // Changed from x3/x4 to x7 to avoid conflict with guest low 
         str x8, [_tlb, #(-TLB_entries+TLB_dirty_page)]
     .endif
 
-    // TLB index calculation: (addr >> 12) ^ (addr >> 25) masked to TLB_SIZE-1
+    // TLB index calculation: (addr >> 12) ^ (addr >> 26) masked to TLB_SIZE-1
     ubfx x9, x7, #12, #13       // (addr >> 12) & 0x1fff (TLB_BITS=13)
     eor x9, x9, x7, lsr #25    // XOR with (addr >> 25) = (addr >> (12+13))
     and w9, w9, #0x1fff          // mask to TLB_SIZE-1

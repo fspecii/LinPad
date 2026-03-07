@@ -13,7 +13,7 @@ struct tlb_entry {
     uintptr_t _pad;  // pad to 32 bytes for efficient JIT indexing (lsl #5)
 #endif
 };
-#define TLB_BITS 13  // 8192 entries — covers ~7K unique pages for yt-dlp/Python
+#define TLB_BITS 13  // 8192 entries
 #define TLB_SIZE (1 << TLB_BITS)
 struct fiber_block;
 struct fiber_frame;

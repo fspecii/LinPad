@@ -114,11 +114,12 @@ void task_destroy(struct task *task) {
 
 void task_run_current() {
     struct cpu_state *cpu = &current->cpu;
-    struct tlb tlb = {};
+    struct tlb *tlb = calloc(1, sizeof(struct tlb));
+    if (!tlb) die("could not allocate TLB");
     while (true) {
         read_wrlock(&current->mem->lock);
-        tlb_refresh(&tlb, &current->mem->mmu);
-        int interrupt = cpu_run_to_interrupt(cpu, &tlb);
+        tlb_refresh(tlb, &current->mem->mmu);
+        int interrupt = cpu_run_to_interrupt(cpu, tlb);
         read_wrunlock(&current->mem->lock);
         handle_interrupt(interrupt);
     }
