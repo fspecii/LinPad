@@ -14,6 +14,11 @@
 
 static void halt_system(void);
 
+// Weak default: overridden by main.c in CLI builds.
+// In iOS/Xcode builds where main.c is not linked into libish.a,
+// this no-op prevents an undefined symbol error.
+__attribute__((weak)) void restore_termios(void) {}
+
 static bool exit_tgroup(struct task *task) {
     struct tgroup *group = task->group;
     list_remove(&task->group_links);
