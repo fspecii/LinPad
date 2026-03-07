@@ -1,6 +1,5 @@
 #define DEFAULT_CHANNEL instr
 #include "debug.h"
-#include <setjmp.h>
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -13,22 +12,20 @@
 #include "emu/cpu.h"
 #include "emu/interrupt.h"
 #include "emu/tlb.h"
+#include "kernel/memory.h"
 #include "util/list.h"
 
 // Thread-local recovery state for JIT crash handling.
 // When a host SIGSEGV occurs inside JIT code (due to a stale TLB pointer
-// from a concurrent CoW), the signal handler uses _longjmp to recover
-// instead of crashing. The interrupt is converted to INT_GPF, which
-// handle_interrupt resolves via mem_ptr (CoW/GROWSDOWN).
+// from a concurrent CoW), the signal handler redirects PC to
+// jit_crash_trampoline via ucontext, which returns INT_GPF to the
+// dispatch loop. handle_interrupt resolves via mem_ptr (CoW/GROWSDOWN).
 //
-// We use _setjmp/_longjmp instead of sigsetjmp/siglongjmp to avoid calling
-// sigprocmask (a syscall) on every JIT cycle. The crash handler manually
-// unblocks SIGSEGV/SIGBUS before _longjmp.
-__thread jmp_buf jit_recover_buf;
+// This avoids the overhead of _setjmp on every block entry (~1.5% of
+// total execution time). The signal handler writes crash info directly
+// to cpu_state via the _cpu pointer (x1) from ucontext.
 __thread volatile sig_atomic_t in_jit;
-__thread volatile uintptr_t jit_crash_host_addr;  // host fault address from last JIT crash
-__thread volatile uint64_t jit_crash_segfault_addr;  // reconstructed guest fault address
-__thread volatile int jit_crash_segfault_was_write;   // read/write from ESR
+__thread volatile addr_t jit_saved_pc;  // block start PC, read by signal handler
 
 // Architecture-specific instruction pointer access
 #if defined(GUEST_ARM64)
@@ -65,8 +62,13 @@ void c_watch_write_hit(addr_t addr, const char *caller) {
 }
 
 // Assembly-level write watchpoint (called from write_prep in gadgets.h)
-void jit_watch_write_hit(struct cpu_state *cpu) {
-    (void)cpu; // stub — enable when debugging specific corruption
+void jit_watch_write_hit(struct cpu_state *cpu, addr_t store_addr, unsigned long *code_ptr) {
+    static _Atomic int hit_count = 0;
+    int count = atomic_fetch_add(&hit_count, 1);
+    if (count < 50) {
+        printk("WATCH_WRITE: addr=0x%llx pc=0x%llx\n",
+            (unsigned long long)store_addr, (unsigned long long)cpu->pc);
+    }
 }
 
 // Per-thread circular buffer of recent block PCs for crash diagnosis
@@ -317,6 +319,7 @@ static void fiber_free_jetsam(struct asbestos *asbestos) {
 }
 
 int fiber_enter(struct fiber_block *block, struct fiber_frame *frame, struct tlb *tlb);
+static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb);
 
 static inline size_t fiber_cache_hash(addr_t ip) {
     return (ip ^ (ip >> 12)) & (FIBER_CACHE_SIZE - 1);
@@ -404,27 +407,22 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
         TRACE("%d %08x --- cycle %ld\n", current_pid(), ip, frame->cpu.cycle);
 
-        // Save only the block's start PC before entering JIT.
-        // If a host SIGSEGV occurs mid-block (stale TLB pointer after CoW),
-        // we restore PC and re-execute the block from scratch. This is safe
-        // because:
-        //   1. Guest register modifications within a block are deterministic
-        //   2. Memory writes are idempotent (same data to same logical page)
-        //   3. TLB flush after crash ensures fresh page mappings on retry
-        // This avoids copying the entire 864-byte cpu_state on every block.
-        addr_t saved_pc = frame->cpu.pc;
+        // Save block start PC to thread-local for crash recovery.
+        // The signal handler reads this to restore cpu->pc on SIGSEGV.
+        jit_saved_pc = frame->cpu.pc;
+
+        // Record PC trace for crash diagnosis
+        g_pc_trace[g_pc_trace_idx & (PC_TRACE_SIZE - 1)] = frame->cpu.pc;
+        g_pc_trace_idx++;
 
         in_jit = 1;
-        if (_setjmp(jit_recover_buf) == 0) {
-            interrupt = fiber_enter(block, frame, tlb);
-            crash_retry_count = 0;  // successful execution resets retry counter
-        } else {
-            // Recovered from host SIGSEGV inside JIT code.
-            // Restore PC to block start so we re-execute the entire block.
-            frame->cpu.pc = saved_pc;
-            frame->cpu.segfault_addr = jit_crash_segfault_addr;
-            frame->cpu.segfault_was_write = jit_crash_segfault_was_write;
+        interrupt = fiber_enter(block, frame, tlb);
+        in_jit = 0;
 
+        // Check if fiber_enter returned due to a JIT crash (signal handler
+        // redirected PC to jit_crash_trampoline which returns INT_JIT_CRASH).
+        // The signal handler already set cpu->segfault_addr, cpu->pc, etc.
+        if (interrupt == INT_JIT_CRASH) {
             // Flush all caches to get fresh host pointers.
             tlb_flush(tlb);
             memset(cache, 0, sizeof(tlb->block_cache));
@@ -433,23 +431,17 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             frame->last_block = NULL;
 
             crash_retry_count++;
-            if (jit_crash_segfault_addr > 0x100000000ULL) {
-                printk("JIT_CRASH: segfault_addr=0x%llx host=0x%llx write=%d retry=%d block_pc=0x%llx\n",
-                    (unsigned long long)jit_crash_segfault_addr,
-                    (unsigned long long)jit_crash_host_addr,
-                    jit_crash_segfault_was_write,
-                    crash_retry_count,
-                    (unsigned long long)saved_pc);
-            }
             if (crash_retry_count >= 16) {
-                // Too many consecutive crashes — escalate to INT_GPF
+                // Too many consecutive crashes — escalate to INT_GPF for handle_interrupt
                 interrupt = INT_GPF;
                 crash_retry_count = 0;
             } else {
+                // Retry: convert to INT_NONE so the loop continues
                 interrupt = INT_NONE;
             }
+        } else {
+            crash_retry_count = 0;
         }
-        in_jit = 0;
 
         // (debug trace removed)
 
@@ -516,7 +508,6 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         unlock(&asbestos->lock);
 
         // Write lock ensures all JIT threads have exited (they hold read lock).
-        // This is watertight — no TOCTOU race possible.
         write_wrlock(&asbestos->jetsam_lock);
         lock(&asbestos->lock);
         fiber_free_jetsam(asbestos);

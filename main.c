@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
-#include <setjmp.h>
 #include <execinfo.h>
 #include <termios.h>
 #include <unistd.h>
@@ -15,39 +14,62 @@
 #include "xX_main_Xx.h"
 
 // Thread-local JIT recovery state (defined in asbestos.c)
-extern __thread jmp_buf jit_recover_buf;
 extern __thread volatile sig_atomic_t in_jit;
-extern __thread volatile uintptr_t jit_crash_host_addr;
-extern __thread volatile uint64_t jit_crash_segfault_addr;
-extern __thread volatile int jit_crash_segfault_was_write;
+extern __thread volatile uint64_t jit_saved_pc;
+
+// Assembly trampoline: returns INT_JIT_CRASH via fiber_exit (defined in entry.S)
+extern void jit_crash_trampoline(void);
+
+// cpu-offsets.h values needed by crash handler
+#define CRASH_CPU_pc 272
+#define CRASH_CPU_segfault_addr 832
+#define CRASH_CPU_segfault_was_write 840
+#define CRASH_LOCAL_jit_exit_sp 920
 
 static void crash_handler(int sig, siginfo_t *info, void *ctx) {
 #ifdef __aarch64__
-    // If we're inside JIT code and got SIGSEGV/SIGBUS, recover via siglongjmp.
-    // This handles stale TLB pointers from concurrent CoW resolution.
+    // If we're inside JIT code and got SIGSEGV/SIGBUS, recover by redirecting
+    // execution to jit_crash_trampoline via ucontext PC manipulation.
+    // This avoids the overhead of _setjmp on every block entry.
     if ((sig == SIGSEGV || sig == SIGBUS) && in_jit) {
         ucontext_t *uc = (ucontext_t *)ctx;
-        // Save host fault address for recovery logic in asbestos.c
-        jit_crash_host_addr = (uintptr_t)info->si_addr;
-        // Reconstruct guest segfault_addr from ucontext registers.
-        // At fault point: x7 = host_addr (data_minus_addr + guest_addr),
-        //                 x10 = data_minus_addr (from TLB entry).
-        // Guest addr = (x7 - x10) & 0xffffffffffff.
+
+        // _cpu is in x1 — pointer to cpu_state within fiber_frame
+        uint64_t cpu_ptr = uc->uc_mcontext->__ss.__x[1];
+
+        // Reconstruct guest segfault_addr from registers.
+        // x7 = _addr (host pointer = data_minus_addr + guest_addr)
+        // x10 may hold data_minus_addr from TLB lookup
         uint64_t x7 = uc->uc_mcontext->__ss.__x[7];
         uint64_t x10 = uc->uc_mcontext->__ss.__x[10];
-        jit_crash_segfault_addr = (x7 - x10) & 0xffffffffffffULL;
-        // Determine read/write from the host ESR (Exception Syndrome Register).
-        // Bit 6 (WnR): 0 = read fault, 1 = write fault.
+        uint64_t guest_addr = (x7 - x10) & 0xffffffffffffULL;
+
+        // Determine read/write from host ESR. Bit 6 (WnR): 0=read, 1=write.
         uint64_t esr = uc->uc_mcontext->__es.__esr;
-        jit_crash_segfault_was_write = (esr & 0x40) != 0;
-        // We use _longjmp (no signal mask restore) for performance.
-        // Must manually unblock the signal so the handler can fire again.
+        int was_write = (esr & 0x40) != 0;
+
+        // Write crash info directly to cpu_state via _cpu pointer
+        *(uint64_t *)(cpu_ptr + CRASH_CPU_segfault_addr) = guest_addr;
+        *(int *)(cpu_ptr + CRASH_CPU_segfault_was_write) = was_write;
+        // Restore guest PC to block start for re-execution
+        *(uint64_t *)(cpu_ptr + CRASH_CPU_pc) = (uint64_t)jit_saved_pc;
+
+        // Restore SP to the value saved by fiber_enter, so fiber_exit
+        // can correctly pop the callee-saved register frame.
+        uint64_t exit_sp = *(uint64_t *)(cpu_ptr + CRASH_LOCAL_jit_exit_sp);
+        uc->uc_mcontext->__ss.__sp = exit_sp;
+
+        // Redirect execution to crash trampoline (returns INT_JIT_CRASH)
+        uc->uc_mcontext->__ss.__pc = (uint64_t)jit_crash_trampoline;
+
+        // Unblock signal so it can fire again on next crash
         sigset_t unblock;
         sigemptyset(&unblock);
         sigaddset(&unblock, sig);
         sigprocmask(SIG_UNBLOCK, &unblock, NULL);
-        _longjmp(jit_recover_buf, 1);
-        // not reached
+
+        // Signal handler returns; execution resumes at jit_crash_trampoline
+        return;
     }
 #endif
 

@@ -1744,6 +1744,13 @@ static int gen_branch(struct gen_state *state, uint32_t insn) {
             return 1;
         }
 
+        // CLREX — Clear Exclusive Monitor
+        // Encoding: 1101 0101 0000 0011 0011 CRm 0101 1111 = 0xd503305f | (CRm << 8)
+        if ((insn & 0xfffff0ff) == 0xd503305f) {
+            // NOP — exclusive monitor is cleared by STXR/STLXR in our implementation
+            return 1;
+        }
+
         // Cache maintenance instructions (DC, IC) — NOP in emulation
         // DC CIVAC (Clean and Invalidate by VA to PoC): d50b7e2x
         // DC CVAU  (Clean by VA to PoU):                d50b7b2x

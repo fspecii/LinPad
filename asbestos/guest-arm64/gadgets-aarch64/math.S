@@ -2450,9 +2450,10 @@ sbfm_32_insert:
  * Output: result in _tmp (x0) = destination with bitfield from source inserted
  *
  * BFM copies a bitfield from Rn to Rd, preserving other bits in Rd.
- * If imms >= immr: copy bits [imms-immr:0] of Rn to bits [imms:immr] of Rd
- * If imms < immr:  copy bits [imms:0] of Rn to bits [datasize-1-immr+imms:datasize-immr] of Rd
- *                  (wrap around behavior)
+ * Uses ROR(src, immr) & wmask to extract field, inserts into dest.
+ * If imms >= immr (BFXIL): extract bits [imms:immr] from Rn, insert at bits [imms-immr:0] of Rd
+ * If imms < immr (BFI):   copy bits [imms:0] of Rn to bits [datasize-1-immr+imms:datasize-immr] of Rd
+ *                          (wrap around behavior)
  */
 .gadget bfm
     ldr x8, [_pc]
@@ -2483,29 +2484,26 @@ bfm_have_dest:
     cmp x10, x9
     b.lt bfm_64_wrap
 
-    // Case: imms >= immr
-    // Copy bits [imms-immr:0] from src to bits [imms:immr] in dest
-    // lsb = immr, width = imms - immr + 1
+    // Case: imms >= immr (BFXIL)
+    // Extract bits [imms:immr] from src, insert at bits [imms-immr:0] of dest
+    // width = imms - immr + 1
     sub x16, x10, x9        // width - 1
     add x16, x16, #1        // width
     // If width == 64, result is just the source value
     cmp x16, #64
     b.eq bfm_64_fullwidth
-    // Create mask of 'width' bits
+    // Create mask of 'width' bits at position 0
     mov x17, #-1
     lsl x17, x17, x16       // -1 << width
     mvn x17, x17            // (1 << width) - 1 = mask for width bits
 
-    // Extract field from source: src_field = (src >> 0) & mask (already at bottom)
-    and x13, x13, x17       // src_field = source & mask
+    // Extract field from source: src_field = (src >> immr) & mask
+    lsr x13, x13, x9        // src >> immr
+    and x13, x13, x17       // src_field = (src >> immr) & mask
 
-    // Create dest_mask: mask shifted to position [imms:immr]
-    lsl x17, x17, x9        // dest_mask = mask << immr
-
-    // Clear destination bits and insert source field
-    bic x15, x15, x17       // dest & ~dest_mask
-    lsl x13, x13, x9        // src_field << immr
-    orr x0, x15, x13        // result = (dest & ~dest_mask) | (src_field << immr)
+    // Clear low 'width' bits of destination and insert source field
+    bic x15, x15, x17       // dest & ~mask (clear low width bits)
+    orr x0, x15, x13        // result = (dest & ~mask) | src_field
     gret
 
 bfm_64_fullwidth:
@@ -2543,7 +2541,8 @@ bfm_32:
     cmp w10, w9
     b.lt bfm_32_wrap
 
-    // Case: imms >= immr
+    // Case: imms >= immr (BFXIL)
+    // Extract bits [imms:immr] from src, insert at bits [imms-immr:0] of dest
     sub w16, w10, w9
     add w16, w16, #1
     // If width == 32, result is just the source value
@@ -2553,10 +2552,11 @@ bfm_32:
     lsl w17, w17, w16
     mvn w17, w17
 
+    // Extract field from source: src_field = (src >> immr) & mask
+    lsr w13, w13, w9
     and w13, w13, w17
-    lsl w17, w17, w9
+    // Clear low 'width' bits of dest and insert
     bic w15, w15, w17
-    lsl w13, w13, w9
     orr w0, w15, w13
     gret
 

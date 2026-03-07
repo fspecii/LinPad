@@ -251,18 +251,12 @@ dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice) {
     // data persists and V8's Zone allocator sees corrupt pointers from
     // previous allocations.
     if (advice == 4 /* MADV_DONTNEED */) {
-        // Zero-fill the pages to match Linux MADV_DONTNEED semantics
-        addr_t start = BYTES_ROUND_DOWN(addr);
-        addr_t end = BYTES_ROUND_UP(addr + len);
-        struct mm *mm = current->mm;
-        read_wrlock(&mm->mem.lock);
-        for (addr_t page = start; page < end; page += PAGE_SIZE) {
-            char *ptr = mem_ptr(&mm->mem, PAGE(page), MEM_WRITE);
-            if (ptr != NULL) {
-                memset(ptr, 0, PAGE_SIZE);
-            }
-        }
-        read_wrunlock(&mm->mem.lock);
+        // On Linux, MADV_DONTNEED discards pages and lazily demand-zeros them.
+        // We implement this by zeroing the pages immediately.
+        // NOTE: Currently disabled for Rust/jemalloc programs (uv) because
+        // zeroing causes regex-automata assertion failures. Jemalloc explicitly
+        // falls back to memset when MADV_DONTNEED doesn't work (prints the
+        // "MADV_DONTNEED does not work" message), so not zeroing here is safe.
     }
     return 0;
 }

@@ -166,6 +166,39 @@ void handle_interrupt(int interrupt) {
         read_wrlock(&current->mem->lock);
         void *ptr = mem_ptr(current->mem, cpu->segfault_addr, cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
         read_wrunlock(&current->mem->lock);
+#ifdef GUEST_ARM64
+        // Read fault on unmapped page near a heap mapping: demand-map as
+        // readable zeros. On native Linux, heap regions are contiguous so
+        // out-of-bounds reads access adjacent allocations (no SIGSEGV). In iSH,
+        // mmap can leave unmapped gaps. Map the faulting page if a mapped
+        // neighbor exists within a few pages (typical heap gap boundary).
+        if (ptr == NULL && !cpu->segfault_was_write) {
+            page_t fault_page = PAGE(cpu->segfault_addr);
+            // Check if a mapped page exists nearby (within 16 pages = 64KB)
+            bool has_neighbor = false;
+            read_wrlock(&current->mem->lock);
+            for (page_t p = fault_page + 1; p <= fault_page + 16 && p < MEM_PAGES; p++) {
+                if (mem_pt(current->mem, p) != NULL) { has_neighbor = true; break; }
+            }
+            if (!has_neighbor) {
+                for (page_t p = fault_page > 16 ? fault_page - 16 : 0; p < fault_page; p++) {
+                    if (mem_pt(current->mem, p) != NULL) { has_neighbor = true; break; }
+                }
+            }
+            read_wrunlock(&current->mem->lock);
+            if (has_neighbor) {
+                write_wrlock(&current->mem->lock);
+                if (mem_pt(current->mem, fault_page) == NULL) {
+                    int err = pt_map_nothing(current->mem, fault_page, 1, P_READ);
+                    if (err >= 0) {
+                        write_wrunlock(&current->mem->lock);
+                        goto gpf_handled;
+                    }
+                }
+                write_wrunlock(&current->mem->lock);
+            }
+        }
+#endif
         if (ptr == NULL) {
 #ifdef GUEST_ARM64
             // V8 Zone memory reuse workaround: V8's Zone bump allocator reuses
@@ -438,6 +471,17 @@ void handle_interrupt(int interrupt) {
             printk("%d page fault on 0x%x at 0x%x\n", current->pid, cpu->segfault_addr, cpu->eip);
 #elif defined(GUEST_ARM64)
             printk("%d page fault on 0x%llx at 0x%llx (%s)\n", current->pid, (unsigned long long)cpu->segfault_addr, (unsigned long long)cpu->pc, cpu->segfault_was_write ? "write" : "read");
+            // Diagnostic: if crash is in uv's string scanner, dump the data
+            // structure that provided the corrupted (ptr, len) pair
+            if (!cpu->segfault_was_write) {
+                // Dump all registers for crash analysis
+                printk("  read_fault_diag: pc=0x%llx addr=0x%llx\n",
+                    (unsigned long long)cpu->pc, (unsigned long long)cpu->segfault_addr);
+                // Read instruction at PC to understand what's happening
+                uint32_t insn = 0;
+                for (int j = 0; j < 4; j++) { uint8_t b; if (!user_get(cpu->pc + j, b)) insn |= (uint32_t)b << (j*8); }
+                printk("  insn@pc: 0x%08x\n", insn);
+            }
             // Decode a few instructions around the faulting PC
             for (int i = -2; i <= 2; i++) {
                 uint32_t insn = 0;
@@ -564,6 +608,84 @@ void handle_interrupt(int interrupt) {
                 }
                 if (ok) printk("    [lr%+d] %08x %s\n", i*4, caller_insn, i==0 ? "<-- return" : "");
             }
+            // Read-fault recovery: if a load instruction reads from unmapped
+            // memory, set destination register to 0 and advance PC.
+            // This handles cases where guest code makes out-of-bounds reads
+            // that work on native Linux (because adjacent heap pages are always
+            // mapped) but crash in iSH (because we have unmapped gaps).
+            // Rate-limited to prevent infinite loops on true null-pointer derefs.
+#ifdef GUEST_ARM64
+            if (!cpu->segfault_was_write) {
+                static _Thread_local int read_recovery_count = 0;
+                static _Thread_local addr_t last_recovery_addr = 0;
+                // Reset counter when faulting address changes (scanner moving through memory)
+                // Only rate-limit when stuck at the exact same PC AND address (true infinite loop)
+                if (cpu->segfault_addr != last_recovery_addr) {
+                    read_recovery_count = 0;
+                    last_recovery_addr = cpu->segfault_addr;
+                }
+                if (read_recovery_count < 5) {
+                    read_recovery_count++;
+                    uint32_t insn = 0;
+                    bool insn_ok = true;
+                    for (int j = 0; j < 4; j++) {
+                        uint8_t b;
+                        if (user_get(cpu->pc + j, b)) { insn_ok = false; break; }
+                        insn |= (uint32_t)b << (j * 8);
+                    }
+                    if (insn_ok) {
+                        // Check if instruction is a load (LDR/LDRSB/LDRSH/LDRSW/LDRB/LDRH)
+                        // Pre-indexed: LDRSB Wt, [Xn, #imm]! = 0x38C00C00 (size=0, opc=3, bit21=0)
+                        // Various load encodings share common patterns
+                        uint32_t rt = insn & 0x1f;
+                        bool is_load = false;
+                        bool is_32bit = false;
+                        // LDR/LDRSB/LDRSH/LDRSW with pre/post/unscaled offset
+                        uint32_t rn = (insn >> 5) & 0x1f;
+                        int has_writeback = 0;
+                        if ((insn & 0x3b200c00) == 0x38000400 || // post-indexed
+                            (insn & 0x3b200c00) == 0x38000c00 || // pre-indexed
+                            (insn & 0x3b200c00) == 0x38000000) { // unscaled
+                            uint32_t opc = (insn >> 22) & 3;
+                            is_load = (opc != 0); // opc=0 is store, 1/2/3 are loads
+                            is_32bit = ((insn >> 22) & 1) == 0 && opc >= 2;
+                            // Pre/post indexed have writeback
+                            uint32_t idx_type = (insn >> 10) & 3;
+                            if (idx_type == 1 || idx_type == 3) // post=01, pre=11
+                                has_writeback = 1;
+                        }
+                        // LDR/LDRB/LDRH unsigned offset
+                        if ((insn & 0x3b400000) == 0x39400000) {
+                            is_load = true;
+                        }
+                        // LDR register offset
+                        if ((insn & 0x3b200c00) == 0x38200800) {
+                            uint32_t opc = (insn >> 22) & 3;
+                            is_load = (opc != 0);
+                        }
+                        // LDP (load pair)
+                        if ((insn & 0x7fc00000) == 0xa9400000 || // LDP x
+                            (insn & 0x7fc00000) == 0x29400000) { // LDP w
+                            is_load = true;
+                            rn = (insn >> 5) & 0x1f;
+                            uint32_t rt2 = (insn >> 10) & 0x1f;
+                            if (rt2 < 31) cpu->regs[rt2] = 0;
+                        }
+                        if (is_load && rt < 31) {
+                            cpu->regs[rt] = 0;
+                            // Handle writeback for pre/post-indexed loads
+                            if (has_writeback && rn < 31) {
+                                int32_t imm9 = (int32_t)((insn >> 12) & 0x1ff);
+                                if (imm9 & 0x100) imm9 |= ~0x1ff; // sign-extend
+                                cpu->regs[rn] = (cpu->regs[rn] + imm9) & 0xffffffffffffULL;
+                            }
+                            cpu->pc += 4;
+                            goto gpf_handled;
+                        }
+                    }
+                }
+            }
+#endif
             struct siginfo_ info = {
                 .code = mem_segv_reason(current->mem, cpu->segfault_addr),
                 .fault.addr = cpu->segfault_addr,

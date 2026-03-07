@@ -46,6 +46,11 @@ NAME(fiber_enter):
     str lr, [sp, #0x60]
     str x1, [sp, #0x70]              // Save original _cpu for verification
 
+    // Save SP for crash recovery: signal handler restores SP to this value
+    // so fiber_exit can correctly pop the callee-saved register frame.
+    mov x8, sp
+    str x8, [x1, #LOCAL_jit_exit_sp]
+
     // Setup gadget instruction pointer from block
     add _pc, x0, #FIBER_BLOCK_code
 
@@ -496,4 +501,20 @@ check_highbits_alert:
 
 .gadget undefined
     mov w0, #INT_UNDEFINED
+    b fiber_exit
+
+/*
+ * jit_crash_trampoline - Signal handler redirects PC here after JIT SIGSEGV
+ *
+ * The crash_handler has already:
+ *   1. Written segfault_addr and segfault_was_write to cpu_state via _cpu (x1)
+ *   2. Restored cpu->pc to the block start PC (from jit_saved_pc TLS)
+ *   3. Restored SP from frame->jit_exit_sp so fiber_exit can pop correctly
+ *   4. Set x0 to a crash marker value
+ *
+ * We just need to return INT_GPF to the dispatch loop via fiber_exit.
+ */
+.global NAME(jit_crash_trampoline)
+NAME(jit_crash_trampoline):
+    mov w0, #0x100           // INT_JIT_CRASH
     b fiber_exit
