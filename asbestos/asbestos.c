@@ -4,7 +4,6 @@
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <time.h>
 #include "asbestos/asbestos.h"
 #include "asbestos/gen.h"
@@ -38,89 +37,16 @@ __thread volatile addr_t jit_saved_pc;  // block start PC, read by signal handle
 
 extern int current_pid(void);
 
-// Debug: trace registers at specific PC ranges
-// Called from gadget_trace in entry.S
-//
-// Watchpoint state: set scope+0xb8 watch when we first see MustAllocate
-// called from the AllocateLocals function (x30=0xee27af60 or x30=0xee27af48)
-extern volatile addr_t g_watch_page;
-extern volatile addr_t g_watch_field_addr;
-extern volatile uint64_t g_watch_original_val;
-
-void jit_trace_regs(struct cpu_state *cpu) {
-    (void)cpu; // disabled for performance testing
-}
-
-// High-bit tracing: detect guest registers with dirty bits 32-63
+// Stubs for debug hooks referenced from assembly/gen.c/tlb.c
 volatile bool g_trace_highbits = false;
-
-// Write watchpoint for debugging store corruption
 volatile addr_t g_watch_page_val = 0;
 
-void c_watch_write_hit(addr_t addr, const char *caller) {
-    (void)addr; (void)caller; // stub — enable when debugging specific corruption
-}
-
-// Assembly-level write watchpoint (called from write_prep in gadgets.h)
+void jit_trace_regs(struct cpu_state *cpu) { (void)cpu; }
+void c_watch_write_hit(addr_t addr, const char *caller) { (void)addr; (void)caller; }
 void jit_watch_write_hit(struct cpu_state *cpu, addr_t store_addr, unsigned long *code_ptr) {
-    static _Atomic int hit_count = 0;
-    int count = atomic_fetch_add(&hit_count, 1);
-    if (count < 50) {
-        printk("WATCH_WRITE: addr=0x%llx pc=0x%llx\n",
-            (unsigned long long)store_addr, (unsigned long long)cpu->pc);
-    }
+    (void)cpu; (void)store_addr; (void)code_ptr;
 }
-
-// Per-thread circular buffer of recent block PCs for crash diagnosis
-#define PC_TRACE_SIZE 256
-__thread addr_t g_pc_trace[PC_TRACE_SIZE];
-__thread int g_pc_trace_idx = 0;
-
-// Called from gadget_check_highbits (entry.S) when any guest register has bits 32+ set.
-void jit_highbit_alert(struct cpu_state *cpu) {
-    // Track clean→dirty transitions per register per thread.
-    static _Atomic int total_alerts = 0;
-    static __thread uint64_t prev_clean[32]; // last clean value per reg (31=sp)
-
-    for (int i = 0; i < 31; i++) {
-        uint64_t val = cpu->regs[i];
-        uint32_t hi = (uint32_t)(val >> 32);
-        if (hi == 0 || hi == 0xFFFFFFFF) {
-            prev_clean[i] = val;
-            continue;
-        }
-        // Register has dirty high bits — was it clean before?
-        uint32_t prev_hi = (uint32_t)(prev_clean[i] >> 32);
-        if (prev_hi != 0 && prev_hi != 0xFFFFFFFF)
-            continue; // already dirty, not a new transition
-        // NEW transition: clean → dirty
-        int cnt = atomic_fetch_add(&total_alerts, 1);
-        if (cnt < 2000) {
-            fprintf(stderr, "HIGHBIT[%d] x%d: 0x%llx -> 0x%llx pc=0x%llx\n",
-                    cnt, i,
-                    (unsigned long long)prev_clean[i],
-                    (unsigned long long)val,
-                    (unsigned long long)cpu->pc);
-        }
-    }
-    uint64_t sp = cpu->sp;
-    uint32_t sp_hi = (uint32_t)(sp >> 32);
-    if (sp_hi == 0 || sp_hi == 0xFFFFFFFF) {
-        prev_clean[31] = sp;
-    } else {
-        uint32_t prev_sp_hi = (uint32_t)(prev_clean[31] >> 32);
-        if (prev_sp_hi == 0 || prev_sp_hi == 0xFFFFFFFF) {
-            int cnt = atomic_fetch_add(&total_alerts, 1);
-            if (cnt < 2000) {
-                fprintf(stderr, "HIGHBIT[%d] sp: 0x%llx -> 0x%llx pc=0x%llx\n",
-                        cnt,
-                        (unsigned long long)prev_clean[31],
-                        (unsigned long long)sp,
-                        (unsigned long long)cpu->pc);
-            }
-        }
-    }
-}
+void jit_highbit_alert(struct cpu_state *cpu) { (void)cpu; }
 
 static void fiber_block_disconnect(struct asbestos *asbestos, struct fiber_block *block);
 static void fiber_block_free(struct asbestos *asbestos, struct fiber_block *block);
@@ -410,10 +336,6 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         // Save block start PC to thread-local for crash recovery.
         // The signal handler reads this to restore cpu->pc on SIGSEGV.
         jit_saved_pc = frame->cpu.pc;
-
-        // Record PC trace for crash diagnosis
-        g_pc_trace[g_pc_trace_idx & (PC_TRACE_SIZE - 1)] = frame->cpu.pc;
-        g_pc_trace_idx++;
 
         in_jit = 1;
         interrupt = fiber_enter(block, frame, tlb);

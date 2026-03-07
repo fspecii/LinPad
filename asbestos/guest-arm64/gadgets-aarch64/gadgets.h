@@ -6,7 +6,7 @@
 // #define DISABLE_RET_CACHE       1    // RET always returns to main loop
 // #define DISABLE_BLOCK_CHAINING  1    // All branches return to main loop
 // #define ENABLE_HIGHBIT_CHECK    1    // Check for dirty bits 32-63 after each insn
-#define ENABLE_WRITE_WATCHPOINT  1    // Check every store against watched page
+// #define ENABLE_WRITE_WATCHPOINT  1    // Check every store against watched page
 // =================================
 
 // Interrupt types (from emu/interrupt.h)

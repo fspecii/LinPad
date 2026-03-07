@@ -440,10 +440,6 @@ void handle_interrupt(int interrupt) {
                             v8_zone_fix_count++;
                             if (frames_unwound > 3)
                                 v8_burst_count = 0; // deep unwind succeeded
-                            if (v8_zone_fix_count <= 3 || frames_unwound > 3)
-                                printk("V8 GPF recovery #%d: unwound %d frames to pc=0x%llx\n",
-                                    v8_zone_fix_count, frames_unwound,
-                                    (unsigned long long)cpu->pc);
                             goto gpf_handled;
                         }
 
@@ -452,7 +448,6 @@ void handle_interrupt(int interrupt) {
                     if (v8_burst_count > 3) {
                         // Deep unwind failed — entire call stack is corrupt.
                         // Kill the process gracefully with SIGABRT.
-                        printk("GPF DEEP UNWIND FAILED: frames=%d, sending SIGABRT\n", frames_unwound);
                         struct siginfo_ info = {
                             .sig = SIGABRT_,
                             .code = SI_KERNEL_,
@@ -461,8 +456,6 @@ void handle_interrupt(int interrupt) {
                         v8_burst_count = 0;
                         goto gpf_handled;
                     }
-                    printk("GPF UNWIND FAILED: frames=%d fp=0x%llx\n",
-                        frames_unwound, (unsigned long long)cpu->regs[29]);
                 }
                 }  // is_sentinel
             }  // scope block
@@ -471,143 +464,7 @@ void handle_interrupt(int interrupt) {
             printk("%d page fault on 0x%x at 0x%x\n", current->pid, cpu->segfault_addr, cpu->eip);
 #elif defined(GUEST_ARM64)
             printk("%d page fault on 0x%llx at 0x%llx (%s)\n", current->pid, (unsigned long long)cpu->segfault_addr, (unsigned long long)cpu->pc, cpu->segfault_was_write ? "write" : "read");
-            // Diagnostic: if crash is in uv's string scanner, dump the data
-            // structure that provided the corrupted (ptr, len) pair
-            if (!cpu->segfault_was_write) {
-                // Dump all registers for crash analysis
-                printk("  read_fault_diag: pc=0x%llx addr=0x%llx\n",
-                    (unsigned long long)cpu->pc, (unsigned long long)cpu->segfault_addr);
-                // Read instruction at PC to understand what's happening
-                uint32_t insn = 0;
-                for (int j = 0; j < 4; j++) { uint8_t b; if (!user_get(cpu->pc + j, b)) insn |= (uint32_t)b << (j*8); }
-                printk("  insn@pc: 0x%08x\n", insn);
-            }
-            // Decode a few instructions around the faulting PC
-            for (int i = -2; i <= 2; i++) {
-                uint32_t insn = 0;
-                bool ok = true;
-                for (int j = 0; j < 4; j++) {
-                    uint8_t b;
-                    if (user_get(cpu->pc + i*4 + j, b)) { ok = false; break; }
-                    insn |= (uint32_t)b << (j*8);
-                }
-                if (ok) printk("  [pc%+d] %08x %s\n", i*4, insn, i==0 ? "<-- here" : "");
-            }
-            printk("  x0=%llx x1=%llx x2=%llx x3=%llx\n", (unsigned long long)cpu->regs[0], (unsigned long long)cpu->regs[1], (unsigned long long)cpu->regs[2], (unsigned long long)cpu->regs[3]);
-            printk("  x4=%llx x5=%llx x6=%llx x7=%llx\n", (unsigned long long)cpu->regs[4], (unsigned long long)cpu->regs[5], (unsigned long long)cpu->regs[6], (unsigned long long)cpu->regs[7]);
-            printk("  x8=%llx x9=%llx x10=%llx x11=%llx\n", (unsigned long long)cpu->regs[8], (unsigned long long)cpu->regs[9], (unsigned long long)cpu->regs[10], (unsigned long long)cpu->regs[11]);
-            printk("  x12=%llx x13=%llx x14=%llx x15=%llx\n", (unsigned long long)cpu->regs[12], (unsigned long long)cpu->regs[13], (unsigned long long)cpu->regs[14], (unsigned long long)cpu->regs[15]);
-            printk("  x16=%llx x17=%llx x18=%llx x19=%llx\n", (unsigned long long)cpu->regs[16], (unsigned long long)cpu->regs[17], (unsigned long long)cpu->regs[18], (unsigned long long)cpu->regs[19]);
-            printk("  x20=%llx x21=%llx x22=%llx x23=%llx\n", (unsigned long long)cpu->regs[20], (unsigned long long)cpu->regs[21], (unsigned long long)cpu->regs[22], (unsigned long long)cpu->regs[23]);
-            printk("  x24=%llx x25=%llx x26=%llx x27=%llx\n", (unsigned long long)cpu->regs[24], (unsigned long long)cpu->regs[25], (unsigned long long)cpu->regs[26], (unsigned long long)cpu->regs[27]);
-            printk("  x28=%llx x29=%llx x30=%llx sp=%llx\n", (unsigned long long)cpu->regs[28], (unsigned long long)cpu->regs[29], (unsigned long long)cpu->regs[30], (unsigned long long)cpu->sp);
 #endif
-            // Unwind guest stack frames (FP chain)
-            {
-                addr_t fp = cpu->regs[29]; // x29 = frame pointer
-                addr_t lr = cpu->regs[30]; // x30 = link register (return addr)
-                printk("  Stack unwind (FP chain):\n");
-                printk("    frame 0: LR=0x%llx (file+0x%llx)\n",
-                       (unsigned long long)lr, (unsigned long long)(lr - 0xed1dd000));
-                for (int frame = 1; frame < 30 && fp != 0 && fp < 0xfffff000; frame++) {
-                    uint64_t saved_fp = 0, saved_lr = 0;
-                    bool ok = true;
-                    for (int j = 0; j < 8; j++) {
-                        uint8_t b;
-                        if (user_get(fp + j, b)) { ok = false; break; }
-                        saved_fp |= (uint64_t)b << (j * 8);
-                    }
-                    for (int j = 0; j < 8; j++) {
-                        uint8_t b;
-                        if (user_get(fp + 8 + j, b)) { ok = false; break; }
-                        saved_lr |= (uint64_t)b << (j * 8);
-                    }
-                    if (!ok || saved_lr == 0) break;
-                    printk("    frame %d: LR=0x%llx (file+0x%llx) FP=0x%llx\n",
-                           frame, (unsigned long long)saved_lr,
-                           (unsigned long long)(saved_lr - 0xed1dd000),
-                           (unsigned long long)saved_fp);
-                    fp = saved_fp;
-                }
-            }
-            // Dump the source of the corrupt pointer
-            {
-                addr_t src_addr = cpu->regs[21]; // x21 = source object (scope)
-                printk("  Source obj at x21=0x%llx:\n", (unsigned long long)src_addr);
-                // Dump 0x120 bytes to see past scope end into next allocation
-                for (int off = 0; off <= 0x120; off += 8) {
-                    uint64_t val = 0;
-                    bool ok = true;
-                    for (int j = 0; j < 8; j++) {
-                        uint8_t b;
-                        if (user_get(src_addr + off + j, b)) { ok = false; break; }
-                        val |= (uint64_t)b << (j * 8);
-                    }
-                    const char *note = "";
-                    if (off == 0x78) note = " <-- flags_";
-                    else if (off == 0xb0) note = " <-- scope+0xB0 (Variable?)";
-                    else if (off == 0xb8) note = " <-- scope+0xB8";
-                    else if (off == 0xd0) note = " <-- scope+0xD0 (x19 source)";
-                    if (ok) printk("    [+0x%02x] 0x%llx%s\n", off, (unsigned long long)val, note);
-                }
-                // Also check flags bit 16 explicitly
-                uint64_t flags = 0;
-                bool flags_ok = true;
-                for (int j = 0; j < 8; j++) {
-                    uint8_t b;
-                    if (user_get(src_addr + 120 + j, b)) { flags_ok = false; break; }
-                    flags |= (uint64_t)b << (j * 8);
-                }
-                if (flags_ok) {
-                    printk("  flags=0x%llx bit16=%d (is_declaration_scope)\n",
-                           (unsigned long long)flags, (int)((flags >> 16) & 1));
-                }
-            }
-            // Dump PC trace (last N blocks before crash)
-            {
-                extern __thread addr_t g_pc_trace[];
-                extern __thread int g_pc_trace_idx;
-                #define PC_TRACE_SIZE 256
-                int start = g_pc_trace_idx > 32 ? g_pc_trace_idx - 32 : 0;
-                printk("  PC trace (last %d blocks):\n", g_pc_trace_idx - start);
-                for (int i = start; i < g_pc_trace_idx; i++) {
-                    addr_t trace_pc = g_pc_trace[i & (PC_TRACE_SIZE - 1)];
-                    printk("    [%d] 0x%llx\n", i - start, (unsigned long long)trace_pc);
-                }
-            }
-            // Decode instructions at last 5 blocks and at caller
-            {
-                extern __thread addr_t g_pc_trace[];
-                extern __thread int g_pc_trace_idx;
-                int start2 = g_pc_trace_idx > 8 ? g_pc_trace_idx - 8 : 0;
-                for (int bi = start2; bi < g_pc_trace_idx; bi++) {
-                    addr_t bpc = g_pc_trace[bi & (PC_TRACE_SIZE - 1)];
-                    printk("  Block[%d] at 0x%llx:\n", bi - start2, (unsigned long long)bpc);
-                    for (int i = 0; i < 12; i++) {
-                        uint32_t block_insn = 0;
-                        bool ok = true;
-                        for (int j = 0; j < 4; j++) {
-                            uint8_t b;
-                            if (user_get(bpc + i*4 + j, b)) { ok = false; break; }
-                            block_insn |= (uint32_t)b << (j*8);
-                        }
-                        if (ok) printk("    %llx: %08x\n", (unsigned long long)(bpc + i*4), block_insn);
-                        else break;
-                    }
-                }
-            }
-            // Decode instructions at caller
-            printk("  Caller code at x30=0x%llx:\n", (unsigned long long)cpu->regs[30]);
-            for (int i = -6; i <= 2; i++) {
-                uint32_t caller_insn = 0;
-                bool ok = true;
-                for (int j = 0; j < 4; j++) {
-                    uint8_t b;
-                    if (user_get(cpu->regs[30] + i*4 + j, b)) { ok = false; break; }
-                    caller_insn |= (uint32_t)b << (j*8);
-                }
-                if (ok) printk("    [lr%+d] %08x %s\n", i*4, caller_insn, i==0 ? "<-- return" : "");
-            }
             // Read-fault recovery: if a load instruction reads from unmapped
             // memory, set destination register to 0 and advance PC.
             // This handles cases where guest code makes out-of-bounds reads
@@ -744,10 +601,6 @@ void handle_interrupt(int interrupt) {
             // (binary trampoline at code cave handles this now — no BRK needed)
         }
 #endif
-        fprintf(stderr, "BRK_HIT: pc=0x%llx lr=0x%llx sp=0x%llx\n",
-                (unsigned long long)cpu->pc,
-                (unsigned long long)cpu->regs[30],
-                (unsigned long long)cpu->sp);
         lock(&pids_lock);
         send_signal(current, SIGTRAP_, (struct siginfo_) {
             .sig = SIGTRAP_,
@@ -824,11 +677,6 @@ void dump_stack(int lines) {
     dump_mem(current->cpu.sp, lines * sizeof(uint64_t) * 8);
 #endif
 }
-
-// TODO find a home for this
-#ifdef LOG_OVERRIDE
-int log_override = 0;
-#endif
 
 // === Fast Path Implementations ===
 #ifdef GUEST_ARM64
