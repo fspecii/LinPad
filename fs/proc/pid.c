@@ -298,7 +298,11 @@ static int proc_pid_exe_readlink(struct proc_entry *entry, char *buf) {
     if (task == NULL)
         return _ESRCH;
     lock(&task->general_lock);
-    int err = generic_getpath(task->mm->exefile, buf);
+    int err;
+    if (task->mm == NULL || task->mm->exefile == NULL)
+        err = _ENOENT;
+    else
+        err = generic_getpath(task->mm->exefile, buf);
     unlock(&task->general_lock);
     proc_put_task(task);
     return err;
