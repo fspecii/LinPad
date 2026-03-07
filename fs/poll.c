@@ -337,29 +337,47 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
             // done real work for >60s and there are no live child
             // processes, force exit. Catches V8/libuv exit cleanup
             // hangs where the event loop spins idle forever.
+            //
+            // Exception: if this poll is monitoring stdin (fd 0), the
+            // process is likely an interactive shell waiting for user
+            // input — don't kill it.
             {
-                struct timespec _now;
-                clock_gettime(CLOCK_MONOTONIC, &_now);
-                uint64_t now_ns = (uint64_t)_now.tv_sec * 1000000000ULL + _now.tv_nsec;
-                uint64_t last = atomic_load_explicit(
-                    &current->group->last_progress_ns, memory_order_relaxed);
-                int64_t idle_s = (int64_t)(now_ns - last) / 1000000000LL;
-                if (idle_s >= 60) {
-                    bool has_live_children = false;
-                    lock(&pids_lock);
-                    lock(&current->group->lock);
-                    struct task *t_iter;
-                    list_for_each_entry(&current->group->threads, t_iter, group_links) {
-                        struct task *child;
-                        list_for_each_entry(&t_iter->children, child, siblings) {
-                            if (child->group != current->group && !child->zombie)
-                                has_live_children = true;
+                bool watching_stdin = false;
+                list_for_each_entry(&poll_->poll_fds, poll_fd, fds) {
+                    if (poll_fd->info.fd == 0) {
+                        watching_stdin = true;
+                        break;
+                    }
+                }
+                if (!watching_stdin) {
+                    struct timespec _now;
+                    clock_gettime(CLOCK_MONOTONIC, &_now);
+                    uint64_t now_ns = (uint64_t)_now.tv_sec * 1000000000ULL + _now.tv_nsec;
+                    uint64_t last = atomic_load_explicit(
+                        &current->group->last_progress_ns, memory_order_relaxed);
+                    int64_t idle_s = (int64_t)(now_ns - last) / 1000000000LL;
+                    if (idle_s >= 60) {
+                        bool has_live_children = false;
+                        int thread_count = 0;
+                        lock(&pids_lock);
+                        lock(&current->group->lock);
+                        struct task *t_iter;
+                        list_for_each_entry(&current->group->threads, t_iter, group_links) {
+                            thread_count++;
+                            struct task *child;
+                            list_for_each_entry(&t_iter->children, child, siblings) {
+                                if (child->group != current->group && !child->zombie)
+                                    has_live_children = true;
+                            }
+                        }
+                        unlock(&current->group->lock);
+                        unlock(&pids_lock);
+                        if (!has_live_children) {
+                            printk("SAFETY-VALVE[poll]: pid=%d idle %llds in poll/epoll, %d threads, no children → exit_group\n",
+                                   current->pid, (long long)idle_s, thread_count);
+                            do_exit_group(0);
                         }
                     }
-                    unlock(&current->group->lock);
-                    unlock(&pids_lock);
-                    if (!has_live_children)
-                        do_exit_group(0);
                 }
             }
             if (timeout != NULL) {

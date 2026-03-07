@@ -195,8 +195,11 @@ static int futex_wait(addr_t uaddr, dword_t val, struct timespec *timeout) {
                 }
                 unlock(&current->group->lock);
                 unlock(&pids_lock);
-                if (live > 1 && !has_live_children)
+                if (live > 1 && !has_live_children) {
+                    printk("SAFETY-VALVE[futex]: pid=%d stalled %ds in futex_wait(uaddr=0x%x val=%d), %d threads, no children → exit_group\n",
+                           current->pid, stall_count / 10, uaddr, val, live);
                     do_exit_group(0);
+                }
                 if (has_live_children)
                     stall_count = 0;
             }

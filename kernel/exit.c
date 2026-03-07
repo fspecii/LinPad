@@ -221,9 +221,8 @@ noreturn void do_exit_group(int status) {
 
         if (waited_ms >= max_wait_ms) {
             // Threads are stuck in blocking syscalls and won't exit.
-            // Force-cancel them so the process can terminate.
-            // This is critical for npm lifecycle scripts where node's
-            // libuv thread pool threads block on pipe I/O after exit.
+            printk("SAFETY-VALVE[exit]: pid=%d do_exit_group waited %dms, %d threads still stuck → force kill\n",
+                   current->pid, waited_ms, last_remaining);
             lock(&pids_lock);
             lock(&group->lock);
             list_for_each_entry(&group->threads, task, group_links) {
