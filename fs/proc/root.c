@@ -33,7 +33,7 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
         // ARM64 format
         proc_printf(buf, "BogoMIPS\t: 48.00\n");
         // Include crypto features that iSH ARM64 emulates
-        proc_printf(buf, "Features\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics\n");
+        proc_printf(buf, "Features\t: fp asimd evtstrm pmull atomics\n");
         proc_printf(buf, "CPU implementer\t: 0x00\n");
         proc_printf(buf, "CPU architecture: 8\n");
         proc_printf(buf, "CPU variant\t: 0x0\n");

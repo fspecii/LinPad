@@ -372,7 +372,7 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
 #endif
         {AX_SYSINFO_EHDR, current->mm->vdso},
 #if defined(GUEST_ARM64)
-        {AX_HWCAP, 0x6b}, // FP|ASIMD|AES|SHA1|SHA2 — native crypto gadgets
+        {AX_HWCAP, 0x117}, // FP|ASIMD|EVTSTRM|PMULL|ATOMICS — no AES/SHA (force software crypto for rustls/ring)
 #else
         {AX_HWCAP, 0x00000000}, // suck that
 #endif

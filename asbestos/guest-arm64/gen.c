@@ -4682,15 +4682,13 @@ static int gen_simd_fp(struct gen_state *state, uint32_t insn) {
 
         void *gadget = NULL;
 
+        // PMULL uses opcode=0xe, U=0 with size=0 (8B→8H) or size=3 (1D→1Q).
+        // These must skip three-different and fall through to the PMULL handler.
+        if (opcode == 0xe && U == 0 && (size == 0 || size == 3))
+            goto skip_three_different;
+
         // Size 3 is reserved for most three-different instructions
-        // EXCEPT: PMULL uses size=3 with opcode=14 (0xe)
         if (size == 3) {
-            // Check for PMULL: opcode=14 (0xe), U=0
-            if (opcode == 0xe && U == 0) {
-                // This is PMULL - let it fall through to the PMULL handler below
-                // (don't generate undefined, don't match as three-different)
-                goto skip_three_different;
-            }
             gen_interrupt(state, INT_UNDEFINED);
             return 0;
         }

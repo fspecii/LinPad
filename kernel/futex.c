@@ -6,6 +6,8 @@
 #define FUTEX_WAIT_ 0
 #define FUTEX_WAKE_ 1
 #define FUTEX_REQUEUE_ 3
+#define FUTEX_WAIT_BITSET_ 9
+#define FUTEX_WAKE_BITSET_ 10
 #define FUTEX_PRIVATE_FLAG_ 128
 #define FUTEX_CMD_MASK_ ~(FUTEX_PRIVATE_FLAG_)
 
@@ -267,25 +269,51 @@ dword_t sys_futex(addr_t uaddr, dword_t op, dword_t val, addr_t timeout_or_val2,
     if (!(op & FUTEX_PRIVATE_FLAG_)) {
         STRACE("!FUTEX_PRIVATE ");
     }
+    int cmd = op & FUTEX_CMD_MASK_;
     struct timespec timeout = {0};
-    if ((op & FUTEX_CMD_MASK_) == FUTEX_WAIT_ && timeout_or_val2) {
+    if ((cmd == FUTEX_WAIT_ || cmd == FUTEX_WAIT_BITSET_) && timeout_or_val2) {
         struct timespec_ timeout_;
         if (user_get(timeout_or_val2, timeout_))
             return _EFAULT;
-        timeout.tv_sec = timeout_.sec;
-        timeout.tv_nsec = timeout_.nsec;
+        if (cmd == FUTEX_WAIT_BITSET_) {
+            // FUTEX_WAIT_BITSET uses absolute CLOCK_REALTIME timeout;
+            // convert to relative for our futex_wait implementation.
+            struct timespec now;
+            clock_gettime(CLOCK_REALTIME, &now);
+            timeout.tv_sec = timeout_.sec - now.tv_sec;
+            timeout.tv_nsec = timeout_.nsec - now.tv_nsec;
+            if (timeout.tv_nsec < 0) {
+                timeout.tv_sec--;
+                timeout.tv_nsec += 1000000000;
+            }
+            if (timeout.tv_sec < 0) {
+                timeout.tv_sec = 0;
+                timeout.tv_nsec = 0;
+            }
+        } else {
+            timeout.tv_sec = timeout_.sec;
+            timeout.tv_nsec = timeout_.nsec;
+        }
     }
-    switch (op & FUTEX_CMD_MASK_) {
-        case FUTEX_WAIT_: {
+    switch (cmd) {
+        case FUTEX_WAIT_:
             STRACE("futex(FUTEX_WAIT, %#x, %d, 0x%x {%ds %dns}) = ...\n", uaddr, val, timeout_or_val2, timeout.tv_sec, timeout.tv_nsec);
             return futex_wait(uaddr, val, timeout_or_val2 ? &timeout : NULL);
-        }
+        case FUTEX_WAIT_BITSET_:
+            // FUTEX_WAIT_BITSET with MATCH_ANY (0xffffffff) is equivalent to FUTEX_WAIT.
+            // We ignore the bitset mask (val3) and treat all bits as matching.
+            STRACE("futex(FUTEX_WAIT_BITSET, %#x, %d, mask=%#x) = ...\n", uaddr, val, val3);
+            return futex_wait(uaddr, val, timeout_or_val2 ? &timeout : NULL);
         case FUTEX_WAKE_:
             STRACE("futex(FUTEX_WAKE, %#x, %d)", uaddr, val);
-            return futex_wakelike(op & FUTEX_CMD_MASK_, uaddr, val, 0, 0);
+            return futex_wakelike(FUTEX_WAKE_, uaddr, val, 0, 0);
+        case FUTEX_WAKE_BITSET_:
+            // FUTEX_WAKE_BITSET with MATCH_ANY is equivalent to FUTEX_WAKE.
+            STRACE("futex(FUTEX_WAKE_BITSET, %#x, %d, mask=%#x)", uaddr, val, val3);
+            return futex_wakelike(FUTEX_WAKE_, uaddr, val, 0, 0);
         case FUTEX_REQUEUE_:
             STRACE("futex(FUTEX_REQUEUE, %#x, %d, %#x)", uaddr, val, uaddr2);
-            return futex_wakelike(op & FUTEX_CMD_MASK_, uaddr, val, timeout_or_val2, uaddr2);
+            return futex_wakelike(FUTEX_REQUEUE_, uaddr, val, timeout_or_val2, uaddr2);
     }
     STRACE("futex(%#x, %d, %d, timeout=%#x, %#x, %d) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
     FIXME("unsupported futex operation %d", op);
