@@ -423,7 +423,7 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
         if (--data->refcount == 0) {
             // vdso wasn't allocated with mmap, it's just in our data segment
             if (data->data != vdso_data) {
-                mprotect(data->data, data->size, PROT_NONE);
+                munmap(data->data, data->size);
             }
             if (data->fd != NULL) {
                 fd_close(data->fd);
@@ -437,8 +437,16 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
 
 int pt_map_nothing(struct mem *mem, page_t start, pages_t pages, unsigned flags) {
     if (pages == 0) return 0;
+    // Use host PROT_NONE for guest PROT_NONE mappings. Go runtime reserves
+    // ~1.1GB of PROT_NONE address space for page summaries; allocating real
+    // memory for these wastes physical RAM and causes iOS jetsam kills.
+    int host_prot = PROT_READ | PROT_WRITE;
+    if (!(flags & P_READ) && !(flags & P_WRITE) && !(flags & P_EXEC))
+        host_prot = PROT_NONE;
     void *memory = mmap(NULL, pages * PAGE_SIZE,
-            PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+            host_prot, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    if (memory == MAP_FAILED)
+        return _ENOMEM;
     return pt_map(mem, start, pages, memory, 0, flags | P_ANONYMOUS);
 }
 

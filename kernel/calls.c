@@ -157,9 +157,8 @@ void handle_interrupt(int interrupt) {
         // all threads, a thread stuck in a retrying syscall (e.g., musl's
         // futex_wait loops on EINTR) would never return to the JIT dispatch
         // loop where receive_signals() handles SIGKILL. Catch it here.
-        if (current->group->doing_group_exit) {
+        if (current->group->doing_group_exit)
             do_exit(current->group->group_exit_code);
-        }
 #endif
     } else if (interrupt == INT_GPF) {
         // some page faults, such as stack growing or CoW clones, are handled by mem_ptr
@@ -617,7 +616,7 @@ void handle_interrupt(int interrupt) {
     } else if (interrupt == INT_TIMER) {
         // timer handled below
     } else {
-        printk("%d unhandled interrupt %d\n", current->pid, interrupt);
+        printk("EXIT[unhandled-int]: pid=%d interrupt=%d\n", current->pid, interrupt);
         sys_exit(interrupt);
     }
 

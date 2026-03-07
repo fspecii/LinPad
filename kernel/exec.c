@@ -16,6 +16,7 @@
 #include "fs/fd.h"
 #include "kernel/elf.h"
 #include "kernel/vdso.h"
+#include "kernel/mm.h"
 #include "kernel/native_offload.h"
 #include "tools/ptraceomatic-config.h"
 

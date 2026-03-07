@@ -56,14 +56,25 @@ static uint64_t get_total_ram() {
 static void sysinfo_specific(struct sys_info *info) {
     uint64_t total_ram = get_total_ram();
 #if defined(GUEST_ARM64)
-    // Cap totalram to 256MB for the emulated environment.
-    // Reporting the full host RAM (e.g. 32GB) causes musl malloc to
-    // allocate enormous mmap arenas, leading to multi-GB memory growth.
-    #define GUEST_MAX_RAM (512ULL * 1024 * 1024)
+    // Cap reported RAM to avoid musl/V8 allocating enormous arenas.
+    // Must be consistent with MEMINFO_MAX_RAM in fs/proc/root.c.
+    // Go runtime needs ~1.1GB for page summaries; 4GB gives headroom.
+    #define GUEST_MAX_RAM (4ULL * 1024 * 1024 * 1024)
     if (total_ram > GUEST_MAX_RAM)
         total_ram = GUEST_MAX_RAM;
     info->totalram = total_ram;
     info->mem_unit = 1;
+
+    // Report realistic free memory based on anon_page_count.
+    // Without this, freeram=0 makes runtimes think memory is exhausted.
+#if ANON_MMAP_LIMIT_PAGES > 0
+    extern _Atomic long anon_page_count;
+    long used_pages = atomic_load(&anon_page_count);
+    uint64_t used_bytes = (uint64_t)(used_pages > 0 ? used_pages : 0) * 4096;
+    info->freeram = used_bytes < total_ram ? total_ram - used_bytes : 0;
+#else
+    info->freeram = total_ram / 2;  // fallback: report 50% free
+#endif
 #else
     // For x86, scale down to 32-bit with mem_unit
     if (total_ram > UINT32_MAX) {
@@ -74,7 +85,6 @@ static void sysinfo_specific(struct sys_info *info) {
         info->totalram = (uint32_t)total_ram;
     }
 #endif
-    // TODO: freeram, sharedram, etc.
 }
 #elif __linux__
 static void sysinfo_specific(struct sys_info *info) {

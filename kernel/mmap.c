@@ -80,9 +80,8 @@ static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
     }
     if (addr == 0) {
         page = pt_find_hole(current->mem, pages);
-        if (page == BAD_PAGE) {
+        if (page == BAD_PAGE)
             return _ENOMEM;
-        }
     }
 
     if (flags & MMAP_SHARED)
@@ -90,11 +89,8 @@ static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
 
     if (flags & MMAP_ANONYMOUS) {
 #if ANON_MMAP_LIMIT_PAGES > 0
-        if (atomic_load(&anon_page_count) + (long)pages > ANON_MMAP_LIMIT_PAGES) {
-            printk("ANON_LIMIT: count=%ld + pages=%ld > limit=%ld\n",
-                   (long)atomic_load(&anon_page_count), (long)pages, (long)ANON_MMAP_LIMIT_PAGES);
+        if (atomic_load(&anon_page_count) + (long)pages > ANON_MMAP_LIMIT_PAGES)
             return _ENOMEM;
-        }
         atomic_fetch_add(&anon_page_count, (long)pages);
 #endif
         if ((err = pt_map_nothing(current->mem, page, pages, prot)) < 0) {
