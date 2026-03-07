@@ -52,6 +52,16 @@ static struct task *find_new_parent(struct task *task) {
 }
 
 noreturn void do_exit(int status) {
+    // Block SIGSEGV during exit to prevent cosmetic crashes from host
+    // pthread stack unwinding (especially with many threads exiting at once).
+    if (current->group->doing_group_exit) {
+        sigset_t set;
+        sigemptyset(&set);
+        sigaddset(&set, SIGSEGV);
+        sigaddset(&set, SIGBUS);
+        pthread_sigmask(SIG_BLOCK, &set, NULL);
+    }
+
     // has to happen before mm_release
     addr_t clear_tid = current->clear_tid;
     if (clear_tid) {
@@ -194,7 +204,8 @@ noreturn void do_exit_group(int status) {
 
         // Wait for threads to exit (they're DETACHED so we can't join)
         // Poll the thread count until only current thread remains
-        int max_wait_ms = 500;  // 500ms max wait for threads to exit
+        int max_wait_ms = 500 + thread_count * 10;  // Scale with thread count
+        if (max_wait_ms > 5000) max_wait_ms = 5000;  // Cap at 5s
         int wait_interval_ms = 10;  // Check every 10ms
         int waited_ms = 0;
         int last_remaining = -1;
@@ -233,9 +244,10 @@ noreturn void do_exit_group(int status) {
             lock(&pids_lock);
             lock(&group->lock);
             list_for_each_entry(&group->threads, task, group_links) {
-                if (task != current) {
+                if (task != current && !task->exiting) {
                     cpu_poke(&task->cpu);
-                    pthread_kill(task->thread, SIGUSR1);
+                    if (task->thread)
+                        pthread_kill(task->thread, SIGUSR1);
                 }
             }
             unlock(&group->lock);
@@ -300,16 +312,6 @@ noreturn void do_exit_group(int status) {
 
     unlock(&group->lock);
     unlock(&pids_lock);
-
-    // On multi-threaded exit, pthread cleanup on host can sometimes trigger
-    // SIGSEGV during stack unwinding (see https://github.com/beehive-lab/mambo/issues/22)
-    // Block SIGSEGV temporarily to prevent cosmetic crashes during final cleanup
-    if (is_group_leader && thread_count > 1) {
-        sigset_t set, oldset;
-        sigemptyset(&set);
-        sigaddset(&set, SIGSEGV);
-        pthread_sigmask(SIG_BLOCK, &set, &oldset);
-    }
 
     do_exit(status);
 }
