@@ -422,8 +422,6 @@ static int fakefs_stat(struct mount *mount, const char *path, struct statbuf *fa
     ino_t inode;
     if (!path_read_stat(fs, path, &ishstat, &inode)) {
         db_rollback(fs);
-        if (strncmp(path, "/var/minis", 10) == 0)
-            fprintf(stderr, "fakefs_stat: \"%s\" not in meta.db, checking bind mount\n", path);
         /* Auto-create for bind-mounted paths */
         if (is_under_bind_mount(path)) {
             inode = bind_mount_ensure_inode(fs, mount, path);

@@ -52,6 +52,9 @@ static struct task *find_new_parent(struct task *task) {
 }
 
 noreturn void do_exit(int status) {
+    printk("EXIT[%d/%s]: do_exit status=%d group_exit=%d thread=%p\n",
+           current->pid, current->comm, status,
+           current->group->doing_group_exit, (void*)current->thread);
     // Block SIGSEGV during exit to prevent cosmetic crashes from host
     // pthread stack unwinding (especially with many threads exiting at once).
     if (current->group->doing_group_exit) {
@@ -165,14 +168,18 @@ noreturn void do_exit(int status) {
     }
 
     vfork_notify(current);
-    if (current != leader)
-        task_destroy(current);
+    if (current != leader) {
+        struct task *self = current;
+        current = NULL;  // Clear before destroy to prevent dangling access
+        task_destroy(self);
+    }
     unlock(&pids_lock);
 
     pthread_exit(NULL);
 }
 
 noreturn void do_exit_group(int status) {
+    printk("EXIT[%d/%s]: do_exit_group status=%d\n", current->pid, current->comm, status);
     struct tgroup *group = current->group;
     lock(&pids_lock);
     lock(&group->lock);
@@ -241,23 +248,48 @@ noreturn void do_exit_group(int status) {
             // Threads are stuck in blocking syscalls and won't exit.
             printk("SAFETY-VALVE[exit]: pid=%d do_exit_group waited %dms, %d threads still stuck → force kill\n",
                    current->pid, waited_ms, last_remaining);
+
+            // Signal stuck threads with SIGUSR1 repeatedly.
+            // Don't use pthread_cancel — it can corrupt malloc state if the
+            // thread is cancelled inside malloc/free.
+            for (int attempt = 0; attempt < 3; attempt++) {
+                lock(&pids_lock);
+                lock(&group->lock);
+                int still_alive = 0;
+                list_for_each_entry(&group->threads, task, group_links) {
+                    if (task != current && !task->exiting) {
+                        still_alive++;
+                        cpu_poke(&task->cpu);
+                        if (task->thread)
+                            pthread_kill(task->thread, SIGUSR1);
+                    }
+                }
+                unlock(&group->lock);
+                unlock(&pids_lock);
+                if (still_alive == 0) break;
+                struct timespec ts2 = {0, 50 * 1000000L};  // 50ms
+                nanosleep(&ts2, NULL);
+            }
+
+            // If threads are truly stuck in uninterruptible host syscalls,
+            // we accept the leak rather than risking heap corruption.
+            // Mark them as exiting so they won't interfere with future processes.
             lock(&pids_lock);
             lock(&group->lock);
+            int leaked = 0;
             list_for_each_entry(&group->threads, task, group_links) {
                 if (task != current && !task->exiting) {
-                    cpu_poke(&task->cpu);
-                    if (task->thread)
-                        pthread_kill(task->thread, SIGUSR1);
+                    task->exiting = true;
+                    leaked++;
                 }
             }
             unlock(&group->lock);
             unlock(&pids_lock);
-            // Give them a brief moment to handle the signal and exit
-            struct timespec ts2 = {0, 10 * 1000000L};  // 10ms
-            nanosleep(&ts2, NULL);
+            if (leaked > 0)
+                printk("SAFETY-VALVE[exit]: pid=%d leaked %d stuck host threads\n",
+                       current->pid, leaked);
+
             // Close stdio fds to signal EOF to parent's pipes.
-            // Don't release the full fdtable (stuck threads may crash).
-            // Just close fds 0-2 which are the piped stdio.
             if (current->files != NULL) {
                 f_close(0);
                 f_close(1);

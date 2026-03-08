@@ -106,10 +106,45 @@ struct task *task_create_(struct task *parent) {
     return task;
 }
 
+// Deferred-free list for task structs.
+// When a task is destroyed, its struct is not immediately freed — instead it's
+// placed on this list. The NEXT call to task_destroy will free previously
+// deferred structs. This gives leaked/exiting pthreads time to finish accessing
+// `current` before the memory is recycled by malloc, preventing use-after-free
+// heap corruption.
+#define DEFERRED_FREE_MAX 64
+static struct task *deferred_free_list[DEFERRED_FREE_MAX];
+static int deferred_free_count = 0;
+// Must be called with pids_lock held (task_destroy already requires this).
+static void flush_deferred_frees(void) {
+    for (int i = 0; i < deferred_free_count; i++) {
+        free(deferred_free_list[i]);
+        deferred_free_list[i] = NULL;
+    }
+    deferred_free_count = 0;
+}
+
 void task_destroy(struct task *task) {
+    printk("TASK[%d/%s]: destroy task=%p thread=%p\n",
+           task->pid, task->comm, (void*)task, (void*)task->thread);
     list_remove(&task->siblings);
     pid_get(task->pid)->task = NULL;
-    free(task);
+
+    // Flush old deferred frees first — they've had time to quiesce.
+    flush_deferred_frees();
+
+    // Zero the struct to poison stale `current` references, then defer the
+    // actual free. This way if a leaked pthread is still running, it will
+    // hit zeroed fields (NULL group, NULL mem) and crash cleanly rather than
+    // silently corrupting a newly-allocated task at the same address.
+    memset(task, 0, sizeof(struct task));
+
+    if (deferred_free_count < DEFERRED_FREE_MAX) {
+        deferred_free_list[deferred_free_count++] = task;
+    } else {
+        // Overflow — free immediately (rare, only with 64+ concurrent exits)
+        free(task);
+    }
 }
 
 void task_run_current() {
@@ -117,17 +152,38 @@ void task_run_current() {
     struct tlb *tlb = calloc(1, sizeof(struct tlb));
     if (!tlb) die("could not allocate TLB");
     while (true) {
-        read_wrlock(&current->mem->lock);
-        tlb_refresh(tlb, &current->mem->mmu);
+        // Check for group exit before entering JIT — this catches threads
+        // returning from blocking host syscalls (futex, nanosleep, etc.)
+        // that were interrupted by SIGUSR1 from do_exit_group.
+        // Also bail if our task struct was destroyed (current zeroed or NULLed).
+        struct task *self = current;
+        if (self == NULL || self->group == NULL) {
+            // Task struct was destroyed under us (leaked thread).
+            // Exit the host thread silently.
+            free(tlb);
+            pthread_exit(NULL);
+        }
+        if (self->group->doing_group_exit) {
+            free(tlb);
+            do_exit(self->group->group_exit_code);
+        }
+        if (self->mem == NULL) {
+            free(tlb);
+            pthread_exit(NULL);
+        }
+        read_wrlock(&self->mem->lock);
+        tlb_refresh(tlb, &self->mem->mmu);
         int interrupt = cpu_run_to_interrupt(cpu, tlb);
-        read_wrunlock(&current->mem->lock);
+        read_wrunlock(&self->mem->lock);
         handle_interrupt(interrupt);
     }
 }
 
-static void *task_thread(void *task) {
-    current = task;
+static void *task_thread(void *vtask) {
+    current = vtask;
     update_thread_name();
+    printk("TASK[%d/%s]: thread started, pthread=%p\n",
+           current->pid, current->comm, (void*)pthread_self());
     task_run_current();
     die("task_thread returned"); // above function call should never return
 }
@@ -139,6 +195,8 @@ __attribute__((constructor)) static void create_attr() {
 }
 
 void task_start(struct task *task) {
+    printk("TASK[%d/%s]: creating host thread for task=%p\n",
+           task->pid, task->comm, (void*)task);
     if (pthread_create(&task->thread, &task_thread_attr, task_thread, task) < 0)
         die("could not create thread");
 }
