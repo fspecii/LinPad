@@ -9099,54 +9099,78 @@ make_vec_aba uaba, uaba
     ldr q0, [x15]           // Vn (low part of concatenation)
     ldr q1, [x16]           // Vm (high part of concatenation)
 
-    // Use native EXT instruction - we need to handle different imm4 values
-    // Since imm4 is runtime variable, we use a table
-    adr x3, .Lext_table
+    // Branch on Q: 8B and 16B use different native EXT arrangements
+    cbnz x17, .Lext_16b
+
+    // Q=0 (8B): must use ext .8b to only consider lower 8 bytes of each reg
+    adr x3, .Lext_table_8b
     add x3, x3, x12, lsl #3   // each case is 8 bytes (2 instructions)
     br x3
 
     .align 3
-.Lext_table:
-    ext v2.16b, v0.16b, v1.16b, #0
-    b .Lext_store
-    ext v2.16b, v0.16b, v1.16b, #1
-    b .Lext_store
-    ext v2.16b, v0.16b, v1.16b, #2
-    b .Lext_store
-    ext v2.16b, v0.16b, v1.16b, #3
-    b .Lext_store
-    ext v2.16b, v0.16b, v1.16b, #4
-    b .Lext_store
-    ext v2.16b, v0.16b, v1.16b, #5
-    b .Lext_store
-    ext v2.16b, v0.16b, v1.16b, #6
-    b .Lext_store
-    ext v2.16b, v0.16b, v1.16b, #7
-    b .Lext_store
-    ext v2.16b, v0.16b, v1.16b, #8
-    b .Lext_store
-    ext v2.16b, v0.16b, v1.16b, #9
-    b .Lext_store
-    ext v2.16b, v0.16b, v1.16b, #10
-    b .Lext_store
-    ext v2.16b, v0.16b, v1.16b, #11
-    b .Lext_store
-    ext v2.16b, v0.16b, v1.16b, #12
-    b .Lext_store
-    ext v2.16b, v0.16b, v1.16b, #13
-    b .Lext_store
-    ext v2.16b, v0.16b, v1.16b, #14
-    b .Lext_store
-    ext v2.16b, v0.16b, v1.16b, #15
-    b .Lext_store
+.Lext_table_8b:
+    ext v2.8b, v0.8b, v1.8b, #0
+    b .Lext_store_8b
+    ext v2.8b, v0.8b, v1.8b, #1
+    b .Lext_store_8b
+    ext v2.8b, v0.8b, v1.8b, #2
+    b .Lext_store_8b
+    ext v2.8b, v0.8b, v1.8b, #3
+    b .Lext_store_8b
+    ext v2.8b, v0.8b, v1.8b, #4
+    b .Lext_store_8b
+    ext v2.8b, v0.8b, v1.8b, #5
+    b .Lext_store_8b
+    ext v2.8b, v0.8b, v1.8b, #6
+    b .Lext_store_8b
+    ext v2.8b, v0.8b, v1.8b, #7
+    b .Lext_store_8b
 
-.Lext_store:
-    // Store result - handle Q=0 (8B) vs Q=1 (16B)
-    cbnz x17, .Lext_store_16b
-    // Q=0: only store low 8 bytes, clear high 8
+.Lext_store_8b:
     str d2, [x14]
     str xzr, [x14, #8]
     gret
+
+.Lext_16b:
+    // Q=1 (16B): use ext .16b
+    adr x3, .Lext_table_16b
+    add x3, x3, x12, lsl #3   // each case is 8 bytes (2 instructions)
+    br x3
+
+    .align 3
+.Lext_table_16b:
+    ext v2.16b, v0.16b, v1.16b, #0
+    b .Lext_store_16b
+    ext v2.16b, v0.16b, v1.16b, #1
+    b .Lext_store_16b
+    ext v2.16b, v0.16b, v1.16b, #2
+    b .Lext_store_16b
+    ext v2.16b, v0.16b, v1.16b, #3
+    b .Lext_store_16b
+    ext v2.16b, v0.16b, v1.16b, #4
+    b .Lext_store_16b
+    ext v2.16b, v0.16b, v1.16b, #5
+    b .Lext_store_16b
+    ext v2.16b, v0.16b, v1.16b, #6
+    b .Lext_store_16b
+    ext v2.16b, v0.16b, v1.16b, #7
+    b .Lext_store_16b
+    ext v2.16b, v0.16b, v1.16b, #8
+    b .Lext_store_16b
+    ext v2.16b, v0.16b, v1.16b, #9
+    b .Lext_store_16b
+    ext v2.16b, v0.16b, v1.16b, #10
+    b .Lext_store_16b
+    ext v2.16b, v0.16b, v1.16b, #11
+    b .Lext_store_16b
+    ext v2.16b, v0.16b, v1.16b, #12
+    b .Lext_store_16b
+    ext v2.16b, v0.16b, v1.16b, #13
+    b .Lext_store_16b
+    ext v2.16b, v0.16b, v1.16b, #14
+    b .Lext_store_16b
+    ext v2.16b, v0.16b, v1.16b, #15
+    b .Lext_store_16b
 
 .Lext_store_16b:
     str q2, [x14]

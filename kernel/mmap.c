@@ -246,13 +246,19 @@ dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice) {
     // Programs expect zeroed pages after MADV_DONTNEED. Without this, stale
     // data persists and V8's Zone allocator sees corrupt pointers from
     // previous allocations.
-    if (advice == 4 /* MADV_DONTNEED */) {
+    if (advice == 4 /* MADV_DONTNEED */ || advice == 8 /* MADV_FREE */) {
         // On Linux, MADV_DONTNEED discards pages and lazily demand-zeros them.
-        // We implement this by zeroing the pages immediately.
-        // NOTE: Currently disabled for Rust/jemalloc programs (uv) because
-        // zeroing causes regex-automata assertion failures. Jemalloc explicitly
-        // falls back to memset when MADV_DONTNEED doesn't work (prints the
-        // "MADV_DONTNEED does not work" message), so not zeroing here is safe.
+        // We implement this by zeroing the pages via mem_ptr (handles CoW etc).
+        // Without zeroing, jemalloc reuses pages with stale function pointers,
+        // causing crashes when arena metadata structures contain old code addresses.
+        addr_t end = addr + len;
+        for (addr_t p = addr; p < end; p += PAGE_SIZE) {
+            read_wrlock(&current->mem->lock);
+            void *ptr = mem_ptr(current->mem, p, MEM_WRITE);
+            read_wrunlock(&current->mem->lock);
+            if (ptr != NULL)
+                memset(ptr, 0, PAGE_SIZE);
+        }
     }
     return 0;
 }

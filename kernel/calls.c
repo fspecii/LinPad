@@ -41,6 +41,12 @@ static inline int fast_read(struct cpu_state *cpu);
 static inline int fast_write(struct cpu_state *cpu);
 #endif
 
+// Diagnostic: JIT crash info from signal handler
+__thread volatile uint64_t jit_last_host_fault = 0;
+__thread volatile uint64_t jit_last_x7 = 0;
+__thread volatile uint64_t jit_last_x10 = 0;
+__thread volatile int jit_crash_count = 0;
+
 void handle_interrupt(int interrupt) {
     struct cpu_state *cpu = &current->cpu;
     if (interrupt == INT_SYSCALL) {
@@ -463,6 +469,47 @@ void handle_interrupt(int interrupt) {
             printk("%d page fault on 0x%x at 0x%x\n", current->pid, cpu->segfault_addr, cpu->eip);
 #elif defined(GUEST_ARM64)
             printk("%d page fault on 0x%llx at 0x%llx (%s)\n", current->pid, (unsigned long long)cpu->segfault_addr, (unsigned long long)cpu->pc, cpu->segfault_was_write ? "write" : "read");
+            // Dump instruction bytes and key registers for debugging
+            {
+                uint32_t fault_insn = 0;
+                for (int j = 0; j < 4; j++) {
+                    uint8_t b;
+                    if (user_get(cpu->pc + j, b)) break;
+                    fault_insn |= (uint32_t)b << (j * 8);
+                }
+                printk("  insn=0x%08x x0=0x%llx x1=0x%llx x2=0x%llx x3=0x%llx\n",
+                    fault_insn, (unsigned long long)cpu->regs[0], (unsigned long long)cpu->regs[1],
+                    (unsigned long long)cpu->regs[2], (unsigned long long)cpu->regs[3]);
+                printk("  sp=0x%llx x29=0x%llx x30=0x%llx brk=0x%llx\n",
+                    (unsigned long long)cpu->sp,
+                    (unsigned long long)cpu->regs[29], (unsigned long long)cpu->regs[30],
+                    (unsigned long long)current->mm->brk);
+                printk("  x4=0x%llx x5=0x%llx x8=0x%llx x9=0x%llx x10=0x%llx\n",
+                    (unsigned long long)cpu->regs[4], (unsigned long long)cpu->regs[5],
+                    (unsigned long long)cpu->regs[8], (unsigned long long)cpu->regs[9],
+                    (unsigned long long)cpu->regs[10]);
+                printk("  sp+0x3e8=0x%llx jit_crashes=%d\n",
+                    (unsigned long long)(cpu->sp + 0x3e8),
+                    jit_crash_count);
+                // Dump block instructions when fault addr > 4GB (overflow address)
+                if (cpu->segfault_addr > 0x100000000ULL) {
+                    printk("  block insns from PC=0x%llx:\n", (unsigned long long)cpu->pc);
+                    for (int bi = 0; bi < 32; bi++) {
+                        uint32_t bi_insn = 0;
+                        bool bi_ok = true;
+                        for (int j = 0; j < 4; j++) {
+                            uint8_t b;
+                            if (user_get(cpu->pc + bi * 4 + j, b)) { bi_ok = false; break; }
+                            bi_insn |= (uint32_t)b << (j * 8);
+                        }
+                        if (!bi_ok) break;
+                        printk("    0x%llx: 0x%08x\n", (unsigned long long)(cpu->pc + bi * 4), bi_insn);
+                        // Stop at RET or unconditional branch
+                        if (bi_insn == 0xd65f03c0 || (bi_insn & 0xFC000000) == 0x14000000)
+                            break;
+                    }
+                }
+            }
 #endif
             // Read-fault recovery: if a load instruction reads from unmapped
             // memory, set destination register to 0 and advance PC.
@@ -542,6 +589,7 @@ void handle_interrupt(int interrupt) {
                 }
             }
 #endif
+
             struct siginfo_ info = {
                 .code = mem_segv_reason(current->mem, cpu->segfault_addr),
                 .fault.addr = cpu->segfault_addr,

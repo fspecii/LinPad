@@ -17,6 +17,12 @@
 extern __thread volatile sig_atomic_t in_jit;
 extern __thread volatile uint64_t jit_saved_pc;
 
+// Diagnostic: JIT crash info (defined in calls.c)
+extern __thread volatile uint64_t jit_last_host_fault;
+extern __thread volatile uint64_t jit_last_x7;
+extern __thread volatile uint64_t jit_last_x10;
+extern __thread volatile int jit_crash_count;
+
 // Assembly trampoline: returns INT_JIT_CRASH via fiber_exit (defined in entry.S)
 extern void jit_crash_trampoline(void);
 
@@ -39,10 +45,16 @@ static void crash_handler(int sig, siginfo_t *info, void *ctx) {
 
         // Reconstruct guest segfault_addr from registers.
         // x7 = _addr (host pointer = data_minus_addr + guest_addr)
-        // x10 may hold data_minus_addr from TLB lookup
+        // x10 may hold data_minus_addr from TLB lookup (but only on TLB HIT path)
         uint64_t x7 = uc->uc_mcontext->__ss.__x[7];
         uint64_t x10 = uc->uc_mcontext->__ss.__x[10];
         uint64_t guest_addr = (x7 - x10) & 0xffffffffffffULL;
+
+        // Store diagnostic info for handle_interrupt to read
+        jit_last_host_fault = (uint64_t)info->si_addr;
+        jit_last_x7 = x7;
+        jit_last_x10 = x10;
+        jit_crash_count++;
 
         // Determine read/write from host ESR. Bit 6 (WnR): 0=read, 1=write.
         uint64_t esr = uc->uc_mcontext->__es.__esr;

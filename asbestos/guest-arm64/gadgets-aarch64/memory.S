@@ -42,6 +42,10 @@
     add _addr, x12, x10
     and _addr, _addr, #0xffffffffffff
 
+    // Save guest address for writeback_addr (read_prep will clobber _addr
+    // with a host pointer, but pre-indexed LDP/STP need the guest address)
+    str _addr, [_cpu, #LOCAL_value_addr]
+
     gret
 
 // Calculate address for PC-relative literal loads
@@ -1229,21 +1233,25 @@ atomic_cas_segfault:
 /*
  * Writeback address to base register (for pre-indexed)
  * Code stream: [gadget addr][rn]
+ *
+ * Uses the guest address saved in LOCAL_value_addr by calc_addr_imm,
+ * NOT _addr which has been transformed to a host pointer by read_prep.
  */
 .gadget writeback_addr
     ldr x8, [_pc]
     add _pc, _pc, #8
 
     and x9, x8, #0x1f       // rn
+    ldr x10, [_cpu, #LOCAL_value_addr]  // guest address from calc_addr_imm
 
-    // Store 64-bit address to register (ARM64 guest)
+    // Store guest address to register
     add x11, _cpu, #CPU_x0
     cmp x9, #31
     b.eq 1f
-    str _addr, [x11, x9, lsl #3]
+    str x10, [x11, x9, lsl #3]
     gret
 1:  // SP writeback
-    str _addr, [_cpu, #CPU_sp]
+    str x10, [_cpu, #CPU_sp]
     gret
 
 /*
