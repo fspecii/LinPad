@@ -125,7 +125,7 @@ void path_link(struct fakefs_db *fs, const char *src, const char *dst) {
 inode_t path_unlink(struct fakefs_db *fs, const char *path) {
     inode_t inode = path_get_inode(fs, path);
     if (inode == 0)
-        die("path_unlink(%s): nonexistent path", path);
+        return 0;  // Path not in meta.db — already gone or never tracked
     // delete from paths where path = ?
     bind_path(fs->stmt.path_unlink, 1, path);
     db_exec_reset(fs, fs->stmt.path_unlink);
