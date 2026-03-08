@@ -877,13 +877,25 @@ dword_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
         const char *base = strrchr(filename, '/');
         base = base ? base + 1 : filename;
         if (strcmp(base, "node") == 0) {
-            static const char *inject_args[] = {
+            static const char *inject_args_base[] = {
                 "--jitless",
                 "--no-lazy",
                 "--max-old-space-size=512",
-                "--require=/lib/fetch-polyfill.js",
             };
-            for (size_t ai = 0; ai < sizeof(inject_args)/sizeof(inject_args[0]); ai++) {
+            // Only inject --require if the polyfill file exists in guest fs
+            struct fd *polyfill_fd = generic_open("/lib/fetch-polyfill.js", O_RDONLY_, 0);
+            bool has_polyfill = !IS_ERR(polyfill_fd);
+            if (has_polyfill)
+                fd_close(polyfill_fd);
+            static const char *require_arg = "--require=/lib/fetch-polyfill.js";
+            // Build combined arg list
+            const char *inject_args[4]; // max 4 args
+            size_t inject_count = 0;
+            for (size_t i = 0; i < sizeof(inject_args_base)/sizeof(inject_args_base[0]); i++)
+                inject_args[inject_count++] = inject_args_base[i];
+            if (has_polyfill)
+                inject_args[inject_count++] = require_arg;
+            for (size_t ai = 0; ai < inject_count; ai++) {
                 const char *arg = inject_args[ai];
                 size_t arg_len = strlen(arg) + 1; // includes NUL
 
