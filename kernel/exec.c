@@ -880,8 +880,8 @@ dword_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
             static const char *inject_args[] = {
                 "--jitless",
                 "--no-lazy",
-                "--no-expose-wasm",
                 "--max-old-space-size=512",
+                "--require=/lib/fetch-polyfill.js",
             };
             for (size_t ai = 0; ai < sizeof(inject_args)/sizeof(inject_args[0]); ai++) {
                 const char *arg = inject_args[ai];

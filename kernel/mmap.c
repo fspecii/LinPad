@@ -62,13 +62,13 @@ static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
             return _EINVAL;
         page = PAGE(addr);
 #ifdef GUEST_ARM64
-        // Reject hints beyond the mmap hole range. Go's runtime tries arenas
-        // at 0x4000000000 (16GB) and computes scavengeIndex metadata addresses
-        // relative to that base; those metadata addresses land at 0x80000 which
-        // collides with the program's text segment. By limiting hints to
-        // MMAP_HOLE_START, Go falls back to lower arenas where the metadata
-        // doesn't collide. MAP_FIXED above the hole still returns ENOMEM.
-        if (page + pages > MMAP_HOLE_START) {
+        // Reject hints above 4GB to prevent Go's scavengeIndex metadata
+        // collision (Go tries arenas at 0x4000000000 whose metadata lands
+        // at 0x80000, colliding with program text). Also reject hints that
+        // would overlap the stack. Hints within the low 4GB are allowed —
+        // V8 Wasm guard regions legitimately need large mappings near the
+        // stack region (e.g. 0xee400000 + 256MB).
+        if (page >= 0x100000 || page + pages > STACK_TOP_PAGE) {
             if (flags & MMAP_FIXED)
                 return _ENOMEM;
             addr = 0;
@@ -88,14 +88,19 @@ static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
         prot |= P_SHARED;
 
     if (flags & MMAP_ANONYMOUS) {
+        // PROT_NONE mappings (guard regions) don't consume real memory,
+        // so don't count them against the anonymous page limit.
+        bool is_prot_none = !(prot & P_READ) && !(prot & P_WRITE) && !(prot & P_EXEC);
 #if ANON_MMAP_LIMIT_PAGES > 0
-        if (atomic_load(&anon_page_count) + (long)pages > ANON_MMAP_LIMIT_PAGES)
+        if (!is_prot_none && atomic_load(&anon_page_count) + (long)pages > ANON_MMAP_LIMIT_PAGES)
             return _ENOMEM;
-        atomic_fetch_add(&anon_page_count, (long)pages);
+        if (!is_prot_none)
+            atomic_fetch_add(&anon_page_count, (long)pages);
 #endif
         if ((err = pt_map_nothing(current->mem, page, pages, prot)) < 0) {
 #if ANON_MMAP_LIMIT_PAGES > 0
-            atomic_fetch_sub(&anon_page_count, (long)pages);
+            if (!is_prot_none)
+                atomic_fetch_sub(&anon_page_count, (long)pages);
 #endif
             return err;
         }

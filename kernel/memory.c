@@ -218,6 +218,42 @@ static page_t pt_find_hole_from(struct mem *mem, pages_t size, page_t start) {
     return BAD_PAGE;
 }
 
+// Scan upward in the high address space (above 4GB) for large allocations
+// that don't fit in the low region. Used for Wasm guard regions etc.
+static page_t pt_find_hole_high(struct mem *mem, pages_t size) {
+    // Search from 0x100000 (4GB) upward to USER_ADDR_MAX_PAGE
+    // Use a simple strategy: scan upward looking for unallocated L0 subtrees
+    page_t page = 0x100000; // Start at 4GB
+    page_t hole_start = page;
+    pages_t hole_size = 0;
+
+    while (page < USER_ADDR_MAX_PAGE) {
+        int i0 = PT_INDEX(page, 0);
+        struct pt_node *l0 = mem->pgdir;
+        struct pt_node *l1 = l0 ? l0->children[i0] : NULL;
+        if (l1 == NULL) {
+            // Entire L0 subtree is empty (2^27 pages = 512GB)
+            page_t l0_size = (page_t)1 << (PT_BITS * 3);
+            page_t l0_base = (page_t)i0 << (PT_BITS * 3);
+            if (hole_size == 0) hole_start = l0_base < page ? page : l0_base;
+            page_t subtree_end = l0_base + l0_size;
+            if (subtree_end > USER_ADDR_MAX_PAGE)
+                subtree_end = USER_ADDR_MAX_PAGE;
+            hole_size = subtree_end - hole_start;
+            if (hole_size >= size)
+                return hole_start;
+            page = subtree_end;
+            continue;
+        }
+        // L1 exists — something is mapped here, skip
+        hole_size = 0;
+        page_t l0_size = (page_t)1 << (PT_BITS * 3);
+        page_t l0_base = (page_t)i0 << (PT_BITS * 3);
+        page = l0_base + l0_size;
+    }
+    return BAD_PAGE;
+}
+
 page_t pt_find_hole(struct mem *mem, pages_t size) {
     // Use mmap_hint to avoid rescanning already-allocated regions.
     // Consecutive mmap(addr=0) calls allocate downward; the hint tracks
@@ -242,6 +278,13 @@ page_t pt_find_hole(struct mem *mem, pages_t size) {
             return result;
         }
     }
+
+    // Low 4GB exhausted — try high address space (above 4GB).
+    // This handles V8 Wasm guard regions and other large PROT_NONE mappings
+    // that need multi-GB contiguous virtual address space.
+    result = pt_find_hole_high(mem, size);
+    if (result != BAD_PAGE)
+        return result;
 
     return BAD_PAGE;
 }
@@ -443,8 +486,8 @@ int pt_map_nothing(struct mem *mem, page_t start, pages_t pages, unsigned flags)
     int host_prot = PROT_READ | PROT_WRITE;
     if (!(flags & P_READ) && !(flags & P_WRITE) && !(flags & P_EXEC))
         host_prot = PROT_NONE;
-    void *memory = mmap(NULL, pages * PAGE_SIZE,
-            host_prot, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    size_t map_size = (size_t)pages * PAGE_SIZE;
+    void *memory = mmap(NULL, map_size, host_prot, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     if (memory == MAP_FAILED)
         return _ENOMEM;
     return pt_map(mem, start, pages, memory, 0, flags | P_ANONYMOUS);

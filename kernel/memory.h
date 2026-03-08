@@ -51,7 +51,7 @@ struct mem {
 #define STACK_INIT_PAGE   0xffffdULL        // initial stack page (growsdown)
 #define STACK_TOP_ADDR    0xffffe000ULL     // SP starts here
 #define MMAP_HOLE_START   0xefffdULL        // mmap search starts here (same as x86)
-#define MMAP_HOLE_END     0x40000ULL        // mmap search ends here (program text)
+#define MMAP_HOLE_END     0x100ULL          // mmap search ends here (above guard pages)
 // Upper bound for valid user addresses (page number, 48-bit / 4K = 36-bit)
 #define USER_ADDR_MAX_PAGE  0xFFFFFFFFFULL
 
