@@ -110,9 +110,12 @@ noreturn void do_exit(int status) {
     // the actual freeing needs pids_lock
     lock(&pids_lock);
     current->exiting = true;
-    // release the sighand
-    sighand_release(current->sighand);
-    current->sighand = NULL;
+    // release the sighand (may already be NULL if another thread in the group
+    // exited concurrently and released it, e.g. after safety-valve SIGUSR1)
+    if (current->sighand != NULL) {
+        sighand_release(current->sighand);
+        current->sighand = NULL;
+    }
     struct sigqueue *sigqueue, *sigqueue_tmp;
     list_for_each_entry_safe(&current->queue, sigqueue, sigqueue_tmp, queue) {
         list_remove(&sigqueue->queue);
