@@ -30,6 +30,8 @@ void tlb_flush(struct tlb *tlb) {
 }
 
 void tlb_free(struct tlb *tlb) {
+    if (tlb->frame != NULL)
+        free(tlb->frame);
     free(tlb);
 }
 

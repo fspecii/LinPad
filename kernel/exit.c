@@ -317,9 +317,18 @@ noreturn void do_exit_group(int status) {
             lock(&group->lock);
             list_for_each_entry(&group->threads, task, group_links) {
                 if (task != current && task->exiting) {
+                    if (task->mm != NULL) {
+                        mm_release(task->mm);
+                        task->mm = NULL;
+                        task->mem = NULL;
+                    }
                     if (task->files != NULL) {
                         fdtable_release(task->files);
                         task->files = NULL;
+                    }
+                    if (task->fs != NULL) {
+                        fs_info_release(task->fs);
+                        task->fs = NULL;
                     }
                 }
             }

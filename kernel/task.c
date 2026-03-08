@@ -160,15 +160,15 @@ void task_run_current() {
         if (self == NULL || self->group == NULL) {
             // Task struct was destroyed under us (leaked thread).
             // Exit the host thread silently.
-            free(tlb);
+            tlb_free(tlb);
             pthread_exit(NULL);
         }
         if (self->group->doing_group_exit) {
-            free(tlb);
+            tlb_free(tlb);
             do_exit(self->group->group_exit_code);
         }
         if (self->mem == NULL) {
-            free(tlb);
+            tlb_free(tlb);
             pthread_exit(NULL);
         }
         read_wrlock(&self->mem->lock);
