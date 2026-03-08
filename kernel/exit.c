@@ -307,9 +307,24 @@ noreturn void do_exit_group(int status) {
                 printk("SAFETY-VALVE[exit]: pid=%d leaked %d stuck host threads\n",
                        current->pid, leaked);
 
-            // Don't notify parent or mark zombie here — let do_exit() handle
-            // it. If we mark zombie now, the parent can reap and free the group
-            // before do_exit() gets to lock(group->lock), causing a crash.
+            // Close leaked threads' file descriptors so pipes get EOF.
+            // Without this, the parent shell hangs reading from a pipe whose
+            // write end is held by a leaked thread.
+            // But do NOT notify parent or mark zombie — let do_exit() handle
+            // that. If we mark zombie now, the parent can reap and free the
+            // group before do_exit() gets to lock(group->lock).
+            lock(&pids_lock);
+            lock(&group->lock);
+            list_for_each_entry(&group->threads, task, group_links) {
+                if (task != current && task->exiting) {
+                    if (task->files != NULL) {
+                        fdtable_release(task->files);
+                        task->files = NULL;
+                    }
+                }
+            }
+            unlock(&group->lock);
+            unlock(&pids_lock);
         } else {
 
             // Give extra time for pthread cleanup on host system
