@@ -882,19 +882,24 @@ dword_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
                 "--no-lazy",
                 "--max-old-space-size=512",
             };
-            // Only inject --require if the polyfill file exists in guest fs
-            struct fd *polyfill_fd = generic_open("/lib/fetch-polyfill.js", O_RDONLY_, 0);
-            bool has_polyfill = !IS_ERR(polyfill_fd);
-            if (has_polyfill)
-                fd_close(polyfill_fd);
-            static const char *require_arg = "--require=/lib/fetch-polyfill.js";
-            // Build combined arg list
-            const char *inject_args[4]; // max 4 args
+            // Conditionally inject --require for polyfill files that exist in guest fs
+            static const char *optional_requires[] = {
+                "--require=/lib/wasm-polyfill.js",    // WebAssembly shim (must load first)
+                "--require=/lib/fetch-polyfill.js",   // fetch() via native http/https
+            };
+            const char *inject_args[8]; // base args + optional requires
             size_t inject_count = 0;
             for (size_t i = 0; i < sizeof(inject_args_base)/sizeof(inject_args_base[0]); i++)
                 inject_args[inject_count++] = inject_args_base[i];
-            if (has_polyfill)
-                inject_args[inject_count++] = require_arg;
+            for (size_t i = 0; i < sizeof(optional_requires)/sizeof(optional_requires[0]); i++) {
+                // Extract path after "--require="
+                const char *path = optional_requires[i] + 10; // strlen("--require=")
+                struct fd *fd = generic_open(path, O_RDONLY_, 0);
+                if (!IS_ERR(fd)) {
+                    fd_close(fd);
+                    inject_args[inject_count++] = optional_requires[i];
+                }
+            }
             for (size_t ai = 0; ai < inject_count; ai++) {
                 const char *arg = inject_args[ai];
                 size_t arg_len = strlen(arg) + 1; // includes NUL

@@ -112,10 +112,14 @@ void FsUpdateRepositories(void) {
 
 void FsApplyOverlay(void) {
     // Locate RootfsPatch.bundle inside the app bundle
-    NSBundle *patchBundle = [NSBundle bundleWithURL:
-        [NSBundle.mainBundle URLForResource:@"RootfsPatch" withExtension:@"bundle"]];
+    NSURL *patchBundleURL = [NSBundle.mainBundle URLForResource:@"RootfsPatch" withExtension:@"bundle"];
+    if (patchBundleURL == nil) {
+        NSLog(@"[RootfsPatch] bundle not found in app, skipping overlay");
+        return;
+    }
+    NSBundle *patchBundle = [NSBundle bundleWithURL:patchBundleURL];
     if (patchBundle == nil) {
-        NSLog(@"[RootfsPatch] bundle not found, skipping overlay");
+        NSLog(@"[RootfsPatch] failed to load bundle at %@", patchBundleURL);
         return;
     }
 
