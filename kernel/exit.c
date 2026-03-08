@@ -307,37 +307,9 @@ noreturn void do_exit_group(int status) {
                 printk("SAFETY-VALVE[exit]: pid=%d leaked %d stuck host threads\n",
                        current->pid, leaked);
 
-            // Close stdio fds to signal EOF to parent's pipes.
-            if (current->files != NULL) {
-                f_close(0);
-                f_close(1);
-                f_close(2);
-            }
-            // Brief delay for pipe EOF to propagate
-            {
-                struct timespec ts3 = {0, 10 * 1000000L};  // 10ms
-                nanosleep(&ts3, NULL);
-            }
-            // Notify parent that we're dead.
-            {
-                lock(&pids_lock);
-                struct task *leader = group->leader;
-                struct task *parent = leader->parent;
-                if (parent != NULL && !leader->zombie) {
-                    leader->zombie = true;
-                    leader->exit_code = status;
-                    notify(&parent->group->child_exit);
-                    struct siginfo_ info = {
-                        .code = SI_KERNEL_,
-                        .child.pid = leader->pid,
-                        .child.uid = current->uid,
-                        .child.status = status,
-                    };
-                    if (leader->exit_signal != 0)
-                        send_signal(parent, leader->exit_signal, info);
-                }
-                unlock(&pids_lock);
-            }
+            // Don't notify parent or mark zombie here — let do_exit() handle
+            // it. If we mark zombie now, the parent can reap and free the group
+            // before do_exit() gets to lock(group->lock), causing a crash.
         } else {
 
             // Give extra time for pthread cleanup on host system
