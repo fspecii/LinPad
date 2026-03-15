@@ -16,6 +16,9 @@ static void proc_pid_getname(struct proc_entry *entry, char *buf) {
 static struct task *proc_get_task(struct proc_entry *entry) {
     lock(&pids_lock);
     struct task *task = pid_get_task(entry->pid);
+    // Also reject tasks that are mid-exit: sighand/group may already be freed.
+    if (task != NULL && (task->exiting || task->sighand == NULL || task->group == NULL))
+        task = NULL;
     if (task == NULL)
         unlock(&pids_lock);
     return task;

@@ -25,6 +25,9 @@
 // to cpu_state via the _cpu pointer (x1) from ucontext.
 __thread volatile sig_atomic_t in_jit;
 __thread volatile addr_t jit_saved_pc;  // block start PC, read by signal handler
+// Marker set to 1 on iSH execution threads so the signal handler can distinguish
+// iSH threads from app threads (Swift async, networking, UI).
+__thread int ish_thread_marker;
 
 // Architecture-specific instruction pointer access
 #if defined(GUEST_ARM64)
@@ -292,6 +295,13 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         }
 
         addr_t ip = CPU_IP(&frame->cpu);
+        // Guard: null guest PC means corrupted state (e.g., branch to unmapped
+        // address 0). Return INT_GPF instead of trying to compile/execute.
+        if (ip == 0) {
+            frame->cpu.segfault_addr = 0;
+            interrupt = INT_GPF;
+            break;
+        }
         size_t cache_index = fiber_cache_hash(ip);
         struct fiber_block *block = cache[cache_index];
         if (block == NULL || block->addr != ip) {
@@ -407,6 +417,7 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
 }
 
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
+    ish_thread_marker = 1;
     if (cpu->poked_ptr == NULL)
         cpu->poked_ptr = &cpu->_poked;
 #ifdef GUEST_ARM64

@@ -39,6 +39,15 @@ static int rpe_events(struct real_poll_event *rpe);
 static int real_poll_wait(struct real_poll *real, struct real_poll_event *events, int max, struct timespec *timeout);
 static int real_poll_update(struct real_poll *real, int fd, int types, void *data);
 
+/// Safe close that skips fds 0-2 (stdin/stdout/stderr).
+/// iOS guards these descriptors — closing them triggers EXC_GUARD and kills the app.
+/// The iSH kernel operates on host fds that should never be 0/1/2, but race
+/// conditions during fd reuse can occasionally produce them.
+static inline void safe_close(int fd) {
+    if (fd > 2)
+        close(fd);
+}
+
 // lock order: fd, then poll
 
 struct poll *poll_create() {
@@ -414,8 +423,8 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
     // release the pipe
     if (--poll_->waiters == 0) {
         real_poll_update(&poll_->real, poll_->notify_pipe[0], 0, NULL);
-        close(poll_->notify_pipe[0]);
-        close(poll_->notify_pipe[1]);
+        safe_close(poll_->notify_pipe[0]);
+        safe_close(poll_->notify_pipe[1]);
         poll_->notify_pipe[0] = -1;
         poll_->notify_pipe[1] = -1;
     }
@@ -535,6 +544,6 @@ static int rpe_events(struct real_poll_event *rpe) {
 #endif
 
 static void real_poll_close(struct real_poll *real) {
-    close(real->fd);
+    safe_close(real->fd);
 }
 

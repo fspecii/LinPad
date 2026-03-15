@@ -291,32 +291,21 @@ noreturn void do_exit_group(int status) {
 
             // If threads are truly stuck in uninterruptible host syscalls,
             // we accept the leak rather than risking heap corruption.
-            // Mark them as exiting so they won't interfere with future processes.
+            // Mark them as exiting and remove from the thread group list so
+            // that exit_tgroup() sees the group as dead and notifies the parent.
             lock(&pids_lock);
             lock(&group->lock);
             int leaked = 0;
-            list_for_each_entry(&group->threads, task, group_links) {
+            struct task *task_tmp;
+            list_for_each_entry_safe(&group->threads, task, task_tmp, group_links) {
                 if (task != current && !task->exiting) {
                     task->exiting = true;
-                    leaked++;
-                }
-            }
-            unlock(&group->lock);
-            unlock(&pids_lock);
-            if (leaked > 0)
-                printk("SAFETY-VALVE[exit]: pid=%d leaked %d stuck host threads\n",
-                       current->pid, leaked);
-
-            // Close leaked threads' file descriptors so pipes get EOF.
-            // Without this, the parent shell hangs reading from a pipe whose
-            // write end is held by a leaked thread.
-            // But do NOT notify parent or mark zombie — let do_exit() handle
-            // that. If we mark zombie now, the parent can reap and free the
-            // group before do_exit() gets to lock(group->lock).
-            lock(&pids_lock);
-            lock(&group->lock);
-            list_for_each_entry(&group->threads, task, group_links) {
-                if (task != current && task->exiting) {
+                    list_remove(&task->group_links);
+                    // Release resources so pipes get EOF and memory is freed.
+                    if (task->sighand != NULL) {
+                        sighand_release(task->sighand);
+                        task->sighand = NULL;
+                    }
                     if (task->mm != NULL) {
                         mm_release(task->mm);
                         task->mm = NULL;
@@ -330,10 +319,14 @@ noreturn void do_exit_group(int status) {
                         fs_info_release(task->fs);
                         task->fs = NULL;
                     }
+                    leaked++;
                 }
             }
             unlock(&group->lock);
             unlock(&pids_lock);
+            if (leaked > 0)
+                printk("SAFETY-VALVE[exit]: pid=%d leaked %d stuck host threads\n",
+                       current->pid, leaked);
         } else {
 
             // Give extra time for pthread cleanup on host system

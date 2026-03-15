@@ -99,8 +99,23 @@ fiber_ret_chain:
     sub x8, _pc, #FIBER_BLOCK_code
     str x8, [_cpu, #LOCAL_last_block]
     // Continue executing in JIT — this is the fast path
-    gret
+    // Guard: check that the next gadget pointer is not null (stale/freed block)
+    ldr x8, [_pc], #8
+    cbz x8, chain_null_gadget
+    br x8
 #endif
+
+chain_null_gadget:
+    // Null gadget pointer detected in chained block — the block was likely
+    // freed/jetsammed and its memory zeroed. Return to main loop safely.
+    // _pc was already incremented past the null entry by the post-index load.
+    // Recompute block pointer and load guest PC from block->addr.
+    sub x8, _pc, #(FIBER_BLOCK_code + 8)  // undo post-increment to get block base
+    ldr x9, [x8, #FIBER_BLOCK_addr]
+    str x9, [_cpu, #CPU_pc]
+    str xzr, [_cpu, #LOCAL_last_block]     // clear last_block to prevent further chaining
+    mov w0, #INT_GPF
+    b fiber_exit
 
 poke:
     // Timer interrupt pending — load guest PC from block->addr and return
