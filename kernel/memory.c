@@ -575,7 +575,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
 
     page_t page = PAGE(addr);
     struct pt_entry *entry = mem_pt(mem, page);
-
+    extern __thread volatile sig_atomic_t in_jit;
 
     if (entry == NULL) {
         // page does not exist
@@ -604,10 +604,30 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
                 return NULL;
         }
 
-        // Changing memory maps must be done with the write lock. But this is
-        // called with the read lock.
+        // Lock upgrade: release read, acquire write.
+        // In JIT context (inside fiber_enter), other threads hold mem->lock
+        // READ from their task_run_current, so write_wrlock deadlocks.
+        // Use trylock: if contended, return NULL for INT_GPF retry from
+        // handle_interrupt where the lock upgrade is safe.
         read_wrunlock(&mem->lock);
-        write_wrlock(&mem->lock);
+        if (in_jit) {
+            if (!write_wrtrylock(&mem->lock)) {
+                // Can't get write lock — other threads hold read locks
+                // Re-acquire read lock and return NULL for GPF retry
+                read_wrlock(&mem->lock);
+                return NULL;
+            }
+        } else {
+            write_wrlock(&mem->lock);
+        }
+        // Re-check after acquiring write lock (another thread may have grown it)
+        entry = mem_pt(mem, page);
+        if (entry != NULL) {
+            // Already mapped by another thread
+            write_wrunlock(&mem->lock);
+            read_wrlock(&mem->lock);
+            goto have_entry;
+        }
 #if ANON_MMAP_LIMIT_PAGES > 0
         atomic_fetch_add(&anon_page_count, 1);
 #endif
@@ -618,6 +638,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         entry = mem_pt(mem, page);
     }
 
+have_entry:
     if (entry != NULL && (type == MEM_WRITE || type == MEM_WRITE_PTRACE)) {
         // if page is unwritable, well tough luck
         if (type != MEM_WRITE_PTRACE && !(entry->flags & P_WRITE))

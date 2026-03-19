@@ -125,8 +125,6 @@ static void flush_deferred_frees(void) {
 }
 
 void task_destroy(struct task *task) {
-    printk("TASK[%d/%s]: destroy task=%p thread=%p\n",
-           task->pid, task->comm, (void*)task, (void*)task->thread);
     list_remove(&task->siblings);
     pid_get(task->pid)->task = NULL;
 
@@ -182,8 +180,6 @@ void task_run_current() {
 static void *task_thread(void *vtask) {
     current = vtask;
     update_thread_name();
-    printk("TASK[%d/%s]: thread started, pthread=%p\n",
-           current->pid, current->comm, (void*)pthread_self());
     task_run_current();
     die("task_thread returned"); // above function call should never return
 }
@@ -195,8 +191,6 @@ __attribute__((constructor)) static void create_attr() {
 }
 
 void task_start(struct task *task) {
-    printk("TASK[%d/%s]: creating host thread for task=%p\n",
-           task->pid, task->comm, (void*)task);
     if (pthread_create(&task->thread, &task_thread_attr, task_thread, task) < 0)
         die("could not create thread");
 }

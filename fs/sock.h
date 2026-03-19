@@ -211,6 +211,9 @@ static inline int sock_flags_from_real(int real) {
 #define IP_RECVTTL_ 12
 #define IP_RECVTOS_ 13
 #define TCP_NODELAY_ 1
+#define TCP_KEEPIDLE_ 4
+#define TCP_KEEPINTVL_ 5
+#define TCP_KEEPCNT_ 6
 #define TCP_DEFER_ACCEPT_ 9
 #define TCP_INFO_ 11
 #define TCP_CONGESTION_ 13
@@ -237,6 +240,13 @@ static inline int sock_opt_to_real(int fake, int level) {
         } break;
         case IPPROTO_TCP: switch (fake) {
             case TCP_NODELAY_: return TCP_NODELAY;
+#if defined(__APPLE__)
+            case TCP_KEEPIDLE_: return TCP_KEEPALIVE; // macOS equivalent
+#else
+            case TCP_KEEPIDLE_: return TCP_KEEPIDLE;
+#endif
+            case TCP_KEEPINTVL_: return TCP_KEEPINTVL;
+            case TCP_KEEPCNT_: return TCP_KEEPCNT;
             case TCP_DEFER_ACCEPT_: return 0; // unimplemented
 #if defined(__linux__)
             case TCP_INFO_: return TCP_INFO;

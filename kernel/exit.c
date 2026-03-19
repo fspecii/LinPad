@@ -56,15 +56,10 @@ noreturn void do_exit(int status) {
     // the group leader has finished exiting and the group struct may be
     // freed. Don't touch any shared state — just kill the host thread.
     if (current->exiting) {
-        printk("EXIT[%d/%s]: leaked thread exiting silently\n",
-               current->pid, current->comm);
         current = NULL;
         pthread_exit(NULL);
     }
 
-    printk("EXIT[%d/%s]: do_exit status=%d group_exit=%d thread=%p\n",
-           current->pid, current->comm, status,
-           current->group->doing_group_exit, (void*)current->thread);
     // Block SIGSEGV during exit to prevent cosmetic crashes from host
     // pthread stack unwinding (especially with many threads exiting at once).
     if (current->group->doing_group_exit) {
@@ -197,7 +192,6 @@ noreturn void do_exit_group(int status) {
         current = NULL;
         pthread_exit(NULL);
     }
-    printk("EXIT[%d/%s]: do_exit_group status=%d\n", current->pid, current->comm, status);
     struct tgroup *group = current->group;
     lock(&pids_lock);
     lock(&group->lock);

@@ -37,11 +37,16 @@
     b \unchained_label
 #else
     tbnz \reg, #63, \unchained_label
-    // Chained fast path — poke check only (no inline cycle counter)
-    // Cycle checking happens in main loop (every ~1024 unchained blocks)
-    // This eliminates per-chain overhead for maximum performance.
+    // Chained fast path — poke check + periodic timer
     ldr x11, [\reg, #(-FIBER_BLOCK_code + FIBER_BLOCK_addr)]
     str x11, [_cpu, #CPU_pc]
+    // Increment cycle counter; exit to main loop every 1024 cycles for timer check
+    ldr w8, [_cpu, #CPU_cycle]
+    add w8, w8, #1
+    str w8, [_cpu, #CPU_cycle]
+    tst w8, #0x3ff
+    b.eq 7778f
+    // Check poke flag
     ldr x8, [_cpu, #CPU_poked_ptr]
     ldrb w8, [x8]
     cbnz w8, 7778f
@@ -49,7 +54,7 @@
     str x8, [_cpu, #LOCAL_last_block]
     mov _pc, \reg
     gret
-7778:   // poke — exit to main loop
+7778:   // poke or timer — exit to main loop
     mov _pc, \reg
     b fiber_ret
 #endif
