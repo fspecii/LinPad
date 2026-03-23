@@ -197,14 +197,19 @@ ssize_t realfs_pwrite(struct fd *fd, const void *buf, size_t bufsize, off_t off)
 void realfs_opendir(struct fd *fd) {
     if (fd->dir == NULL) {
         int dirfd = dup(fd->real_fd);
+        if (dirfd < 0) return;
         fd->dir = fdopendir(dirfd);
-        // this should never get called on a non-directory
-        assert(fd->dir != NULL);
+        if (fd->dir == NULL) {
+            // fdopendir failed (fd may not be a directory, or was closed).
+            // Close the dup'd fd and leave fd->dir NULL for callers to handle.
+            close(dirfd);
+        }
     }
 }
 
 int realfs_readdir(struct fd *fd, struct dir_entry *entry) {
     realfs_opendir(fd);
+    if (fd->dir == NULL) return _EIO;
     errno = 0;
     struct dirent *dirent = readdir(fd->dir);
     if (dirent == NULL) {
@@ -220,11 +225,13 @@ int realfs_readdir(struct fd *fd, struct dir_entry *entry) {
 
 unsigned long realfs_telldir(struct fd *fd) {
     realfs_opendir(fd);
+    if (fd->dir == NULL) return 0;
     return telldir(fd->dir);
 }
 
 void realfs_seekdir(struct fd *fd, unsigned long ptr) {
     realfs_opendir(fd);
+    if (fd->dir == NULL) return;
     seekdir(fd->dir, ptr);
 }
 

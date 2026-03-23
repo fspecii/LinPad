@@ -3,8 +3,8 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-ISH="$PROJECT_DIR/build-arm64/ish"
-ROOTFS="$PROJECT_DIR/alpine-arm64"
+ISH="$PROJECT_DIR/build-arm64-release/ish"
+ROOTFS="$PROJECT_DIR/alpine-arm64-fakefs"
 
 echo "=== iSH ARM64 快速功能测试 ==="
 echo "时间: $(date)"
@@ -21,7 +21,7 @@ test_cmd() {
 
     echo -n "Testing $name... "
 
-    if timeout $timeout $ISH -r $ROOTFS /bin/sh -c "$cmd" > /tmp/test_out.txt 2>&1; then
+    if timeout $timeout $ISH -f $ROOTFS /bin/sh -c "$cmd" > /tmp/test_out.txt 2>&1; then
         echo "✅ PASS"
         ((PASS++))
     else

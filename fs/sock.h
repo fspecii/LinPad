@@ -116,6 +116,7 @@ static inline int sock_family_from_real(int fake) {
 #define SOCK_STREAM_ 1
 #define SOCK_DGRAM_ 2
 #define SOCK_RAW_ 3
+#define SOCK_SEQPACKET_ 5
 #define SOCK_NONBLOCK_ 0x800
 #define SOCK_CLOEXEC_ 0x80000
 
@@ -147,6 +148,13 @@ static inline int sock_type_to_real(int type, int protocol) {
                     break;
             }
             return SOCK_DGRAM;
+        case SOCK_SEQPACKET_:
+            // macOS doesn't support SOCK_SEQPACKET; for AF_UNIX,
+            // SOCK_STREAM is functionally equivalent (reliable, ordered,
+            // bidirectional). Rust std uses SOCK_SEQPACKET for spawn pipes.
+            if (protocol != 0)
+                return -1;
+            return SOCK_STREAM;
     }
     return -1;
 }

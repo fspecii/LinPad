@@ -76,7 +76,12 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
     if (err < 0)
         goto error;
 
-    assert(!S_ISLNK(fd->type)); // would mean path_normalize didn't do its job
+    if (S_ISLNK(fd->type)) {
+        // path_normalize should have resolved symlinks, but if it didn't,
+        // return an error instead of crashing the whole app.
+        err = _ELOOP;
+        goto error;
+    }
     if (S_ISBLK(fd->type) || S_ISCHR(fd->type)) {
         int type;
         if (S_ISBLK(fd->type))
