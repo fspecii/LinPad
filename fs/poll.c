@@ -347,9 +347,11 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
             // processes, force exit. Catches V8/libuv exit cleanup
             // hangs where the event loop spins idle forever.
             //
-            // Exception: never kill pid 1 (init/shell) — it legitimately
-            // idles waiting for user input, and killing it halts the system.
-            if (current->pid != 1) {
+            // Exceptions:
+            //   - pid 1 (init): legitimately idles, killing halts the system
+            //   - processes with a controlling TTY: interactive shells idle
+            //     waiting for user input and must not be killed
+            if (current->pid != 1 && current->group->tty == NULL) {
                 struct timespec _now;
                 clock_gettime(CLOCK_MONOTONIC, &_now);
                 uint64_t now_ns = (uint64_t)_now.tv_sec * 1000000000ULL + _now.tv_nsec;
