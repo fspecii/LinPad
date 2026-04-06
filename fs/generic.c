@@ -164,7 +164,11 @@ int generic_linkat(struct fd *src_at, const char *src_raw, struct fd *dst_at, co
 
 int generic_unlinkat(struct fd *at, const char *path_raw) {
     char path[MAX_PATH];
-    int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW);
+    /* Include N_PARENT_DIR_WRITE so path_normalize checks write permission
+     * on the parent directory. This makes read-only bind mounts (whose
+     * top-level directory is mode 0555 in meta.db) reject `rm` with EACCES
+     * without needing any special case in fakefs. */
+    int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW | N_PARENT_DIR_WRITE);
     if (err < 0)
         return err;
     struct mount *mount = find_mount_and_trim_path(path);
@@ -177,7 +181,9 @@ int generic_unlinkat(struct fd *at, const char *path_raw) {
 
 int generic_renameat(struct fd *src_at, const char *src_raw, struct fd *dst_at, const char *dst_raw) {
     char src[MAX_PATH];
-    int err = path_normalize(src_at, src_raw, src, N_SYMLINK_NOFOLLOW);
+    /* Rename removes the src from its parent directory, so we also need
+     * write permission on src's parent — not just dst's. */
+    int err = path_normalize(src_at, src_raw, src, N_SYMLINK_NOFOLLOW | N_PARENT_DIR_WRITE);
     if (err < 0)
         return err;
     char dst[MAX_PATH];
