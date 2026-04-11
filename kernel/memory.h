@@ -25,6 +25,16 @@ struct pt_node {
     void *children[PT_ENTRIES]; // pt_node* for L0-L2, pt_entry* array for L3
 };
 
+// Lazy reservation for MAP_NORESERVE regions (JSC heap cage, etc.).
+// Records address range and permissions without allocating page table entries.
+// Pages are materialized on demand when faulted.
+struct mem_reservation {
+    page_t start;
+    pages_t pages;
+    unsigned flags;
+    struct mem_reservation *next;
+};
+
 struct mem {
     struct pt_node *pgdir;  // L0 node (512 entries)
     int pgdir_used;
@@ -36,6 +46,8 @@ struct mem {
     // when freed pages are above the hint. Avoids O(n) rescanning of already-
     // allocated regions on every mmap(addr=0).
     page_t mmap_hint;
+
+    struct mem_reservation *reservations;
 
     wrlock_t lock;
     lock_t cow_lock;
@@ -126,6 +138,12 @@ struct pt_entry {
 
 bool pt_is_hole(struct mem *mem, page_t start, pages_t pages);
 page_t pt_find_hole(struct mem *mem, pages_t size);
+
+#ifdef GUEST_ARM64
+int pt_map_lazy(struct mem *mem, page_t start, pages_t pages, unsigned flags);
+struct mem_reservation *mem_find_reservation(struct mem *mem, page_t page);
+void mem_remove_reservations(struct mem *mem, page_t start, pages_t pages);
+#endif
 
 // Map memory + offset into fake memory, unmapping existing mappings. Takes
 // ownership of memory. It will be freed with:

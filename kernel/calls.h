@@ -49,6 +49,7 @@ addr_t sys_brk(addr_t new_brk);
 #define MMAP_PRIVATE 0x2
 #define MMAP_FIXED 0x10
 #define MMAP_ANONYMOUS 0x20
+#define MMAP_NORESERVE 0x4000
 addr_t sys_mmap(addr_t args_addr);
 addr_t sys_mmap2(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset);
 #if defined(GUEST_ARM64)

@@ -34,11 +34,79 @@ void mem_init(struct mem *mem) {
     mem->pgdir = calloc(1, sizeof(struct pt_node));
     mem->pgdir_used = 0;
     mem->mmap_hint = 0;
+    mem->reservations = NULL;
     mem->mmu.ops = &mem_mmu_ops;
     mem->mmu.asbestos = asbestos_new(&mem->mmu);
     mem->mmu.changes = 0;
     wrlock_init(&mem->lock);
     lock_init(&mem->cow_lock);
+}
+
+struct mem_reservation *mem_find_reservation(struct mem *mem, page_t page) {
+    for (struct mem_reservation *r = mem->reservations; r; r = r->next) {
+        if (page >= r->start && page < r->start + r->pages)
+            return r;
+    }
+    return NULL;
+}
+
+static bool reservations_overlap(struct mem *mem, page_t start, pages_t pages) {
+    for (struct mem_reservation *r = mem->reservations; r; r = r->next) {
+        if (r->start < start + pages && r->start + r->pages > start)
+            return true;
+    }
+    return false;
+}
+
+int pt_map_lazy(struct mem *mem, page_t start, pages_t pages, unsigned flags) {
+    struct mem_reservation *res = malloc(sizeof(struct mem_reservation));
+    if (res == NULL)
+        return _ENOMEM;
+    res->start = start;
+    res->pages = pages;
+    res->flags = flags | P_ANONYMOUS;
+    res->next = mem->reservations;
+    mem->reservations = res;
+    mem_changed(mem);
+    return 0;
+}
+
+void mem_remove_reservations(struct mem *mem, page_t start, pages_t pages) {
+    struct mem_reservation **pp = &mem->reservations;
+    while (*pp) {
+        struct mem_reservation *r = *pp;
+        page_t r_end = r->start + r->pages;
+        page_t u_end = start + pages;
+        if (r->start >= u_end || r_end <= start) {
+            pp = &r->next;
+            continue;
+        }
+        if (r->start >= start && r_end <= u_end) {
+            *pp = r->next;
+            free(r);
+            continue;
+        }
+        if (r->start < start && r_end > u_end) {
+            struct mem_reservation *tail = malloc(sizeof(struct mem_reservation));
+            if (tail) {
+                tail->start = u_end;
+                tail->pages = r_end - u_end;
+                tail->flags = r->flags;
+                tail->next = r->next;
+                r->pages = start - r->start;
+                r->next = tail;
+            }
+            pp = &(tail ? tail : r)->next;
+            continue;
+        }
+        if (r->start < start) {
+            r->pages = start - r->start;
+        } else {
+            r->start = u_end;
+            r->pages = r_end - u_end;
+        }
+        pp = &r->next;
+    }
 }
 
 // Recursively free page table nodes at given level
@@ -60,6 +128,11 @@ static void pt_node_free(void *node, int level) {
 void mem_destroy(struct mem *mem) {
     write_wrlock(&mem->lock);
     pt_unmap_always(mem, 0, MEM_PAGES);
+    while (mem->reservations) {
+        struct mem_reservation *r = mem->reservations;
+        mem->reservations = r->next;
+        free(r);
+    }
     asbestos_free(mem->mmu.asbestos);
     pt_node_free(mem->pgdir, 0);
     mem->pgdir = NULL;
@@ -155,6 +228,14 @@ void mem_next_page(struct mem *mem, page_t *page) {
 
 // Scan downward from 'start' to MMAP_HOLE_END, skipping unallocated page table
 // subtrees for efficiency (L0 covers 2^27 pages, L1 2^18, L2 2^9).
+static bool hole_overlaps_reservation(struct mem *mem, page_t start, pages_t size) {
+    for (struct mem_reservation *r = mem->reservations; r; r = r->next) {
+        if (r->start < start + size && r->start + r->pages > start)
+            return true;
+    }
+    return false;
+}
+
 static page_t pt_find_hole_from(struct mem *mem, pages_t size, page_t start) {
     struct pt_node *l0 = mem->pgdir;
     page_t hole_end = 0;
@@ -255,35 +336,52 @@ static page_t pt_find_hole_high(struct mem *mem, pages_t size) {
 }
 
 page_t pt_find_hole(struct mem *mem, pages_t size) {
-    // Use mmap_hint to avoid rescanning already-allocated regions.
-    // Consecutive mmap(addr=0) calls allocate downward; the hint tracks
-    // where the last allocation ended so we start just below it.
     page_t start = mem->mmap_hint;
     if (start == 0 || start > MMAP_HOLE_START || start <= MMAP_HOLE_END + size)
         start = MMAP_HOLE_START;
 
-    page_t result = pt_find_hole_from(mem, size, start);
-    if (result != BAD_PAGE) {
-        // Next search starts just below this allocation
-        mem->mmap_hint = (result > 0) ? result - 1 : 0;
-        return result;
-    }
-
-    // Hint region exhausted — wrap around and search from the top.
-    // Only needed if hint was not already at the top.
-    if (start < MMAP_HOLE_START) {
-        result = pt_find_hole_from(mem, size, MMAP_HOLE_START);
-        if (result != BAD_PAGE) {
+    // Try low address space with reservation awareness.
+    // If a candidate overlaps a reservation, retry below the reservation.
+    for (int attempt = 0; attempt < 10; attempt++) {
+        page_t result = pt_find_hole_from(mem, size, start);
+        if (result == BAD_PAGE)
+            break;
+        if (!hole_overlaps_reservation(mem, result, size)) {
             mem->mmap_hint = (result > 0) ? result - 1 : 0;
             return result;
+        }
+        // Skip below the overlapping reservation
+        for (struct mem_reservation *r = mem->reservations; r; r = r->next) {
+            if (r->start < result + size && r->start + r->pages > result) {
+                start = (r->start > 0) ? r->start - 1 : 0;
+                break;
+            }
+        }
+    }
+
+    // Wrap around from top
+    if (start < MMAP_HOLE_START) {
+        start = MMAP_HOLE_START;
+        for (int attempt = 0; attempt < 10; attempt++) {
+            page_t result = pt_find_hole_from(mem, size, start);
+            if (result == BAD_PAGE)
+                break;
+            if (!hole_overlaps_reservation(mem, result, size)) {
+                mem->mmap_hint = (result > 0) ? result - 1 : 0;
+                return result;
+            }
+            for (struct mem_reservation *r = mem->reservations; r; r = r->next) {
+                if (r->start < result + size && r->start + r->pages > result) {
+                    start = (r->start > 0) ? r->start - 1 : 0;
+                    break;
+                }
+            }
         }
     }
 
     // Low 4GB exhausted — try high address space (above 4GB).
-    // This handles V8 Wasm guard regions and other large PROT_NONE mappings
-    // that need multi-GB contiguous virtual address space.
-    result = pt_find_hole_high(mem, size);
-    if (result != BAD_PAGE)
+    page_t result = pt_find_hole_high(mem, size);
+    if (result != BAD_PAGE && !hole_overlaps_reservation(mem, result, size))
         return result;
 
     return BAD_PAGE;
@@ -399,6 +497,8 @@ bool pt_is_hole(struct mem *mem, page_t start, pages_t pages) {
         if (mem_pt(mem, page) != NULL)
             return false;
     }
+    if (reservations_overlap(mem, start, pages))
+        return false;
     return true;
 }
 
@@ -447,6 +547,8 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
     // reuse the freed space on the next mmap(addr=0).
     if (start + pages - 1 > mem->mmap_hint)
         mem->mmap_hint = start + pages - 1;
+
+    mem_remove_reservations(mem, start, pages);
 
     for (page_t page = start; page < start + pages; mem_next_page(mem, &page)) {
         struct pt_entry *pt = mem_pt(mem, page);
@@ -498,11 +600,17 @@ int pt_map_nothing(struct mem *mem, page_t start, pages_t pages, unsigned flags)
 #define P_META_FLAGS (P_ANONYMOUS | P_GROWSDOWN | P_COW | P_SHARED)
 
 int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
-    for (page_t page = start; page < start + pages; page++)
-        if (mem_pt(mem, page) == NULL)
+    for (page_t page = start; page < start + pages; page++) {
+        if (mem_pt(mem, page) == NULL) {
+            if (mem_find_reservation(mem, page) != NULL)
+                continue;
             return _ENOMEM;
+        }
+    }
     for (page_t page = start; page < start + pages; page++) {
         struct pt_entry *entry = mem_pt(mem, page);
+        if (entry == NULL)
+            continue;
         int old_flags = entry->flags;
         entry->flags = flags | (old_flags & P_META_FLAGS);
 
@@ -548,6 +656,14 @@ int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t page
     // These will be decremented per-page when the child's mm is freed.
     atomic_fetch_add(&anon_page_count, anon_copied);
 #endif
+    for (struct mem_reservation *r = src->reservations; r; r = r->next) {
+        struct mem_reservation *copy = malloc(sizeof(struct mem_reservation));
+        if (copy) {
+            *copy = *r;
+            copy->next = dst->reservations;
+            dst->reservations = copy;
+        }
+    }
     mem_changed(src);
     mem_changed(dst);
     return 0;
@@ -585,9 +701,9 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         while (p < MEM_PAGES && mem_pt(mem, p) == NULL)
             mem_next_page(mem, &p);
         if (p >= MEM_PAGES)
-            return NULL;
+            goto check_reservation;
         if (!(mem_pt(mem, p)->flags & P_GROWSDOWN))
-            return NULL;
+            goto check_reservation;
 
         // Enforce RLIMIT_STACK: don't grow stack beyond the limit.
 #ifdef GUEST_ARM64
@@ -635,6 +751,31 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         write_wrunlock(&mem->lock);
         read_wrlock(&mem->lock);
 
+        entry = mem_pt(mem, page);
+        goto have_entry;
+
+check_reservation: ;
+        struct mem_reservation *res = mem_find_reservation(mem, page);
+        if (res == NULL)
+            return NULL;
+        read_wrunlock(&mem->lock);
+        if (in_jit) {
+            if (!write_wrtrylock(&mem->lock)) {
+                read_wrlock(&mem->lock);
+                return NULL;
+            }
+        } else {
+            write_wrlock(&mem->lock);
+        }
+        entry = mem_pt(mem, page);
+        if (entry == NULL) {
+#if ANON_MMAP_LIMIT_PAGES > 0
+            atomic_fetch_add(&anon_page_count, 1);
+#endif
+            pt_map_nothing(mem, page, 1, res->flags & ~P_GROWSDOWN);
+        }
+        write_wrunlock(&mem->lock);
+        read_wrlock(&mem->lock);
         entry = mem_pt(mem, page);
     }
 

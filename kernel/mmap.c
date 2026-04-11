@@ -52,9 +52,9 @@ void mm_release(struct mm *mm) {
     }
 }
 
-static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
+static addr_t do_mmap(addr_t addr, uint64_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
     int err;
-    pages_t pages = PAGE_ROUND_UP(len);
+    pages_t pages = (len + PAGE_SIZE - 1) / PAGE_SIZE;
     if (!pages) return _EINVAL;
     page_t page;
     if (addr != 0) {
@@ -91,6 +91,13 @@ static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
         // PROT_NONE mappings (guard regions) don't consume real memory,
         // so don't count them against the anonymous page limit.
         bool is_prot_none = !(prot & P_READ) && !(prot & P_WRITE) && !(prot & P_EXEC);
+#ifdef GUEST_ARM64
+        if ((flags & MMAP_NORESERVE) && pages > 0x10000) {
+            if ((err = pt_map_lazy(current->mem, page, pages, prot)) < 0)
+                return err;
+            return page << PAGE_BITS;
+        }
+#endif
 #if ANON_MMAP_LIMIT_PAGES > 0
         if (!is_prot_none && atomic_load(&anon_page_count) + (long)pages > ANON_MMAP_LIMIT_PAGES)
             return _ENOMEM;
@@ -145,15 +152,12 @@ addr_t sys_mmap64(addr_t addr, addr_t len, dword_t prot, dword_t flags, fd_t fd_
     STRACE("mmap64(0x%llx, 0x%llx, 0x%x, 0x%x, %d, 0x%llx)", (unsigned long long)addr, (unsigned long long)len, prot, flags, fd_no, (unsigned long long)offset);
     if (len == 0)
         return _EINVAL;
-    if (len > 0x40000000)
-        len = 0x40000000;
     if (prot & ~P_RWX)
         return _EINVAL;
     if ((flags & MMAP_PRIVATE) && (flags & MMAP_SHARED))
         return _EINVAL;
 
     write_wrlock(&current->mem->lock);
-    // Note: offset is already in bytes for ARM64 mmap, so pass directly
     addr_t res = do_mmap(addr, len, prot, flags, fd_no, (dword_t)offset);
     write_wrunlock(&current->mem->lock);
     return res;
