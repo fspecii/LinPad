@@ -2488,3 +2488,56 @@ stxr_segfault:
     mov w0, #INT_GPF
     b fiber_exit
 
+/*
+ * LDXP via C helper — avoids assembly TLB for pair exclusive loads.
+ * Code stream: [gadget addr][rt | (rt2 << 8) | (size << 16)]
+ * Expects _addr = guest address (from calc_addr_imm)
+ */
+.gadget ldxp_c
+    ldr x22, [_pc]
+    add _pc, _pc, #8
+    and x23, x22, #0x1f         // rt
+    ubfx x25, x22, #8, #5       // rt2
+    ubfx x26, x22, #16, #2      // size
+    mov x24, _addr               // save guest address
+
+    save_c
+    sub sp, sp, #16              // allocate stack space for outputs
+    sub x0, _tlb, #TLB_entries   // tlb struct pointer
+    mov x1, x24                  // guest address
+    mov x2, sp                   // val1 output
+    add x3, sp, #8               // val2 output
+    cmp x26, #3
+    b.eq ldxp_c_64
+    bl NAME(c_ldp32)
+    b ldxp_c_done
+ldxp_c_64:
+    bl NAME(c_ldp64)
+ldxp_c_done:
+    mov w19, w0                  // save result
+    ldr x20, [sp]               // val1
+    ldr x21, [sp, #8]           // val2
+    add sp, sp, #16
+    restore_c
+    mov _addr, x24               // restore _addr
+
+    // Check for segfault
+    cmn w19, #1
+    b.eq ldxp_c_segfault
+
+    // Store to Rt
+    add x9, _cpu, #CPU_x0
+    cmp x23, #31
+    b.eq 1f
+    str x20, [x9, x23, lsl #3]
+1:  cmp x25, #31
+    b.eq 2f
+    str x21, [x9, x25, lsl #3]
+2:  gret
+
+ldxp_c_segfault:
+    str x24, [_cpu, #CPU_segfault_addr]
+    strb wzr, [_cpu, #CPU_segfault_was_write]
+    mov w0, #INT_GPF
+    b fiber_exit
+

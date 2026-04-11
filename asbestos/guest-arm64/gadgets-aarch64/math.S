@@ -2122,6 +2122,187 @@ sdiv_store:
     str x17, [x14, x9, lsl #3]
 3:  gret
 
+// CRC32 instructions
+// All CRC32 variants: result is always 32-bit (stored in w-reg)
+// Packing: rd | rn<<8 | rm<<16 | sf<<24
+// sf is only relevant for CRC32X/CRC32CX (64-bit source operand)
+
+// CRC32B
+.gadget crc32b
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x14, _cpu, #CPU_x0
+    cmp x10, #31
+    mov x15, #0
+    b.eq 1f
+    ldr x15, [x14, x10, lsl #3]
+1:  cmp x11, #31
+    mov x16, #0
+    b.eq 2f
+    ldr x16, [x14, x11, lsl #3]
+2:  crc32b w17, w15, w16
+    cmp x9, #31
+    b.eq 3f
+    str x17, [x14, x9, lsl #3]
+3:  gret
+
+// CRC32H
+.gadget crc32h
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x14, _cpu, #CPU_x0
+    cmp x10, #31
+    mov x15, #0
+    b.eq 1f
+    ldr x15, [x14, x10, lsl #3]
+1:  cmp x11, #31
+    mov x16, #0
+    b.eq 2f
+    ldr x16, [x14, x11, lsl #3]
+2:  crc32h w17, w15, w16
+    cmp x9, #31
+    b.eq 3f
+    str x17, [x14, x9, lsl #3]
+3:  gret
+
+// CRC32W
+.gadget crc32w
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x14, _cpu, #CPU_x0
+    cmp x10, #31
+    mov x15, #0
+    b.eq 1f
+    ldr x15, [x14, x10, lsl #3]
+1:  cmp x11, #31
+    mov x16, #0
+    b.eq 2f
+    ldr x16, [x14, x11, lsl #3]
+2:  crc32w w17, w15, w16
+    cmp x9, #31
+    b.eq 3f
+    str x17, [x14, x9, lsl #3]
+3:  gret
+
+// CRC32X (64-bit source, sf=1 only)
+.gadget crc32x
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x14, _cpu, #CPU_x0
+    cmp x10, #31
+    mov x15, #0
+    b.eq 1f
+    ldr x15, [x14, x10, lsl #3]
+1:  cmp x11, #31
+    mov x16, #0
+    b.eq 2f
+    ldr x16, [x14, x11, lsl #3]
+2:  crc32x w17, w15, x16
+    cmp x9, #31
+    b.eq 3f
+    str x17, [x14, x9, lsl #3]
+3:  gret
+
+// CRC32CB
+.gadget crc32cb
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x14, _cpu, #CPU_x0
+    cmp x10, #31
+    mov x15, #0
+    b.eq 1f
+    ldr x15, [x14, x10, lsl #3]
+1:  cmp x11, #31
+    mov x16, #0
+    b.eq 2f
+    ldr x16, [x14, x11, lsl #3]
+2:  crc32cb w17, w15, w16
+    cmp x9, #31
+    b.eq 3f
+    str x17, [x14, x9, lsl #3]
+3:  gret
+
+// CRC32CH
+.gadget crc32ch
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x14, _cpu, #CPU_x0
+    cmp x10, #31
+    mov x15, #0
+    b.eq 1f
+    ldr x15, [x14, x10, lsl #3]
+1:  cmp x11, #31
+    mov x16, #0
+    b.eq 2f
+    ldr x16, [x14, x11, lsl #3]
+2:  crc32ch w17, w15, w16
+    cmp x9, #31
+    b.eq 3f
+    str x17, [x14, x9, lsl #3]
+3:  gret
+
+// CRC32CW
+.gadget crc32cw
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x14, _cpu, #CPU_x0
+    cmp x10, #31
+    mov x15, #0
+    b.eq 1f
+    ldr x15, [x14, x10, lsl #3]
+1:  cmp x11, #31
+    mov x16, #0
+    b.eq 2f
+    ldr x16, [x14, x11, lsl #3]
+2:  crc32cw w17, w15, w16
+    cmp x9, #31
+    b.eq 3f
+    str x17, [x14, x9, lsl #3]
+3:  gret
+
+// CRC32CX (64-bit source, sf=1 only)
+.gadget crc32cx
+    ldr x8, [_pc]
+    add _pc, _pc, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x14, _cpu, #CPU_x0
+    cmp x10, #31
+    mov x15, #0
+    b.eq 1f
+    ldr x15, [x14, x10, lsl #3]
+1:  cmp x11, #31
+    mov x16, #0
+    b.eq 2f
+    ldr x16, [x14, x11, lsl #3]
+2:  crc32cx w17, w15, x16
+    cmp x9, #31
+    b.eq 3f
+    str x17, [x14, x9, lsl #3]
+3:  gret
+
 /*
  * UBFM - Unsigned Bitfield Move
  * Code stream: [gadget addr][immr | imms<<8 | sf<<16]

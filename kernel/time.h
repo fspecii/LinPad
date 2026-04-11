@@ -7,7 +7,10 @@ dword_t sys_stime(addr_t time);
 #define CLOCK_REALTIME_ 0
 #define CLOCK_MONOTONIC_ 1
 #define CLOCK_PROCESS_CPUTIME_ID_ 2
+#define CLOCK_MONOTONIC_RAW_ 4
 #define CLOCK_REALTIME_COARSE_ 5
+#define CLOCK_MONOTONIC_COARSE_ 6
+#define CLOCK_BOOTTIME_ 7
 dword_t sys_clock_gettime(dword_t clock, addr_t tp);
 dword_t sys_clock_settime(dword_t clock, addr_t tp);
 dword_t sys_clock_getres(dword_t clock, addr_t res_addr);
@@ -78,9 +81,12 @@ int_t sys_setitimer(int_t which, addr_t new_val, addr_t old_val);
 uint_t sys_alarm(uint_t seconds);
 int_t sys_timer_create(dword_t clock, addr_t sigevent_addr, addr_t timer_addr);
 int_t sys_timer_settime(dword_t timer, int_t flags, addr_t new_value_addr, addr_t old_value_addr);
+int_t sys_timer_gettime(dword_t timer_id, addr_t curr_value_addr);
+int_t sys_timer_getoverrun(dword_t timer_id);
 int_t sys_timer_delete(dword_t timer_id);
 fd_t sys_timerfd_create(int_t clockid, int_t flags);
 int_t sys_timerfd_settime(fd_t f, int_t flags, addr_t new_value_addr, addr_t old_value_addr);
+int_t sys_timerfd_gettime(fd_t f, addr_t curr_value_addr);
 
 dword_t sys_times(addr_t tbuf);
 dword_t sys_nanosleep(addr_t req, addr_t rem);

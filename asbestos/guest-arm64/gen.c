@@ -648,6 +648,14 @@ extern void gadget_lslv(void);
 extern void gadget_lsrv(void);
 extern void gadget_asrv(void);
 extern void gadget_rorv(void);
+extern void gadget_crc32b(void);
+extern void gadget_crc32h(void);
+extern void gadget_crc32w(void);
+extern void gadget_crc32x(void);
+extern void gadget_crc32cb(void);
+extern void gadget_crc32ch(void);
+extern void gadget_crc32cw(void);
+extern void gadget_crc32cx(void);
 extern void gadget_lslv_64(void);
 extern void gadget_lsrv_64(void);
 extern void gadget_asrv_64(void);
@@ -753,6 +761,7 @@ extern void gadget_dmb(void);
 // Load/store pair gadgets
 extern void gadget_ldp64(void);
 extern void gadget_ldp32(void);
+extern void gadget_ldxp_c(void);
 extern void gadget_stp64(void);
 extern void gadget_stp32(void);
 // Fused load/store pair with signed-offset addressing
@@ -2662,17 +2671,13 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
             gen(state, rn | (0ULL << 8));  // offset = 0
 
             if (L) {
-                // LDXP/LDAXP - Load pair
-                void (*ldp_gadget)(void) = NULL;
-                switch (size) {
-                case 2: ldp_gadget = gadget_ldp32; break;
-                case 3: ldp_gadget = gadget_ldp64; break;
-                default:
+                // LDXP/LDAXP - Load pair via C helper
+                if (size != 2 && size != 3) {
                     gen_interrupt(state, INT_UNDEFINED);
                     return 0;
                 }
-                gen(state, (unsigned long) ldp_gadget);
-                gen(state, rt | ((uint64_t)rt2 << 8));
+                gen(state, (unsigned long) gadget_ldxp_c);
+                gen(state, rt | ((uint64_t)rt2 << 8) | ((uint64_t)size << 16));
                 if (o0) gen(state, (unsigned long) gadget_dmb);  // LDAXP: acquire
             } else {
                 if (o0) gen(state, (unsigned long) gadget_dmb);  // STLXP: release
@@ -3386,6 +3391,14 @@ static int gen_dp_reg(struct gen_state *state, uint32_t insn) {
             case 0x09: gadget = gadget_lsrv; break;  // LSRV (LSR register)
             case 0x0a: gadget = gadget_asrv; break;  // ASRV (ASR register)
             case 0x0b: gadget = gadget_rorv; break;  // RORV (ROR register)
+            case 0x10: gadget = gadget_crc32b; break;
+            case 0x11: gadget = gadget_crc32h; break;
+            case 0x12: gadget = gadget_crc32w; break;
+            case 0x13: if (!sf) { gen_interrupt(state, INT_UNDEFINED); return 0; } gadget = gadget_crc32x; break;
+            case 0x14: gadget = gadget_crc32cb; break;
+            case 0x15: gadget = gadget_crc32ch; break;
+            case 0x16: gadget = gadget_crc32cw; break;
+            case 0x17: if (!sf) { gen_interrupt(state, INT_UNDEFINED); return 0; } gadget = gadget_crc32cx; break;
             default:
                 gen_interrupt(state, INT_UNDEFINED);
                 return 0;
