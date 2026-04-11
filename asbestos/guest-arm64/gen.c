@@ -3175,6 +3175,25 @@ static int gen_dp_reg(struct gen_state *state, uint32_t insn) {
             return 1;
         }
 
+        // Fast path: EOR/ORR/AND Xd, Xn, Xn (rn==rm, N=0) → known result
+        // EOR: Xd = Xn ^ Xn = 0 (clear register)
+        // ORR: Xd = Xn | Xn = Xn (MOV)
+        // AND: Xd = Xn & Xn = Xn (MOV)
+        if (rn == rm && N == 0 && opc != 3) {
+            if (opc == 2 && rd != 31) {
+                // EOR Xd, Xn, Xn → Xd = 0
+                gen(state, (unsigned long) gadget_movz);
+                gen(state, rd | (0 << 8) | (0ULL << 16) | ((uint64_t)sf << 32));
+                return 1;
+            }
+            if ((opc == 0 || opc == 1) && rd != 31 && rn != 31) {
+                // AND/ORR Xd, Xn, Xn → Xd = Xn (MOV)
+                gen(state, (unsigned long)(sf ? gadget_mov_reg : gadget_mov_reg32));
+                gen(state, rd | (rn << 16));
+                return 1;
+            }
+        }
+
         void *gadget;
         switch (opc) {
             case 0: gadget = N ? gadget_and_reg : gadget_and_reg; break;  // AND/BIC
