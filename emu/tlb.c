@@ -463,6 +463,7 @@ __no_instrument int c_ldp64(struct tlb *tlb, addr_t addr, uint64_t *val1, uint64
     }
     *val1 = *(uint64_t *)ptr1;
     *val2 = *(uint64_t *)ptr2;
+    (void)0;
     return 0;
 }
 

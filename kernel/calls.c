@@ -167,7 +167,6 @@ void handle_interrupt(int interrupt) {
             do_exit(current->group->group_exit_code);
 #endif
     } else if (interrupt == INT_GPF) {
-        // some page faults, such as stack growing or CoW clones, are handled by mem_ptr
         read_wrlock(&current->mem->lock);
         void *ptr = mem_ptr(current->mem, cpu->segfault_addr, cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
         read_wrunlock(&current->mem->lock);

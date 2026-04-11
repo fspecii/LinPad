@@ -93,6 +93,11 @@ static addr_t do_mmap(addr_t addr, uint64_t len, dword_t prot, dword_t flags, fd
         bool is_prot_none = !(prot & P_READ) && !(prot & P_WRITE) && !(prot & P_EXEC);
 #ifdef GUEST_ARM64
         if ((flags & MMAP_NORESERVE) && pages > 0x10000) {
+            pages_t align_pages = pages;
+            if (align_pages > 0x40000) align_pages = 0x40000;
+            page_t aligned = (page / align_pages) * align_pages;
+            if (aligned >= MMAP_HOLE_END && pt_is_hole(current->mem, aligned, pages))
+                page = aligned;
             if ((err = pt_map_lazy(current->mem, page, pages, prot)) < 0)
                 return err;
             return page << PAGE_BITS;
@@ -175,9 +180,9 @@ addr_t sys_mmap(addr_t args_addr) {
     return mmap_common(args.addr, args.len, args.prot, args.flags, args.fd, args.offset);
 }
 
-int_t sys_munmap(addr_t addr, uint_t len) {
-    STRACE("munmap(0x%x, 0x%x)", addr, len);
-    pages_t pages = PAGE_ROUND_UP(len);
+int_t sys_munmap(addr_t addr, addr_t len) {
+    STRACE("munmap(0x%llx, 0x%llx)", (unsigned long long)addr, (unsigned long long)len);
+    pages_t pages = (len + PAGE_SIZE - 1) / PAGE_SIZE;
     if (PGOFFSET(addr) != 0)
         return _EINVAL;
     if (len == 0)
@@ -237,8 +242,8 @@ addr_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags) 
     return addr;
 }
 
-int_t sys_mprotect(addr_t addr, uint_t len, int_t prot) {
-    STRACE("mprotect(0x%x, 0x%x, 0x%x)", addr, len, prot);
+int_t sys_mprotect(addr_t addr, addr_t len, int_t prot) {
+    STRACE("mprotect(0x%llx, 0x%llx, 0x%x)", (unsigned long long)addr, (unsigned long long)len, prot);
     if (PGOFFSET(addr) != 0)
         return _EINVAL;
     if (prot & ~P_RWX)
@@ -252,19 +257,16 @@ int_t sys_mprotect(addr_t addr, uint_t len, int_t prot) {
 
 dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice) {
     STRACE("madvise(0x%llx, 0x%x, %d)", (unsigned long long)addr, len, advice);
-    // MADV_DONTNEED (4): discard pages, replace with zero-fill on next access
-    // MADV_FREE (8): lazy free, pages may be reclaimed
-    // Programs expect zeroed pages after MADV_DONTNEED. Without this, stale
-    // data persists and V8's Zone allocator sees corrupt pointers from
-    // previous allocations.
     if (advice == 4 /* MADV_DONTNEED */ || advice == 8 /* MADV_FREE */) {
-        // On Linux, MADV_DONTNEED discards pages and lazily demand-zeros them.
-        // We implement this by zeroing the pages via mem_ptr (handles CoW etc).
-        // Without zeroing, jemalloc reuses pages with stale function pointers,
-        // causing crashes when arena metadata structures contain old code addresses.
         addr_t end = addr + len;
         for (addr_t p = addr; p < end; p += PAGE_SIZE) {
             read_wrlock(&current->mem->lock);
+#ifdef GUEST_ARM64
+            if (mem_pt(current->mem, PAGE(p)) == NULL) {
+                read_wrunlock(&current->mem->lock);
+                continue;
+            }
+#endif
             void *ptr = mem_ptr(current->mem, p, MEM_WRITE);
             read_wrunlock(&current->mem->lock);
             if (ptr != NULL)
