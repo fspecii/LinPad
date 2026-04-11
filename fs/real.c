@@ -210,17 +210,28 @@ void realfs_opendir(struct fd *fd) {
 int realfs_readdir(struct fd *fd, struct dir_entry *entry) {
     realfs_opendir(fd);
     if (fd->dir == NULL) return _EIO;
-    errno = 0;
-    struct dirent *dirent = readdir(fd->dir);
-    if (dirent == NULL) {
-        if (errno != 0)
-            return errno_map();
-        else
+    // Darwin filenames (APFS/HFS+) can be up to 255 UTF-16 units, which in
+    // UTF-8 may exceed Linux NAME_MAX (255 bytes). An unchecked strcpy into
+    // entry->name[NAME_MAX + 1] smashes the caller's stack-allocated
+    // dir_entry (see sys_getdents64 in fs/dir.c) and trips __stack_chk_fail.
+    // Skip any entry whose name doesn't fit so the guest can continue walking.
+    for (;;) {
+        errno = 0;
+        struct dirent *dirent = readdir(fd->dir);
+        if (dirent == NULL) {
+            if (errno != 0)
+                return errno_map();
             return 0;
+        }
+        size_t namelen = strlen(dirent->d_name);
+        if (namelen > NAME_MAX) {
+            FIXME("realfs_readdir: skipping entry with name longer than NAME_MAX (%zu bytes)", namelen);
+            continue;
+        }
+        entry->inode = dirent->d_ino;
+        memcpy(entry->name, dirent->d_name, namelen + 1);
+        return 1;
     }
-    entry->inode = dirent->d_ino;
-    strcpy(entry->name, dirent->d_name);
-    return 1;
 }
 
 unsigned long realfs_telldir(struct fd *fd) {
