@@ -1,5 +1,6 @@
 #include <fcntl.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -625,6 +626,40 @@ error:
     return err;
 }
 
+// Wait for a socket fd to become readable, with a bounded timeout so guest
+// signals (SIGALRM/SIGINT) can interrupt the wait even if the host thread
+// is momentarily suspended (iOS backgrounding) and misses the SIGUSR1 wake.
+// Same pattern as fs/poll.c real_poll_wait loop.
+// Returns 0 when readable, _EINTR on guest signal pending, or a negative
+// errno on poll() error (other than EINTR which loops).
+static int sock_wait_readable(int real_fd) {
+    for (;;) {
+        // Check guest signals first — matches fs/poll.c:283
+        if (current->sighand != NULL) {
+            lock(&current->sighand->lock);
+            bool pending = !!(current->pending & ~current->blocked);
+            unlock(&current->sighand->lock);
+            if (pending)
+                return _EINTR;
+        }
+
+        struct pollfd pfd = { .fd = real_fd, .events = POLLIN };
+        current->blocking = true;
+        int pr = poll(&pfd, 1, 1000);  // 1s cap, matches poll_wait bounded timeout
+        int saved_errno = errno;
+        current->blocking = false;
+
+        if (pr > 0)
+            return 0;   // readable (or POLLERR/POLLHUP — let recvfrom surface it)
+        if (pr == 0)
+            continue;   // timeout: loop back and re-check guest signals
+        if (saved_errno == EINTR)
+            continue;   // host signal (SIGUSR1 wake) — re-check guest signals
+        errno = saved_errno;
+        return errno_map();
+    }
+}
+
 int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags, addr_t sockaddr_addr, addr_t sockaddr_len_addr) {
     STRACE("recvfrom(%d, 0x%x, %d, %d, 0x%x, 0x%x)", sock_fd, buffer_addr, len, flags, sockaddr_addr, sockaddr_len_addr);
     struct fd *sock = sock_getfd(sock_fd);
@@ -640,12 +675,38 @@ int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags,
 
     char *buffer = malloc(len);
     char sockaddr[sockaddr_len];
-    ssize_t res = recvfrom(sock->real_fd, buffer, len, real_flags,
-            sockaddr_addr != 0 ? (void *) sockaddr : NULL,
-            sockaddr_len_addr != 0 ? &sockaddr_len : NULL);
-    if (res < 0) {
-        free(buffer);
-        return errno_map();
+
+    // If the caller didn't request nonblock, wait for readability with a
+    // bounded timeout so guest signals can interrupt us. Critical on iOS
+    // where the host thread can be suspended and miss SIGUSR1 delivery.
+    ssize_t res;
+    if (!(real_flags & MSG_DONTWAIT)) {
+        for (;;) {
+            int wr = sock_wait_readable(sock->real_fd);
+            if (wr < 0) {
+                free(buffer);
+                return wr;
+            }
+            res = recvfrom(sock->real_fd, buffer, len, real_flags | MSG_DONTWAIT,
+                    sockaddr_addr != 0 ? (void *) sockaddr : NULL,
+                    sockaddr_len_addr != 0 ? &sockaddr_len : NULL);
+            if (res >= 0)
+                break;
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                continue;   // spurious wakeup, go wait again
+            if (errno == EINTR)
+                continue;   // host signal — sock_wait_readable re-checks guest sigs
+            free(buffer);
+            return errno_map();
+        }
+    } else {
+        res = recvfrom(sock->real_fd, buffer, len, real_flags,
+                sockaddr_addr != 0 ? (void *) sockaddr : NULL,
+                sockaddr_len_addr != 0 ? &sockaddr_len : NULL);
+        if (res < 0) {
+            free(buffer);
+            return errno_map();
+        }
     }
 
     if (user_write(buffer_addr, buffer, len)) {
@@ -1103,10 +1164,32 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     }
 #endif
 
-    ssize_t res = recvmsg(sock->real_fd, &msg, real_flags);
+    // Same iOS-safe wait pattern as sys_recvfrom: avoid unbounded blocking
+    // in host recvmsg() so guest signals can always be delivered.
+    ssize_t res = -1;
     int err = 0;
-    if (res < 0)
-        err = errno_map();
+    if (!(real_flags & MSG_DONTWAIT)) {
+        for (;;) {
+            int wr = sock_wait_readable(sock->real_fd);
+            if (wr < 0) {
+                err = wr;
+                break;
+            }
+            res = recvmsg(sock->real_fd, &msg, real_flags | MSG_DONTWAIT);
+            if (res >= 0)
+                break;
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                continue;
+            if (errno == EINTR)
+                continue;
+            err = errno_map();
+            break;
+        }
+    } else {
+        res = recvmsg(sock->real_fd, &msg, real_flags);
+        if (res < 0)
+            err = errno_map();
+    }
     // don't return err quite yet, there are outstanding mallocs
 
     // msg_iovec (changed)
