@@ -626,12 +626,11 @@ error:
     return err;
 }
 
-// Read the host-side SO_RCVTIMEO as milliseconds. Returns 0 if unset
-// (blocking forever) or on error.
-static long sock_get_rcvtimeo_ms(int real_fd) {
+// Read a socket timeout option as milliseconds. Returns 0 if unset or error.
+static long sock_get_timeout_ms(int real_fd, int optname) {
     struct timeval tv = {0, 0};
     socklen_t len = sizeof(tv);
-    if (getsockopt(real_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, &len) < 0)
+    if (getsockopt(real_fd, SOL_SOCKET, optname, &tv, &len) < 0)
         return 0;
     return (long)tv.tv_sec * 1000L + (long)tv.tv_usec / 1000L;
 }
@@ -642,19 +641,17 @@ static long monotonic_ms(void) {
     return (long)ts.tv_sec * 1000L + (long)ts.tv_nsec / 1000000L;
 }
 
-// Wait for a socket fd to become readable, with a bounded per-poll timeout
-// so guest signals (SIGALRM/SIGINT) can interrupt the wait even if the host
-// thread is momentarily suspended (iOS backgrounding) and misses the SIGUSR1
-// wake. Honors the fd's SO_RCVTIMEO as an overall deadline so programs that
-// rely on it for recv timeouts still work.
+// Wait for a socket fd to become ready (readable or writable), with a
+// bounded per-poll timeout so guest signals can interrupt even if the host
+// thread is briefly suspended (iOS). Honors SO_RCVTIMEO / SO_SNDTIMEO as
+// an overall deadline when set.
 //
-// Returns 0 when readable, _EINTR on guest signal pending, _EAGAIN on
-// SO_RCVTIMEO expiry, or a negative errno on poll() error.
-static int sock_wait_readable(int real_fd) {
-    long timeout_ms = sock_get_rcvtimeo_ms(real_fd);
+// Returns 0 when ready, _EINTR on guest signal, _EAGAIN on timeout expiry,
+// or a negative errno on poll() error.
+static int sock_wait_for(int real_fd, short events, int timeout_opt) {
+    long timeout_ms = sock_get_timeout_ms(real_fd, timeout_opt);
     long deadline_ms = (timeout_ms > 0) ? (monotonic_ms() + timeout_ms) : 0;
     for (;;) {
-        // Check guest signals first — matches fs/poll.c:283
         if (current->sighand != NULL) {
             lock(&current->sighand->lock);
             bool pending = !!(current->pending & ~current->blocked);
@@ -663,8 +660,6 @@ static int sock_wait_readable(int real_fd) {
                 return _EINTR;
         }
 
-        // Compute this round's poll timeout: capped at 1000ms, or less if
-        // the SO_RCVTIMEO deadline is closer.
         int poll_ms = 1000;
         if (deadline_ms > 0) {
             long remaining = deadline_ms - monotonic_ms();
@@ -674,21 +669,29 @@ static int sock_wait_readable(int real_fd) {
                 poll_ms = (int)remaining;
         }
 
-        struct pollfd pfd = { .fd = real_fd, .events = POLLIN };
+        struct pollfd pfd = { .fd = real_fd, .events = events };
         current->blocking = true;
         int pr = poll(&pfd, 1, poll_ms);
         int saved_errno = errno;
         current->blocking = false;
 
         if (pr > 0)
-            return 0;   // readable (or POLLERR/POLLHUP — let recvfrom surface it)
+            return 0;
         if (pr == 0)
-            continue;   // timeout: loop back and re-check (may hit deadline next iter)
+            continue;
         if (saved_errno == EINTR)
-            continue;   // host signal (SIGUSR1 wake) — re-check guest signals
+            continue;
         errno = saved_errno;
         return errno_map();
     }
+}
+
+static int sock_wait_readable(int real_fd) {
+    return sock_wait_for(real_fd, POLLIN, SO_RCVTIMEO);
+}
+
+static int sock_wait_writable(int real_fd) {
+    return sock_wait_for(real_fd, POLLOUT, SO_SNDTIMEO);
 }
 
 int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags, addr_t sockaddr_addr, addr_t sockaddr_len_addr) {
@@ -1416,14 +1419,63 @@ static void sock_translate_err(struct fd *fd, int *err) {
     }
 }
 
+// sock_read / sock_write: for blocking socket fds, wrap host read/write in
+// a bounded-poll wait so guest signals (SIGALRM/SIGINT) can interrupt even
+// when the host thread is briefly suspended on iOS. Without this, the
+// realfs_read/realfs_write EINTR-retry loop swallows SIGUSR1 wakes and
+// causes indefinite hangs on blocking network I/O (git HTTPS, nc, etc.).
+//
+// For nonblock fds (O_NONBLOCK set by guest or on host), fall through to
+// realfs_read/realfs_write directly — this preserves the fast path for
+// musl's DNS resolver, Go runtime, Node.js, and anything using nonblock
+// sockets with an application-level event loop.
+static bool sock_fd_is_nonblock(struct fd *fd) {
+    if (fd->flags & O_NONBLOCK_)
+        return true;
+    int hf = fcntl(fd->real_fd, F_GETFL, 0);
+    return (hf >= 0) && (hf & O_NONBLOCK);
+}
+
 static ssize_t sock_read(struct fd *fd, void *buf, size_t size) {
-    int err = realfs_read(fd, buf, size);
+    int err;
+    if (sock_fd_is_nonblock(fd)) {
+        err = realfs_read(fd, buf, size);
+    } else {
+        for (;;) {
+            ssize_t res = read(fd->real_fd, buf, size);
+            if (res >= 0) { err = (int)res; break; }
+            if (errno == EINTR)
+                continue;
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                err = errno_map();
+                break;
+            }
+            int wr = sock_wait_readable(fd->real_fd);
+            if (wr < 0) { err = wr; break; }
+        }
+    }
     sock_translate_err(fd, &err);
     return err;
 }
 
 static ssize_t sock_write(struct fd *fd, const void *buf, size_t size) {
-    int err = realfs_write(fd, buf, size);
+    int err;
+    if (sock_fd_is_nonblock(fd)) {
+        err = realfs_write(fd, buf, size);
+    } else {
+        for (;;) {
+            ssize_t res = write(fd->real_fd, buf, size);
+            if (res >= 0) { err = (int)res; break; }
+            if (errno == EINTR)
+                continue;
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                err = errno_map();
+                break;
+            }
+            int wr = sock_wait_writable(fd->real_fd);
+            if (wr < 0) { err = wr; break; }
+        }
+    }
     sock_translate_err(fd, &err);
     return err;
 }
