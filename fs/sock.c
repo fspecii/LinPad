@@ -626,13 +626,33 @@ error:
     return err;
 }
 
-// Wait for a socket fd to become readable, with a bounded timeout so guest
-// signals (SIGALRM/SIGINT) can interrupt the wait even if the host thread
-// is momentarily suspended (iOS backgrounding) and misses the SIGUSR1 wake.
-// Same pattern as fs/poll.c real_poll_wait loop.
-// Returns 0 when readable, _EINTR on guest signal pending, or a negative
-// errno on poll() error (other than EINTR which loops).
+// Read the host-side SO_RCVTIMEO as milliseconds. Returns 0 if unset
+// (blocking forever) or on error.
+static long sock_get_rcvtimeo_ms(int real_fd) {
+    struct timeval tv = {0, 0};
+    socklen_t len = sizeof(tv);
+    if (getsockopt(real_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, &len) < 0)
+        return 0;
+    return (long)tv.tv_sec * 1000L + (long)tv.tv_usec / 1000L;
+}
+
+static long monotonic_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long)ts.tv_sec * 1000L + (long)ts.tv_nsec / 1000000L;
+}
+
+// Wait for a socket fd to become readable, with a bounded per-poll timeout
+// so guest signals (SIGALRM/SIGINT) can interrupt the wait even if the host
+// thread is momentarily suspended (iOS backgrounding) and misses the SIGUSR1
+// wake. Honors the fd's SO_RCVTIMEO as an overall deadline so programs that
+// rely on it for recv timeouts still work.
+//
+// Returns 0 when readable, _EINTR on guest signal pending, _EAGAIN on
+// SO_RCVTIMEO expiry, or a negative errno on poll() error.
 static int sock_wait_readable(int real_fd) {
+    long timeout_ms = sock_get_rcvtimeo_ms(real_fd);
+    long deadline_ms = (timeout_ms > 0) ? (monotonic_ms() + timeout_ms) : 0;
     for (;;) {
         // Check guest signals first — matches fs/poll.c:283
         if (current->sighand != NULL) {
@@ -643,16 +663,27 @@ static int sock_wait_readable(int real_fd) {
                 return _EINTR;
         }
 
+        // Compute this round's poll timeout: capped at 1000ms, or less if
+        // the SO_RCVTIMEO deadline is closer.
+        int poll_ms = 1000;
+        if (deadline_ms > 0) {
+            long remaining = deadline_ms - monotonic_ms();
+            if (remaining <= 0)
+                return _EAGAIN;
+            if (remaining < poll_ms)
+                poll_ms = (int)remaining;
+        }
+
         struct pollfd pfd = { .fd = real_fd, .events = POLLIN };
         current->blocking = true;
-        int pr = poll(&pfd, 1, 1000);  // 1s cap, matches poll_wait bounded timeout
+        int pr = poll(&pfd, 1, poll_ms);
         int saved_errno = errno;
         current->blocking = false;
 
         if (pr > 0)
             return 0;   // readable (or POLLERR/POLLHUP — let recvfrom surface it)
         if (pr == 0)
-            continue;   // timeout: loop back and re-check guest signals
+            continue;   // timeout: loop back and re-check (may hit deadline next iter)
         if (saved_errno == EINTR)
             continue;   // host signal (SIGUSR1 wake) — re-check guest signals
         errno = saved_errno;
@@ -676,28 +707,46 @@ int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags,
     char *buffer = malloc(len);
     char sockaddr[sockaddr_len];
 
-    // If the caller didn't request nonblock, wait for readability with a
-    // bounded timeout so guest signals can interrupt us. Critical on iOS
-    // where the host thread can be suspended and miss SIGUSR1 delivery.
+    // Determine whether this call should wait for data:
+    //   * guest flags MSG_DONTWAIT → never wait (explicit)
+    //   * fd has O_NONBLOCK set   → never wait (fd-level nonblock)
+    //
+    // The second case is critical: musl's res_msend creates UDP sockets
+    // with SOCK_NONBLOCK and then calls recv(fd, buf, len, 0). It relies
+    // on the kernel returning EAGAIN immediately on empty buffer to
+    // terminate its "drain all pending responses" loop. If we wait when
+    // the fd itself is nonblock, musl loops forever and DNS resolution
+    // appears to hang. We check both the iSH-level fd flags and the host
+    // fd's real flags, in case they diverge (e.g. set via fcntl only).
+    int host_flags = fcntl(sock->real_fd, F_GETFL, 0);
+    bool host_nonblock = (host_flags >= 0) && (host_flags & O_NONBLOCK);
+    bool guest_nonblock = (sock->flags & O_NONBLOCK_) != 0;
+    bool should_wait = !(real_flags & MSG_DONTWAIT) && !guest_nonblock && !host_nonblock;
+
+    // Try a nonblock recvfrom first (fast path — no host syscall overhead
+    // when data is already buffered). Only if it returns EAGAIN and we
+    // should wait do we fall back to the bounded-poll wait.
     ssize_t res;
-    if (!(real_flags & MSG_DONTWAIT)) {
+    if (should_wait) {
         for (;;) {
-            int wr = sock_wait_readable(sock->real_fd);
-            if (wr < 0) {
-                free(buffer);
-                return wr;
-            }
             res = recvfrom(sock->real_fd, buffer, len, real_flags | MSG_DONTWAIT,
                     sockaddr_addr != 0 ? (void *) sockaddr : NULL,
                     sockaddr_len_addr != 0 ? &sockaddr_len : NULL);
             if (res >= 0)
                 break;
-            if (errno == EAGAIN || errno == EWOULDBLOCK)
-                continue;   // spurious wakeup, go wait again
             if (errno == EINTR)
-                continue;   // host signal — sock_wait_readable re-checks guest sigs
-            free(buffer);
-            return errno_map();
+                continue;
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                free(buffer);
+                return errno_map();
+            }
+            // EAGAIN: no data yet. Wait (bounded) for readability or a
+            // guest signal, then retry.
+            int wr = sock_wait_readable(sock->real_fd);
+            if (wr < 0) {
+                free(buffer);
+                return wr;
+            }
         }
     } else {
         res = recvfrom(sock->real_fd, buffer, len, real_flags,
