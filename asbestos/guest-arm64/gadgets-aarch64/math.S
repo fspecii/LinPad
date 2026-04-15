@@ -2126,6 +2126,11 @@ sdiv_store:
 // All CRC32 variants: result is always 32-bit (stored in w-reg)
 // Packing: rd | rn<<8 | rm<<16 | sf<<24
 // sf is only relevant for CRC32X/CRC32CX (64-bit source operand)
+//
+// CRC is an optional ARMv8.0 extension — gate with .arch_extension so the
+// assembler accepts these mnemonics regardless of the build's -march setting.
+// Apple clang defaults include +crc on Apple Silicon; GNU as on armv8-a does not.
+.arch_extension crc
 
 // CRC32B
 .gadget crc32b
@@ -2302,6 +2307,8 @@ sdiv_store:
     b.eq 3f
     str x17, [x14, x9, lsl #3]
 3:  gret
+
+.arch_extension nocrc
 
 /*
  * UBFM - Unsigned Bitfield Move
