@@ -93,78 +93,98 @@ push_asset() {
 }
 
 # ═══════════════════════════════════════════════════════════════════
-# SUITE 1: Shell — tri-architecture wall clock + instructions
+# SUITE 1: Shell — guest-side timing (eliminates startup overhead)
+#
+# Runs assets/shellbench.sh INSIDE each iSH instance. The script
+# measures each test with guest-side monotonic clock, so fakefs/realfs
+# startup cost is paid once and does NOT affect individual test times.
 # ═══════════════════════════════════════════════════════════════════
 
-SHELL_TESTS=(
-    "System|echo hello|echo 'Hello World'"
-    "System|uname -a|uname -a"
-    "System|ls /bin|ls /bin"
-    "System|cat file|cat /etc/os-release"
-    "System|wc -l|ls /bin | wc -l"
-    "System|date|date"
-    "Compute|loop 1000|i=0; while [ \$i -lt 1000 ]; do i=\$((i+1)); done"
-    "Compute|loop 5000|i=0; while [ \$i -lt 5000 ]; do i=\$((i+1)); done"
-    "Compute|seq+awk 10K|seq 1 10000 | awk '{s+=\$1} END{print s}'"
-    "Compute|seq+awk 50K|seq 1 50000 | awk '{s+=\$1} END{print s}'"
-    "Compute|expr loop 500|i=0; while [ \$i -lt 500 ]; do i=\$(expr \$i + 1); done"
-    "Compute|bc sqrt|echo 'scale=100; sqrt(2)' | bc -l"
-    "Text|sed replace|echo 'hello world' | sed 's/world/iSH/g'"
-    "Text|sort 1K lines|seq 1 1000 | sort -nr | tail -1"
-    "Text|uniq count|seq 1 500 | sort | uniq -c | wc -l"
-    "File-IO|create 50 files|for i in \$(seq 1 50); do echo x > /tmp/_b\$i; done; rm /tmp/_b*"
-    "File-IO|create 200 files|for i in \$(seq 1 200); do echo x > /tmp/_b\$i; done; rm /tmp/_b*"
-    "File-IO|find /bin|find /bin -type f 2>/dev/null | wc -l"
-    "Crypto|md5sum|echo test | md5sum"
-    "Crypto|sha256sum|echo test | sha256sum"
-    "Process|fork+exec 10|for i in \$(seq 1 10); do /bin/true; done"
-    "Process|fork+exec 50|for i in \$(seq 1 50); do /bin/true; done"
-    "Process|pipe chain|seq 1 1000 | grep 5 | sort -n | wc -l"
-)
-
 suite_shell() {
-    log "Shell benchmark (Native vs x86 vs ARM64, $RUNS runs, median)"
+    log "Shell benchmark (guest-side timing, startup excluded)"
     hr
 
-    printf "${BOLD}%-9s %-18s │ %7s %7s │ %7s %7s │ %7s %7s │ %8s %8s${NC}\n" \
-        "Cat" "Test" "Native" "" "x86" "" "ARM64" "" "x86/A64" "x86/A64"
-    printf "${DIM}%9s %18s │ %7s %7s │ %7s %7s │ %7s %7s │ %8s %8s${NC}\n" \
-        "" "" "time" "insns" "time" "insns" "time" "insns" "time" "insns"
-    hr
-
-    local rows=() total=${#SHELL_TESTS[@]} n=0
-
-    for line in "${SHELL_TESTS[@]}"; do
-        n=$((n+1))
-        IFS='|' read -r cat name cmd <<< "$line"
-        echo -ne "\r${DIM}[$n/$total] $name${NC}                         \r" >&2
-
-        local nt=() ni=() xt=() xi=() at=() ai=()
-        for _ in $(seq 1 $RUNS); do
-            local r
-            r=$(_time bash -c "$cmd");          nt+=("${r%% *}"); ni+=("${r##* }")
-            r=$(_time "$ISH_X86" -f "$FAKEFS_X86" /bin/sh -c "$cmd"); xt+=("${r%% *}"); xi+=("${r##* }")
-            r=$(_time "$ISH_ARM64" -f "$FAKEFS_ARM64" /bin/sh -c "$cmd"); at+=("${r%% *}"); ai+=("${r##* }")
-        done
-
-        local mnt mni mxt mxi mat mai
-        mnt=$(_median "${nt[@]}"); mni=$(_median "${ni[@]}")
-        mxt=$(_median "${xt[@]}"); mxi=$(_median "${xi[@]}")
-        mat=$(_median "${at[@]}"); mai=$(_median "${ai[@]}")
-
-        local rt ri
-        rt=$(_ratio "$mxt" "$mat"); ri=$(_ratio "$mxi" "$mai")
-
-        printf "%-9s %-18s │ %6ss %7s │ %6ss %7s │ %6ss %7s │ %8s %8s\n" \
-            "$cat" "$name" "$mnt" "$(_fmti "$mni")" "$mxt" "$(_fmti "$mxi")" "$mat" "$(_fmti "$mai")" "$rt" "$ri"
-
-        echo "shell,$cat,$name,$mnt,$mni,$mxt,$mxi,$mat,$mai" >> "$CSV"
-        rows+=("$cat|$name|${mnt}s|$(_fmti "$mni")|${mxt}s|$(_fmti "$mxi")|${mat}s|$(_fmti "$mai")|$(_ratio "$mxt" "$mnt")|$(_ratio "$mat" "$mnt")|$rt|$ri")
+    # Push benchmark scripts + prebuilt binaries into both rootfs
+    for asset in shellbench.sh cbench_lite.c; do
+        [ -f "$ASSETS_DIR/$asset" ] || continue
+        cat "$ASSETS_DIR/$asset" | timeout 10 "$ISH_X86" -f "$FAKEFS_X86" /bin/sh -c "cat > /tmp/$asset" 2>/dev/null || true
+        cat "$ASSETS_DIR/$asset" | timeout 10 "$ISH_ARM64" -f "$FAKEFS_ARM64" /bin/sh -c "cat > /tmp/$asset" 2>/dev/null || true
     done
+    # Push prebuilt C binaries (avoids slow in-emulator compilation)
+    if [ -f "$ASSETS_DIR/cbench_lite_x86" ]; then
+        cat "$ASSETS_DIR/cbench_lite_x86" | timeout 10 "$ISH_X86" -f "$FAKEFS_X86" /bin/sh -c "cat > /tmp/cbench_prebuilt && chmod +x /tmp/cbench_prebuilt" 2>/dev/null || true
+    fi
+    if [ -f "$ASSETS_DIR/cbench_lite_arm64" ]; then
+        cat "$ASSETS_DIR/cbench_lite_arm64" | timeout 10 "$ISH_ARM64" -f "$FAKEFS_ARM64" /bin/sh -c "cat > /tmp/cbench_prebuilt && chmod +x /tmp/cbench_prebuilt" 2>/dev/null || true
+    fi
+
+    # Run inside each platform, capture "cat|name|ms" output
+    log "Running on Native..."
+    local native_out; native_out=$(mktemp)
+    bash "$ASSETS_DIR/shellbench.sh" > "$native_out" 2>/dev/null
+
+    log "Running on x86..."
+    local x86_out; x86_out=$(mktemp)
+    timeout 900 "$ISH_X86" -f "$FAKEFS_X86" /bin/sh -c "sh /tmp/shellbench.sh" > "$x86_out" 2>/dev/null || true
+
+    log "Running on ARM64..."
+    local arm_out; arm_out=$(mktemp)
+    timeout 900 "$ISH_ARM64" -f "$FAKEFS_ARM64" /bin/sh -c "sh /tmp/shellbench.sh" > "$arm_out" 2>/dev/null || true
 
     echo ""
-    # Write shell section of perf markdown
-    _md_shell_section "${rows[@]}"
+    printf "${BOLD}%-9s %-18s │ %8s │ %8s │ %8s │ %8s │ %8s${NC}\n" \
+        "Cat" "Test" "Native" "x86" "ARM64" "x86/Nat" "x86/A64"
+    hr
+
+    local rows=()
+
+    # Parse native results into associative-like arrays (POSIX sh compat via temp files)
+    local nat_data; nat_data=$(mktemp)
+    local x86_data; x86_data=$(mktemp)
+    local arm_data; arm_data=$(mktemp)
+    cp "$native_out" "$nat_data"
+    cp "$x86_out" "$x86_data"
+    cp "$arm_out" "$arm_data"
+
+    # Iterate over ARM64 results (superset — has Python/Node/Go if installed)
+    while IFS='|' read -r cat name arm_ms; do
+        [ -z "$cat" ] && continue
+        local nat_ms x86_ms
+        nat_ms=$(grep "^${cat}|${name}|" "$nat_data" | head -1 | cut -d'|' -f3)
+        x86_ms=$(grep "^${cat}|${name}|" "$x86_data" | head -1 | cut -d'|' -f3)
+        [ -z "$nat_ms" ] && nat_ms="—"
+        [ -z "$x86_ms" ] && x86_ms="—"
+
+        # Format times
+        local nat_f x86_f arm_f xn_r xa_r
+        [ "$nat_ms" = "—" ] && nat_f="—" || nat_f="${nat_ms}ms"
+        [ "$x86_ms" = "—" ] && x86_f="—" || x86_f="${x86_ms}ms"
+        arm_f="${arm_ms}ms"
+
+        # Ratios
+        if [ "$nat_ms" != "—" ] && [ "$x86_ms" != "—" ] && [ "$nat_ms" -gt 0 ] 2>/dev/null; then
+            xn_r=$(awk "BEGIN{printf\"%.1fx\",$x86_ms/$nat_ms}")
+        else
+            xn_r="—"
+        fi
+        if [ "$x86_ms" != "—" ] && [ "$arm_ms" -gt 0 ] 2>/dev/null; then
+            xa_r=$(awk "BEGIN{printf\"%.1fx\",$x86_ms/$arm_ms}")
+        else
+            xa_r="—"
+        fi
+
+        printf "%-9s %-18s │ %8s │ %8s │ %8s │ %8s │ %8s\n" \
+            "$cat" "$name" "$nat_f" "$x86_f" "$arm_f" "$xn_r" "$xa_r"
+
+        echo "shell,$cat,$name,$nat_ms,$x86_ms,$arm_ms" >> "$CSV"
+        rows+=("$cat|$name|$nat_f|$x86_f|$arm_f|$xn_r|$xa_r")
+    done < "$arm_out"
+
+    rm -f "$native_out" "$x86_out" "$arm_out" "$nat_data" "$x86_data" "$arm_data"
+    echo ""
+    if [ ${#rows[@]} -gt 0 ]; then
+        _md_shell_section "${rows[@]}"
+    fi
 }
 
 _md_shell_section() {
@@ -172,23 +192,23 @@ _md_shell_section() {
     {
         echo "## 1. Shell Benchmark (Native vs x86 vs ARM64)"
         echo ""
-        echo "> Measured with \`/usr/bin/time -l\`. **Instructions retired** eliminates"
-        echo "> filesystem-mode differences (x86 realfs vs ARM64 fakefs)."
+        echo "> **Guest-side timing** — each test measured inside the emulator with"
+        echo "> monotonic clock. Startup overhead (fakefs init) is excluded."
+        echo "> This isolates pure emulation performance."
         echo ""
     } >> "$PERF_MD"
 
     for r in "${rows[@]}"; do
-        IFS='|' read -r cat name nt ni xt xi at ai xn an rt ri <<< "$r"
+        IFS='|' read -r cat name nat x86 arm xn xa <<< "$r"
         if [ "$cat" != "$prev" ]; then
             [ -n "$prev" ] && echo "" >> "$PERF_MD"
             echo "### $cat" >> "$PERF_MD"
             echo "" >> "$PERF_MD"
-            echo "| Test | Native | | x86 | | ARM64 | | x86/N | A64/N | x86/A64 | x86/A64 |" >> "$PERF_MD"
-            echo "|------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|" >> "$PERF_MD"
-            echo "| | time | insns | time | insns | time | insns | time | time | time | **insns** |" >> "$PERF_MD"
+            echo "| Test | Native | x86 | ARM64 | x86/Native | **x86/ARM64** |" >> "$PERF_MD"
+            echo "|------|:---:|:---:|:---:|:---:|:---:|" >> "$PERF_MD"
             prev="$cat"
         fi
-        echo "| $name | $nt | $ni | $xt | $xi | $at | $ai | $xn | $an | $rt | **$ri** |" >> "$PERF_MD"
+        echo "| $name | $nat | $x86 | $arm | $xn | **$xa** |" >> "$PERF_MD"
     done
     echo "" >> "$PERF_MD"
 }
