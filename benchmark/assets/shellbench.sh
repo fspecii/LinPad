@@ -102,20 +102,9 @@ print(a[0])' >/tmp/_null
     _end Python "sort 100K"
 fi
 
-# ── Node.js (if available) ─────────────────────────────────
-if command -v node >/tmp/_null 2>&1; then
-    _start; node -e 'process.exit(0)';                       _end Node.js "startup"
-    _start; node -e 'let s=0;for(let i=0;i<1e6;i++)s+=i;console.log(s)' >/tmp/_null; _end Node.js "sum 1M"
-    _start
-    node -e '
-const d=Array.from({length:10000},(_,i)=>({id:i,v:i*3.14}));
-for(let r=0;r<5;r++)JSON.parse(JSON.stringify(d));
-console.log(d.length)' >/tmp/_null
-    _end Node.js "JSON 10K"
-    _start; node -e 'console.log(require("crypto").createHash("sha256").update("x".repeat(1000000)).digest("hex").slice(0,8))' >/tmp/_null; _end Node.js "sha256"
-fi
-
 # ── C benchmark (prefer pre-compiled binary, fallback to gcc) ──
+# Run BEFORE Node.js/Go so that platforms with incomplete runtime support
+# (e.g. x86 iSH missing io_uring syscall used by Node 22) still produce C data.
 # Prebuilt binaries pushed to /tmp/cbench_prebuilt by the host runner.
 # On native macOS, the script directory is probed for cbench_lite_macos.
 _cbench=""
@@ -138,6 +127,21 @@ fi
 
 # ── Go (if available) ──────────────────────────────────────
 if command -v go >/tmp/_null 2>&1; then
-    _start; go version >/tmp/_null 2>&1;                      _end Go "version"
-    _start; go env GOROOT >/tmp/_null 2>&1;                   _end Go "env"
+    _start; timeout 30 go version >/tmp/_null 2>&1;           _end Go "version"
+    _start; timeout 30 go env GOROOT >/tmp/_null 2>&1;        _end Go "env"
+fi
+
+# ── Node.js (if available) ─────────────────────────────────
+# Each test wrapped in timeout so x86 iSH (missing io_uring syscall 425)
+# can't hang the whole bench script.
+if command -v node >/tmp/_null 2>&1; then
+    _start; timeout 30 node -e 'process.exit(0)';            _end Node.js "startup"
+    _start; timeout 30 node -e 'let s=0;for(let i=0;i<1e6;i++)s+=i;console.log(s)' >/tmp/_null 2>/tmp/_null; _end Node.js "sum 1M"
+    _start
+    timeout 30 node -e '
+const d=Array.from({length:10000},(_,i)=>({id:i,v:i*3.14}));
+for(let r=0;r<5;r++)JSON.parse(JSON.stringify(d));
+console.log(d.length)' >/tmp/_null 2>/tmp/_null
+    _end Node.js "JSON 10K"
+    _start; timeout 30 node -e 'console.log(require("crypto").createHash("sha256").update("x".repeat(1000000)).digest("hex").slice(0,8))' >/tmp/_null 2>/tmp/_null; _end Node.js "sha256"
 fi
