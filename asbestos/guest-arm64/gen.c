@@ -31,7 +31,7 @@
 extern void gadget_interrupt(void);
 extern void gadget_exit(void);
 extern void gadget_set_pc(void);
-
+extern void gadget_trace(void);
 
 // Data processing gadgets
 extern void gadget_load_reg(void);
@@ -1806,7 +1806,7 @@ static int gen_ldst(struct gen_state *state, uint32_t insn) {
     // opc=01: LDR Xt (64-bit) - mask 0xff000000, value 0x58000000
     // opc=10: LDRSW Xt (signed word) - mask 0xff000000, value 0x98000000
     // V=1 means SIMD/FP register
-    if ((insn & 0x3f000000) == 0x18000000) {
+    if ((insn & 0x3b000000) == 0x18000000) {
         uint32_t opc = (insn >> 30) & 0x3;
         uint32_t V = (insn >> 26) & 1;
         uint32_t rt = insn & 0x1f;

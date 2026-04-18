@@ -37,6 +37,19 @@ __thread volatile int jit_crash_segfault_was_write;   // read/write from ESR
 
 extern int current_pid(void);
 
+// Debug: trace registers at specific PC ranges
+// Called from gadget_trace in entry.S
+//
+// Watchpoint state: set scope+0xb8 watch when we first see MustAllocate
+// called from the AllocateLocals function (x30=0xee27af60 or x30=0xee27af48)
+extern volatile addr_t g_watch_page;
+extern volatile addr_t g_watch_field_addr;
+extern volatile uint64_t g_watch_original_val;
+
+void jit_trace_regs(struct cpu_state *cpu) {
+    (void)cpu; // disabled for performance testing
+}
+
 static void fiber_block_disconnect(struct asbestos *asbestos, struct fiber_block *block);
 static void fiber_block_free(struct asbestos *asbestos, struct fiber_block *block);
 static void fiber_free_jetsam(struct asbestos *asbestos);
@@ -350,6 +363,15 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             frame->last_block = NULL;
 
             crash_retry_count++;
+            // DEBUG: log crash recovery with high addresses
+            if (jit_crash_segfault_addr > 0x100000000ULL) {
+                printk("JIT_CRASH: segfault_addr=0x%llx host=0x%llx write=%d retry=%d block_pc=0x%llx\n",
+                    (unsigned long long)jit_crash_segfault_addr,
+                    (unsigned long long)jit_crash_host_addr,
+                    jit_crash_segfault_was_write,
+                    crash_retry_count,
+                    (unsigned long long)saved_cpu.pc);
+            }
             if (crash_retry_count >= 16) {
                 // Too many consecutive crashes — escalate to INT_GPF
                 interrupt = INT_GPF;
@@ -359,6 +381,18 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             }
         }
         in_jit = 0;
+
+        // (debug trace removed)
+
+        // Check if page table changed (mmap/munmap by another thread) EVERY BLOCK.
+        if (tlb->mem_changes != __atomic_load_n(&tlb->mmu->changes, __ATOMIC_ACQUIRE)) {
+            tlb_flush(tlb);
+            memset(cache, 0, sizeof(tlb->block_cache));
+            tlb->block_cache_gen = asbestos->invalidate_gen;
+            memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+            frame->last_block = NULL;
+        }
+
         if (interrupt == INT_NONE && __atomic_exchange_n(frame->cpu.poked_ptr, false, __ATOMIC_ACQUIRE))
             interrupt = INT_TIMER;
         if (interrupt == INT_NONE && (++frame->cpu.cycle & ((1 << 10) - 1)) == 0)

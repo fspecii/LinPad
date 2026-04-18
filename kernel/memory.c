@@ -366,13 +366,31 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
         if (pt->flags & P_ANONYMOUS)
             atomic_fetch_sub(&anon_page_count, 1);
 #endif
+        // NOTE: Per-page mprotect(PROT_NONE) is NOT safe on macOS ARM64.
+        // macOS has 16K host pages, so mprotect on a 4K guest page would
+        // affect the entire 16K host page, potentially invalidating adjacent
+        // live guest pages that share the same data region.
+        // Instead, we only mprotect when refcount reaches 0 (entire region freed).
         mem_pt_del(mem, page);
         if (--data->refcount == 0) {
             // vdso wasn't allocated with mmap, it's just in our data segment
             if (data->data != vdso_data) {
-                int err = munmap(data->data, data->size);
-                if (err != 0)
-                    die("munmap(%p, %lu) failed: %s", data->data, data->size, strerror(errno));
+                // Replace with PROT_NONE pages before freeing. On macOS,
+                // munmap+mmap can reuse the same host virtual address. If a
+                // JIT thread has a stale TLB entry pointing to this address,
+                // it would silently read/write to the new allocation's data
+                // instead of getting SIGSEGV (ABA problem). By replacing with
+                // PROT_NONE first, we ensure stale accesses get SIGSEGV, which
+                // the JIT crash recovery handles correctly.
+                //
+                // We DON'T munmap — the PROT_NONE region stays mapped to block
+                // host address reuse. This leaks virtual address space but
+                // prevents data corruption. The leak is bounded because new
+                // mmap calls use pt_find_hole which finds unused guest pages,
+                // and the host regions are eventually reclaimed when the process
+                // exits or when the address space is destroyed.
+                mprotect(data->data, data->size, PROT_NONE);
+                // Don't munmap — keep the address reserved as PROT_NONE
             }
             if (data->fd != NULL) {
                 fd_close(data->fd);
@@ -452,7 +470,7 @@ int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t page
 }
 
 static void mem_changed(struct mem *mem) {
-    mem->mmu.changes++;
+    __atomic_add_fetch(&mem->mmu.changes, 1, __ATOMIC_RELEASE);
 }
 
 // This version will return NULL instead of making necessary pagetable changes.

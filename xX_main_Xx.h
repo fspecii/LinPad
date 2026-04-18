@@ -120,15 +120,22 @@ static inline int xX_main_Xx(int argc, char *const argv[], const char *envp) {
     char argv_copy[4096];
     int i = optind;
     size_t p = 0;
+    size_t exec_argc = 0;
     while (i < argc) {
         strcpy(&argv_copy[p], argv[i]);
         p += strlen(argv[i]) + 1;
+        exec_argc++;
         i++;
+        // NOTE: --no-lazy injection for node was removed. The V8 lazy compilation
+        // crash was caused by TLB ABA on macOS (stale TLB reads wrong data after
+        // munmap+mmap reuses host address). Fixed by: (1) mprotect(PROT_NONE)
+        // instead of munmap for freed regions, (2) mem_changes check in
+        // fiber_ret_chain. See kernel/memory.c and entry.S.
     }
     argv_copy[p] = '\0';
     if (argv[optind] == NULL)
 	    return _ENOENT;
-    err = do_execve(argv[optind], argc - optind, argv_copy, envp == NULL ? "\0" : envp);
+    err = do_execve(argv[optind], exec_argc, argv_copy, envp == NULL ? "\0" : envp);
     if (err < 0)
         return err;
     tty_drivers[TTY_CONSOLE_MAJOR] = &real_tty_driver;

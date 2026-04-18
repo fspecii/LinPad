@@ -74,6 +74,15 @@ fiber_ret_chain:
     ldr x8, [_cpu, #CPU_poked_ptr]
     ldrb w8, [x8]
     cbnz w8, poke
+    // Check if page table changed (mem_changes mismatch).
+    // On macOS, munmap+mmap reuses host virtual addresses, so stale TLB entries
+    // silently read/write wrong data (no SIGSEGV). Must return to main loop
+    // for TLB flush when the page table has changed.
+    ldr x8, [_tlb, #(-TLB_entries + 16)]   // tlb->mem_changes (unsigned, at offset 16)
+    ldr x9, [_tlb, #-TLB_entries]           // tlb->mmu
+    ldr x9, [x9, #16]                       // mmu->changes (uint64_t, at offset 16)
+    cmp w8, w9                              // compare as 32-bit (mem_changes is unsigned)
+    b.ne poke                               // if changed, return to main loop for flush
     // Record last_block for block chaining in main loop
     sub x8, _pc, #FIBER_BLOCK_code
     str x8, [_cpu, #LOCAL_last_block]
@@ -175,6 +184,8 @@ NAME(handle_write_miss):
     stp x27, x28, [sp, #0x40]
     str lr, [sp, #0x50]
 
+    // Store current JIT code stream pointer for watchpoint debugging
+    str _pc, [_cpu, #LOCAL_value]
     save_c
     sub x0, _tlb, #TLB_entries   // pass tlb base, not tlb+entries
     mov x1, x7                    // guest address (64-bit) from _addr (x7)
@@ -337,6 +348,36 @@ segfault_write_cp:
     str x8, [_cpu, #CPU_pc] // Store as guest PC
     mvn w0, wzr            // Return INT_NONE (-1)
     b fiber_exit
+
+// Debug: trace gadget - calls C function to log registers at specific PCs
+// Code stream: [gadget_trace addr][guest_pc (64-bit)]
+.gadget trace
+    ldr x8, [_pc]              // Load guest PC from stream
+    str x8, [_cpu, #CPU_pc]    // Update guest PC for the trace function
+
+    // Save callee-saved registers (gadgets use x19-x28)
+    stp x19, x20, [sp, #-0x60]!
+    stp x21, x22, [sp, #0x10]
+    stp x23, x24, [sp, #0x20]
+    stp x25, x26, [sp, #0x30]
+    stp x27, x28, [sp, #0x40]
+    str lr, [sp, #0x50]
+
+    save_c
+    mov x0, _cpu               // arg0: cpu_state pointer
+    bl NAME(jit_trace_regs)
+    restore_c
+
+    // Restore callee-saved registers
+    ldr lr, [sp, #0x50]
+    ldp x27, x28, [sp, #0x40]
+    ldp x25, x26, [sp, #0x30]
+    ldp x23, x24, [sp, #0x20]
+    ldp x21, x22, [sp, #0x10]
+    ldp x19, x20, [sp], #0x60
+
+    add _pc, _pc, #8           // Skip past the 64-bit guest PC data
+    gret
 
 // Convenience gadgets for specific interrupts
 .gadget syscall
