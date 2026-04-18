@@ -116,9 +116,14 @@ console.log(d.length)' >/tmp/_null
 fi
 
 # ── C benchmark (prefer pre-compiled binary, fallback to gcc) ──
+# Prebuilt binaries pushed to /tmp/cbench_prebuilt by the host runner.
+# On native macOS, the script directory is probed for cbench_lite_macos.
 _cbench=""
+_script_dir=$(dirname "$0" 2>/dev/null)
 if [ -x /tmp/cbench_prebuilt ]; then
     _cbench=/tmp/cbench_prebuilt
+elif [ -x "$_script_dir/cbench_lite_macos" ]; then
+    _cbench="$_script_dir/cbench_lite_macos"
 elif command -v gcc >/tmp/_null 2>&1 && [ -f /tmp/cbench_lite.c ]; then
     _start; gcc -O2 -o /tmp/cbench_compiled /tmp/cbench_lite.c -lm 2>/tmp/_null; _end C "gcc compile"
     [ -x /tmp/cbench_compiled ] && _cbench=/tmp/cbench_compiled
