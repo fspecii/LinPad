@@ -6,10 +6,28 @@
 #define FUTEX_WAIT_ 0
 #define FUTEX_WAKE_ 1
 #define FUTEX_REQUEUE_ 3
+#define FUTEX_CMP_REQUEUE_ 4
+#define FUTEX_WAKE_OP_ 5
 #define FUTEX_WAIT_BITSET_ 9
 #define FUTEX_WAKE_BITSET_ 10
 #define FUTEX_PRIVATE_FLAG_ 128
-#define FUTEX_CMD_MASK_ ~(FUTEX_PRIVATE_FLAG_)
+#define FUTEX_CLOCK_REALTIME_ 256
+#define FUTEX_CMD_MASK_ ~(FUTEX_PRIVATE_FLAG_ | FUTEX_CLOCK_REALTIME_)
+
+// FUTEX_WAKE_OP val3 encoding (see Linux kernel futex.h)
+#define FUTEX_OP_SET   0
+#define FUTEX_OP_ADD   1
+#define FUTEX_OP_OR    2
+#define FUTEX_OP_ANDN  3
+#define FUTEX_OP_XOR   4
+#define FUTEX_OP_OPARG_SHIFT 8
+
+#define FUTEX_OP_CMP_EQ 0
+#define FUTEX_OP_CMP_NE 1
+#define FUTEX_OP_CMP_LT 2
+#define FUTEX_OP_CMP_LE 3
+#define FUTEX_OP_CMP_GT 4
+#define FUTEX_OP_CMP_GE 5
 
 struct futex {
     atomic_uint refcount;
@@ -221,13 +239,12 @@ futex_wait_done:
     return err;
 }
 
-static int futex_wakelike(int op, addr_t uaddr, dword_t wake_max, dword_t requeue_max, addr_t requeue_addr) {
-    struct futex *futex = futex_get(uaddr);
-
+// Wake up to `max` waiters on the given futex. Caller must hold futex_lock.
+static unsigned futex_wake_queue(struct futex *futex, dword_t max) {
     struct futex_wait *wait, *tmp;
     unsigned woken = 0;
     list_for_each_entry_safe(&futex->queue, wait, tmp, queue) {
-        if (woken >= wake_max)
+        if (woken >= max)
             break;
         // Wake via per-thread pipe write — waiter is blocked on poll(futex_pipe[0])
         if (wait->task->futex_pipe[1] != -1) {
@@ -237,9 +254,17 @@ static int futex_wakelike(int op, addr_t uaddr, dword_t wake_max, dword_t requeu
         list_remove(&wait->queue);
         woken++;
     }
+    return woken;
+}
+
+static int futex_wakelike(int op, addr_t uaddr, dword_t wake_max, dword_t requeue_max, addr_t requeue_addr) {
+    struct futex *futex = futex_get(uaddr);
+
+    unsigned woken = futex_wake_queue(futex, wake_max);
 
     if (op == FUTEX_REQUEUE_) {
         struct futex *futex2 = futex_get_unlocked(requeue_addr);
+        struct futex_wait *wait, *tmp;
         unsigned requeued = 0;
         list_for_each_entry_safe(&futex->queue, wait, tmp, queue) {
             if (requeued >= requeue_max)
@@ -263,6 +288,125 @@ static int futex_wakelike(int op, addr_t uaddr, dword_t wake_max, dword_t requeu
 
 int futex_wake(addr_t uaddr, dword_t wake_max) {
     return futex_wakelike(FUTEX_WAKE_, uaddr, wake_max, 0, 0);
+}
+
+// FUTEX_CMP_REQUEUE: like FUTEX_REQUEUE, but first atomically check *uaddr == expected.
+// Returns total woken+requeued, or _EAGAIN on mismatch, or _EFAULT on bad addr.
+static int futex_cmp_requeue(addr_t uaddr, dword_t wake_max, dword_t requeue_max,
+                             addr_t requeue_addr, dword_t expected) {
+    struct futex *futex = futex_get(uaddr);
+    if (futex == NULL)
+        return _ENOMEM;
+
+    dword_t cur;
+    if (futex_load(futex, &cur)) {
+        futex_put(futex);
+        return _EFAULT;
+    }
+    if (cur != expected) {
+        futex_put(futex);
+        return _EAGAIN;
+    }
+
+    unsigned woken = futex_wake_queue(futex, wake_max);
+
+    struct futex *futex2 = futex_get_unlocked(requeue_addr);
+    struct futex_wait *wait, *tmp;
+    unsigned requeued = 0;
+    list_for_each_entry_safe(&futex->queue, wait, tmp, queue) {
+        if (requeued >= requeue_max)
+            break;
+        list_remove(&wait->queue);
+        list_add_tail(&futex2->queue, &wait->queue);
+        assert(futex->refcount > 1);
+        futex->refcount--;
+        futex2->refcount++;
+        wait->futex = futex2;
+        requeued++;
+    }
+    futex_put_unlocked(futex2);
+
+    futex_put(futex);
+    return woken + requeued;
+}
+
+// FUTEX_WAKE_OP: atomic RMW on *uaddr2, then wake up to val waiters on uaddr,
+// and — if the old value of *uaddr2 satisfies the comparison — wake up to val2
+// waiters on uaddr2. val3 encodes the op, oparg, cmp, and cmparg (see Linux).
+static int futex_wake_op(addr_t uaddr, dword_t wake_max1, addr_t uaddr2,
+                         dword_t wake_max2, dword_t val3) {
+    int op_code = (val3 >> 28) & 0xf;
+    int cmp_code = (val3 >> 24) & 0xf;
+    // oparg/cmparg are 12-bit sign-extended.
+    int32_t oparg  = (int32_t)((val3 << 8)) >> 20;  // bits [23:12] sign-extended
+    int32_t cmparg = (int32_t)((val3 << 20)) >> 20; // bits [11:0] sign-extended
+
+    bool shift = (op_code & FUTEX_OP_OPARG_SHIFT) != 0;
+    op_code &= ~FUTEX_OP_OPARG_SHIFT;
+    if (shift) {
+        if (oparg < 0 || oparg > 31)
+            return _EINVAL;
+        oparg = 1 << oparg;
+    }
+
+    // Atomic RMW on *uaddr2.
+    // We must hold mem->lock across mem_ptr+atomic op so the mapping can't vanish.
+    read_wrlock(&current->mem->lock);
+    uint32_t *ptr = mem_ptr(current->mem, uaddr2, MEM_WRITE);
+    if (ptr == NULL) {
+        read_wrunlock(&current->mem->lock);
+        return _EFAULT;
+    }
+    uint32_t oldval;
+    switch (op_code) {
+        case FUTEX_OP_SET:
+            oldval = __atomic_exchange_n(ptr, (uint32_t)oparg, __ATOMIC_SEQ_CST);
+            break;
+        case FUTEX_OP_ADD:
+            oldval = __atomic_fetch_add(ptr, (uint32_t)oparg, __ATOMIC_SEQ_CST);
+            break;
+        case FUTEX_OP_OR:
+            oldval = __atomic_fetch_or(ptr, (uint32_t)oparg, __ATOMIC_SEQ_CST);
+            break;
+        case FUTEX_OP_ANDN:
+            oldval = __atomic_fetch_and(ptr, (uint32_t)~oparg, __ATOMIC_SEQ_CST);
+            break;
+        case FUTEX_OP_XOR:
+            oldval = __atomic_fetch_xor(ptr, (uint32_t)oparg, __ATOMIC_SEQ_CST);
+            break;
+        default:
+            read_wrunlock(&current->mem->lock);
+            return _ENOSYS;
+    }
+    read_wrunlock(&current->mem->lock);
+
+    int32_t sold = (int32_t)oldval;
+    bool cmp_true;
+    switch (cmp_code) {
+        case FUTEX_OP_CMP_EQ: cmp_true = (sold == cmparg); break;
+        case FUTEX_OP_CMP_NE: cmp_true = (sold != cmparg); break;
+        case FUTEX_OP_CMP_LT: cmp_true = (sold <  cmparg); break;
+        case FUTEX_OP_CMP_LE: cmp_true = (sold <= cmparg); break;
+        case FUTEX_OP_CMP_GT: cmp_true = (sold >  cmparg); break;
+        case FUTEX_OP_CMP_GE: cmp_true = (sold >= cmparg); break;
+        default: return _ENOSYS;
+    }
+
+    // Wake waiters on both queues. Acquire both futexes under futex_lock.
+    lock(&futex_lock);
+    struct futex *f1 = futex_get_unlocked(uaddr);
+    if (f1 == NULL) { unlock(&futex_lock); return _ENOMEM; }
+    unsigned total = futex_wake_queue(f1, wake_max1);
+    if (cmp_true) {
+        struct futex *f2 = futex_get_unlocked(uaddr2);
+        if (f2 != NULL) {
+            total += futex_wake_queue(f2, wake_max2);
+            futex_put_unlocked(f2);
+        }
+    }
+    futex_put_unlocked(f1);
+    unlock(&futex_lock);
+    return total;
 }
 
 dword_t sys_futex(addr_t uaddr, dword_t op, dword_t val, addr_t timeout_or_val2, addr_t uaddr2, dword_t val3) {
@@ -314,10 +458,20 @@ dword_t sys_futex(addr_t uaddr, dword_t op, dword_t val, addr_t timeout_or_val2,
         case FUTEX_REQUEUE_:
             STRACE("futex(FUTEX_REQUEUE, %#x, %d, %#x)", uaddr, val, uaddr2);
             return futex_wakelike(FUTEX_REQUEUE_, uaddr, val, timeout_or_val2, uaddr2);
+        case FUTEX_CMP_REQUEUE_:
+            STRACE("futex(FUTEX_CMP_REQUEUE, %#x, %d, %#x, expected=%d)", uaddr, val, uaddr2, val3);
+            return futex_cmp_requeue(uaddr, val, timeout_or_val2, uaddr2, val3);
+        case FUTEX_WAKE_OP_:
+            STRACE("futex(FUTEX_WAKE_OP, %#x, %d, %#x, %d, %#x)", uaddr, val, uaddr2, timeout_or_val2, val3);
+            return futex_wake_op(uaddr, val, uaddr2, timeout_or_val2, val3);
     }
     STRACE("futex(%#x, %d, %d, timeout=%#x, %#x, %d) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
-    FIXME("unsupported futex operation %d", op);
-    return _ENOSYS;
+    // Loud diagnostic — these should be rare now that CMP_REQUEUE and WAKE_OP are implemented.
+    // Returning _EINVAL instead of _ENOSYS lets most userspace libraries fall back to
+    // FUTEX_WAKE/WAIT rather than treating it as "kernel too old" and aborting.
+    printk("SYS_FUTEX: unsupported op=%d (cmd=%d) uaddr=%#x val=%d uaddr2=%#x val3=%#x pid=%d comm=%s\n",
+           op, cmd, uaddr, val, uaddr2, val3, current->pid, current->comm);
+    return _EINVAL;
 }
 
 struct robust_list_head_ {
