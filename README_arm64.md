@@ -7,6 +7,13 @@ AArch64 Linux on Apple Silicon, alongside the original x86 interpreter (*Jitter*
 is a dramatically faster and more compatible Linux environment capable of running **Python,
 Node.js, Go, Rust, and native CLI tools** directly on iPhone and iPad.
 
+> ## 🚢 Production Use
+>
+> This engine is shipping in **[OpenMinis](https://openminis.app)** as the **Agent Shell Sandbox**,
+> where it has been **stably used by over 10,000 users** to run Linux tools and shell workloads
+> on iOS. The numbers and stability claims in this README are grounded in that real-world
+> deployment, not just synthetic benchmarks.
+
 > **Naming note**: Asbestos and upstream Jitter are both *threaded-code interpreters*, not true
 > JITs. Neither emits machine code at runtime — both decode guest instructions into arrays of
 > pointers to pre-compiled native "gadget" functions that tail-call one another (the technique

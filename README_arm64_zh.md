@@ -6,6 +6,12 @@
 AArch64 Linux，与原始 x86 解释器（*Jitter*）并存。结果是一个性能和兼容性大幅提升的 Linux 环境,
 能在 iPhone / iPad 上直接运行 **Python、Node.js、Go、Rust 和原生 CLI 工具**。
 
+> ## 🚢 生产环境使用
+>
+> 本引擎已在 **[OpenMinis](https://openminis.app)** 中作为 **Agent Shell Sandbox** 投入使用，
+> 经过 **10,000+ 用户**在 iOS 上稳定运行 Linux 工具和 shell 负载的真实检验。README 中的性能
+> 数据和稳定性声明均来自这个真实线上部署，而不仅仅是合成基准测试。
+
 > **命名说明**：Asbestos 和上游 Jitter 都是 **threaded-code 解释器**，不是真正的 JIT ——
 > 两者都不在运行时生成机器码，而是把 guest 指令解码成"指向预编译原生 gadget 函数的指针数组"，
 > 各 gadget 通过尾调用衔接（与 Forth 解释器采用相同技术）。Asbestos 的 gadget 处理 ARM64 guest
