@@ -369,8 +369,17 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
         return err;
 
     err = connect(sock->real_fd, (void *) &sockaddr, sockaddr_len);
-    if (err < 0)
+    if (err < 0) {
+        int ce = errno;
+        // Log connect failures except the routine nonblock in-progress case,
+        // so VPN / routing issues are visible in user-shared logs.
+        if (ce != EINPROGRESS && ce != EALREADY) {
+            printk("NETDIAG connect(pid=%d comm=%s fd=%d) errno=%d\n",
+                   current->pid, current->comm, sock_fd, ce);
+        }
+        errno = ce;
         return errno_map();
+    }
 
     if (sock->socket.domain == AF_LOCAL_) {
         fill_cred(&sock->socket.unix_cred);
@@ -650,7 +659,9 @@ static long monotonic_ms(void) {
 // or a negative errno on poll() error.
 static int sock_wait_for(int real_fd, short events, int timeout_opt) {
     long timeout_ms = sock_get_timeout_ms(real_fd, timeout_opt);
-    long deadline_ms = (timeout_ms > 0) ? (monotonic_ms() + timeout_ms) : 0;
+    long start_ms = monotonic_ms();
+    long deadline_ms = (timeout_ms > 0) ? (start_ms + timeout_ms) : 0;
+    bool slow_logged = false;
     for (;;) {
         if (current->sighand != NULL) {
             lock(&current->sighand->lock);
@@ -663,8 +674,11 @@ static int sock_wait_for(int real_fd, short events, int timeout_opt) {
         int poll_ms = 1000;
         if (deadline_ms > 0) {
             long remaining = deadline_ms - monotonic_ms();
-            if (remaining <= 0)
+            if (remaining <= 0) {
+                printk("NETDIAG sock_wait(pid=%d comm=%s fd=%d ev=%#x) deadline-expired after %ldms\n",
+                       current->pid, current->comm, real_fd, events, timeout_ms);
                 return _EAGAIN;
+            }
             if (remaining < poll_ms)
                 poll_ms = (int)remaining;
         }
@@ -677,21 +691,26 @@ static int sock_wait_for(int real_fd, short events, int timeout_opt) {
 
         if (pr > 0)
             return 0;
-        if (pr == 0)
+        if (pr == 0) {
+            // Log once if we're stuck > 3 seconds without any ready event
+            if (!slow_logged && (monotonic_ms() - start_ms) >= 3000) {
+                printk("NETDIAG sock_wait(pid=%d comm=%s fd=%d ev=%#x) no-event for 3s (timeout_opt_ms=%ld)\n",
+                       current->pid, current->comm, real_fd, events, timeout_ms);
+                slow_logged = true;
+            }
             continue;
+        }
         if (saved_errno == EINTR)
             continue;
         errno = saved_errno;
+        printk("NETDIAG sock_wait(pid=%d comm=%s fd=%d ev=%#x) poll err=%d\n",
+               current->pid, current->comm, real_fd, events, saved_errno);
         return errno_map();
     }
 }
 
 static int sock_wait_readable(int real_fd) {
     return sock_wait_for(real_fd, POLLIN, SO_RCVTIMEO);
-}
-
-static int sock_wait_writable(int real_fd) {
-    return sock_wait_for(real_fd, POLLOUT, SO_SNDTIMEO);
 }
 
 int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags, addr_t sockaddr_addr, addr_t sockaddr_len_addr) {
@@ -731,6 +750,13 @@ int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags,
     // should wait do we fall back to the bounded-poll wait.
     ssize_t res;
     if (should_wait) {
+        // Diagnostic: a blocking recv is exceptional for most network
+        // programs (Node, Go, Python asyncio all use nonblock). Log it so
+        // we can see the guest/host fd state in user-shared logs.
+        printk("NETDIAG recvfrom-block(pid=%d comm=%s fd=%d real=%d len=%u gflags=%#x hflags=%#x sflags=%#x)\n",
+               current->pid, current->comm, sock_fd, sock->real_fd,
+               (unsigned)len, (unsigned)flags,
+               host_flags, sock->flags);
         for (;;) {
             res = recvfrom(sock->real_fd, buffer, len, real_flags | MSG_DONTWAIT,
                     sockaddr_addr != 0 ? (void *) sockaddr : NULL,
@@ -1217,25 +1243,40 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
 #endif
 
     // Same iOS-safe wait pattern as sys_recvfrom: avoid unbounded blocking
-    // in host recvmsg() so guest signals can always be delivered.
+    // in host recvmsg() so guest signals can always be delivered. But only
+    // wait when the caller actually wants blocking behavior — if the fd is
+    // nonblock (SOCK_NONBLOCK set by guest or via fcntl), surface EAGAIN
+    // immediately instead of waiting. This is critical for musl's
+    // res_msend, which creates nonblock sockets and calls
+    // recvmsg(fd, &mh, 0) — it relies on EAGAIN on empty buffer to end its
+    // "drain pending responses" loop. Same bug that used to affect
+    // sys_recvfrom before 76907b86.
+    int host_flags_rm = fcntl(sock->real_fd, F_GETFL, 0);
+    bool host_nonblock_rm = (host_flags_rm >= 0) && (host_flags_rm & O_NONBLOCK);
+    bool guest_nonblock_rm = (sock->flags & O_NONBLOCK_) != 0;
+    bool should_wait_rm = !(real_flags & MSG_DONTWAIT) && !guest_nonblock_rm && !host_nonblock_rm;
+
     ssize_t res = -1;
     int err = 0;
-    if (!(real_flags & MSG_DONTWAIT)) {
+    if (should_wait_rm) {
+        printk("NETDIAG recvmsg-block(pid=%d comm=%s fd=%d real=%d gflags=%#x hflags=%#x sflags=%#x)\n",
+               current->pid, current->comm, sock_fd, sock->real_fd,
+               (unsigned)flags, host_flags_rm, sock->flags);
         for (;;) {
+            res = recvmsg(sock->real_fd, &msg, real_flags | MSG_DONTWAIT);
+            if (res >= 0)
+                break;
+            if (errno == EINTR)
+                continue;
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                err = errno_map();
+                break;
+            }
             int wr = sock_wait_readable(sock->real_fd);
             if (wr < 0) {
                 err = wr;
                 break;
             }
-            res = recvmsg(sock->real_fd, &msg, real_flags | MSG_DONTWAIT);
-            if (res >= 0)
-                break;
-            if (errno == EAGAIN || errno == EWOULDBLOCK)
-                continue;
-            if (errno == EINTR)
-                continue;
-            err = errno_map();
-            break;
         }
     } else {
         res = recvmsg(sock->real_fd, &msg, real_flags);
@@ -1419,40 +1460,44 @@ static void sock_translate_err(struct fd *fd, int *err) {
     }
 }
 
-// sock_read / sock_write: for blocking socket fds, wrap host read/write in
-// a bounded-poll wait so guest signals (SIGALRM/SIGINT) can interrupt even
-// when the host thread is briefly suspended on iOS. Without this, the
-// realfs_read/realfs_write EINTR-retry loop swallows SIGUSR1 wakes and
-// causes indefinite hangs on blocking network I/O (git HTTPS, nc, etc.).
+// sock_read / sock_write: behave exactly like realfs_read / realfs_write
+// (a single host read/write call, with no poll and no flag change), except
+// that EINTR is handled specially: if there is a guest signal pending, we
+// surface EINTR back to the guest instead of blindly retrying.
 //
-// For nonblock fds (O_NONBLOCK set by guest or on host), fall through to
-// realfs_read/realfs_write directly — this preserves the fast path for
-// musl's DNS resolver, Go runtime, Node.js, and anything using nonblock
-// sockets with an application-level event loop.
-static bool sock_fd_is_nonblock(struct fd *fd) {
-    if (fd->flags & O_NONBLOCK_)
-        return true;
-    int hf = fcntl(fd->real_fd, F_GETFL, 0);
-    return (hf >= 0) && (hf & O_NONBLOCK);
-}
-
+// The original realfs_read/realfs_write does `while (errno == EINTR) retry`,
+// which swallows the SIGUSR1 wake iSH uses to deliver guest signals into
+// blocked host syscalls. Combined with iOS occasionally deferring signal
+// delivery (thread suspension on backgrounding), this causes indefinite
+// hangs on any blocking socket read/write (git HTTPS, nc, telnet, etc.).
+//
+// We intentionally do NOT poll, do NOT mess with nonblock flags, and do NOT
+// switch to recv/send. This minimizes regression risk — the host I/O path
+// is byte-for-byte identical to the original implementation for every case
+// except "host syscall got EINTR AND guest has a pending signal", which is
+// precisely the bug we need to fix.
 static ssize_t sock_read(struct fd *fd, void *buf, size_t size) {
     int err;
-    if (sock_fd_is_nonblock(fd)) {
-        err = realfs_read(fd, buf, size);
-    } else {
-        for (;;) {
-            ssize_t res = read(fd->real_fd, buf, size);
-            if (res >= 0) { err = (int)res; break; }
-            if (errno == EINTR)
-                continue;
-            if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                err = errno_map();
-                break;
-            }
-            int wr = sock_wait_readable(fd->real_fd);
-            if (wr < 0) { err = wr; break; }
+    int eintr_count = 0;
+    for (;;) {
+        ssize_t res = read(fd->real_fd, buf, size);
+        if (res >= 0) { err = (int)res; break; }
+        if (errno != EINTR) { err = errno_map(); break; }
+        eintr_count++;
+        // EINTR: only surface to guest if there is actually a pending signal
+        // that the guest wants to handle. Otherwise retry (matches the
+        // original realfs_read behavior for spurious EINTR).
+        if (current->sighand != NULL) {
+            lock(&current->sighand->lock);
+            bool pending = !!(current->pending & ~current->blocked);
+            unlock(&current->sighand->lock);
+            if (pending) { err = _EINTR; break; }
         }
+        // no guest signal — retry the host read
+    }
+    if (eintr_count >= 3) {
+        printk("NETDIAG sock_read-eintr(pid=%d comm=%s fd=%d) count=%d err=%d\n",
+               current->pid, current->comm, fd->real_fd, eintr_count, err);
     }
     sock_translate_err(fd, &err);
     return err;
@@ -1460,21 +1505,22 @@ static ssize_t sock_read(struct fd *fd, void *buf, size_t size) {
 
 static ssize_t sock_write(struct fd *fd, const void *buf, size_t size) {
     int err;
-    if (sock_fd_is_nonblock(fd)) {
-        err = realfs_write(fd, buf, size);
-    } else {
-        for (;;) {
-            ssize_t res = write(fd->real_fd, buf, size);
-            if (res >= 0) { err = (int)res; break; }
-            if (errno == EINTR)
-                continue;
-            if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                err = errno_map();
-                break;
-            }
-            int wr = sock_wait_writable(fd->real_fd);
-            if (wr < 0) { err = wr; break; }
+    int eintr_count = 0;
+    for (;;) {
+        ssize_t res = write(fd->real_fd, buf, size);
+        if (res >= 0) { err = (int)res; break; }
+        if (errno != EINTR) { err = errno_map(); break; }
+        eintr_count++;
+        if (current->sighand != NULL) {
+            lock(&current->sighand->lock);
+            bool pending = !!(current->pending & ~current->blocked);
+            unlock(&current->sighand->lock);
+            if (pending) { err = _EINTR; break; }
         }
+    }
+    if (eintr_count >= 3) {
+        printk("NETDIAG sock_write-eintr(pid=%d comm=%s fd=%d) count=%d err=%d\n",
+               current->pid, current->comm, fd->real_fd, eintr_count, err);
     }
     sock_translate_err(fd, &err);
     return err;
