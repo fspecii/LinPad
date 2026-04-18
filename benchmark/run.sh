@@ -588,9 +588,84 @@ COMPAT_TESTS=(
     "Signal|bg job|sh -c 'sleep 0 & wait'"
 )
 
+# Binary name → Alpine package mapping for auto-install
+# Only needed for binaries not in busybox or base install
+_pkg_for() {
+    case "$1" in
+        file) echo file;; xz|unxz) echo xz;; zstd) echo zstd;; rsync) echo rsync;;
+        fmt|numfmt|base32) echo coreutils;; column) echo util-linux;;
+        jq) echo jq;; bc) echo bc;;
+        gcc|cc) echo build-base;; g++|c++) echo build-base;;
+        make) echo make;; cmake) echo cmake;; m4) echo m4;;
+        ld|as|ar|nm|objdump|objcopy|strip|size|ranlib|readelf) echo binutils;;
+        pkg-config) echo pkgconf;; autoconf) echo autoconf;; automake) echo automake;;
+        bison) echo bison;; flex) echo flex;; clang) echo clang;;
+        python3) echo python3;; pip3|pip) echo py3-pip;;
+        node) echo nodejs;; npm) echo nodejs npm;;
+        go) echo go;;
+        perl) echo perl;; ruby) echo ruby;; php) echo php83;; lua5.4) echo lua5.4;;
+        bash) echo bash;;
+        git) echo git;; hg) echo mercurial;; svn) echo subversion;;
+        curl) echo curl;; wget) echo wget;; ssh|scp|sftp) echo openssh-client;;
+        socat) echo socat;; dig|nslookup) echo bind-tools;;
+        nano) echo nano;; vim) echo vim;; ed) echo ed;;
+        sqlite3) echo sqlite;; openssl) echo openssl;;
+        ffmpeg|ffprobe) echo ffmpeg;; convert|identify|mogrify) echo imagemagick;;
+        gm) echo graphicsmagick;; sox) echo sox;;
+        gpg) echo gnupg;; strace) echo strace;;
+        gdb) echo gdb;; lsof) echo lsof;; valgrind) echo valgrind;;
+        ltrace) echo ltrace;; screen) echo screen;; tmux) echo tmux;;
+        *) echo "";;
+    esac
+}
+
+# Auto-install missing packages for a given ISH instance
+# Args: <ish_binary> <fakefs_flag> <fakefs_path> <label>
+_ensure_packages() {
+    local ish_bin="$1" fs_flag="$2" fs_path="$3" label="$4"
+
+    log "Checking packages on $label..."
+
+    # Collect unique binary names that need packages
+    local missing_pkgs="" checked=""
+    local all_bins="file xz zstd rsync fmt numfmt column jq bc gcc g++ make cmake m4 ld as ar nm objdump strip readelf pkg-config autoconf automake bison flex clang python3 pip3 node npm go perl ruby php lua5.4 bash git hg svn curl wget ssh socat dig nano vim ed sqlite3 openssl ffmpeg convert gm sox gpg strace gdb lsof valgrind ltrace screen tmux"
+
+    for bin in $all_bins; do
+        local pkg
+        pkg=$(_pkg_for "$bin")
+        [ -z "$pkg" ] && continue
+
+        # Check if binary exists in guest
+        if ! timeout 5 "$ish_bin" "$fs_flag" "$fs_path" /bin/sh -c "which $bin >/dev/null 2>&1" >/dev/null 2>&1; then
+            for p in $pkg; do
+                echo "$missing_pkgs" | grep -qw "$p" || missing_pkgs="$missing_pkgs $p"
+            done
+        fi
+    done
+
+    if [ -n "$missing_pkgs" ]; then
+        # Ensure DNS + HTTP repos
+        timeout 5 "$ish_bin" "$fs_flag" "$fs_path" /bin/sh -c \
+            "test -f /etc/resolv.conf || echo 'nameserver 8.8.8.8' > /etc/resolv.conf; sed -i 's|https://|http://|g' /etc/apk/repositories 2>/dev/null" \
+            >/dev/null 2>&1 || true
+
+        log "Installing on $label:$missing_pkgs"
+        timeout 600 "$ish_bin" "$fs_flag" "$fs_path" /bin/sh -c \
+            "apk update >/dev/null 2>&1; apk add --no-cache $missing_pkgs 2>&1 | tail -3" 2>&1 | grep -v fork
+        ok "$label packages ready"
+    else
+        ok "$label: all packages present"
+    fi
+}
+
 suite_compat() {
     log "Compatibility tests (x86 vs ARM64)"
     hr
+
+    # Auto-install missing packages on both architectures
+    _ensure_packages "$ISH_X86" -f "$FAKEFS_X86" "x86"
+    _ensure_packages "$ISH_ARM64" -f "$FAKEFS_ARM64" "ARM64"
+    echo ""
 
     local total=${#COMPAT_TESTS[@]} n=0
     local x86p=0 x86f=0 armp=0 armf=0
