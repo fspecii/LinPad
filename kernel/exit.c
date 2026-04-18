@@ -1,6 +1,12 @@
 #include <pthread.h>
 #include <signal.h>
+#include <stdio.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
+#if __APPLE__
+#include <malloc/malloc.h>
+#endif
 #include "kernel/calls.h"
 #include "kernel/mm.h"
 #include "kernel/futex.h"
@@ -9,6 +15,11 @@
 #include "fs/tty.h"
 
 static void halt_system(void);
+
+// Weak default: overridden by main.c in CLI builds.
+// In iOS/Xcode builds where main.c is not linked into libish.a,
+// this no-op prevents an undefined symbol error.
+__attribute__((weak)) void restore_termios(void) {}
 
 static bool exit_tgroup(struct task *task) {
     struct tgroup *group = task->group;
@@ -41,6 +52,24 @@ static struct task *find_new_parent(struct task *task) {
 }
 
 noreturn void do_exit(int status) {
+    // If this thread was already marked as leaked by the safety valve,
+    // the group leader has finished exiting and the group struct may be
+    // freed. Don't touch any shared state — just kill the host thread.
+    if (current->exiting) {
+        current = NULL;
+        pthread_exit(NULL);
+    }
+
+    // Block SIGSEGV during exit to prevent cosmetic crashes from host
+    // pthread stack unwinding (especially with many threads exiting at once).
+    if (current->group->doing_group_exit) {
+        sigset_t set;
+        sigemptyset(&set);
+        sigaddset(&set, SIGSEGV);
+        sigaddset(&set, SIGBUS);
+        pthread_sigmask(SIG_BLOCK, &set, NULL);
+    }
+
     // has to happen before mm_release
     addr_t clear_tid = current->clear_tid;
     if (clear_tid) {
@@ -49,13 +78,29 @@ noreturn void do_exit(int status) {
             futex_wake(clear_tid, 1);
     }
 
-    // release all our resources
-    mm_release(current->mm);
-    current->mm = NULL;
-    fdtable_release(current->files);
-    current->files = NULL;
-    fs_info_release(current->fs);
-    current->fs = NULL;
+    // release all our resources (may already be NULL if force-released by do_exit_group)
+    if (current->mm != NULL) {
+        mm_release(current->mm);
+        current->mm = NULL;
+    }
+    if (current->files != NULL) {
+        fdtable_release(current->files);
+        current->files = NULL;
+    }
+    if (current->fs != NULL) {
+        fs_info_release(current->fs);
+        current->fs = NULL;
+    }
+    // Close per-thread futex wakeup pipe
+    if (current->futex_pipe[0] != -1) {
+        close(current->futex_pipe[0]);
+        current->futex_pipe[0] = -1;
+    }
+    if (current->futex_pipe[1] != -1) {
+        close(current->futex_pipe[1]);
+        current->futex_pipe[1] = -1;
+    }
+
     // sighand must be released below so it can be protected by pids_lock
     // since it can be accessed by other threads
 
@@ -70,9 +115,12 @@ noreturn void do_exit(int status) {
     // the actual freeing needs pids_lock
     lock(&pids_lock);
     current->exiting = true;
-    // release the sighand
-    sighand_release(current->sighand);
-    current->sighand = NULL;
+    // release the sighand (may already be NULL if another thread in the group
+    // exited concurrently and released it, e.g. after safety-valve SIGUSR1)
+    if (current->sighand != NULL) {
+        sighand_release(current->sighand);
+        current->sighand = NULL;
+    }
     struct sigqueue *sigqueue, *sigqueue_tmp;
     list_for_each_entry_safe(&current->queue, sigqueue, sigqueue_tmp, queue) {
         list_remove(&sigqueue->queue);
@@ -90,8 +138,20 @@ noreturn void do_exit(int status) {
     }
 
     if (exit_tgroup(current)) {
+        // If already marked zombie by do_exit_group force path, skip
+        if (leader->zombie)
+            goto skip_zombie_notify;
+
         // notify parent that we died
         struct task *parent = leader->parent;
+        if (parent == NULL && current->pid != 1) {
+            // Non-init process with no parent - try to find one
+            // This can happen during reparenting or if parent exited first
+            parent = pid_get_task(1); // Reparent to init
+            if (parent != NULL)
+                leader->parent = parent;
+        }
+
         if (parent == NULL) {
             // init died
             halt_system();
@@ -112,42 +172,186 @@ noreturn void do_exit(int status) {
 
         if (exit_hook != NULL)
             exit_hook(current, status);
+    skip_zombie_notify: ;
     }
 
     vfork_notify(current);
-    if (current != leader)
-        task_destroy(current);
+    if (current != leader) {
+        struct task *self = current;
+        current = NULL;  // Clear before destroy to prevent dangling access
+        task_destroy(self);
+    }
     unlock(&pids_lock);
 
     pthread_exit(NULL);
 }
 
 noreturn void do_exit_group(int status) {
+    // Leaked thread woke up after group already exited — bail silently.
+    if (current->exiting) {
+        current = NULL;
+        pthread_exit(NULL);
+    }
     struct tgroup *group = current->group;
     lock(&pids_lock);
     lock(&group->lock);
+    bool is_group_leader = false;
     if (!group->doing_group_exit) {
         group->doing_group_exit = true;
         group->group_exit_code = status;
+        is_group_leader = true;  // First thread to call exit_group
     } else {
         status = group->group_exit_code;
     }
 
     // kill everyone else in the group
+    int thread_count = 0;
     struct task *task;
     list_for_each_entry(&group->threads, task, group_links) {
+        thread_count++;
         deliver_signal(task, SIGKILL_, SIGINFO_NIL);
         task->group->stopped = false;
         notify(&task->group->stopped_cond);
     }
+    (void)is_group_leader;
+
+    // Only the first thread (group leader) waits for others to exit
+    // Other threads exit immediately to avoid deadlock
+    if (is_group_leader && thread_count > 1) {
+        unlock(&group->lock);
+        unlock(&pids_lock);
+
+        // Wait for threads to exit (they're DETACHED so we can't join)
+        // Poll the thread count until only current thread remains
+        int max_wait_ms = 500 + thread_count * 10;  // Scale with thread count
+        if (max_wait_ms > 5000) max_wait_ms = 5000;  // Cap at 5s
+        int wait_interval_ms = 10;  // Check every 10ms
+        int waited_ms = 0;
+        int last_remaining = -1;
+
+        while (waited_ms < max_wait_ms) {
+            lock(&pids_lock);
+            lock(&group->lock);
+
+            // Count threads still in the group (excluding current)
+            int remaining = 0;
+            list_for_each_entry(&group->threads, task, group_links) {
+                if (task != current) {
+                    remaining++;
+                }
+            }
+
+            unlock(&group->lock);
+            unlock(&pids_lock);
+
+            last_remaining = remaining;
+
+            if (remaining == 0) {
+                break;
+            }
+
+            // Sleep a bit to let threads exit
+            struct timespec ts = {0, wait_interval_ms * 1000000L};
+            nanosleep(&ts, NULL);
+            waited_ms += wait_interval_ms;
+        }
+
+        if (waited_ms >= max_wait_ms) {
+            // Threads are stuck in blocking syscalls and won't exit.
+            printk("SAFETY-VALVE[exit]: pid=%d do_exit_group waited %dms, %d threads still stuck → force kill\n",
+                   current->pid, waited_ms, last_remaining);
+
+            // Signal stuck threads with SIGUSR1 repeatedly.
+            // Don't use pthread_cancel — it can corrupt malloc state if the
+            // thread is cancelled inside malloc/free.
+            for (int attempt = 0; attempt < 3; attempt++) {
+                lock(&pids_lock);
+                lock(&group->lock);
+                int still_alive = 0;
+                list_for_each_entry(&group->threads, task, group_links) {
+                    if (task != current && !task->exiting) {
+                        still_alive++;
+                        cpu_poke(&task->cpu);
+                        if (task->thread)
+                            pthread_kill(task->thread, SIGUSR1);
+                    }
+                }
+                unlock(&group->lock);
+                unlock(&pids_lock);
+                if (still_alive == 0) break;
+                struct timespec ts2 = {0, 50 * 1000000L};  // 50ms
+                nanosleep(&ts2, NULL);
+            }
+
+            // If threads are truly stuck in uninterruptible host syscalls,
+            // we accept the leak rather than risking heap corruption.
+            // Mark them as exiting and remove from the thread group list so
+            // that exit_tgroup() sees the group as dead and notifies the parent.
+            lock(&pids_lock);
+            lock(&group->lock);
+            int leaked = 0;
+            struct task *task_tmp;
+            list_for_each_entry_safe(&group->threads, task, task_tmp, group_links) {
+                if (task != current && !task->exiting) {
+                    task->exiting = true;
+                    list_remove(&task->group_links);
+                    // Release resources so pipes get EOF and memory is freed.
+                    if (task->sighand != NULL) {
+                        sighand_release(task->sighand);
+                        task->sighand = NULL;
+                    }
+                    if (task->mm != NULL) {
+                        mm_release(task->mm);
+                        task->mm = NULL;
+                        task->mem = NULL;
+                    }
+                    if (task->files != NULL) {
+                        fdtable_release(task->files);
+                        task->files = NULL;
+                    }
+                    if (task->fs != NULL) {
+                        fs_info_release(task->fs);
+                        task->fs = NULL;
+                    }
+                    leaked++;
+                }
+            }
+            unlock(&group->lock);
+            unlock(&pids_lock);
+            if (leaked > 0)
+                printk("SAFETY-VALVE[exit]: pid=%d leaked %d stuck host threads\n",
+                       current->pid, leaked);
+        } else {
+
+            // Give extra time for pthread cleanup on host system
+            // This ensures:
+            // 1. pthread_exit() completes for all threads
+            // 2. TLS destructors run
+            // 3. Host malloc/arena cleanup happens
+            // 4. Stack unwinding completes (glibc on ARM64)
+            struct timespec extra_delay = {0, 50 * 1000000L};  // 50ms for pthread cleanup
+            nanosleep(&extra_delay, NULL);
+
+#if __APPLE__
+            // Force malloc zone cleanup to release thread-specific caches
+            // This helps prevent pollution between guest processes
+            malloc_zone_pressure_relief(NULL, 0);
+#endif
+        }
+
+        lock(&pids_lock);
+        lock(&group->lock);
+    }
 
     unlock(&group->lock);
     unlock(&pids_lock);
+
     do_exit(status);
 }
 
 // always called from init process
 static void halt_system(void) {
+    int max_iterations = 10; // Timeout: wait maximum 10 seconds
     for (int state = 0; state < 3; state++) {
         int tasks_found = 0;
         for (int i = 2; i < MAX_PID; i++) {
@@ -168,8 +372,14 @@ static void halt_system(void) {
         }
         if (tasks_found == 0)
             break;
-        if (state != 2)
+        if (state != 2) {
             sleep(1);
+            // Timeout protection: if we've waited too long, force exit
+            if (--max_iterations <= 0) {
+                printk("halt_system: timeout after 10 seconds, %d tasks remaining\n", tasks_found);
+                break;
+            }
+        }
     }
 
     // unmount all filesystems
@@ -179,6 +389,17 @@ static void halt_system(void) {
         mount_remove(mount);
     }
     unlock(&mounts_lock);
+
+    // Restore host terminal settings before exiting.
+    // _exit() does not call atexit handlers, so we must do this explicitly.
+    extern void restore_termios(void);
+    restore_termios();
+
+    // Force exit the entire host process. Orphaned guest threads
+    // (stuck in JIT loops after do_exit_group force cleanup) keep
+    // the host process alive indefinitely. _exit is safe here since
+    // init dying means we're shutting down completely.
+    _exit(0);
 }
 
 dword_t sys_exit(dword_t status) {
@@ -282,6 +503,7 @@ int do_wait(int idtype, pid_t_ id, struct siginfo_ *info, struct rusage_ *rusage
     bool got_signal = false;
 
 retry:
+    ;
     if (idtype != P_PID_) {
         // look for a zombie child
         bool no_children = true;
@@ -299,9 +521,10 @@ retry:
                     goto found_something;
             }
         }
-        err = _ECHILD;
-        if (no_children)
+        if (no_children) {
+            err = _ECHILD;
             goto error;
+        }
     } else {
         // check if this child is a zombie
         struct task *task = pid_get_task_zombie(id);
@@ -326,12 +549,28 @@ retry:
     if (got_signal)
         goto error;
 
-    // no matching zombie found, wait for one
-    if (wait_for(&current->group->child_exit, &pids_lock, NULL)) {
-        // maybe we got a SIGCHLD! go through the loop one more time to make
-        // sure the newly exited process is returned in that case.
-        got_signal = true;
-        goto retry;
+    // no matching zombie found, wait for one.
+    // Use a bounded 1-second timeout to work around macOS condvar issues
+    // (pthread_cond_wait can block forever under thread contention).
+    current->blocking = true;
+    {
+        struct timespec waitpid_timeout = {.tv_sec = 1, .tv_nsec = 0};
+        if (wait_for(&current->group->child_exit, &pids_lock, &waitpid_timeout)) {
+            // Signal received during wait
+            got_signal = true;
+        }
+    }
+    current->blocking = false;
+    {
+        // Update last_progress_ns: waitpid is actively polling for a child,
+        // this is real work (not a stuck thread). Prevents the poll_wait
+        // safety valve from killing a parent waiting for a long-running child.
+        struct timespec _ts;
+        clock_gettime(CLOCK_MONOTONIC, &_ts);
+        uint64_t now = (uint64_t)_ts.tv_sec * 1000000000ULL + _ts.tv_nsec;
+        current->last_unblocked_ns = now;
+        atomic_store_explicit(&current->group->last_progress_ns, now,
+                              memory_order_relaxed);
     }
     goto retry;
 

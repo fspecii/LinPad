@@ -108,6 +108,30 @@ dword_t sys_setrlimit32(dword_t resource, addr_t rlim_addr) {
     return rlimit_set(current, resource, rlimit);
 }
 
+// 64-bit getrlimit/setrlimit for ARM64 (struct rlimit with 64-bit cur/max)
+dword_t sys_getrlimit64(dword_t resource, addr_t rlim_addr) {
+    STRACE("getrlimit64(%d)", resource);
+    struct rlimit_ rlimit;
+    int err = rlimit_get(current, resource, &rlimit);
+    if (err < 0)
+        return err;
+    STRACE(" {cur=%#llx, max=%#llx}", (unsigned long long)rlimit.cur, (unsigned long long)rlimit.max);
+    if (user_put(rlim_addr, rlimit))
+        return _EFAULT;
+    return 0;
+}
+
+dword_t sys_setrlimit64(dword_t resource, addr_t rlim_addr) {
+    struct rlimit_ rlimit;
+    if (user_get(rlim_addr, rlimit))
+        return _EFAULT;
+    STRACE("setrlimit64(%d, {cur=%#llx, max=%#llx})", resource, (unsigned long long)rlimit.cur, (unsigned long long)rlimit.max);
+    int err = check_setrlimit(resource, rlimit);
+    if (err < 0)
+        return err;
+    return rlimit_set(current, resource, rlimit);
+}
+
 dword_t sys_prlimit64(pid_t_ pid, dword_t resource, addr_t new_limit_addr, addr_t old_limit_addr) {
     STRACE("prlimit64(%d, %d)", pid, resource);
     if (pid != 0)

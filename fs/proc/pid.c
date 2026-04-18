@@ -16,6 +16,9 @@ static void proc_pid_getname(struct proc_entry *entry, char *buf) {
 static struct task *proc_get_task(struct proc_entry *entry) {
     lock(&pids_lock);
     struct task *task = pid_get_task(entry->pid);
+    // Also reject tasks that are mid-exit: sighand/group may already be freed.
+    if (task != NULL && (task->exiting || task->sighand == NULL || task->group == NULL))
+        task = NULL;
     if (task == NULL)
         unlock(&pids_lock);
     return task;
@@ -213,8 +216,14 @@ void proc_maps_dump(struct task *task, struct proc_data *buf) {
         } else if (data->fd != NULL) {
             generic_getpath(start_pt->data->fd, path);
         }
+#ifdef GUEST_ARM64
+        proc_printf(buf, "%012llx-%012llx %c%c%c%c %08lx 00:00 %-10d %s\n",
+                (unsigned long long)(start << PAGE_BITS),
+                (unsigned long long)(end << PAGE_BITS),
+#else
         proc_printf(buf, "%08x-%08x %c%c%c%c %08lx 00:00 %-10d %s\n",
                 start << PAGE_BITS, end << PAGE_BITS,
+#endif
                 start_pt->flags & P_READ ? 'r' : '-',
                 start_pt->flags & P_WRITE ? 'w' : '-',
                 start_pt->flags & P_EXEC ? 'x' : '-',
@@ -292,7 +301,11 @@ static int proc_pid_exe_readlink(struct proc_entry *entry, char *buf) {
     if (task == NULL)
         return _ESRCH;
     lock(&task->general_lock);
-    int err = generic_getpath(task->mm->exefile, buf);
+    int err;
+    if (task->mm == NULL || task->mm->exefile == NULL)
+        err = _ENOENT;
+    else
+        err = generic_getpath(task->mm->exefile, buf);
     unlock(&task->general_lock);
     proc_put_task(task);
     return err;

@@ -1,13 +1,55 @@
 #define DEFAULT_CHANNEL instr
 #include "debug.h"
+#include <signal.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <time.h>
 #include "asbestos/asbestos.h"
 #include "asbestos/gen.h"
 #include "asbestos/frame.h"
 #include "emu/cpu.h"
 #include "emu/interrupt.h"
+#include "emu/tlb.h"
+#include "kernel/memory.h"
 #include "util/list.h"
 
+// Thread-local recovery state for JIT crash handling.
+// When a host SIGSEGV occurs inside JIT code (due to a stale TLB pointer
+// from a concurrent CoW), the signal handler redirects PC to
+// jit_crash_trampoline via ucontext, which returns INT_GPF to the
+// dispatch loop. handle_interrupt resolves via mem_ptr (CoW/GROWSDOWN).
+//
+// This avoids the overhead of _setjmp on every block entry (~1.5% of
+// total execution time). The signal handler writes crash info directly
+// to cpu_state via the _cpu pointer (x1) from ucontext.
+__thread volatile sig_atomic_t in_jit;
+__thread volatile addr_t jit_saved_pc;  // block start PC, read by signal handler
+// Marker set to 1 on iSH execution threads so the signal handler can distinguish
+// iSH threads from app threads (Swift async, networking, UI).
+__thread int ish_thread_marker;
+
+// Architecture-specific instruction pointer access
+#if defined(GUEST_ARM64)
+#define CPU_IP(cpu) ((cpu)->pc)
+#define CPU_HAS_SINGLE_STEP 0
+#else
+#define CPU_IP(cpu) ((cpu)->eip)
+#define CPU_HAS_SINGLE_STEP ((cpu)->tf)
+#endif
+
 extern int current_pid(void);
+
+// Stubs for debug hooks referenced from assembly/gen.c/tlb.c
+volatile bool g_trace_highbits = false;
+volatile addr_t g_watch_page_val = 0;
+
+void jit_trace_regs(struct cpu_state *cpu) { (void)cpu; }
+void c_watch_write_hit(addr_t addr, const char *caller) { (void)addr; (void)caller; }
+void jit_watch_write_hit(struct cpu_state *cpu, addr_t store_addr, unsigned long *code_ptr) {
+    (void)cpu; (void)store_addr; (void)code_ptr;
+}
+void jit_highbit_alert(struct cpu_state *cpu) { (void)cpu; }
 
 static void fiber_block_disconnect(struct asbestos *asbestos, struct fiber_block *block);
 static void fiber_block_free(struct asbestos *asbestos, struct fiber_block *block);
@@ -22,6 +64,8 @@ struct asbestos *asbestos_new(struct mmu *mmu) {
     list_init(&asbestos->jetsam);
     lock_init(&asbestos->lock);
     wrlock_init(&asbestos->jetsam_lock);
+    atomic_init(&asbestos->jit_active_threads, 0);
+    atomic_init(&asbestos->jetsam_gen, 0);
     return asbestos;
 }
 
@@ -47,6 +91,7 @@ static inline struct list *blocks_list(struct asbestos *asbestos, page_t page, i
 
 void asbestos_invalidate_range(struct asbestos *absestos, page_t start, page_t end) {
     lock(&absestos->lock);
+    bool did_invalidate = false;
     struct fiber_block *block, *tmp;
     for (page_t page = start; page < end; page++) {
         for (int i = 0; i <= 1; i++) {
@@ -57,17 +102,50 @@ void asbestos_invalidate_range(struct asbestos *absestos, page_t start, page_t e
                 fiber_block_disconnect(absestos, block);
                 block->is_jetsam = true;
                 list_add(&absestos->jetsam, &block->jetsam);
+                did_invalidate = true;
             }
         }
     }
+    if (did_invalidate)
+        absestos->invalidate_gen++;
     unlock(&absestos->lock);
 }
 
 void asbestos_invalidate_page(struct asbestos *asbestos, page_t page) {
+    // Fast path: skip lock if no blocks exist on this page.
+    // page_hash is only modified under asbestos->lock, and list_null is a
+    // single pointer read, so a racy false-negative just means we take
+    // the slow path unnecessarily (safe). A false-positive is impossible
+    // because blocks are always added before being linked into page_hash.
+    for (int i = 0; i <= 1; i++) {
+        struct list *blocks = blocks_list(asbestos, page, i);
+        if (!list_null(blocks))
+            goto slow_path;
+    }
+    return;
+slow_path:
     asbestos_invalidate_range(asbestos, page, page + 1);
 }
 void asbestos_invalidate_all(struct asbestos *asbestos) {
-    asbestos_invalidate_range(asbestos, 0, MEM_PAGES);
+    lock(&asbestos->lock);
+    bool did_invalidate = false;
+    struct fiber_block *block, *tmp;
+    for (size_t bucket = 0; bucket < FIBER_PAGE_HASH_SIZE; bucket++) {
+        for (int i = 0; i <= 1; i++) {
+            struct list *blocks = &asbestos->page_hash[bucket].blocks[i];
+            if (list_null(blocks))
+                continue;
+            list_for_each_entry_safe(blocks, block, tmp, page[i]) {
+                fiber_block_disconnect(asbestos, block);
+                block->is_jetsam = true;
+                list_add(&asbestos->jetsam, &block->jetsam);
+                did_invalidate = true;
+            }
+        }
+    }
+    if (did_invalidate)
+        asbestos->invalidate_gen++;
+    unlock(&asbestos->lock);
 }
 
 static void fiber_resize_hash(struct asbestos *asbestos, size_t new_size) {
@@ -144,7 +222,7 @@ static void fiber_block_disconnect(struct asbestos *asbestos, struct fiber_block
     }
     list_remove(&block->chain);
     for (int i = 0; i <= 1; i++) {
-        list_remove(&block->page[i]);
+        list_remove_safe(&block->page[i]);
         list_remove_safe(&block->jumps_from_links[i]);
 
         struct fiber_block *prev_block, *tmp;
@@ -170,24 +248,60 @@ static void fiber_free_jetsam(struct asbestos *asbestos) {
 }
 
 int fiber_enter(struct fiber_block *block, struct fiber_frame *frame, struct tlb *tlb);
+static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb);
 
 static inline size_t fiber_cache_hash(addr_t ip) {
-    return (ip ^ (ip >> 12)) % FIBER_CACHE_SIZE;
+    return (ip ^ (ip >> 12)) & (FIBER_CACHE_SIZE - 1);
 }
 
 static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     struct asbestos *asbestos = cpu->mmu->asbestos;
+
+    // Hold jetsam_lock read during JIT execution.
+    // This prevents jetsam cleanup from freeing blocks while we're executing them.
     read_wrlock(&asbestos->jetsam_lock);
 
-    struct fiber_block **cache = calloc(FIBER_CACHE_SIZE, sizeof(*cache));
-    struct fiber_frame *frame = malloc(sizeof(struct fiber_frame));
-    memset(frame, 0, sizeof(*frame));
+    // Use persistent block cache and frame from TLB; invalidate when blocks are jetsam'd
+    bool caches_stale = (tlb->block_cache_gen != asbestos->invalidate_gen);
+    struct fiber_block **cache = tlb->block_cache;
+    if (caches_stale) {
+        memset(cache, 0, sizeof(tlb->block_cache));
+        tlb->block_cache_gen = asbestos->invalidate_gen;
+    }
+
+    // Use persistent frame from TLB (avoids malloc/free + ret_cache zeroing)
+    struct fiber_frame *frame = tlb->frame;
+    if (frame == NULL) {
+        frame = calloc(1, sizeof(struct fiber_frame));
+        tlb->frame = frame;
+    } else if (caches_stale) {
+        // ret_cache holds pointers into block->code; must clear on invalidation
+        memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+    }
+    frame->last_block = NULL;
     frame->cpu = *cpu;
     assert(asbestos->mmu == cpu->mmu);
 
     int interrupt = INT_NONE;
+    int crash_retry_count = 0;
     while (interrupt == INT_NONE) {
-        addr_t ip = frame->cpu.eip;
+        // Check if blocks were invalidated since last check (e.g. CoW by another thread).
+        // This must be inside the loop, not just at function entry, because invalidation
+        // can happen while we're in the JIT cycle (between fiber_enter calls).
+        if (tlb->block_cache_gen != asbestos->invalidate_gen) {
+            memset(cache, 0, sizeof(tlb->block_cache));
+            tlb->block_cache_gen = asbestos->invalidate_gen;
+            memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+        }
+
+        addr_t ip = CPU_IP(&frame->cpu);
+        // Guard: null guest PC means corrupted state (e.g., branch to unmapped
+        // address 0). Return INT_GPF instead of trying to compile/execute.
+        if (ip == 0) {
+            frame->cpu.segfault_addr = 0;
+            interrupt = INT_GPF;
+            break;
+        }
         size_t cache_index = fiber_cache_hash(ip);
         struct fiber_block *block = cache[cache_index];
         if (block == NULL || block->addr != ip) {
@@ -204,22 +318,23 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         }
         struct fiber_block *last_block = frame->last_block;
         if (last_block != NULL &&
+                !last_block->is_jetsam && !block->is_jetsam &&
                 (last_block->jump_ip[0] != NULL ||
                  last_block->jump_ip[1] != NULL)) {
-            lock(&asbestos->lock);
-            // can't mint new pointers to a block that has been marked jetsam
-            // and is thus assumed to have no pointers left
-            if (!last_block->is_jetsam && !block->is_jetsam) {
-                for (int i = 0; i <= 1; i++) {
-                    if (last_block->jump_ip[i] != NULL &&
-                            (*last_block->jump_ip[i] & 0xffffffff) == block->addr) {
-                        *last_block->jump_ip[i] = (unsigned long) block->code;
-                        list_add(&block->jumps_from[i], &last_block->jumps_from_links[i]);
+            if (trylock(&asbestos->lock) == 0) {
+                // can't mint new pointers to a block that has been marked jetsam
+                // and is thus assumed to have no pointers left
+                if (!last_block->is_jetsam && !block->is_jetsam) {
+                    for (int i = 0; i <= 1; i++) {
+                        if (last_block->jump_ip[i] != NULL &&
+                                (*last_block->jump_ip[i] & 0xffffffff) == block->addr) {
+                            *last_block->jump_ip[i] = (unsigned long) block->code;
+                            list_add(&block->jumps_from[i], &last_block->jumps_from_links[i]);
+                        }
                     }
                 }
+                unlock(&asbestos->lock);
             }
-
-            unlock(&asbestos->lock);
         }
         frame->last_block = block;
 
@@ -228,23 +343,65 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
         TRACE("%d %08x --- cycle %ld\n", current_pid(), ip, frame->cpu.cycle);
 
-        interrupt = fiber_enter(block, frame, tlb);
-        if (interrupt == INT_NONE && __atomic_exchange_n(cpu->poked_ptr, false, __ATOMIC_SEQ_CST))
-            interrupt = INT_TIMER;
-        if (interrupt == INT_NONE && ++frame->cpu.cycle % (1 << 10) == 0)
-            interrupt = INT_TIMER;
-        *cpu = frame->cpu;
-    }
+        // Save block start PC to thread-local for crash recovery.
+        // The signal handler reads this to restore cpu->pc on SIGSEGV.
+        jit_saved_pc = frame->cpu.pc;
 
-    free(frame);
-    free(cache);
+        in_jit = 1;
+        interrupt = fiber_enter(block, frame, tlb);
+        in_jit = 0;
+
+        // Check if fiber_enter returned due to a JIT crash (signal handler
+        // redirected PC to jit_crash_trampoline which returns INT_JIT_CRASH).
+        // The signal handler already set cpu->segfault_addr, cpu->pc, etc.
+        if (interrupt == INT_JIT_CRASH) {
+            // Flush all caches to get fresh host pointers.
+            tlb_flush(tlb);
+            memset(cache, 0, sizeof(tlb->block_cache));
+            tlb->block_cache_gen = asbestos->invalidate_gen;
+            memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+            frame->last_block = NULL;
+
+            crash_retry_count++;
+            if (crash_retry_count >= 16) {
+                // Too many consecutive crashes — escalate to INT_GPF for handle_interrupt
+                interrupt = INT_GPF;
+                crash_retry_count = 0;
+            } else {
+                // Retry: convert to INT_NONE so the loop continues
+                interrupt = INT_NONE;
+            }
+        } else {
+            crash_retry_count = 0;
+        }
+
+        // (debug trace removed)
+
+        // Check if page table changed (mmap/munmap by another thread) EVERY BLOCK.
+        if (tlb->mem_changes != __atomic_load_n(&tlb->mmu->changes, __ATOMIC_ACQUIRE)) {
+            tlb_flush(tlb);
+            memset(cache, 0, sizeof(tlb->block_cache));
+            tlb->block_cache_gen = asbestos->invalidate_gen;
+            memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+            frame->last_block = NULL;
+        }
+
+        if (interrupt == INT_NONE && __atomic_exchange_n(frame->cpu.poked_ptr, false, __ATOMIC_ACQUIRE))
+            interrupt = INT_TIMER;
+        if (interrupt == INT_NONE && (++frame->cpu.cycle & ((1 << 10) - 1)) == 0)
+            interrupt = INT_TIMER;
+    }
+    *cpu = frame->cpu;
+
+    // Release jetsam_lock read. Jetsam cleanup can now proceed.
     read_wrunlock(&asbestos->jetsam_lock);
+
     return interrupt;
 }
 
 static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
     struct gen_state state;
-    gen_start(cpu->eip, &state);
+    gen_start(CPU_IP(cpu), &state);
     gen_step(&state, tlb);
     gen_exit(&state);
     gen_end(&state);
@@ -260,25 +417,38 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
 }
 
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
+    ish_thread_marker = 1;
     if (cpu->poked_ptr == NULL)
         cpu->poked_ptr = &cpu->_poked;
-    tlb_refresh(tlb, cpu->mmu);
-    int interrupt = (cpu->tf ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb);
-    cpu->trapno = interrupt;
-
+#ifdef GUEST_ARM64
+    // NOTE: Do NOT invalidate exclusive monitor here.
+    // This function is called once, but the inner loop (cpu_step_to_interrupt)
+    // calls fiber_enter repeatedly. The LDXR/STXR pair may span multiple
+    // fiber_enter calls (unchained blocks). Invalidating here would break
+    // LDXR/STXR atomicity across block boundaries.
+    // The exclusive monitor is invalidated by STXR itself (success or fail)
+    // and by context switches / signal delivery.
+#endif
     struct asbestos *asbestos = cpu->mmu->asbestos;
+    __atomic_add_fetch(&asbestos->active_threads, 1, __ATOMIC_RELAXED);
+    tlb_refresh(tlb, cpu->mmu);
+    int interrupt = (CPU_HAS_SINGLE_STEP ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb);
+    cpu->trapno = interrupt;
+    __atomic_sub_fetch(&asbestos->active_threads, 1, __ATOMIC_RELAXED);
+
     lock(&asbestos->lock);
     if (!list_empty(&asbestos->jetsam)) {
-        // write-lock the jetsam_lock to wait until other asbestos threads get
-        // to this point, so they will all clear out their block pointers
-        // TODO: use RCU for better performance
         unlock(&asbestos->lock);
+
+        // Write lock ensures all JIT threads have exited (they hold read lock).
         write_wrlock(&asbestos->jetsam_lock);
         lock(&asbestos->lock);
         fiber_free_jetsam(asbestos);
+        unlock(&asbestos->lock);
         write_wrunlock(&asbestos->jetsam_lock);
+    } else {
+        unlock(&asbestos->lock);
     }
-    unlock(&asbestos->lock);
 
     return interrupt;
 }

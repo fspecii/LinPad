@@ -5,6 +5,7 @@
 #include "debug.h"
 #include <time.h>
 #include <signal.h>
+#include <sched.h>
 #include <sys/time.h>
 #include "kernel/calls.h"
 #include "kernel/errno.h"
@@ -12,12 +13,18 @@
 #include "kernel/time.h"
 #include "fs/poll.h"
 
+#define TIMER_ABSTIME_ (1 << 0)
+
 static int clockid_to_real(uint_t clock, clockid_t *real) {
     switch (clock) {
         case CLOCK_REALTIME_:
         case CLOCK_REALTIME_COARSE_:
             *real = CLOCK_REALTIME; break;
-        case CLOCK_MONOTONIC_: *real = CLOCK_MONOTONIC; break;
+        case CLOCK_MONOTONIC_:
+        case CLOCK_MONOTONIC_RAW_:
+        case CLOCK_MONOTONIC_COARSE_:
+        case CLOCK_BOOTTIME_:
+            *real = CLOCK_MONOTONIC; break;
         default: return _EINVAL;
     }
     return 0;
@@ -76,7 +83,7 @@ dword_t sys_clock_gettime(dword_t clock, addr_t tp) {
     t.nsec = ts.tv_nsec;
     if (user_put(tp, t))
         return _EFAULT;
-    STRACE(" {%lds %ldns}", t.sec, t.nsec);
+    STRACE(" {%llds %lldns}", (long long)t.sec, (long long)t.nsec);
     return 0;
 }
 
@@ -128,7 +135,11 @@ int_t sys_setitimer(int_t which, addr_t new_val_addr, addr_t old_val_addr) {
     struct itimerval_ val;
     if (user_get(new_val_addr, val))
         return _EFAULT;
-    STRACE("setitimer(%d, {%ds %dus, %ds %dus}, 0x%x)", which, val.value.sec, val.value.usec, val.interval.sec, val.interval.usec, old_val_addr);
+    STRACE("setitimer(%d, {%llds %lldus, %llds %lldus}, 0x%x)",
+        which,
+        (long long)val.value.sec, (long long)val.value.usec,
+        (long long)val.interval.sec, (long long)val.interval.usec,
+        old_val_addr);
 
     struct timer_spec spec = {
         .interval.tv_sec = val.interval.sec,
@@ -185,7 +196,19 @@ dword_t sys_nanosleep(addr_t req_addr, addr_t rem_addr) {
     struct timespec_ req_ts;
     if (user_get(req_addr, req_ts))
         return _EFAULT;
-    STRACE("nanosleep({%d, %d}, 0x%x", req_ts.sec, req_ts.nsec, rem_addr);
+    STRACE("nanosleep({%lld, %lld}, 0x%x", (long long)req_ts.sec, (long long)req_ts.nsec, rem_addr);
+
+    // Short-circuit for ≤1ms sleeps (common in Go runtime timer management)
+    if (req_ts.sec == 0 && req_ts.nsec <= 1000000) {
+        sched_yield();
+        if (rem_addr != 0) {
+            struct timespec_ rem_ts = {.sec = 0, .nsec = 0};
+            if (user_put(rem_addr, rem_ts))
+                return _EFAULT;
+        }
+        return 0;
+    }
+
     struct timespec req;
     req.tv_sec = req_ts.sec;
     req.tv_nsec = req_ts.nsec;
@@ -193,6 +216,49 @@ dword_t sys_nanosleep(addr_t req_addr, addr_t rem_addr) {
     if (nanosleep(&req, &rem) < 0)
         return errno_map();
     if (rem_addr != 0) {
+        struct timespec_ rem_ts;
+        rem_ts.sec = rem.tv_sec;
+        rem_ts.nsec = rem.tv_nsec;
+        if (user_put(rem_addr, rem_ts))
+            return _EFAULT;
+    }
+    return 0;
+}
+
+dword_t sys_clock_nanosleep(dword_t clock, dword_t flags, addr_t req_addr, addr_t rem_addr) {
+    struct timespec_ req_ts;
+    if (user_get(req_addr, req_ts))
+        return _EFAULT;
+    STRACE("clock_nanosleep(%d, %d, {%lld, %lld}, 0x%x)", clock, flags,
+           (long long)req_ts.sec, (long long)req_ts.nsec, rem_addr);
+
+    clockid_t real_clock;
+    if (clockid_to_real(clock, &real_clock))
+        return _EINVAL;
+
+    struct timespec req;
+    req.tv_sec = req_ts.sec;
+    req.tv_nsec = req_ts.nsec;
+
+    if (flags & TIMER_ABSTIME_) {
+        // Convert absolute time to relative by subtracting current time
+        struct timespec now;
+        if (clock_gettime(real_clock, &now) < 0)
+            return errno_map();
+        req.tv_sec -= now.tv_sec;
+        req.tv_nsec -= now.tv_nsec;
+        if (req.tv_nsec < 0) {
+            req.tv_sec--;
+            req.tv_nsec += 1000000000;
+        }
+        if (req.tv_sec < 0)
+            return 0; // Already past the target time
+    }
+
+    struct timespec rem;
+    if (nanosleep(&req, &rem) < 0)
+        return errno_map();
+    if (rem_addr != 0 && !(flags & TIMER_ABSTIME_)) {
         struct timespec_ rem_ts;
         rem_ts.sec = rem.tv_sec;
         rem_ts.nsec = rem.tv_nsec;
@@ -312,8 +378,6 @@ int_t sys_timer_create(dword_t clock, addr_t sigevent_addr, addr_t timer_addr) {
     return 0;
 }
 
-#define TIMER_ABSTIME_ (1 << 0)
-
 int_t sys_timer_settime(dword_t timer_id, int_t flags, addr_t new_value_addr, addr_t old_value_addr) {
     STRACE("timer_settime(%d, %d, %#x, %#x)", timer_id, flags, new_value_addr, old_value_addr);
     struct itimerspec_ value;
@@ -340,6 +404,52 @@ int_t sys_timer_settime(dword_t timer_id, int_t flags, addr_t new_value_addr, ad
         if (user_put(old_value_addr, old_value))
             return _EFAULT;
     }
+    return 0;
+}
+
+int_t sys_timer_gettime(dword_t timer_id, addr_t curr_value_addr) {
+    STRACE("timer_gettime(%d, %#x)", timer_id, curr_value_addr);
+    if (timer_id >= TIMERS_MAX)
+        return _EINVAL;
+
+    lock(&current->group->lock);
+    struct posix_timer *pt = &current->group->posix_timers[timer_id];
+    if (pt->timer == NULL) {
+        unlock(&current->group->lock);
+        return _EINVAL;
+    }
+
+    struct timer_spec spec;
+    spec.interval = pt->timer->interval;
+    if (pt->timer->active) {
+        struct timespec now = timespec_now(pt->timer->clockid);
+        if (timespec_positive(timespec_subtract(pt->timer->end, now)))
+            spec.value = timespec_subtract(pt->timer->end, now);
+        else
+            spec.value = (struct timespec) {0, 0};
+    } else {
+        spec.value = (struct timespec) {0, 0};
+    }
+    unlock(&current->group->lock);
+
+    struct itimerspec_ value = timer_spec_from_real(spec);
+    if (user_put(curr_value_addr, value))
+        return _EFAULT;
+    return 0;
+}
+
+int_t sys_timer_getoverrun(dword_t timer_id) {
+    STRACE("timer_getoverrun(%d)", timer_id);
+    if (timer_id >= TIMERS_MAX)
+        return _EINVAL;
+
+    lock(&current->group->lock);
+    struct posix_timer *pt = &current->group->posix_timers[timer_id];
+    if (pt->timer == NULL) {
+        unlock(&current->group->lock);
+        return _EINVAL;
+    }
+    unlock(&current->group->lock);
     return 0;
 }
 
@@ -411,6 +521,35 @@ int_t sys_timerfd_settime(fd_t f, int_t flags, addr_t new_value_addr, addr_t old
             return _EFAULT;
     }
 
+    return 0;
+}
+
+int_t sys_timerfd_gettime(fd_t f, addr_t curr_value_addr) {
+    STRACE("timerfd_gettime(%d, %#x)", f, curr_value_addr);
+    struct fd *fd = f_get(f);
+    if (fd == NULL)
+        return _EBADF;
+    if (fd->ops != &timerfd_ops)
+        return _EINVAL;
+
+    struct timer_spec spec;
+    lock(&fd->lock);
+    spec.interval = fd->timerfd.timer->interval;
+    if (fd->timerfd.timer->active) {
+        struct timespec now = timespec_now(fd->timerfd.timer->clockid);
+        struct timespec remaining = timespec_subtract(fd->timerfd.timer->end, now);
+        if (timespec_positive(remaining))
+            spec.value = remaining;
+        else
+            spec.value = (struct timespec) {0, 0};
+    } else {
+        spec.value = (struct timespec) {0, 0};
+    }
+    unlock(&fd->lock);
+
+    struct itimerspec_ value = timer_spec_from_real(spec);
+    if (user_put(curr_value_addr, value))
+        return _EFAULT;
     return 0;
 }
 

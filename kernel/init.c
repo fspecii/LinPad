@@ -1,6 +1,8 @@
 #include <signal.h>
 #include <string.h>
+#include <time.h>
 #include <sys/stat.h>
+#include "fs/dev.h"
 #include "fs/devices.h"
 #include "fs/fd.h"
 #include "fs/real.h"
@@ -35,7 +37,7 @@ static struct rlimit_ init_rlimits[16] = {
     [RLIMIT_CPU_]        = {RLIM_INFINITY_, RLIM_INFINITY_},
     [RLIMIT_FSIZE_]      = {RLIM_INFINITY_, RLIM_INFINITY_},
     [RLIMIT_DATA_]       = {RLIM_INFINITY_, RLIM_INFINITY_},
-    [RLIMIT_STACK_]      = {8*1024*1024, RLIM_INFINITY_},
+    [RLIMIT_STACK_]      = {128*1024*1024, RLIM_INFINITY_},
     [RLIMIT_CORE_]       = {0, RLIM_INFINITY_},
     [RLIMIT_RSS_]        = {RLIM_INFINITY_, RLIM_INFINITY_},
     [RLIMIT_NPROC_]      = {1024, 1024},
@@ -63,6 +65,13 @@ static struct task *construct_task(struct task *parent) {
     memcpy(group->limits, init_rlimits, sizeof(init_rlimits));
     group->leader = task;
     group->personality = ADDR_NO_RANDOMIZE_;
+    {
+        struct timespec _ts;
+        clock_gettime(CLOCK_MONOTONIC, &_ts);
+        atomic_store_explicit(&group->last_progress_ns,
+            (uint64_t)_ts.tv_sec * 1000000000ULL + _ts.tv_nsec,
+            memory_order_relaxed);
+    }
     list_add(&group->threads, &task->group_links);
     task->group = group;
     task->tgid = task->pid;
@@ -127,6 +136,12 @@ void set_console_device(int major, int minor) {
 
 int create_stdio(const char *file, int major, int minor) {
     struct fd *fd = generic_open(file, O_RDWR_, 0);
+    if (!IS_ERR(fd) && !S_ISCHR(fd->stat.mode)) {
+        // opened a regular file instead of a char device (e.g. realfs
+        // can't create device nodes), so close it and use fallback
+        fd_close(fd);
+        fd = ERR_PTR(_ENOENT);
+    }
     if (IS_ERR(fd)) {
         // fallback to adhoc files for stdio
         fd = adhoc_fd_create(NULL);
@@ -152,6 +167,29 @@ static struct fd *open_fd_from_actual_fd(int fd_no) {
     }
     fd->real_fd = fd_no;
     fd->dir = NULL;
+    // Populate stat from host fd so guest fstat() returns valid metadata.
+    // Node.js (libuv) calls fstat on stdout/stderr to determine if it's a
+    // TTY, pipe, or file — all-zero stat causes console.log to silently fail.
+    struct stat real_stat;
+    if (fstat(fd_no, &real_stat) == 0) {
+        fd->stat.mode = real_stat.st_mode;
+        fd->stat.rdev = dev_fake_from_real(real_stat.st_rdev);
+        fd->stat.inode = real_stat.st_ino;
+        fd->stat.size = real_stat.st_size;
+        // On macOS, piped/redirected fds may appear as sockets (S_IFSOCK).
+        // Guest programs (especially Node.js/libuv) don't recognize sockets
+        // as valid stdio types and fail to initialize stdout/stderr handles.
+        // Report sockets as character devices (S_IFCHR) which is what Linux
+        // shows for TTY fds. This allows node's libuv uv_guess_handle() to
+        // detect them as TTY-like (when combined with isatty/TCGETS support)
+        // or fall back to a generic stream.
+        // Make guest see TTY-like char device when host fd is a socket
+        // (macOS piped stdio) or an actual TTY (terminal).
+        if (S_ISSOCK(fd->stat.mode) || isatty(fd_no)) {
+            fd->stat.mode = S_IFCHR | 0620;
+            fd->stat.rdev = dev_make(TTY_PSEUDO_SLAVE_MAJOR, 0);
+        }
+    }
     return fd;
 }
 

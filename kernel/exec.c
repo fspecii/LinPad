@@ -16,9 +16,20 @@
 #include "fs/fd.h"
 #include "kernel/elf.h"
 #include "kernel/vdso.h"
+#include "kernel/mm.h"
+#include "kernel/native_offload.h"
 #include "tools/ptraceomatic-config.h"
 
 #define ARGV_MAX 32 * PAGE_SIZE
+
+// Use architecture-appropriate ELF structures
+#if defined(GUEST_ARM64)
+typedef struct elf_header64 exec_elf_header;
+typedef struct prg_header64 exec_prg_header;
+#else
+typedef struct elf_header exec_elf_header;
+typedef struct prg_header exec_prg_header;
+#endif
 
 struct exec_args {
     // number of arguments
@@ -27,14 +38,14 @@ struct exec_args {
     const char *args;
 };
 
-static inline dword_t align_stack(dword_t sp);
-static inline ssize_t user_strlen(dword_t p);
+static inline addr_t align_stack(addr_t sp);
+static inline ssize_t user_strlen(addr_t p);
 static inline int user_memset(addr_t start, byte_t val, dword_t len);
-static inline dword_t copy_string(dword_t sp, const char *string);
-static inline dword_t args_copy(dword_t sp, struct exec_args args);
+static inline addr_t copy_string(addr_t sp, const char *string);
+static inline addr_t args_copy(addr_t sp, struct exec_args args);
 static size_t args_size(struct exec_args args);
 
-static int read_header(struct fd *fd, struct elf_header *header) {
+static int read_header(struct fd *fd, exec_elf_header *header) {
     int err;
     if (fd->ops->lseek(fd, 0, SEEK_SET))
         return _EIO;
@@ -45,17 +56,18 @@ static int read_header(struct fd *fd, struct elf_header *header) {
     }
     if (memcmp(&header->magic, ELF_MAGIC, sizeof(header->magic)) != 0
             || (header->type != ELF_EXECUTABLE && header->type != ELF_DYNAMIC)
-            || header->bitness != ELF_32BIT
+            || header->bitness != ELF_CLASS
             || header->endian != ELF_LITTLEENDIAN
             || header->elfversion1 != 1
-            || header->machine != ELF_X86)
+            || header->machine != ELF_MACHINE) {
         return _ENOEXEC;
+    }
     return 0;
 }
 
-static int read_prg_headers(struct fd *fd, struct elf_header header, struct prg_header **ph_out) {
-    ssize_t ph_size = sizeof(struct prg_header) * header.phent_count;
-    struct prg_header *ph = malloc(ph_size);
+static int read_prg_headers(struct fd *fd, exec_elf_header header, exec_prg_header **ph_out) {
+    ssize_t ph_size = sizeof(exec_prg_header) * header.phent_count;
+    exec_prg_header *ph = malloc(ph_size);
     if (ph == NULL)
         return _ENOMEM;
 
@@ -74,7 +86,7 @@ static int read_prg_headers(struct fd *fd, struct elf_header header, struct prg_
     return 0;
 }
 
-static int load_entry(struct prg_header ph, addr_t bias, struct fd *fd) {
+static int load_entry(exec_prg_header ph, addr_t bias, struct fd *fd) {
     int err;
 
     addr_t addr = ph.vaddr + bias;
@@ -116,16 +128,17 @@ static int load_entry(struct prg_header ph, addr_t bias, struct fd *fd) {
             tail_size = bss_size;
 
         // then map the pages from after the file mapping up to and including the end of bss
-        if (bss_size - tail_size != 0)
+        if (bss_size - tail_size != 0) {
             if ((err = pt_map_nothing(current->mem, PAGE_ROUND_UP(addr + filesize),
                     PAGE_ROUND_UP(bss_size - tail_size), flags)) < 0)
                 return err;
+        }
     }
     return 0;
 }
 
-static addr_t find_hole_for_elf(struct elf_header *header, struct prg_header *ph) {
-    struct prg_header *first = NULL, *last = NULL;
+static addr_t find_hole_for_elf(exec_elf_header *header, exec_prg_header *ph) {
+    exec_prg_header *first = NULL, *last = NULL;
     for (int i = 0; i < header->phent_count; i++) {
         if (ph[i].type == PT_LOAD) {
             if (first == NULL)
@@ -146,18 +159,18 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
     int err = 0;
 
     // read the headers
-    struct elf_header header;
+    exec_elf_header header;
     if ((err = read_header(fd, &header)) < 0)
         return err;
-    struct prg_header *ph;
+    exec_prg_header *ph;
     if ((err = read_prg_headers(fd, header, &ph)) < 0)
         return err;
 
     // look for an interpreter
     char *interp_name = NULL;
     struct fd *interp_fd = NULL;
-    struct elf_header interp_header;
-    struct prg_header *interp_ph = NULL;
+    exec_elf_header interp_header;
+    exec_prg_header *interp_ph = NULL;
     for (unsigned i = 0; i < header.phent_count; i++) {
         if (ph[i].type != PT_INTERP)
             continue;
@@ -222,10 +235,17 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
 
         if (!load_addr_set && header.type == ELF_DYNAMIC) {
             // see giant comment in linux/fs/binfmt_elf.c, around line 950
+#ifdef GUEST_ARM64
+            // ARM64: Always use dynamic placement to avoid conflicts with
+            // V8's CodeRange hint at 0x574c0000 (the x86 bias 0x56555000
+            // places large binaries like node right on top of it)
+            bias = find_hole_for_elf(&header, ph);
+#else
             if (interp_name)
                 bias = 0x56555000; // I have no idea how this number was arrived at
             else
                 bias = find_hole_for_elf(&header, ph);
+#endif
         }
 
         if ((err = load_entry(ph[i], bias, fd)) < 0)
@@ -258,6 +278,7 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
         entry = interp_base + interp_header.entry_point;
     }
 
+
     // map vdso
     err = _ENOMEM;
     pages_t vdso_pages = sizeof(vdso_data) >> PAGE_BITS;
@@ -272,7 +293,9 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
         goto beyond_hope;
     mem_pt(current->mem, vdso_page)->data->name = "[vdso]";
     current->mm->vdso = vdso_page << PAGE_BITS;
-    addr_t vdso_entry = current->mm->vdso + ((struct elf_header *) vdso_data)->entry_point;
+#if !defined(GUEST_ARM64)
+    addr_t vdso_entry = current->mm->vdso + ((exec_elf_header *) vdso_data)->entry_point;
+#endif
 
     // map 3 empty "vvar" pages to satisfy ptraceomatic
     page_t vvar_page = pt_find_hole(current->mem, VVAR_PAGES);
@@ -284,12 +307,25 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
 
     // STACK TIME!
 
+#ifdef GUEST_ARM64
+    // ARM64: stack near top of 48-bit address space
+    if ((err = pt_map_nothing(current->mem, STACK_INIT_PAGE, 1, P_WRITE | P_GROWSDOWN)) < 0)
+        goto beyond_hope;
+    if ((err = pt_map_nothing(current->mem, STACK_TOP_PAGE, 1, P_READ)) < 0)
+        goto beyond_hope;
+    write_wrunlock(&current->mem->lock);
+    addr_t sp = STACK_TOP_ADDR;
+#else
     // allocate 1 page of stack at 0xffffd, and let it grow down
     if ((err = pt_map_nothing(current->mem, 0xffffd, 1, P_WRITE | P_GROWSDOWN)) < 0)
+        goto beyond_hope;
+    // Map a read-only guard page above the stack (page 0xffffe).
+    if ((err = pt_map_nothing(current->mem, 0xffffe, 1, P_READ)) < 0)
         goto beyond_hope;
     // that was the last memory mapping
     write_wrunlock(&current->mem->lock);
     dword_t sp = 0xffffe000;
+#endif
     // on 32-bit linux, there's 4 empty bytes at the very bottom of the stack.
     // on 64-bit linux, there's 8. make ptraceomatic happy. (a major theme in this file)
     sp -= sizeof(void *);
@@ -297,28 +333,33 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
     err = _EFAULT;
     // first, copy stuff pointed to by argv/envp/auxv
     // filename, argc, argv
+    // Note: lock is already released at this point
     addr_t file_addr = sp = copy_string(sp, file);
     if (sp == 0)
-        goto beyond_hope;
+        goto out_free_interp;
     addr_t envp_addr = sp = args_copy(sp, envp);
     if (sp == 0)
-        goto beyond_hope;
+        goto out_free_interp;
     current->mm->argv_end = sp;
     addr_t argv_addr = sp = args_copy(sp, argv);
     if (sp == 0)
-        goto beyond_hope;
+        goto out_free_interp;
     current->mm->argv_start = sp;
     sp = align_stack(sp);
 
+#if defined(GUEST_ARM64)
+    addr_t platform_addr = sp = copy_string(sp, "aarch64");
+#else
     addr_t platform_addr = sp = copy_string(sp, "i686");
+#endif
     if (sp == 0)
-        goto beyond_hope;
+        goto out_free_interp;
     // 16 random bytes so no system call is needed to seed a userspace RNG
     char random[16] = {};
     get_random(random, sizeof(random)); // if this fails, eh, no one's really using it
     addr_t random_addr = sp -= sizeof(random);
     if (user_put(sp, random))
-        goto beyond_hope;
+        goto out_free_interp;
 
     // the way linux aligns the stack at this point is kinda funky
     // calculate how much space is needed for argv, envp, and auxv, subtract
@@ -326,13 +367,19 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
 
     // declare elf aux now so we can know how big it is
     struct aux_ent aux[] = {
+#if !defined(GUEST_ARM64)
         {AX_SYSINFO, vdso_entry},
+#endif
         {AX_SYSINFO_EHDR, current->mm->vdso},
+#if defined(GUEST_ARM64)
+        {AX_HWCAP, 0x11f}, // FP|ASIMD|EVTSTRM|AES|PMULL|ATOMICS — AES+PMULL enables ring's gcm_ghash_clmul (64-bit CLMUL) path
+#else
         {AX_HWCAP, 0x00000000}, // suck that
+#endif
         {AX_PAGESZ, PAGE_SIZE},
         {AX_CLKTCK, 0x64},
         {AX_PHDR, load_addr + header.prghead_off},
-        {AX_PHENT, sizeof(struct prg_header)},
+        {AX_PHENT, sizeof(exec_prg_header)},
         {AX_PHNUM, header.phent_count},
         {AX_BASE, interp_base},
         {AX_FLAGS, 0},
@@ -348,7 +395,7 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
         {AX_PLATFORM, platform_addr},
         {0, 0}
     };
-    sp -= ((argv.count + 1) + (envp.count + 1) + 1) * sizeof(dword_t);
+    sp -= ((argv.count + 1) + (envp.count + 1) + 1) * ELF_PTR_SIZE;
     sp -= sizeof(aux);
     sp &=~ 0xf;
 
@@ -356,29 +403,41 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
     addr_t p = sp;
 
     // argc
+#if defined(GUEST_ARM64)
+    {uint64_t argc64 = argv.count; if (user_put(p, argc64)) return _EFAULT;}
+#else
     if (user_put(p, argv.count))
         return _EFAULT;
-    p += sizeof(dword_t);
+#endif
+    p += ELF_PTR_SIZE;
 
     // argv
     size_t argc = argv.count;
     while (argc-- > 0) {
+#if defined(GUEST_ARM64)
+        {uint64_t ptr64 = argv_addr; if (user_put(p, ptr64)) return _EFAULT;}
+#else
         if (user_put(p, argv_addr))
             return _EFAULT;
+#endif
         argv_addr += user_strlen(argv_addr) + 1;
-        p += sizeof(dword_t); // null terminator
+        p += ELF_PTR_SIZE;
     }
-    p += sizeof(dword_t); // null terminator
+    p += ELF_PTR_SIZE; // null terminator
 
     // envp
     size_t envc = envp.count;
     while (envc-- > 0) {
+#if defined(GUEST_ARM64)
+        {uint64_t ptr64 = envp_addr; if (user_put(p, ptr64)) return _EFAULT;}
+#else
         if (user_put(p, envp_addr))
             return _EFAULT;
+#endif
         envp_addr += user_strlen(envp_addr) + 1;
-        p += sizeof(dword_t);
+        p += ELF_PTR_SIZE;
     }
-    p += sizeof(dword_t); // null terminator
+    p += ELF_PTR_SIZE; // null terminator
 
     // copy auxv
     current->mm->auxv_start = p;
@@ -388,6 +447,40 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
     current->mm->auxv_end = p;
 
     current->mm->stack_start = sp;
+#if defined(GUEST_ARM64)
+    current->cpu.sp = sp;
+    current->cpu.pc = entry;
+    // Zero all general-purpose registers
+    memset(current->cpu.regs, 0, sizeof(current->cpu.regs));
+    current->cpu.nzcv = 0;
+    current->cpu.nf = 0;
+    current->cpu.zf = 0;
+    current->cpu.cf = 0;
+    current->cpu.vf = 0;
+    current->cpu.fpcr = 0;
+    current->cpu.fpsr = 0;
+
+    // Map V8 compressed pointer range as readable zeros.
+    // V8's Zone allocator reuses memory without zeroing. Stale data containing
+    // V8 compressed pointers (small integers like 0x9xxxx) can leak into real
+    // pointer fields. Mapping these low pages with zeros means accidental
+    // dereferences read zeros (NULL) instead of faulting with SIGSEGV.
+    // This covers V8 cage offsets 0x80000-0x100000 which are common stale values.
+    {
+        const char *base_name = strrchr(file, '/');
+        base_name = base_name ? base_name + 1 : file;
+        if (strcmp(base_name, "node") == 0) {
+            // Map zero pages at 0x0-0x100000 (first 1MB)
+            // This catches both NULL dereferences and V8 compressed pointers
+            page_t guard_start = 0; // page 0
+            pages_t guard_pages = 0x100000 / PAGE_SIZE; // 256 pages = 1MB
+            write_wrlock(&current->mem->lock);
+            int map_err = pt_map_nothing(current->mem, guard_start, guard_pages, P_READ | P_WRITE);
+            write_wrunlock(&current->mem->lock);
+            (void)map_err; // guard pages are best-effort
+        }
+    }
+#else
     current->cpu.esp = sp;
     current->cpu.eip = entry;
     current->cpu.fcw = 0x37f;
@@ -405,6 +498,7 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
     current->cpu.ebp = 0;
     collapse_flags(&current->cpu);
     current->cpu.eflags = 0;
+#endif
 
     err = 0;
 out_free_interp:
@@ -435,18 +529,18 @@ static size_t args_size(struct exec_args args) {
     return args_end - args.args;
 }
 
-static inline dword_t align_stack(addr_t sp) {
-    return sp &~ 0xf;
+static inline addr_t align_stack(addr_t sp) {
+    return sp &~ (addr_t)0xf;
 }
 
-static inline dword_t copy_string(addr_t sp, const char *string) {
+static inline addr_t copy_string(addr_t sp, const char *string) {
     sp -= strlen(string) + 1;
     if (user_write_string(sp, string))
         return 0;
     return sp;
 }
 
-static inline dword_t args_copy(addr_t sp, struct exec_args args) {
+static inline addr_t args_copy(addr_t sp, struct exec_args args) {
     size_t size = args_size(args);
     sp -= size;
     if (user_write(sp, args.args, size))
@@ -650,9 +744,16 @@ static ssize_t user_read_string_array(addr_t addr, char *buf, size_t max) {
     size_t i = 0;
     size_t p = 0;
     for (;;) {
+#if defined(GUEST_ARM64)
+        uint64_t str_addr64;
+        if (user_get(addr + i * ELF_PTR_SIZE, str_addr64))
+            return _EFAULT;
+        addr_t str_addr = (addr_t) str_addr64;
+#else
         addr_t str_addr;
         if (user_get(addr + i * sizeof(addr_t), str_addr))
             return _EFAULT;
+#endif
         if (str_addr == 0)
             break;
         size_t str_p = 0;
@@ -715,6 +816,160 @@ dword_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
         args += strlen(args) + 1;
     }
     STRACE("})");
+
+#if defined(GUEST_ARM64)
+    // Force-inject environment variables into every execve'd process.
+    // mode=0: inject only if not present, mode=1: replace existing value
+    static const struct { const char *kv; size_t prefix_len; int mode; } inject_envs[] = {
+        { "PYTHONMALLOC=malloc", 13, 1 },      // FORCE bypass pymalloc arenas (mode=1: always replace)
+        { "NO_COLOR=1", 9, 0 },                // Disable color output
+        { "PIP_PROGRESS_BAR=off", 17, 0 },     // Disable pip progress bar
+        { "PYTHONDONTWRITEBYTECODE=1", 25, 0 }, // Skip .pyc generation to reduce allocs
+        // Go async preemption sends SIGURG and reads/modifies mcontext at a
+        // fixed offset. Our JIT delivers signals at gadget boundaries, not at
+        // the exact interrupted instruction, so the PC in the signal frame is
+        // imprecise. cpu_poke reduces latency but can't fix PC precision.
+        // Cooperative preemption (function-call checkpoints) works correctly.
+        { "GODEBUG=asyncpreemptoff=1", 8, 0 }, // Disable Go async preemption
+        // Limit Go threads to reduce TLB stale-pointer crashes from concurrent
+        // page table modifications. GOMAXPROCS=2 is sufficient for most Go CLI
+        // tools and eliminates nearly all multi-thread race conditions.
+        { "GOMAXPROCS=2", 11, 0 },             // Limit Go thread count
+    };
+    for (size_t vi = 0; vi < sizeof(inject_envs)/sizeof(inject_envs[0]); vi++) {
+        char *e = envp;
+        char *found_at = NULL;
+        while (*e != '\0') {
+            if (strncmp(e, inject_envs[vi].kv, inject_envs[vi].prefix_len) == 0)
+                found_at = e;
+            e += strlen(e) + 1;
+        }
+        size_t total_used = (e - envp) + 1; // includes final \0
+        if (found_at != NULL && inject_envs[vi].mode == 1) {
+            // Replace: remove old value, then append new one
+            size_t old_len = strlen(found_at) + 1;
+            size_t tail = total_used - (found_at - envp) - old_len;
+            memmove(found_at, found_at + old_len, tail);
+            total_used -= old_len;
+            found_at = NULL; // treat as not found so it gets appended
+        }
+        if (found_at == NULL) {
+            size_t inject_len = strlen(inject_envs[vi].kv) + 1;
+            if (total_used + inject_len + 1 <= ARGV_MAX) {
+                memcpy(envp + total_used - 1, inject_envs[vi].kv, inject_len);
+                envp[total_used - 1 + inject_len] = '\0';
+            }
+        }
+    }
+
+    // Inject V8 flags for Node.js to work around scope corruption in emulation.
+    // --jitless: disable JIT (avoids V8 code generation incompatible with our JIT)
+    // --predictable: disable concurrent GC/compilation (avoids race conditions)
+    // --no-lazy: eager compilation (avoids Zone reuse patterns that corrupt scopes)
+    // --single-generation: skip young generation (reduces GC-triggered Zone resets)
+    // --lite-mode: reduces Zone churn by disabling feedback vectors & optimizer
+    // --no-compilation-cache: prevent stale cached compilations from reusing Zones
+    // --no-flush-bytecode: keep compiled bytecode alive, avoid recompilation churn
+    // --no-lazy-compile-dispatcher: single-thread parsing to reduce concurrent Zones
+    // --no-parallel-compile-tasks: single-thread compilation to reduce concurrent Zones
+    // --no-concurrent-recompilation: disable background recompilation
+    {
+        const char *base = strrchr(filename, '/');
+        base = base ? base + 1 : filename;
+        if (strcmp(base, "node") == 0) {
+            static const char *inject_args_base[] = {
+                "--jitless",
+                "--no-lazy",
+                "--max-old-space-size=512",
+            };
+            // Conditionally inject --require for polyfill files that exist in guest fs
+            static const char *optional_requires[] = {
+                "--require=/lib/wasm-polyfill.js",    // WebAssembly shim (must load first)
+                "--require=/lib/fetch-polyfill.js",   // fetch() via native http/https
+            };
+            const char *inject_args[8]; // base args + optional requires
+            size_t inject_count = 0;
+            for (size_t i = 0; i < sizeof(inject_args_base)/sizeof(inject_args_base[0]); i++)
+                inject_args[inject_count++] = inject_args_base[i];
+            for (size_t i = 0; i < sizeof(optional_requires)/sizeof(optional_requires[0]); i++) {
+                // Extract path after "--require="
+                const char *path = optional_requires[i] + 10; // strlen("--require=")
+                struct fd *fd = generic_open(path, O_RDONLY_, 0);
+                if (!IS_ERR(fd)) {
+                    fd_close(fd);
+                    inject_args[inject_count++] = optional_requires[i];
+                }
+            }
+            for (size_t ai = 0; ai < inject_count; ai++) {
+                const char *arg = inject_args[ai];
+                size_t arg_len = strlen(arg) + 1; // includes NUL
+
+                // Find end of argv buffer
+                char *p = argv;
+                while (*p != '\0')
+                    p += strlen(p) + 1;
+                size_t total_used = (p - argv) + 1;
+
+                // Check if already present
+                bool found = false;
+                char *q = argv;
+                while (*q != '\0') {
+                    if (strcmp(q, arg) == 0) { found = true; break; }
+                    q += strlen(q) + 1;
+                }
+
+                if (!found && total_used + arg_len + 1 <= ARGV_MAX) {
+                    char *after_argv0 = argv + strlen(argv) + 1;
+                    size_t tail = total_used - (after_argv0 - argv);
+                    memmove(after_argv0 + arg_len, after_argv0, tail);
+                    memcpy(after_argv0, arg, arg_len);
+                    argc++;
+                }
+            }
+        }
+
+        // Inject LD_PRELOAD for zero_malloc.so to zero large malloc/free.
+        // V8's Zone allocator reuses freed memory without zeroing, causing
+        // stale pointer dereferences. This library zeros blocks >= 4096 bytes
+        // on both malloc and free (Zone segments are >= 8KB).
+        if (strcmp(base, "node") == 0) {
+            static const char *ld_preload = "LD_PRELOAD=/lib/zero_free.so";
+            size_t env_len = strlen(ld_preload) + 1;
+
+            // Check if LD_PRELOAD is already set
+            bool found = false;
+            char *q = envp;
+            while (*q != '\0') {
+                if (strncmp(q, "LD_PRELOAD=", 11) == 0) { found = true; break; }
+                q += strlen(q) + 1;
+            }
+            if (!found) {
+                char *p = envp;
+                while (*p != '\0')
+                    p += strlen(p) + 1;
+                size_t total_used = (p - envp) + 1;
+                if (total_used + env_len + 1 <= ARGV_MAX) {
+                    memcpy(p, ld_preload, env_len);
+                    p[env_len] = '\0';
+                }
+            }
+        }
+    }
+#endif
+
+    // Native offload: check if this binary should run natively on the host
+    const char *native_path = native_offload_lookup(filename);
+    if (native_path) {
+        // native_offload_exec calls do_exit() on success (never returns).
+        // On failure, fall through to normal emulated exec.
+        err = native_offload_exec(native_path, filename, argc, argv, envp);
+        if (err == 0) {
+            // Should not reach here (do_exit doesn't return), but just in case
+            goto err_free_envp;
+        }
+        // Fall through to emulated exec on failure
+        printk("native_offload: fallback to emulated exec for %s\n", filename);
+    }
 
     err = do_execve(filename, argc, argv, envp);
 

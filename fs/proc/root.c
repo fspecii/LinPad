@@ -29,7 +29,20 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
     unsigned cpus = sysconf(_SC_NPROCESSORS_ONLN);
     for (unsigned i = 0; i < cpus; i++) {
         proc_printf(buf, "processor\t: %u\n", i);
+#ifdef GUEST_ARM64
+        // ARM64 format
+        proc_printf(buf, "BogoMIPS\t: 48.00\n");
+        // Include crypto features that iSH ARM64 emulates
+        proc_printf(buf, "Features\t: fp asimd evtstrm aes pmull atomics\n");
+        proc_printf(buf, "CPU implementer\t: 0x00\n");
+        proc_printf(buf, "CPU architecture: 8\n");
+        proc_printf(buf, "CPU variant\t: 0x0\n");
+        proc_printf(buf, "CPU part\t: 0x000\n");
+        proc_printf(buf, "CPU revision\t: 0\n");
+#else
+        // x86 format
         proc_printf(buf, "vendor_id\t: iSH\n");
+#endif
         proc_printf(buf, "\n");
     }
     return 0;
@@ -41,6 +54,16 @@ static void show_kb(struct proc_data *buf, const char *name, uint64_t value) {
 
 static int proc_show_meminfo(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     struct mem_usage usage = get_mem_usage();
+#if defined(GUEST_ARM64)
+    // Cap reported memory to match sys_sysinfo limit.
+    // Reporting full host RAM (e.g. 24GB) causes V8 to set heap_size_limit=4GB
+    // which exhausts the emulator's limited address space.
+    #define MEMINFO_MAX_RAM (4ULL * 1024 * 1024 * 1024)
+    if (usage.total > MEMINFO_MAX_RAM)
+        usage.total = MEMINFO_MAX_RAM;
+    if (usage.free > MEMINFO_MAX_RAM)
+        usage.free = MEMINFO_MAX_RAM;
+#endif
     show_kb(buf, "MemTotal:       ", usage.total);
     show_kb(buf, "MemFree:        ", usage.free);
     show_kb(buf, "MemShared:      ", usage.free);
@@ -113,12 +136,16 @@ static int proc_show_mounts(struct proc_entry *UNUSED(entry), struct proc_data *
     return 0;
 }
 
+// Forward declaration for /proc/net
+extern struct proc_children proc_net_children;
+
 // in alphabetical order
 struct proc_dir_entry proc_root_entries[] = {
     {"cpuinfo", .show = proc_show_cpuinfo},
     {"ish", S_IFDIR, .children = &proc_ish_children},
     {"meminfo", .show = proc_show_meminfo},
     {"mounts", .show = proc_show_mounts},
+    {"net", S_IFDIR, .children = &proc_net_children},
     {"self", S_IFLNK, .readlink = proc_readlink_self},
     {"stat", .show = proc_show_stat},
     {"uptime", .show = proc_show_uptime},

@@ -1,7 +1,105 @@
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include "kernel/calls.h"
 #include "fs/path.h"
+
+// === Path Normalize Cache ===
+// Thread-local cache for frequently normalized paths
+// Reduces redundant path normalization during Python import and file operations
+
+#define PATH_CACHE_SIZE 64
+#define PATH_CACHE_TTL_NS 100000000  // 100ms TTL
+
+struct path_cache_entry {
+    char input_path[MAX_PATH];     // Original path (with at_path prefix if any)
+    char normalized[MAX_PATH];     // Normalized result
+    uint64_t timestamp;            // nanosecond timestamp
+    int flags;                     // N_SYMLINK_FOLLOW or N_SYMLINK_NOFOLLOW
+    bool valid;
+};
+
+// Thread-local cache (one per thread for lock-free access)
+static __thread struct path_cache_entry path_cache[PATH_CACHE_SIZE];
+static __thread bool path_cache_initialized = false;
+
+// Simple hash function for path strings
+static inline uint32_t path_hash(const char *str) {
+    uint32_t hash = 5381;
+    int c;
+    while ((c = *str++))
+        hash = ((hash << 5) + hash) + c; // hash * 33 + c
+    return hash;
+}
+
+// Get current time in nanoseconds
+static inline uint64_t get_time_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+}
+
+// Initialize thread-local cache
+static void path_cache_init(void) {
+    if (!path_cache_initialized) {
+        memset(path_cache, 0, sizeof(path_cache));
+        path_cache_initialized = true;
+    }
+}
+
+// Try to get cached normalized path
+// Returns 0 on cache hit, -1 on cache miss
+static int path_cache_get(const char *full_path, int flags, char *out) {
+    path_cache_init();
+
+    uint32_t hash = path_hash(full_path);
+    uint32_t index = hash % PATH_CACHE_SIZE;
+    struct path_cache_entry *entry = &path_cache[index];
+
+    // Check cache validity
+    if (!entry->valid)
+        return -1;
+
+    // Check path and flags match
+    if (strcmp(entry->input_path, full_path) != 0)
+        return -1;
+
+    if (entry->flags != flags)
+        return -1;
+
+    // Check TTL (time-to-live)
+    uint64_t now = get_time_ns();
+    if (now - entry->timestamp > PATH_CACHE_TTL_NS) {
+        entry->valid = false;  // Expired
+        return -1;
+    }
+
+    // Cache hit! Copy result
+    strcpy(out, entry->normalized);
+    return 0;
+}
+
+// Store normalized path in cache
+static void path_cache_set(const char *full_path, int flags, const char *normalized) {
+    path_cache_init();
+
+    uint32_t hash = path_hash(full_path);
+    uint32_t index = hash % PATH_CACHE_SIZE;
+    struct path_cache_entry *entry = &path_cache[index];
+
+    // Store in cache
+    strncpy(entry->input_path, full_path, MAX_PATH - 1);
+    entry->input_path[MAX_PATH - 1] = '\0';
+
+    strncpy(entry->normalized, normalized, MAX_PATH - 1);
+    entry->normalized[MAX_PATH - 1] = '\0';
+
+    entry->flags = flags;
+    entry->timestamp = get_time_ns();
+    entry->valid = true;
+}
 
 static int __path_normalize(const char *at_path, const char *path, char *out, int flags, int levels) {
     // you must choose one
@@ -130,6 +228,7 @@ int path_normalize(struct fd *at, const char *path, char *out, int flags) {
     else if (at == AT_PWD)
         at = current->fs->pwd;
     unlock(&current->fs->lock);
+
     char at_path[MAX_PATH];
     if (at != NULL) {
         int err = generic_getpath(at, at_path);
@@ -138,7 +237,30 @@ int path_normalize(struct fd *at, const char *path, char *out, int flags) {
         assert(path_is_normalized(at_path));
     }
 
-    return __path_normalize(at != NULL ? at_path : NULL, path, out, flags, 0);
+    // Build full input path for cache lookup
+    char full_input[MAX_PATH];
+    if (at != NULL && strcmp(at_path, "/") != 0) {
+        snprintf(full_input, MAX_PATH, "%s/%s", at_path, path);
+    } else {
+        strncpy(full_input, path, MAX_PATH - 1);
+        full_input[MAX_PATH - 1] = '\0';
+    }
+
+    // Try cache lookup first
+    if (path_cache_get(full_input, flags, out) == 0) {
+        // Cache hit - fast return
+        return 0;
+    }
+
+    // Cache miss - do full normalization
+    int result = __path_normalize(at != NULL ? at_path : NULL, path, out, flags, 0);
+
+    // Store result in cache (even on error, we cache the error)
+    if (result == 0) {
+        path_cache_set(full_input, flags, out);
+    }
+
+    return result;
 }
 
 

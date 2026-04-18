@@ -29,8 +29,7 @@
                   continueAfterRunningActions = "No"
                   symbolName = "UIApplicationMain"
                   moduleName = "UIKitCore"
-                  usesParentBreakpointCondition = "Yes"
-                  offsetFromSymbolStart = "0">
+                  usesParentBreakpointCondition = "Yes">
                </Location>
             </Locations>
          </BreakpointContent>

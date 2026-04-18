@@ -114,10 +114,19 @@ struct sigqueue {
 };
 
 struct sigevent_ {
-    union sigval_ value;
-    int_t signo;
-    int_t method;
+    union sigval_ value;  // offset 0, size 8
+    int_t signo;          // offset 8, size 4
+    int_t method;         // offset 12, size 4
+#ifdef GUEST_ARM64
+    // ARM64: struct sigevent is 64 bytes with additional fields
+    // sigev_notify_function, sigev_notify_attributes, padding
+    union {
+        pid_t_ tid;       // for SIGEV_THREAD_ID
+        char _pad[48];    // padding to reach 64 bytes total (8+4+4+48=64)
+    };
+#else
     pid_t_ tid;
+#endif
 };
 
 // send a signal
@@ -149,15 +158,19 @@ void sighand_release(struct sighand *sighand);
 
 dword_t sys_rt_sigaction(dword_t signum, addr_t action_addr, addr_t oldaction_addr, dword_t sigset_size);
 dword_t sys_sigaction(dword_t signum, addr_t action_addr, addr_t oldaction_addr);
-dword_t sys_rt_sigreturn(void);
-dword_t sys_sigreturn(void);
+int64_t sys_rt_sigreturn(void);
+int64_t sys_sigreturn(void);
 
 #define SIG_BLOCK_ 0
 #define SIG_UNBLOCK_ 1
 #define SIG_SETMASK_ 2
 typedef uint64_t sigset_t_;
 dword_t sys_rt_sigprocmask(dword_t how, addr_t set, addr_t oldset, dword_t size);
-int_t sys_rt_sigpending(addr_t set_addr);
+int_t sys_rt_sigpending(addr_t set_addr, dword_t size);
+
+int sigset_size_valid(dword_t size);
+int user_get_sigset(addr_t addr, dword_t size, sigset_t_ *out);
+int user_put_sigset(addr_t addr, dword_t size, sigset_t_ set);
 
 static inline sigset_t_ sig_mask(int sig) {
     assert(sig >= 1 && sig < NUM_SIGS);
@@ -174,14 +187,24 @@ static inline void sigset_del(sigset_t_ *set, int sig) {
     *set &= ~sig_mask(sig);
 }
 
+#if defined(GUEST_ARM64)
+struct stack_t_ {
+    uint64_t stack;    // ss_sp: 8 bytes on ARM64
+    int32_t flags;     // ss_flags: 4 bytes
+    uint32_t _pad;     // padding for alignment
+    uint64_t size;     // ss_size: 8 bytes on ARM64
+};
+#define MINSIGSTKSZ_ 6144
+#else
 struct stack_t_ {
     addr_t stack;
     dword_t flags;
     dword_t size;
 };
+#define MINSIGSTKSZ_ 2048
+#endif
 #define SS_ONSTACK_ 1
 #define SS_DISABLE_ 2
-#define MINSIGSTKSZ_ 2048
 dword_t sys_sigaltstack(addr_t ss, addr_t old_ss);
 
 int_t sys_rt_sigsuspend(addr_t mask_addr, uint_t size);
@@ -195,6 +218,68 @@ dword_t sys_tgkill(pid_t_ tgid, pid_t_ tid, dword_t sig);
 // signal frame structs. There's a good chance this should go in its own header file
 
 // thanks kernel for giving me something to copy/paste
+#if defined(GUEST_ARM64)
+// ARM64 sigcontext matches Linux kernel (arch/arm64/include/uapi/asm/sigcontext.h)
+#define FPSIMD_MAGIC 0x46508001
+#define ESR_MAGIC    0x45535201
+
+// FPSIMD context within the sigcontext extension area
+struct fpsimd_context_ {
+    uint32_t magic;
+    uint32_t size;
+    uint32_t fpsr;
+    uint32_t fpcr;
+    __uint128_t vregs[32];
+};
+
+struct sigcontext_ {
+    uint64_t fault_address;  // This was missing!
+    uint64_t regs[31];
+    uint64_t sp;
+    uint64_t pc;
+    uint64_t pstate;
+    // Extension area for FPSIMD state
+    // NOTE: Do NOT use __attribute__((aligned(16))) here — it forces the
+    // entire sigcontext_ struct to 16-byte alignment, which inserts 8 bytes
+    // of padding before mcontext in ucontext_, shifting mcontext from the
+    // Linux-standard offset 168 to 176. Go's runtime reads mcontext at a
+    // fixed offset (168) from the ucontext pointer, so this misalignment
+    // causes Go's async preemption (SIGURG) to corrupt the signal frame.
+    // The field is naturally 16-byte aligned in practice (offset 448 from
+    // the start of ucontext).
+    uint8_t __reserved[4096];
+};
+
+struct ucontext_ {
+    uint64_t flags;
+    uint64_t link;
+    struct stack_t_ stack;
+    sigset_t_ sigmask;
+    uint8_t __padding[128 - sizeof(sigset_t_)];  // Pad to fixed offset
+    struct sigcontext_ mcontext;
+};
+
+struct sigframe_ {
+    addr_t restorer;
+    dword_t sig;
+    struct sigcontext_ sc;
+    dword_t extramask;
+    char retcode[8];
+};
+
+struct rt_sigframe_ {
+    addr_t restorer;
+    int_t sig;
+    addr_t pinfo;
+    addr_t puc;
+    union {
+        struct siginfo_ info;
+        char __pad[128];
+    };
+    struct ucontext_ uc;
+    char retcode[8];
+};
+#else
 struct sigcontext_ {
     word_t gs, __gsh;
     word_t fs, __fsh;
@@ -287,6 +372,7 @@ struct rt_sigframe_ {
     struct ucontext_ uc;
     char retcode[8];
 };
+#endif
 
 // On a 64-bit system with 32-bit emulation, the fpu state is stored in extra
 // space at the end of the frame, not in the frame itself. We store the fpu

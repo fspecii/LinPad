@@ -3,6 +3,7 @@
 #include <poll.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <time.h>
 #include "misc.h"
 #include "util/list.h"
 #include "kernel/errno.h"
@@ -12,6 +13,9 @@
 #include "fs/real.h"
 
 #include "fs/sockrestart.h"
+
+// From kernel/calls.h - avoid circular include
+extern _Noreturn void do_exit_group(int status);
 
 #if defined(__linux__)
 #include <sys/epoll.h>
@@ -34,6 +38,15 @@ static void *rpe_data(struct real_poll_event *rpe);
 static int rpe_events(struct real_poll_event *rpe);
 static int real_poll_wait(struct real_poll *real, struct real_poll_event *events, int max, struct timespec *timeout);
 static int real_poll_update(struct real_poll *real, int fd, int types, void *data);
+
+/// Safe close that skips fds 0-2 (stdin/stdout/stderr).
+/// iOS guards these descriptors — closing them triggers EXC_GUARD and kills the app.
+/// The iSH kernel operates on host fds that should never be 0/1/2, but race
+/// conditions during fd reuse can occasionally produce them.
+static inline void safe_close(int fd) {
+    if (fd > 2)
+        close(fd);
+}
 
 // lock order: fd, then poll
 
@@ -264,9 +277,12 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
         if (res > 0)
             break;
 
-        lock(&current->sighand->lock);
-        bool signal_pending = !!(current->pending & ~current->blocked);
-        unlock(&current->sighand->lock);
+        bool signal_pending = false;
+        if (current->sighand != NULL) {
+            lock(&current->sighand->lock);
+            signal_pending = !!(current->pending & ~current->blocked);
+            unlock(&current->sighand->lock);
+        }
         if (signal_pending) {
             res = _EINTR;
             break;
@@ -278,16 +294,110 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
         }
         unlock(&poll_->lock);
         int err;
+        int saved_errno;
         struct real_poll_event e[4];
+        // Use a bounded timeout to avoid indefinite blocks. Guest signal
+        // delivery via SIGUSR1 wakes kevent, but if the signal arrives
+        // between our pending check and kevent entry, we'd block forever.
+        // A 5-second cap ensures we re-check signals periodically.
+        // Cap all waits to 1 second to avoid macOS condvar issues.
+        // pthread_cond_timedwait_relative_np can block forever under
+        // thread contention. Short caps ensure we re-check periodically.
+        struct timespec bounded_timeout = {.tv_sec = 1, .tv_nsec = 0};
+        struct timespec *wait_timeout;
+        if (timeout == NULL) {
+            wait_timeout = &bounded_timeout;
+        } else if (timeout->tv_sec >= 1) {
+            wait_timeout = &bounded_timeout; // Cap long timeouts
+        } else {
+            wait_timeout = timeout; // Short/zero timeouts pass through
+        }
+        current->blocking = true;
         do {
-            err = real_poll_wait(&poll_->real, e, sizeof(e)/sizeof(e[0]), timeout);
-        } while (sockrestart_should_restart_listen_wait() && errno == EINTR);
+            err = real_poll_wait(&poll_->real, e, sizeof(e)/sizeof(e[0]), wait_timeout);
+            saved_errno = errno;  // save immediately before anything clobbers it
+        } while (saved_errno == EINTR && sockrestart_should_restart_listen_wait());
+        current->blocking = false;
+        // Only update last_unblocked_ns when actual events were received.
+        // Timeout returns (err==0) don't count as real progress — the poll_wait
+        // loop is just cycling. This prevents the deadlock detector from being
+        // fooled by idle poll_wait loops during exit cleanup.
+        if (err > 0) {
+            struct timespec _ts;
+            clock_gettime(CLOCK_MONOTONIC, &_ts);
+            uint64_t now = (uint64_t)_ts.tv_sec * 1000000000ULL + _ts.tv_nsec;
+            current->last_unblocked_ns = now;
+            atomic_store_explicit(&current->group->last_progress_ns, now,
+                                  memory_order_relaxed);
+        }
+        // If we timed out from our bounded timeout, loop back to re-check
+        // fd readiness and signal pending.
+        if (err == 0 && wait_timeout == &bounded_timeout) {
+            lock(&poll_->lock);
+            list_for_each_entry(&poll_->poll_fds, poll_fd, fds) {
+                sockrestart_end_listen_wait(poll_fd->fd);
+            }
+            // Check for group exit so blocking threads unblock promptly
+            if (current->group->doing_group_exit) {
+                res = _EINTR;
+                break;
+            }
+            // Safety valve: if no thread in this process group has
+            // done real work for >60s and there are no live child
+            // processes, force exit. Catches V8/libuv exit cleanup
+            // hangs where the event loop spins idle forever.
+            //
+            // Exceptions:
+            //   - pid 1 (init): legitimately idles, killing halts the system
+            //   - processes with a controlling TTY: interactive shells idle
+            //     waiting for user input and must not be killed
+            if (current->pid != 1 && current->group->tty == NULL) {
+                struct timespec _now;
+                clock_gettime(CLOCK_MONOTONIC, &_now);
+                uint64_t now_ns = (uint64_t)_now.tv_sec * 1000000000ULL + _now.tv_nsec;
+                uint64_t last = atomic_load_explicit(
+                    &current->group->last_progress_ns, memory_order_relaxed);
+                int64_t idle_s = (int64_t)(now_ns - last) / 1000000000LL;
+                if (idle_s >= 60) {
+                    bool has_live_children = false;
+                    int thread_count = 0;
+                    lock(&pids_lock);
+                    lock(&current->group->lock);
+                    struct task *t_iter;
+                    list_for_each_entry(&current->group->threads, t_iter, group_links) {
+                        thread_count++;
+                        struct task *child;
+                        list_for_each_entry(&t_iter->children, child, siblings) {
+                            if (child->group != current->group && !child->zombie)
+                                has_live_children = true;
+                        }
+                    }
+                    unlock(&current->group->lock);
+                    unlock(&pids_lock);
+                    if (!has_live_children) {
+                        printk("SAFETY-VALVE[poll]: pid=%d idle %llds, %d threads → exit_group\n",
+                               current->pid, (long long)idle_s, thread_count);
+                        do_exit_group(0);
+                    }
+                }
+            }
+            if (timeout != NULL) {
+                // Timed wait: subtract elapsed time
+                timeout->tv_sec -= 1;
+                if (timeout->tv_sec < 0) {
+                    // Original timeout expired
+                    break;
+                }
+            }
+            continue;
+        }
         lock(&poll_->lock);
         list_for_each_entry(&poll_->poll_fds, poll_fd, fds) {
             sockrestart_end_listen_wait(poll_fd->fd);
         }
 
         if (err < 0) {
+            errno = saved_errno;
             res = errno_map();
             break;
         }
@@ -314,8 +424,9 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
 
     // release the pipe
     if (--poll_->waiters == 0) {
-        close(poll_->notify_pipe[0]);
-        close(poll_->notify_pipe[1]);
+        real_poll_update(&poll_->real, poll_->notify_pipe[0], 0, NULL);
+        safe_close(poll_->notify_pipe[0]);
+        safe_close(poll_->notify_pipe[1]);
         poll_->notify_pipe[0] = -1;
         poll_->notify_pipe[1] = -1;
     }
@@ -435,6 +546,6 @@ static int rpe_events(struct real_poll_event *rpe) {
 #endif
 
 static void real_poll_close(struct real_poll *real) {
-    close(real->fd);
+    safe_close(real->fd);
 }
 

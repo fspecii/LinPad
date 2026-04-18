@@ -28,6 +28,13 @@
 #include "fs/dyndev.h"
 #include "fs/devices.h"
 #include "fs/path.h"
+#if defined(GUEST_ARM64)
+#include "DebugServer.h"
+#endif
+#include "kernel/native_offload.h"
+#ifdef ISH_FFMPEG_TEST
+extern void native_builtins_init(void);
+#endif
 
 #if ISH_LINUX
 #import "LinuxInterop.h"
@@ -87,6 +94,12 @@ static NSString *const kSkipStartupMessage = @"Skip Startup Message";
     if (err < 0)
         return err;
 
+#ifdef ISH_FFMPEG_TEST
+    // Register built-in native handlers (fake_ffmpeg) for the ffmpeg test target.
+    // This is NOT called in the standard iSH ARM64 target.
+    native_builtins_init();
+#endif
+
     FsInitialize();
 
     // create some device nodes
@@ -145,13 +158,23 @@ static NSString *const kSkipStartupMessage = @"Skip Startup Message";
     err = create_stdio("/dev/console", TTY_CONSOLE_MAJOR, 1);
     if (err < 0)
         return err;
-    
+
+#if defined(GUEST_ARM64)
+    debug_server_start(1234);
+#endif
+
     NSArray<NSString *> *command;
     command = UserPreferences.shared.bootCommand;
-    NSLog(@"%@", command);
     char argv[4096];
     [Terminal convertCommand:command toArgs:argv limitSize:sizeof(argv)];
-    const char *envp = "TERM=xterm-256color\0";
+    const char *envp =
+        "TERM=xterm-256color\0"
+        "HOME=/root\0"
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\0"
+#if defined(GUEST_ARM64)
+        "PYTHONMALLOC=malloc\0"
+#endif
+        ;
     err = do_execve(command[0].UTF8String, command.count, argv, envp);
     if (err < 0)
         return err;

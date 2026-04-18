@@ -1,0 +1,18 @@
+// ARM64 Guest Architecture Configuration
+// Include this in your target's xcconfig to build with ARM64 guest support
+
+// Define the guest architecture
+GUEST_ARCH = arm64
+
+// Add the GUEST_ARM64 preprocessor macro for both meson and Xcode builds
+ISH_GUEST_DEFINES = GUEST_ARM64=1
+// NOTE: Do NOT use $(inherited) here — the project-level GuestX86.xcconfig
+// sets GUEST_X86=1, and both defines being active breaks #if GUEST_X86 checks.
+// We re-add DEBUG=1 for debug builds since we can't inherit it.
+GCC_PREPROCESSOR_DEFINITIONS = GUEST_ARM64=1 DEBUG=1
+
+// Meson options for ARM64 guest
+MESON_GUEST_OPTION = -Dguest_arch=arm64
+
+// ARM64 rootfs URL (Alpine 3.21 aarch64 minirootfs)
+ROOTFS_URL = dl-cdn.alpinelinux.org/alpine/v3.21/releases/aarch64/alpine-minirootfs-3.21.0-aarch64.tar.gz

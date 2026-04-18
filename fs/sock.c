@@ -1,5 +1,6 @@
 #include <fcntl.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -38,7 +39,7 @@ int_t sys_socket(dword_t domain, dword_t type, dword_t protocol) {
     STRACE("socket(%d, %d, %d)", domain, type, protocol);
     int real_domain = sock_family_to_real(domain);
     if (real_domain < 0)
-        return _EINVAL;
+        return _EAFNOSUPPORT;
     int real_type = sock_type_to_real(type, protocol);
     if (real_type < 0)
         return _EINVAL;
@@ -131,6 +132,10 @@ static int unix_socket_get(const char *path_raw, struct fd *bind_fd, uint32_t *s
 
     // Look up the socket ID for the inode number.
     struct inode_data *inode = inode_get(mount, stat.inode);
+    if (inode == NULL) {
+        err = _ENOMEM;
+        goto out;
+    }
     lock(&inode->lock);
     if (inode->socket_id == 0)
         inode->socket_id = unix_socket_next_id();
@@ -364,8 +369,17 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
         return err;
 
     err = connect(sock->real_fd, (void *) &sockaddr, sockaddr_len);
-    if (err < 0)
+    if (err < 0) {
+        int ce = errno;
+        // Log connect failures except the routine nonblock in-progress case,
+        // so VPN / routing issues are visible in user-shared logs.
+        if (ce != EINPROGRESS && ce != EALREADY) {
+            printk("NETDIAG connect(pid=%d comm=%s fd=%d) errno=%d\n",
+                   current->pid, current->comm, sock_fd, ce);
+        }
+        errno = ce;
         return errno_map();
+    }
 
     if (sock->socket.domain == AF_LOCAL_) {
         fill_cred(&sock->socket.unix_cred);
@@ -450,6 +464,26 @@ int_t sys_accept(fd_t sock_fd, addr_t sockaddr_addr, addr_t sockaddr_len_addr) {
     return client_f;
 }
 
+int_t sys_accept4(fd_t sock_fd, addr_t sockaddr_addr, addr_t sockaddr_len_addr, int_t flags) {
+    STRACE("accept4(%d, 0x%x, 0x%x, 0x%x)", sock_fd, sockaddr_addr, sockaddr_len_addr, flags);
+    if (flags & ~(SOCK_NONBLOCK_ | SOCK_CLOEXEC_))
+        return _EINVAL;
+    int_t client_f = sys_accept(sock_fd, sockaddr_addr, sockaddr_len_addr);
+    if (client_f < 0)
+        return client_f;
+    struct fd *client_fd = f_get(client_f);
+    if (client_fd != NULL) {
+        if (flags & SOCK_NONBLOCK_)
+            fd_setflags(client_fd, O_NONBLOCK_);
+        if (flags & SOCK_CLOEXEC_) {
+            lock(&current->files->lock);
+            bit_set(client_f, current->files->cloexec);
+            unlock(&current->files->lock);
+        }
+    }
+    return client_f;
+}
+
 static void copy_unix_name(char *sockaddr, dword_t *sockaddr_len, struct fd *sock) {
     struct sockaddr_ *fake_addr = (void *) sockaddr;
     fake_addr->family = PF_LOCAL_;
@@ -524,13 +558,13 @@ int_t sys_socketpair(dword_t domain, dword_t type, dword_t protocol, addr_t sock
     STRACE("socketpair(%d, %d, %d, 0x%x)", domain, type, protocol, sockets_addr);
     int real_domain = sock_family_to_real(domain);
     if (real_domain < 0)
-        return _EINVAL;
+        return _EAFNOSUPPORT;
     int real_type = sock_type_to_real(type, protocol);
     if (real_type < 0)
         return _EINVAL;
 
     int sockets[2];
-    int err = socketpair(domain, type, protocol, sockets);
+    int err = socketpair(real_domain, real_type, protocol, sockets);
     if (err < 0)
         return errno_map();
 
@@ -601,6 +635,84 @@ error:
     return err;
 }
 
+// Read a socket timeout option as milliseconds. Returns 0 if unset or error.
+static long sock_get_timeout_ms(int real_fd, int optname) {
+    struct timeval tv = {0, 0};
+    socklen_t len = sizeof(tv);
+    if (getsockopt(real_fd, SOL_SOCKET, optname, &tv, &len) < 0)
+        return 0;
+    return (long)tv.tv_sec * 1000L + (long)tv.tv_usec / 1000L;
+}
+
+static long monotonic_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long)ts.tv_sec * 1000L + (long)ts.tv_nsec / 1000000L;
+}
+
+// Wait for a socket fd to become ready (readable or writable), with a
+// bounded per-poll timeout so guest signals can interrupt even if the host
+// thread is briefly suspended (iOS). Honors SO_RCVTIMEO / SO_SNDTIMEO as
+// an overall deadline when set.
+//
+// Returns 0 when ready, _EINTR on guest signal, _EAGAIN on timeout expiry,
+// or a negative errno on poll() error.
+static int sock_wait_for(int real_fd, short events, int timeout_opt) {
+    long timeout_ms = sock_get_timeout_ms(real_fd, timeout_opt);
+    long start_ms = monotonic_ms();
+    long deadline_ms = (timeout_ms > 0) ? (start_ms + timeout_ms) : 0;
+    bool slow_logged = false;
+    for (;;) {
+        if (current->sighand != NULL) {
+            lock(&current->sighand->lock);
+            bool pending = !!(current->pending & ~current->blocked);
+            unlock(&current->sighand->lock);
+            if (pending)
+                return _EINTR;
+        }
+
+        int poll_ms = 1000;
+        if (deadline_ms > 0) {
+            long remaining = deadline_ms - monotonic_ms();
+            if (remaining <= 0) {
+                printk("NETDIAG sock_wait(pid=%d comm=%s fd=%d ev=%#x) deadline-expired after %ldms\n",
+                       current->pid, current->comm, real_fd, events, timeout_ms);
+                return _EAGAIN;
+            }
+            if (remaining < poll_ms)
+                poll_ms = (int)remaining;
+        }
+
+        struct pollfd pfd = { .fd = real_fd, .events = events };
+        current->blocking = true;
+        int pr = poll(&pfd, 1, poll_ms);
+        int saved_errno = errno;
+        current->blocking = false;
+
+        if (pr > 0)
+            return 0;
+        if (pr == 0) {
+            // Log once if we're stuck > 3 seconds without any ready event
+            if (!slow_logged && (monotonic_ms() - start_ms) >= 3000) {
+                printk("NETDIAG sock_wait(pid=%d comm=%s fd=%d ev=%#x) no-event for 3s (timeout_opt_ms=%ld)\n",
+                       current->pid, current->comm, real_fd, events, timeout_ms);
+                slow_logged = true;
+            }
+            continue;
+        }
+        if (saved_errno == EINTR)
+            continue;
+        errno = saved_errno;
+        printk("NETDIAG sock_wait(pid=%d comm=%s fd=%d ev=%#x) poll err=%d\n",
+               current->pid, current->comm, real_fd, events, saved_errno);
+        return errno_map();
+    }
+}
+
+static int sock_wait_readable(int real_fd) {
+    return sock_wait_for(real_fd, POLLIN, SO_RCVTIMEO);
+}
+
 int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags, addr_t sockaddr_addr, addr_t sockaddr_len_addr) {
     STRACE("recvfrom(%d, 0x%x, %d, %d, 0x%x, 0x%x)", sock_fd, buffer_addr, len, flags, sockaddr_addr, sockaddr_len_addr);
     struct fd *sock = sock_getfd(sock_fd);
@@ -616,12 +728,63 @@ int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags,
 
     char *buffer = malloc(len);
     char sockaddr[sockaddr_len];
-    ssize_t res = recvfrom(sock->real_fd, buffer, len, real_flags,
-            sockaddr_addr != 0 ? (void *) sockaddr : NULL,
-            sockaddr_len_addr != 0 ? &sockaddr_len : NULL);
-    if (res < 0) {
-        free(buffer);
-        return errno_map();
+
+    // Determine whether this call should wait for data:
+    //   * guest flags MSG_DONTWAIT → never wait (explicit)
+    //   * fd has O_NONBLOCK set   → never wait (fd-level nonblock)
+    //
+    // The second case is critical: musl's res_msend creates UDP sockets
+    // with SOCK_NONBLOCK and then calls recv(fd, buf, len, 0). It relies
+    // on the kernel returning EAGAIN immediately on empty buffer to
+    // terminate its "drain all pending responses" loop. If we wait when
+    // the fd itself is nonblock, musl loops forever and DNS resolution
+    // appears to hang. We check both the iSH-level fd flags and the host
+    // fd's real flags, in case they diverge (e.g. set via fcntl only).
+    int host_flags = fcntl(sock->real_fd, F_GETFL, 0);
+    bool host_nonblock = (host_flags >= 0) && (host_flags & O_NONBLOCK);
+    bool guest_nonblock = (sock->flags & O_NONBLOCK_) != 0;
+    bool should_wait = !(real_flags & MSG_DONTWAIT) && !guest_nonblock && !host_nonblock;
+
+    // Try a nonblock recvfrom first (fast path — no host syscall overhead
+    // when data is already buffered). Only if it returns EAGAIN and we
+    // should wait do we fall back to the bounded-poll wait.
+    ssize_t res;
+    if (should_wait) {
+        // Diagnostic: a blocking recv is exceptional for most network
+        // programs (Node, Go, Python asyncio all use nonblock). Log it so
+        // we can see the guest/host fd state in user-shared logs.
+        printk("NETDIAG recvfrom-block(pid=%d comm=%s fd=%d real=%d len=%u gflags=%#x hflags=%#x sflags=%#x)\n",
+               current->pid, current->comm, sock_fd, sock->real_fd,
+               (unsigned)len, (unsigned)flags,
+               host_flags, sock->flags);
+        for (;;) {
+            res = recvfrom(sock->real_fd, buffer, len, real_flags | MSG_DONTWAIT,
+                    sockaddr_addr != 0 ? (void *) sockaddr : NULL,
+                    sockaddr_len_addr != 0 ? &sockaddr_len : NULL);
+            if (res >= 0)
+                break;
+            if (errno == EINTR)
+                continue;
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                free(buffer);
+                return errno_map();
+            }
+            // EAGAIN: no data yet. Wait (bounded) for readability or a
+            // guest signal, then retry.
+            int wr = sock_wait_readable(sock->real_fd);
+            if (wr < 0) {
+                free(buffer);
+                return wr;
+            }
+        }
+    } else {
+        res = recvfrom(sock->real_fd, buffer, len, real_flags,
+                sockaddr_addr != 0 ? (void *) sockaddr : NULL,
+                sockaddr_len_addr != 0 ? &sockaddr_len : NULL);
+        if (res < 0) {
+            free(buffer);
+            return errno_map();
+        }
     }
 
     if (user_write(buffer_addr, buffer, len)) {
@@ -703,7 +866,7 @@ int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
     return 0;
 }
 
-int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t len_addr) {
+int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, addr_t len_addr) {
     STRACE("getsockopt(%d, %d, %d, %#x, %#x)", sock_fd, level, option, value_addr, len_addr);
     struct fd *sock = sock_getfd(sock_fd);
     if (sock == NULL)
@@ -829,10 +992,24 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     if (sock == NULL)
         return _EBADF;
 
+    // Read the guest msghdr struct into our internal 32-bit representation
     struct msghdr msg;
     struct msghdr_ msg_fake;
+#ifdef GUEST_ARM64
+    struct msghdr64_ msg_fake64;
+    if (user_get(msghdr_addr, msg_fake64))
+        return _EFAULT;
+    msg_fake.msg_name = (addr_t)msg_fake64.msg_name;
+    msg_fake.msg_namelen = msg_fake64.msg_namelen;
+    msg_fake.msg_iov = (addr_t)msg_fake64.msg_iov;
+    msg_fake.msg_iovlen = (uint_t)msg_fake64.msg_iovlen;
+    msg_fake.msg_control = (addr_t)msg_fake64.msg_control;
+    msg_fake.msg_controllen = (uint_t)msg_fake64.msg_controllen;
+    msg_fake.msg_flags = msg_fake64.msg_flags;
+#else
     if (user_get(msghdr_addr, msg_fake))
         return _EFAULT;
+#endif
 
     // msg_name
     struct sockaddr_max_ msg_name;
@@ -847,6 +1024,22 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     }
 
     // msg_iovec
+#ifdef GUEST_ARM64
+    struct iovec64_ msg_iov_fake64[msg_fake.msg_iovlen];
+    if (user_read(msg_fake.msg_iov, msg_iov_fake64, sizeof(msg_iov_fake64)))
+        return _EFAULT;
+    struct iovec msg_iov[msg_fake.msg_iovlen];
+    memset(msg_iov, 0, sizeof(msg_iov));
+    msg.msg_iov = msg_iov;
+    msg.msg_iovlen = msg_fake.msg_iovlen;
+    for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++) {
+        msg_iov[i].iov_len = (size_t)msg_iov_fake64[i].len;
+        msg_iov[i].iov_base = malloc(msg_iov[i].iov_len);
+        err = _EFAULT;
+        if (user_read((addr_t)msg_iov_fake64[i].base, msg_iov[i].iov_base, msg_iov[i].iov_len))
+            goto out_free_iov;
+    }
+#else
     struct iovec_ msg_iov_fake[msg_fake.msg_iovlen];
     if (user_get(msg_fake.msg_iov, msg_iov_fake))
         return _EFAULT;
@@ -861,6 +1054,7 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         if (user_read(msg_iov_fake[i].base, msg_iov[i].iov_base, msg_iov_fake[i].len))
             goto out_free_iov;
     }
+#endif
 
     // msg_control
     uint8_t msg_control_buf[2048];
@@ -977,10 +1171,25 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     if (sock == NULL)
         return _EBADF;
 
-    struct msghdr msg;
+    // Read the guest msghdr struct into our internal 32-bit representation
     struct msghdr_ msg_fake;
+#ifdef GUEST_ARM64
+    struct msghdr64_ msg_fake64;
+    if (user_get(msghdr_addr, msg_fake64))
+        return _EFAULT;
+    msg_fake.msg_name = (addr_t)msg_fake64.msg_name;
+    msg_fake.msg_namelen = msg_fake64.msg_namelen;
+    msg_fake.msg_iov = (addr_t)msg_fake64.msg_iov;
+    msg_fake.msg_iovlen = (uint_t)msg_fake64.msg_iovlen;
+    msg_fake.msg_control = (addr_t)msg_fake64.msg_control;
+    msg_fake.msg_controllen = (uint_t)msg_fake64.msg_controllen;
+    msg_fake.msg_flags = msg_fake64.msg_flags;
+#else
     if (user_get(msghdr_addr, msg_fake))
         return _EFAULT;
+#endif
+
+    struct msghdr msg;
 
     // msg_name
     char msg_name[msg_fake.msg_namelen];
@@ -1007,6 +1216,20 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         return _EINVAL;
 
     // msg_iovec (no initial content)
+#ifdef GUEST_ARM64
+    struct iovec64_ msg_iov_fake64[msg_fake.msg_iovlen];
+    if (user_read(msg_fake.msg_iov, msg_iov_fake64, sizeof(msg_iov_fake64)))
+        return _EFAULT;
+    struct iovec msg_iov[msg_fake.msg_iovlen];
+    msg.msg_iov = msg_iov;
+    msg.msg_iovlen = msg_fake.msg_iovlen;
+    addr_t msg_iov_bases[msg_fake.msg_iovlen]; // save guest base addrs for writeback
+    for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++) {
+        msg_iov_bases[i] = (addr_t)msg_iov_fake64[i].base;
+        msg_iov[i].iov_len = (size_t)msg_iov_fake64[i].len;
+        msg_iov[i].iov_base = malloc(msg_iov[i].iov_len);
+    }
+#else
     struct iovec_ msg_iov_fake[msg_fake.msg_iovlen];
     if (user_get(msg_fake.msg_iov, msg_iov_fake))
         return _EFAULT;
@@ -1017,11 +1240,49 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         msg_iov[i].iov_len = msg_iov_fake[i].len;
         msg_iov[i].iov_base = malloc(msg_iov_fake[i].len);
     }
+#endif
 
-    ssize_t res = recvmsg(sock->real_fd, &msg, real_flags);
+    // Same iOS-safe wait pattern as sys_recvfrom: avoid unbounded blocking
+    // in host recvmsg() so guest signals can always be delivered. But only
+    // wait when the caller actually wants blocking behavior — if the fd is
+    // nonblock (SOCK_NONBLOCK set by guest or via fcntl), surface EAGAIN
+    // immediately instead of waiting. This is critical for musl's
+    // res_msend, which creates nonblock sockets and calls
+    // recvmsg(fd, &mh, 0) — it relies on EAGAIN on empty buffer to end its
+    // "drain pending responses" loop. Same bug that used to affect
+    // sys_recvfrom before 76907b86.
+    int host_flags_rm = fcntl(sock->real_fd, F_GETFL, 0);
+    bool host_nonblock_rm = (host_flags_rm >= 0) && (host_flags_rm & O_NONBLOCK);
+    bool guest_nonblock_rm = (sock->flags & O_NONBLOCK_) != 0;
+    bool should_wait_rm = !(real_flags & MSG_DONTWAIT) && !guest_nonblock_rm && !host_nonblock_rm;
+
+    ssize_t res = -1;
     int err = 0;
-    if (res < 0)
-        err = errno_map();
+    if (should_wait_rm) {
+        printk("NETDIAG recvmsg-block(pid=%d comm=%s fd=%d real=%d gflags=%#x hflags=%#x sflags=%#x)\n",
+               current->pid, current->comm, sock_fd, sock->real_fd,
+               (unsigned)flags, host_flags_rm, sock->flags);
+        for (;;) {
+            res = recvmsg(sock->real_fd, &msg, real_flags | MSG_DONTWAIT);
+            if (res >= 0)
+                break;
+            if (errno == EINTR)
+                continue;
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                err = errno_map();
+                break;
+            }
+            int wr = sock_wait_readable(sock->real_fd);
+            if (wr < 0) {
+                err = wr;
+                break;
+            }
+        }
+    } else {
+        res = recvmsg(sock->real_fd, &msg, real_flags);
+        if (res < 0)
+            err = errno_map();
+    }
     // don't return err quite yet, there are outstanding mallocs
 
     // msg_iovec (changed)
@@ -1033,9 +1294,14 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         size_t chunk_size = msg_iov[i].iov_len;
         if (chunk_size > n)
             chunk_size = n;
-        if (chunk_size > 0)
+        if (chunk_size > 0) {
+#ifdef GUEST_ARM64
+            if (user_write(msg_iov_bases[i], msg_iov[i].iov_base, chunk_size))
+#else
             if (user_write(msg_iov_fake[i].base, msg_iov[i].iov_base, chunk_size))
+#endif
                 return _EFAULT;
+        }
         n -= chunk_size;
         free(msg_iov[i].iov_base);
     }
@@ -1089,8 +1355,17 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     // msg_flags (changed)
     msg_fake.msg_flags = sock_flags_from_real(msg.msg_flags);
 
+    // Write back the updated msghdr to guest memory
+#ifdef GUEST_ARM64
+    msg_fake64.msg_namelen = msg_fake.msg_namelen;
+    msg_fake64.msg_controllen = msg_fake.msg_controllen;
+    msg_fake64.msg_flags = msg_fake.msg_flags;
+    if (user_put(msghdr_addr, msg_fake64))
+        return _EFAULT;
+#else
     if (user_put(msghdr_addr, msg_fake))
         return _EFAULT;
+#endif
     return res;
 }
 
@@ -1099,13 +1374,58 @@ struct mmsghdr_ {
     uint_t len;
 };
 
+#ifdef GUEST_ARM64
+struct mmsghdr64_ {
+    struct msghdr64_ hdr;
+    uint32_t len;
+    uint32_t _pad;
+};
+#endif
+
+int_t sys_recvmmsg(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags, addr_t timeout_addr) {
+    STRACE("recvmmsg(%d, %#x, %d, %d)", sock_fd, msg_vec, vec_len, flags);
+    int num_recv = 0;
+#ifdef GUEST_ARM64
+    size_t mmsghdr_size = sizeof(struct mmsghdr64_);
+    size_t len_offset = offsetof(struct mmsghdr64_, len);
+#else
+    size_t mmsghdr_size = sizeof(struct mmsghdr_);
+    size_t len_offset = offsetof(struct mmsghdr_, len);
+#endif
+    for (unsigned i = 0; i < vec_len; i++) {
+        addr_t msghdr = msg_vec + i * mmsghdr_size;
+        int_t res = sys_recvmsg(sock_fd, msghdr, flags);
+        if (res >= 0) {
+            addr_t msg_len_addr = msghdr + len_offset;
+            if (user_put(msg_len_addr, res))
+                res = _EFAULT;
+        }
+        if (res < 0) {
+            if (num_recv > 0)
+                break;
+            return res;
+        }
+        num_recv++;
+        if (res == 0)
+            break;
+    }
+    return num_recv;
+}
+
 int_t sys_sendmmsg(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags) {
     int num_sent = 0;
+#ifdef GUEST_ARM64
+    size_t mmsghdr_size = sizeof(struct mmsghdr64_);
+    size_t len_offset = offsetof(struct mmsghdr64_, len);
+#else
+    size_t mmsghdr_size = sizeof(struct mmsghdr_);
+    size_t len_offset = offsetof(struct mmsghdr_, len);
+#endif
     for (unsigned i = 0; i < vec_len; i++) {
-        addr_t msghdr = msg_vec + i * sizeof(struct mmsghdr_);
+        addr_t msghdr = msg_vec + i * mmsghdr_size;
         int_t res = sys_sendmsg(sock_fd, msghdr, flags);
         if (res >= 0) {
-            addr_t msg_len_addr = msghdr + offsetof(struct mmsghdr_, len);
+            addr_t msg_len_addr = msghdr + len_offset;
             if (user_put(msg_len_addr, res))
                 res = _EFAULT;
         }
@@ -1140,14 +1460,68 @@ static void sock_translate_err(struct fd *fd, int *err) {
     }
 }
 
+// sock_read / sock_write: behave exactly like realfs_read / realfs_write
+// (a single host read/write call, with no poll and no flag change), except
+// that EINTR is handled specially: if there is a guest signal pending, we
+// surface EINTR back to the guest instead of blindly retrying.
+//
+// The original realfs_read/realfs_write does `while (errno == EINTR) retry`,
+// which swallows the SIGUSR1 wake iSH uses to deliver guest signals into
+// blocked host syscalls. Combined with iOS occasionally deferring signal
+// delivery (thread suspension on backgrounding), this causes indefinite
+// hangs on any blocking socket read/write (git HTTPS, nc, telnet, etc.).
+//
+// We intentionally do NOT poll, do NOT mess with nonblock flags, and do NOT
+// switch to recv/send. This minimizes regression risk — the host I/O path
+// is byte-for-byte identical to the original implementation for every case
+// except "host syscall got EINTR AND guest has a pending signal", which is
+// precisely the bug we need to fix.
 static ssize_t sock_read(struct fd *fd, void *buf, size_t size) {
-    int err = realfs_read(fd, buf, size);
+    int err;
+    int eintr_count = 0;
+    for (;;) {
+        ssize_t res = read(fd->real_fd, buf, size);
+        if (res >= 0) { err = (int)res; break; }
+        if (errno != EINTR) { err = errno_map(); break; }
+        eintr_count++;
+        // EINTR: only surface to guest if there is actually a pending signal
+        // that the guest wants to handle. Otherwise retry (matches the
+        // original realfs_read behavior for spurious EINTR).
+        if (current->sighand != NULL) {
+            lock(&current->sighand->lock);
+            bool pending = !!(current->pending & ~current->blocked);
+            unlock(&current->sighand->lock);
+            if (pending) { err = _EINTR; break; }
+        }
+        // no guest signal — retry the host read
+    }
+    if (eintr_count >= 3) {
+        printk("NETDIAG sock_read-eintr(pid=%d comm=%s fd=%d) count=%d err=%d\n",
+               current->pid, current->comm, fd->real_fd, eintr_count, err);
+    }
     sock_translate_err(fd, &err);
     return err;
 }
 
 static ssize_t sock_write(struct fd *fd, const void *buf, size_t size) {
-    int err = realfs_write(fd, buf, size);
+    int err;
+    int eintr_count = 0;
+    for (;;) {
+        ssize_t res = write(fd->real_fd, buf, size);
+        if (res >= 0) { err = (int)res; break; }
+        if (errno != EINTR) { err = errno_map(); break; }
+        eintr_count++;
+        if (current->sighand != NULL) {
+            lock(&current->sighand->lock);
+            bool pending = !!(current->pending & ~current->blocked);
+            unlock(&current->sighand->lock);
+            if (pending) { err = _EINTR; break; }
+        }
+    }
+    if (eintr_count >= 3) {
+        printk("NETDIAG sock_write-eintr(pid=%d comm=%s fd=%d) count=%d err=%d\n",
+               current->pid, current->comm, fd->real_fd, eintr_count, err);
+    }
     sock_translate_err(fd, &err);
     return err;
 }

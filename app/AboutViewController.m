@@ -9,6 +9,7 @@
 #import "AppDelegate.h"
 #import "CurrentRoot.h"
 #import "AppGroup.h"
+#import "Roots.h"
 #import "UserPreferences.h"
 #import "iOSFS.h"
 #import "UIApplication+OpenURL.h"
@@ -31,6 +32,7 @@
 @property (weak, nonatomic) IBOutlet UIView *upgradeApkBadge;
 @property (weak, nonatomic) IBOutlet UITableViewCell *exportContainerCell;
 @property (weak, nonatomic) IBOutlet UITableViewCell *resetMountsCell;
+@property (weak, nonatomic) IBOutlet UITableViewCell *resetRootfsCell;
 
 @property (weak, nonatomic) IBOutlet UILabel *versionLabel;
 
@@ -122,6 +124,8 @@
 #if !ISH_LINUX
         iosfs_clear_all_bookmarks();
 #endif
+    } else if (cell == self.resetRootfsCell) {
+        [self confirmResetRootfs];
     }
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
 }
@@ -160,6 +164,57 @@
 
 - (IBAction)bootCommandChanged:(id)sender {
     UserPreferences.shared.bootCommand = [self.bootCommandField.text componentsSeparatedByString:@" "];
+}
+
+- (void)confirmResetRootfs {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Reset Rootfs"
+                                                                   message:@"This will delete the current filesystem and re-import from the built-in rootfs. All data in the current filesystem will be lost."
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel"
+                                              style:UIAlertActionStyleCancel
+                                            handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Reset"
+                                              style:UIAlertActionStyleDestructive
+                                            handler:^(UIAlertAction *action) {
+        [self performResetRootfs];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)performResetRootfs {
+    Roots *roots = Roots.instance;
+    NSString *defaultRoot = roots.defaultRoot;
+
+    // Delete the current default root's data directory
+    NSURL *rootUrl = [roots rootUrl:defaultRoot];
+    NSError *error = nil;
+    [NSFileManager.defaultManager removeItemAtURL:rootUrl error:&error];
+    if (error) {
+        NSLog(@"Failed to remove root: %@", error);
+    }
+
+    // Remove it from the roots list so importRoot won't assert
+    [[roots mutableOrderedSetValueForKey:@"roots"] removeObject:defaultRoot];
+
+    // Re-import from bundle
+    NSURL *archive = [NSBundle.mainBundle URLForResource:@"root" withExtension:@"tar.gz"];
+    if (archive) {
+        NSError *importError = nil;
+        if (![roots importRootFromArchive:archive name:defaultRoot error:&importError progressReporter:nil]) {
+            NSLog(@"Failed to import root: %@", importError);
+            UIAlertController *errAlert = [UIAlertController alertControllerWithTitle:@"Reset Failed"
+                                                                              message:importError.localizedDescription
+                                                                       preferredStyle:UIAlertControllerStyleAlert];
+            [errAlert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+            [self presentViewController:errAlert animated:YES completion:nil];
+            return;
+        }
+    }
+
+    roots.defaultRoot = defaultRoot;
+
+    // Exit the app so it restarts with the fresh rootfs
+    exit(0);
 }
 
 @end

@@ -23,8 +23,15 @@ fd_t sys_epoll_create0() {
 
 struct epoll_event_ {
     uint32_t events;
+#ifdef GUEST_ARM64
+    uint32_t __pad;
+#endif
     uint64_t data;
-} __attribute__((packed));
+}
+#ifndef GUEST_ARM64
+__attribute__((packed))
+#endif
+;
 
 #define EPOLL_CTL_ADD_ 1
 #define EPOLL_CTL_DEL_ 2
@@ -101,6 +108,13 @@ int_t sys_epoll_wait(fd_t epoll_f, addr_t events_addr, int_t max_events, int_t t
         }
         if (user_write(events_addr, events, sizeof(struct epoll_event_) * res))
             return _EFAULT;
+    } else if (res != _EINTR) {
+        // Host-level errors from kqueue/kevent should not propagate to the guest
+        // as unexpected errnos. libuv asserts that epoll_pwait only fails with
+        // EINTR; anything else (EBADF from kqueue race, etc.) crashes the guest.
+        // Convert to EINTR so the guest's event loop retries gracefully.
+        printk("epoll_wait: converting error %d to EINTR (pid=%d)\n", res, current->pid);
+        res = _EINTR;
     }
     return res;
 }
@@ -108,10 +122,9 @@ int_t sys_epoll_wait(fd_t epoll_f, addr_t events_addr, int_t max_events, int_t t
 int_t sys_epoll_pwait(fd_t epoll_f, addr_t events_addr, int_t max_events, int_t timeout, addr_t sigmask_addr, dword_t sigsetsize) {
     sigset_t_ mask;
     if (sigmask_addr != 0) {
-        if (sigsetsize != sizeof(sigset_t_))
-            return _EINVAL;
-        if (user_get(sigmask_addr, mask))
-            return _EFAULT;
+        int err = user_get_sigset(sigmask_addr, sigsetsize, &mask);
+        if (err)
+            return err;
         sigmask_set_temp(mask);
     }
 

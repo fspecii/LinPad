@@ -1,10 +1,14 @@
 #include <string.h>
+#include <stdio.h>
 #include "kernel/errno.h"
 #include "kernel/random.h"
 #include "fs/poll.h"
 #include "fs/mem.h"
 #include "fs/dev.h"
 #include "fs/devices.h"
+
+// Random device ioctl
+#define RNDGETENTCNT_ 0x80045200  // Get entropy count
 
 extern struct dev_ops
     null_dev,
@@ -95,13 +99,29 @@ struct dev_ops full_dev = {
 };
 
 static ssize_t random_read(struct fd *UNUSED(fd), void *buf, size_t bufsize) {
-    get_random(buf, bufsize);
+    if (get_random(buf, bufsize) != 0) {
+        return _EIO;
+    }
     return bufsize;
 }
+
+static int random_ioctl(struct fd *UNUSED(fd), int cmd, void *arg) {
+    switch (cmd) {
+        case RNDGETENTCNT_:
+            // Return a high entropy count so applications think entropy is available
+            // On macOS, CCRandomGenerateBytes never blocks, so we always have entropy
+            *(int *)arg = 4096;  // Typical pool size
+            return 0;
+        default:
+            return _ENOTTY;
+    }
+}
+
 struct dev_ops random_dev = {
     .open = null_open,
     .fd.read = random_read,
     .fd.write = null_write,
     .fd.lseek = null_lseek,
     .fd.poll = ready_poll,
+    .fd.ioctl = random_ioctl,
 };

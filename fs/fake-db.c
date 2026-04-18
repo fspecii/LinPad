@@ -1,5 +1,6 @@
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include "kernel/errno.h"
 #include "debug.h"
 #include "misc.h"
@@ -18,6 +19,44 @@ static void db_check_error(struct fakefs_db *fs) {
     }
 }
 
+// Retry-aware variants that handle SQLITE_BUSY/SQLITE_LOCKED instead of aborting.
+#define DB_RETRY_MAX 50
+#define DB_RETRY_DELAY_US 20000  /* 20ms between retries = up to 1s total */
+
+static bool db_exec_retry(struct fakefs_db *fs, sqlite3_stmt *stmt) {
+    for (int attempt = 0; attempt < DB_RETRY_MAX; attempt++) {
+        int err = sqlite3_step(stmt);
+        if (err == SQLITE_ROW || err == SQLITE_DONE || err == SQLITE_OK)
+            return err == SQLITE_ROW;
+        int errcode = sqlite3_errcode(fs->db);
+        if (errcode == SQLITE_BUSY || errcode == SQLITE_LOCKED) {
+            sqlite3_reset(stmt);
+            usleep(DB_RETRY_DELAY_US);
+            continue;
+        }
+        db_check_error(fs);
+        return false;
+    }
+    printk("WARNING: db_exec_retry exhausted %d attempts, proceeding\n", DB_RETRY_MAX);
+    return false;
+}
+
+static void db_reset_retry(struct fakefs_db *fs, sqlite3_stmt *stmt) {
+    for (int attempt = 0; attempt < DB_RETRY_MAX; attempt++) {
+        sqlite3_reset(stmt);
+        int errcode = sqlite3_errcode(fs->db);
+        if (errcode == SQLITE_OK || errcode == SQLITE_ROW || errcode == SQLITE_DONE)
+            return;
+        if (errcode == SQLITE_BUSY || errcode == SQLITE_LOCKED) {
+            usleep(DB_RETRY_DELAY_US);
+            continue;
+        }
+        db_check_error(fs);
+        return;
+    }
+    printk("WARNING: db_reset_retry exhausted %d attempts\n", DB_RETRY_MAX);
+}
+
 static sqlite3_stmt *db_prepare(struct fakefs_db *fs, const char *stmt) {
     sqlite3_stmt *statement;
     sqlite3_prepare_v2(fs->db, stmt, strlen(stmt) + 1, &statement, NULL);
@@ -26,13 +65,10 @@ static sqlite3_stmt *db_prepare(struct fakefs_db *fs, const char *stmt) {
 }
 
 bool db_exec(struct fakefs_db *fs, sqlite3_stmt *stmt) {
-    int err = sqlite3_step(stmt);
-    db_check_error(fs);
-    return err == SQLITE_ROW;
+    return db_exec_retry(fs, stmt);
 }
 void db_reset(struct fakefs_db *fs, sqlite3_stmt *stmt) {
-    sqlite3_reset(stmt);
-    db_check_error(fs);
+    db_reset_retry(fs, stmt);
 }
 void db_exec_reset(struct fakefs_db *fs, sqlite3_stmt *stmt) {
     db_exec(fs, stmt);
@@ -125,7 +161,7 @@ void path_link(struct fakefs_db *fs, const char *src, const char *dst) {
 inode_t path_unlink(struct fakefs_db *fs, const char *path) {
     inode_t inode = path_get_inode(fs, path);
     if (inode == 0)
-        die("path_unlink(%s): nonexistent path", path);
+        return 0;  // Path not in meta.db — already gone or never tracked
     // delete from paths where path = ?
     bind_path(fs->stmt.path_unlink, 1, path);
     db_exec_reset(fs, fs->stmt.path_unlink);
@@ -185,7 +221,7 @@ int fake_db_init(struct fakefs_db *fs, const char *db_path, int root_fd) {
         sqlite3_close(fs->db);
         return _EINVAL;
     }
-    sqlite3_busy_timeout(fs->db, 1000);
+    sqlite3_busy_timeout(fs->db, 5000);
     sqlite3_create_function(fs->db, "change_prefix", 3, SQLITE_UTF8 | SQLITE_DETERMINISTIC, NULL, sqlite_func_change_prefix, NULL, NULL);
     db_check_error(fs);
 

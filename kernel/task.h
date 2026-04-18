@@ -47,6 +47,16 @@ struct task {
     sigset_t_ saved_mask;
     bool has_saved_mask;
 
+    // Set when thread is in a blocking syscall (futex_wait, poll_wait, etc.)
+    // Used for deadlock detection: if all threads are blocking, it's a hang.
+    bool blocking;
+    // Per-thread pipe for futex_wait wakeup (reused across calls to avoid
+    // pipe creation overhead in Go runtime spin loops)
+    int futex_pipe[2]; // [0]=read, [1]=write; -1 if not yet created
+    // Timestamp (CLOCK_MONOTONIC ns) of last time blocking became false.
+    // Used by deadlock detector to check how long ALL threads have been stuck.
+    uint64_t last_unblocked_ns;
+
     struct {
         // Locks all ptrace-related things
         lock_t lock;
@@ -85,6 +95,11 @@ struct task {
     lock_t general_lock;
 
     struct task_sockrestart sockrestart;
+
+    // Native offload: when is_native_proxy is true, this task is waiting
+    // for a host-native process instead of running emulated code.
+    pid_t native_pid;
+    bool is_native_proxy;
 
     // current condition/lock, so it can be notified in case of a signal
     cond_t *waiting_cond;
@@ -161,6 +176,14 @@ struct tgroup {
     cond_t child_exit;
 
     dword_t personality;
+
+    // Monotonically increasing syscall counter for deadlock detection.
+    atomic_uint syscall_count;
+
+    // Timestamp of last real progress (non-blocking syscall completion).
+    // Updated atomically. Used by futex/poll safety valves to detect
+    // process-wide hangs where all threads are idle.
+    _Atomic uint64_t last_progress_ns;
 
     // for everything in this struct not locked by something else
     lock_t lock;

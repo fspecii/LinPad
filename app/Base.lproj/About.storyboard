@@ -196,6 +196,26 @@
                                             <segue destination="9eV-Jd-Xng" kind="show" id="R7o-uj-fFN"/>
                                         </connections>
                                     </tableViewCell>
+                                    <tableViewCell clipsSubviews="YES" contentMode="scaleToFill" preservesSuperviewLayoutMargins="YES" selectionStyle="default" indentationWidth="10" id="rRf-K1-9aZ">
+                                        <rect key="frame" x="0.0" y="343" width="320" height="43.5"/>
+                                        <autoresizingMask key="autoresizingMask"/>
+                                        <tableViewCellContentView key="contentView" opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="center" preservesSuperviewLayoutMargins="YES" insetsLayoutMarginsFromSafeArea="NO" tableViewCell="rRf-K1-9aZ" id="rRf-K1-cv1">
+                                            <rect key="frame" x="0.0" y="0.0" width="320" height="43.5"/>
+                                            <autoresizingMask key="autoresizingMask"/>
+                                            <subviews>
+                                                <label opaque="NO" multipleTouchEnabled="YES" contentMode="left" insetsLayoutMarginsFromSafeArea="NO" text="Reset Rootfs" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="rRf-K1-lbl">
+                                                    <rect key="frame" x="16" y="11.5" width="288" height="21"/>
+                                                    <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                                                    <color key="textColor" systemColor="systemRedColor"/>
+                                                    <nil key="highlightedColor"/>
+                                                </label>
+                                            </subviews>
+                                            <constraints>
+                                                <constraint firstItem="rRf-K1-lbl" firstAttribute="leading" secondItem="rRf-K1-cv1" secondAttribute="leadingMargin" id="rRf-K1-c01"/>
+                                                <constraint firstItem="rRf-K1-lbl" firstAttribute="centerY" secondItem="rRf-K1-cv1" secondAttribute="centerY" id="rRf-K1-c02"/>
+                                            </constraints>
+                                        </tableViewCellContentView>
+                                    </tableViewCell>
                                 </cells>
                             </tableViewSection>
                             <tableViewSection footerTitle="" id="DVR-sH-TdL">
@@ -395,6 +415,7 @@
                         <outlet property="openFediverse" destination="bge-GA-6p8" id="ghM-X8-itm"/>
                         <outlet property="openGithub" destination="F4i-eC-hQ6" id="66M-sQ-RJR"/>
                         <outlet property="resetMountsCell" destination="Bqt-ud-CI0" id="2AS-2S-XCr"/>
+                        <outlet property="resetRootfsCell" destination="rRf-K1-9aZ" id="rRf-ol-con"/>
                         <outlet property="saddamHussein" destination="bcR-YQ-PkC" id="mUA-6I-CB9"/>
                         <outlet property="sendFeedback" destination="gMm-4C-5X3" id="nhX-ZH-zyP"/>
                         <outlet property="themeCell" destination="dqn-Cd-cNm" id="dfh-et-0o7"/>

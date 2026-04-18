@@ -1,6 +1,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -16,7 +17,10 @@
 #include "kernel/calls.h"
 #include "kernel/fs.h"
 #include "fs/dev.h"
+#include "fs/devices.h"
 #include "fs/real.h"
+#define ISH_INTERNAL
+#include "fs/fake.h"
 #include "fs/tty.h"
 #include "util/fchdir.h"
 
@@ -57,6 +61,30 @@ static int open_flags_fake_from_real(int flags) {
     if (flags & O_APPEND) fake_flags |= O_APPEND_;
     if (flags & O_NONBLOCK) fake_flags |= O_NONBLOCK_;
     return fake_flags;
+}
+
+// Map well-known /dev paths to device numbers. Returns 0 if not recognized.
+static dev_t_ realfs_devnum_for_path(const char *path) {
+    if (strncmp(path, "/dev/", 5) != 0)
+        return 0;
+    const char *devname = path + 5;
+    if (strcmp(devname, "null") == 0)
+        return dev_make(MEM_MAJOR, DEV_NULL_MINOR);
+    if (strcmp(devname, "zero") == 0)
+        return dev_make(MEM_MAJOR, DEV_ZERO_MINOR);
+    if (strcmp(devname, "full") == 0)
+        return dev_make(MEM_MAJOR, DEV_FULL_MINOR);
+    if (strcmp(devname, "random") == 0)
+        return dev_make(MEM_MAJOR, DEV_RANDOM_MINOR);
+    if (strcmp(devname, "urandom") == 0)
+        return dev_make(MEM_MAJOR, DEV_URANDOM_MINOR);
+    if (strcmp(devname, "tty") == 0)
+        return dev_make(TTY_ALTERNATE_MAJOR, DEV_TTY_MINOR);
+    if (strcmp(devname, "console") == 0)
+        return dev_make(TTY_ALTERNATE_MAJOR, DEV_CONSOLE_MINOR);
+    if (strcmp(devname, "ptmx") == 0)
+        return dev_make(TTY_ALTERNATE_MAJOR, DEV_PTMX_MINOR);
+    return 0;
 }
 
 struct fd *realfs_open(struct mount *mount, const char *path, int flags, int mode) {
@@ -109,6 +137,12 @@ int realfs_stat(struct mount *mount, const char *path, struct statbuf *fake_stat
     if (fstatat(mount->root_fd, fix_path(path), &real_stat, AT_SYMLINK_NOFOLLOW) < 0)
         return errno_map();
     copy_stat(fake_stat, &real_stat);
+    // Override mode/rdev for well-known device paths backed by placeholder files
+    dev_t_ devnum = realfs_devnum_for_path(path);
+    if (devnum != 0) {
+        fake_stat->mode = S_IFCHR | 0666;
+        fake_stat->rdev = devnum;
+    }
     return 0;
 }
 
@@ -121,28 +155,40 @@ int realfs_fstat(struct fd *fd, struct statbuf *fake_stat) {
 }
 
 ssize_t realfs_read(struct fd *fd, void *buf, size_t bufsize) {
-    ssize_t res = read(fd->real_fd, buf, bufsize);
+    ssize_t res;
+    do {
+        res = read(fd->real_fd, buf, bufsize);
+    } while (res < 0 && errno == EINTR);
     if (res < 0)
         return errno_map();
     return res;
 }
 
 ssize_t realfs_write(struct fd *fd, const void *buf, size_t bufsize) {
-    ssize_t res = write(fd->real_fd, buf, bufsize);
+    ssize_t res;
+    do {
+        res = write(fd->real_fd, buf, bufsize);
+    } while (res < 0 && errno == EINTR);
     if (res < 0)
         return errno_map();
     return res;
 }
 
 ssize_t realfs_pread(struct fd *fd, void *buf, size_t bufsize, off_t off) {
-    ssize_t res = pread(fd->real_fd, buf, bufsize, off);
+    ssize_t res;
+    do {
+        res = pread(fd->real_fd, buf, bufsize, off);
+    } while (res < 0 && errno == EINTR);
     if (res < 0)
         return errno_map();
     return res;
 }
 
 ssize_t realfs_pwrite(struct fd *fd, const void *buf, size_t bufsize, off_t off) {
-    ssize_t res = pwrite(fd->real_fd, buf, bufsize, off);
+    ssize_t res;
+    do {
+        res = pwrite(fd->real_fd, buf, bufsize, off);
+    } while (res < 0 && errno == EINTR);
     if (res < 0)
         return errno_map();
     return res;
@@ -151,34 +197,52 @@ ssize_t realfs_pwrite(struct fd *fd, const void *buf, size_t bufsize, off_t off)
 void realfs_opendir(struct fd *fd) {
     if (fd->dir == NULL) {
         int dirfd = dup(fd->real_fd);
+        if (dirfd < 0) return;
         fd->dir = fdopendir(dirfd);
-        // this should never get called on a non-directory
-        assert(fd->dir != NULL);
+        if (fd->dir == NULL) {
+            // fdopendir failed (fd may not be a directory, or was closed).
+            // Close the dup'd fd and leave fd->dir NULL for callers to handle.
+            close(dirfd);
+        }
     }
 }
 
 int realfs_readdir(struct fd *fd, struct dir_entry *entry) {
     realfs_opendir(fd);
-    errno = 0;
-    struct dirent *dirent = readdir(fd->dir);
-    if (dirent == NULL) {
-        if (errno != 0)
-            return errno_map();
-        else
+    if (fd->dir == NULL) return _EIO;
+    // Darwin filenames (APFS/HFS+) can be up to 255 UTF-16 units, which in
+    // UTF-8 may exceed Linux NAME_MAX (255 bytes). An unchecked strcpy into
+    // entry->name[NAME_MAX + 1] smashes the caller's stack-allocated
+    // dir_entry (see sys_getdents64 in fs/dir.c) and trips __stack_chk_fail.
+    // Skip any entry whose name doesn't fit so the guest can continue walking.
+    for (;;) {
+        errno = 0;
+        struct dirent *dirent = readdir(fd->dir);
+        if (dirent == NULL) {
+            if (errno != 0)
+                return errno_map();
             return 0;
+        }
+        size_t namelen = strlen(dirent->d_name);
+        if (namelen > NAME_MAX) {
+            FIXME("realfs_readdir: skipping entry with name longer than NAME_MAX (%zu bytes)", namelen);
+            continue;
+        }
+        entry->inode = dirent->d_ino;
+        memcpy(entry->name, dirent->d_name, namelen + 1);
+        return 1;
     }
-    entry->inode = dirent->d_ino;
-    strcpy(entry->name, dirent->d_name);
-    return 1;
 }
 
 unsigned long realfs_telldir(struct fd *fd) {
     realfs_opendir(fd);
+    if (fd->dir == NULL) return 0;
     return telldir(fd->dir);
 }
 
 void realfs_seekdir(struct fd *fd, unsigned long ptr) {
     realfs_opendir(fd);
+    if (fd->dir == NULL) return;
     seekdir(fd->dir, ptr);
 }
 
@@ -255,8 +319,68 @@ int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off
 
     off_t real_offset = (offset / real_page_size) * real_page_size;
     off_t correction = offset - real_offset;
-    char *memory = mmap(NULL, (pages * PAGE_SIZE) + correction,
+    size_t map_size = (pages * PAGE_SIZE) + correction;
+
+    struct stat st;
+    int have_stat = (fstat(fd->real_fd, &st) == 0);
+
+    // Check if the mapping extends beyond the file size.
+    if (have_stat && (off_t)(real_offset + map_size) > st.st_size) {
+        // For MAP_SHARED writable mappings, use a direct file-backed mmap.
+        // The host kernel handles beyond-EOF correctly: writes within the
+        // file are flushed on munmap, and the zero-filled region between
+        // file end and page boundary is discarded. This is what apk needs
+        // for its posix_fallocate + mmap(MAP_SHARED) extraction pattern.
+        // We must NOT extend the file via ftruncate, because apk doesn't
+        // truncate it back, leaving trailing null bytes that corrupt files.
+        if ((mmap_flags & MAP_SHARED) && (mmap_prot & PROT_WRITE)) {
+            char *memory = mmap(NULL, map_size,
+                    mmap_prot, mmap_flags, fd->real_fd, real_offset);
+            if (memory != MAP_FAILED) {
+                return pt_map(mem, start, pages, memory, correction, prot);
+            }
+            // mmap failed — fall through to anonymous path
+        }
+
+        // Create anonymous backing for the full range (zeros for BSS)
+        char *memory = mmap(NULL, map_size,
+                PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (memory == MAP_FAILED)
+            return _ENOMEM;
+        size_t file_bytes = 0;
+        if (st.st_size > real_offset)
+            file_bytes = st.st_size - real_offset;
+        if (file_bytes > map_size)
+            file_bytes = map_size;
+        size_t file_map_size = (file_bytes / real_page_size) * real_page_size;
+        if (file_map_size > 0) {
+            char *file_map = mmap(memory, file_map_size,
+                    mmap_prot, mmap_flags | MAP_FIXED, fd->real_fd, real_offset);
+            if (file_map == MAP_FAILED)
+                file_map_size = 0;
+        }
+        if (file_map_size < file_bytes) {
+            size_t remaining = file_bytes - file_map_size;
+            size_t total_read = 0;
+            while (total_read < remaining) {
+                ssize_t n = pread(fd->real_fd, memory + file_map_size + total_read,
+                                  remaining - total_read,
+                                  real_offset + file_map_size + total_read);
+                if (n <= 0) break;
+                total_read += n;
+            }
+        }
+        if (!(mmap_prot & PROT_WRITE) && file_map_size < map_size)
+            mprotect(memory + file_map_size, map_size - file_map_size, mmap_prot);
+
+        return pt_map(mem, start, pages, memory, correction, prot);
+    }
+
+    char *memory = mmap(NULL, map_size,
             mmap_prot, mmap_flags, fd->real_fd, real_offset);
+    if (memory == MAP_FAILED)
+        return _ENOMEM;
+
     return pt_map(mem, start, pages, memory, correction, prot);
 }
 
@@ -271,9 +395,40 @@ int realfs_getpath(struct fd *fd, char *buf) {
     int err = getpath(fd->real_fd, buf);
     if (err < 0)
         return err;
+
+    /* For bind-mounted dirs, F_GETPATH resolves symlinks and returns the
+     * host persistent path (e.g. /Users/.../MinisChat/minis/<sid>/attachments).
+     * This won't start with mount->source, so the normal prefix strip fails.
+     * Detect and translate back to the Linux path. */
+    char linux_path[MAX_PATH];
+    if (fakefs_bind_mount_resolve_path(buf, linux_path, sizeof(linux_path))) {
+        if (strstr(buf, "minis") != NULL)
+            fprintf(stderr, "realfs_getpath: bind_mount_resolve OK: \"%s\" -> \"%s\"\n", buf, linux_path);
+        strlcpy(buf, linux_path, MAX_PATH);
+        return 0;
+    }
+    if (strstr(buf, "minis") != NULL)
+        fprintf(stderr, "realfs_getpath: bind_mount_resolve MISS: F_GETPATH=\"%s\" source=\"%s\"\n", buf, fd->mount->source);
+
     if (strcmp(fd->mount->source, "/") != 0 || strcmp(buf, "/") == 0) {
         size_t source_len = strlen(fd->mount->source);
-        memmove(buf, buf + source_len, MAX_PATH - source_len);
+        /* Verify buf actually starts with mount->source before stripping.
+         * F_GETPATH resolves symlinks, so bind-mounted paths may point outside
+         * mount->source when the bind mount table has been cleared (e.g. after
+         * app restart before mountMinis re-registers the mounts). */
+        if (strncmp(buf, fd->mount->source, source_len) == 0) {
+            memmove(buf, buf + source_len, MAX_PATH - source_len);
+        } else if (strncmp(fd->mount->source, "/var/", 5) == 0 &&
+                   strncmp(buf, "/private", 8) == 0 &&
+                   strncmp(buf + 8, fd->mount->source, source_len) == 0) {
+            /* F_GETPATH returns /private/var/... but mount->source is /var/...
+             * Strip /private prefix + mount->source from buf. */
+            memmove(buf, buf + 8 + source_len, MAX_PATH - 8 - source_len);
+        } else {
+            /* Path is outside mount source (stale bind mount symlink resolved
+             * by F_GETPATH). Return root as a safe fallback. */
+            strcpy(buf, "/");
+        }
     }
     return 0;
 }
@@ -307,7 +462,7 @@ int realfs_rename(struct mount *mount, const char *src, const char *dst) {
 }
 
 int realfs_symlink(struct mount *mount, const char *target, const char *link) {
-    int err = symlinkat(target, mount->root_fd, link);
+    int err = symlinkat(target, mount->root_fd, fix_path(link));
     if (err < 0)
         return errno_map();
     return err;
@@ -349,9 +504,13 @@ int realfs_setattr(struct mount *mount, const char *path, struct attr attr) {
     switch (attr.type) {
         case attr_uid:
             err = fchownat(root, path, attr.uid, -1, 0);
+            if (err < 0 && errno == EPERM)
+                return 0; // silently ignore, we're not root on host
             break;
         case attr_gid:
             err = fchownat(root, path, attr.gid, -1, 0);
+            if (err < 0 && errno == EPERM)
+                return 0;
             break;
         case attr_mode:
             err = fchmodat(root, path, attr.mode, 0);
@@ -372,9 +531,13 @@ int realfs_fsetattr(struct fd *fd, struct attr attr) {
     switch (attr.type) {
         case attr_uid:
             err = fchown(real_fd, attr.uid, -1);
+            if (err < 0 && errno == EPERM)
+                return 0;
             break;
         case attr_gid:
             err = fchown(real_fd, attr.gid, -1);
+            if (err < 0 && errno == EPERM)
+                return 0;
             break;
         case attr_mode:
             err = fchmod(real_fd, attr.mode);
@@ -464,6 +627,10 @@ int realfs_setflags(struct fd *fd, dword_t flags) {
 ssize_t realfs_ioctl_size(int cmd) {
     if (cmd == FIONREAD_)
         return sizeof(dword_t);
+    if (cmd == TCGETS_)
+        return sizeof(struct termios_);
+    if (cmd == TIOCGWINSZ_)
+        return sizeof(struct winsize_);
     return -1;
 }
 
@@ -477,6 +644,37 @@ int realfs_ioctl(struct fd *fd, int cmd, void *arg) {
                 return errno_map();
             *(dword_t *) arg = nread;
             return 0;
+        case TCGETS_:
+            // For piped stdio fds backed by a real host TTY, return a
+            // plausible termios so that musl isatty() succeeds.
+            if (isatty(fd->real_fd)) {
+                struct termios host_termios;
+                if (tcgetattr(fd->real_fd, &host_termios) == 0) {
+                    struct termios_ *guest = (struct termios_ *)arg;
+                    memset(guest, 0, sizeof(*guest));
+                    guest->iflags = host_termios.c_iflag;
+                    guest->oflags = host_termios.c_oflag;
+                    guest->cflags = host_termios.c_cflag;
+                    guest->lflags = host_termios.c_lflag;
+                    return 0;
+                }
+            }
+            return _ENOTTY;
+        case TIOCGWINSZ_: {
+            // libuv calls TIOCGWINSZ during uv_tty_init to get terminal size.
+            if (isatty(fd->real_fd)) {
+                struct winsize host_ws;
+                if (ioctl(fd->real_fd, TIOCGWINSZ, &host_ws) == 0) {
+                    struct winsize_ *guest_ws = (struct winsize_ *)arg;
+                    guest_ws->row = host_ws.ws_row;
+                    guest_ws->col = host_ws.ws_col;
+                    guest_ws->xpixel = host_ws.ws_xpixel;
+                    guest_ws->ypixel = host_ws.ws_ypixel;
+                    return 0;
+                }
+            }
+            return _ENOTTY;
+        }
     }
     return _ENOTTY;
 }

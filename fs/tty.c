@@ -794,7 +794,32 @@ void tty_set_winsize(struct tty *tty, struct winsize_ winsize) {
 
 void tty_hangup(struct tty *tty) {
     tty->hung_up = true;
-    tty_input_wakeup(tty);
+    // Wake up any threads blocked in tty_read via condvar.
+    notify(&tty->produced);
+    // Wake up poll waiters by writing to their notify pipes directly,
+    // avoiding poll_wakeup which acquires fd->poll_lock and can deadlock
+    // when called from [Terminal destroy] on the main thread during exit.
+    unlock(&tty->lock);
+    struct fd *fd;
+    lock(&tty->fds_lock);
+    list_for_each_entry(&tty->fds, fd, tty_other_fds) {
+        // Use trylock to avoid blocking — if we can't get poll_lock,
+        // the poll loop's 1-second timeout will pick up hung_up anyway.
+        if (pthread_mutex_trylock(&fd->poll_lock.m) == 0) {
+            struct poll_fd *poll_fd;
+            list_for_each_entry(&fd->poll_fds, poll_fd, polls) {
+                struct poll *poll = poll_fd->poll;
+                if (pthread_mutex_trylock(&poll->lock.m) == 0) {
+                    if (poll->notify_pipe[1] != -1)
+                        write(poll->notify_pipe[1], "", 1);
+                    unlock(&poll->lock);
+                }
+            }
+            unlock(&fd->poll_lock);
+        }
+    }
+    unlock(&tty->fds_lock);
+    lock(&tty->lock);
 }
 
 struct dev_ops tty_dev = {

@@ -26,6 +26,11 @@ void FsUpdateRepositories(void);
 #define CURRENT_APK_VERSION 31900
 #define CURRENT_APK_VERSION_STRING "Alpine v3.19"
 
+/// Apply rootfs patches from RootfsPatch.bundle on boot.
+/// The bundle contains a manifest.plist with a version number and file list.
+/// Files are written to guest fs when the bundle version exceeds /ish/overlay-version.
+void FsApplyOverlay(void);
+
 extern NSString *const FsUpdatedNotification;
 
 NS_ASSUME_NONNULL_END

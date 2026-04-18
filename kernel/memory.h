@@ -9,15 +9,81 @@
 #include "util/sync.h"
 #include "misc.h"
 
+#ifdef GUEST_ARM64
+// ARM64: 4-level page table for 48-bit address space
+// L0[512] → L1[512] → L2[512] → L3[512 pt_entry]
+// 9+9+9+9 = 36-bit page number + 12-bit offset = 48-bit address
+#define PT_LEVELS 4
+#define PT_BITS 9
+#define PT_ENTRIES (1 << PT_BITS)  // 512
+
+// Extract level index from page number (36-bit page number)
+#define PT_INDEX(page, level) (((page) >> (PT_BITS * (3 - (level)))) & (PT_ENTRIES - 1))
+
+// Page table intermediate node (L0, L1, L2)
+struct pt_node {
+    void *children[PT_ENTRIES]; // pt_node* for L0-L2, pt_entry* array for L3
+};
+
+// Lazy reservation for MAP_NORESERVE regions (JSC heap cage, etc.).
+// Records address range and permissions without allocating page table entries.
+// Pages are materialized on demand when faulted.
+struct mem_reservation {
+    page_t start;
+    pages_t pages;
+    unsigned flags;
+    struct mem_reservation *next;
+};
+
+struct mem {
+    struct pt_node *pgdir;  // L0 node (512 entries)
+    int pgdir_used;
+
+    struct mmu mmu;
+
+    // Hint for pt_find_hole: start searching just below the last successful
+    // allocation instead of always from MMAP_HOLE_START. Reset on munmap
+    // when freed pages are above the hint. Avoids O(n) rescanning of already-
+    // allocated regions on every mmap(addr=0).
+    page_t mmap_hint;
+
+    struct mem_reservation *reservations;
+
+    wrlock_t lock;
+    lock_t cow_lock;
+};
+
+// Address space layout for ARM64 guest.
+// 48-bit address space with 4-level page table and 48-bit JIT masks.
+// Keep stack and mmap in the low 4GB region (same as x86) so that page table
+// walks are shallow (L0[0]→L1[0]→L2→L3 — the first two levels are always
+// index 0 and stay hot in cache). The 48-bit infrastructure remains available
+// for explicit high-address mmap hints (e.g., V8 CodeRange).
+#define STACK_TOP_PAGE    0xffffeULL        // guard page at 0xffffe000
+#define STACK_INIT_PAGE   0xffffdULL        // initial stack page (growsdown)
+#define STACK_TOP_ADDR    0xffffe000ULL     // SP starts here
+#define MMAP_HOLE_START   0xefffdULL        // mmap search starts here (same as x86)
+#define MMAP_HOLE_END     0x100ULL          // mmap search ends here (above guard pages)
+// Upper bound for valid user addresses (page number, 48-bit / 4K = 36-bit)
+#define USER_ADDR_MAX_PAGE  0xFFFFFFFFFULL
+
+#else
+// x86: 2-level flat page table for 32-bit address space
+// pgdir[1024] → pt_entry[1024]
+#define MEM_PGDIR_SIZE (1 << 10)
+
 struct mem {
     struct pt_entry **pgdir;
     int pgdir_used;
 
     struct mmu mmu;
 
+    page_t mmap_hint;
+
     wrlock_t lock;
+    lock_t cow_lock;
 };
-#define MEM_PGDIR_SIZE (1 << 10)
+#endif
 
 // Initialize the address space
 void mem_init(struct mem *mem);
@@ -72,6 +138,12 @@ struct pt_entry {
 
 bool pt_is_hole(struct mem *mem, page_t start, pages_t pages);
 page_t pt_find_hole(struct mem *mem, pages_t size);
+
+#ifdef GUEST_ARM64
+int pt_map_lazy(struct mem *mem, page_t start, pages_t pages, unsigned flags);
+struct mem_reservation *mem_find_reservation(struct mem *mem, page_t page);
+void mem_remove_reservations(struct mem *mem, page_t start, pages_t pages);
+#endif
 
 // Map memory + offset into fake memory, unmapping existing mappings. Takes
 // ownership of memory. It will be freed with:

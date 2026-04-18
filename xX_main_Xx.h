@@ -3,10 +3,14 @@
 #include <signal.h>
 #include <errno.h>
 #include <syslog.h>
+#include <sys/stat.h>
 #include "kernel/init.h"
 #include "kernel/fs.h"
 #include "fs/devices.h"
+#include "fs/dev.h"
+#include "fs/path.h"
 #include "fs/real.h"
+#include "kernel/native_offload.h"
 #ifdef __APPLE__
 #include <sys/resource.h>
 #define IOPOL_TYPE_VFS_HFS_CASE_SENSITIVITY 1
@@ -19,8 +23,11 @@ static void exit_handler(struct task *task, int code) {
     if (task->parent != NULL)
         return;
     real_tty_reset_term();
-    if (code & 0xff)
-        raise(code & 0xff);
+    if (code & 0xff) {
+        // Guest died from a signal. Don't raise on the host (our crash_handler
+        // would intercept it). Just exit with the conventional 128+signal code.
+        _exit(128 + (code & 0xff));
+    }
     exit(code >> 8);
 }
 
@@ -50,7 +57,7 @@ static inline int xX_main_Xx(int argc, char *const argv[], const char *envp) {
     const char *workdir = NULL;
     const struct fs_ops *fs = &realfs;
     const char *console = "/dev/tty1";
-    while ((opt = getopt(argc, argv, "+r:f:d:c:")) != -1) {
+    while ((opt = getopt(argc, argv, "+r:f:d:c:n:")) != -1) {
         switch (opt) {
             case 'r':
             case 'f':
@@ -64,7 +71,10 @@ static inline int xX_main_Xx(int argc, char *const argv[], const char *envp) {
             case 'c':
                 console = optarg;
                 break;
-
+            case 'n':
+                if (native_offload_add(optarg) < 0)
+                    fprintf(stderr, "warning: ignoring -n %s\n", optarg);
+                break;
         }
     }
 
@@ -83,6 +93,19 @@ static inline int xX_main_Xx(int argc, char *const argv[], const char *envp) {
 
     become_first_process();
     current->thread = pthread_self();
+
+    // Create essential device nodes (only works with fakefs)
+    if (fs != &realfs) {
+        generic_mknodat(AT_PWD, "/dev/null", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_NULL_MINOR));
+        generic_mknodat(AT_PWD, "/dev/zero", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_ZERO_MINOR));
+        generic_mknodat(AT_PWD, "/dev/full", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_FULL_MINOR));
+        generic_mknodat(AT_PWD, "/dev/random", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_RANDOM_MINOR));
+        generic_mknodat(AT_PWD, "/dev/urandom", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_URANDOM_MINOR));
+        generic_mknodat(AT_PWD, "/dev/tty", S_IFCHR|0666, dev_make(TTY_ALTERNATE_MAJOR, DEV_TTY_MINOR));
+        generic_mknodat(AT_PWD, "/dev/console", S_IFCHR|0666, dev_make(TTY_ALTERNATE_MAJOR, DEV_CONSOLE_MINOR));
+        generic_mknodat(AT_PWD, "/dev/ptmx", S_IFCHR|0666, dev_make(TTY_ALTERNATE_MAJOR, DEV_PTMX_MINOR));
+    }
+
     char cwd[MAX_PATH + 1];
     if (root == NULL && workdir == NULL) {
         getcwd(cwd, sizeof(cwd));
@@ -100,15 +123,120 @@ static inline int xX_main_Xx(int argc, char *const argv[], const char *envp) {
     char argv_copy[4096];
     int i = optind;
     size_t p = 0;
+    size_t exec_argc = 0;
+    if (argv[optind] == NULL)
+	    return _ENOENT;
+#ifdef GUEST_ARM64
+    // Inject V8 flags for node to work around scope corruption in emulation.
+    // --jitless: disable JIT (avoids V8 code gen incompatible with our JIT)
+    // --predictable: disable concurrent GC/compilation (avoids race conditions)
+    // --no-lazy: eager compilation (avoids Zone reuse patterns that corrupt scopes)
+    // --single-generation: skip young gen (reduces GC-triggered Zone resets)
+    // This is needed here because the initial do_execve bypasses sys_execve.
+    {
+        const char *base = strrchr(argv[optind], '/');
+        base = base ? base + 1 : argv[optind];
+        if (strcmp(base, "node") == 0) {
+            // Copy argv[0] first
+            strcpy(&argv_copy[p], argv[optind]);
+            p += strlen(argv[optind]) + 1;
+            exec_argc++;
+            // Inject V8 flags to work around scope corruption
+            static const char *v8_flags[] = {
+                "--jitless",
+                "--no-lazy",
+                "--no-expose-wasm",
+                "--max-old-space-size=512",
+            };
+            for (int fi = 0; fi < (int)(sizeof(v8_flags)/sizeof(v8_flags[0])); fi++) {
+                strcpy(&argv_copy[p], v8_flags[fi]);
+                p += strlen(v8_flags[fi]) + 1;
+                exec_argc++;
+            }
+            // Copy remaining args (skip argv[optind])
+            for (i = optind + 1; i < argc; i++) {
+                strcpy(&argv_copy[p], argv[i]);
+                p += strlen(argv[i]) + 1;
+                exec_argc++;
+            }
+            argv_copy[p] = '\0';
+            goto do_exec;
+        }
+    }
+#endif
     while (i < argc) {
         strcpy(&argv_copy[p], argv[i]);
         p += strlen(argv[i]) + 1;
+        exec_argc++;
         i++;
     }
     argv_copy[p] = '\0';
-    if (argv[optind] == NULL)
-	    return _ENOENT;
-    err = do_execve(argv[optind], argc - optind, argv_copy, envp == NULL ? "\0" : envp);
+#ifdef GUEST_ARM64
+do_exec:
+    // Inject environment variables for the initial exec.
+    // sys_execve has its own injection, but the initial do_execve bypasses it.
+    {
+        static char envp_buf[4096];
+        size_t ep = 0;
+        if (envp != NULL) {
+            const char *e = envp;
+            while (*e) {
+                size_t len = strlen(e) + 1;
+                if (ep + len < sizeof(envp_buf) - 256) {
+                    memcpy(&envp_buf[ep], e, len);
+                    ep += len;
+                }
+                e += len;
+            }
+        }
+        // Inject env vars that sys_execve would normally add.
+        // These are injected only if not already present.
+        static const char *inject_vars[] = {
+            "GODEBUG=asyncpreemptoff=1",  // Disable Go async preemption
+            "GOMAXPROCS=2",               // Limit Go thread count
+            "NO_COLOR=1",                 // Disable color output
+            "PYTHONMALLOC=malloc",        // Bypass pymalloc arenas
+            "PYTHONDONTWRITEBYTECODE=1",  // Skip .pyc generation
+        };
+        for (size_t vi = 0; vi < sizeof(inject_vars)/sizeof(inject_vars[0]); vi++) {
+            // Check if already present (search by prefix up to '=')
+            const char *eq = strchr(inject_vars[vi], '=');
+            size_t prefix_len = eq ? (size_t)(eq - inject_vars[vi] + 1) : strlen(inject_vars[vi]);
+            int found = 0;
+            const char *scan = envp_buf;
+            const char *scan_end = envp_buf + ep;
+            while (scan < scan_end && *scan) {
+                if (strncmp(scan, inject_vars[vi], prefix_len) == 0) {
+                    found = 1;
+                    break;
+                }
+                scan += strlen(scan) + 1;
+            }
+            if (!found) {
+                size_t vlen = strlen(inject_vars[vi]) + 1;
+                if (ep + vlen < sizeof(envp_buf) - 64) {
+                    memcpy(&envp_buf[ep], inject_vars[vi], vlen);
+                    ep += vlen;
+                }
+            }
+        }
+        // Node-specific: LD_PRELOAD for zero_free.so
+        const char *base2 = strrchr(argv[optind], '/');
+        base2 = base2 ? base2 + 1 : argv[optind];
+        if (strcmp(base2, "node") == 0) {
+            static const char *ld_preload = "LD_PRELOAD=/lib/zero_free.so";
+            size_t plen = strlen(ld_preload) + 1;
+            if (ep + plen < sizeof(envp_buf) - 2) {
+                memcpy(&envp_buf[ep], ld_preload, plen);
+                ep += plen;
+            }
+        }
+        envp_buf[ep] = '\0';
+        err = do_execve(argv[optind], exec_argc, argv_copy, envp_buf);
+    }
+#else
+    err = do_execve(argv[optind], exec_argc, argv_copy, envp == NULL ? "\0" : envp);
+#endif
     if (err < 0)
         return err;
     tty_drivers[TTY_CONSOLE_MAJOR] = &real_tty_driver;

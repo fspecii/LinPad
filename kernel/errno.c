@@ -99,7 +99,7 @@ int err_map(int err) {
 }
 
 int errno_map() {
-    if (errno == EPIPE)
+    if (errno == EPIPE && current != NULL)
         send_signal(current, SIGPIPE_, SIGINFO_NIL);
     return err_map(errno);
 }

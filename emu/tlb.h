@@ -9,9 +9,15 @@ struct tlb_entry {
     page_t page;
     page_t page_if_writable;
     uintptr_t data_minus_addr;
+#ifdef GUEST_ARM64
+    uintptr_t _pad;  // pad to 32 bytes for efficient JIT indexing (lsl #5)
+#endif
 };
-#define TLB_BITS 10
+#define TLB_BITS 13  // 8192 entries
 #define TLB_SIZE (1 << TLB_BITS)
+struct fiber_block;
+struct fiber_frame;
+
 struct tlb {
     struct mmu *mmu;
     page_t dirty_page;
@@ -19,11 +25,24 @@ struct tlb {
     // this is basically one of the return values of tlb_handle_miss, tlb_{read,write}, and __tlb_{read,write}_cross_page
     // yes, this sucks
     addr_t segfault_addr;
+
     struct tlb_entry entries[TLB_SIZE];
+
+    // Persistent block cache across syscalls (avoids re-lookup after every interrupt)
+    // Size defined by FIBER_CACHE_SIZE in asbestos.h
+    struct fiber_block *block_cache[1 << 12];  // must match FIBER_CACHE_SIZE
+    unsigned block_cache_gen; // tracks asbestos->invalidate_gen for invalidation
+
+    // Persistent fiber_frame (avoids malloc/free + ret_cache zeroing per syscall)
+    struct fiber_frame *frame;
 };
 
-#define TLB_INDEX(addr) (((addr >> PAGE_BITS) & (TLB_SIZE - 1)) ^ (addr >> (PAGE_BITS + TLB_BITS)))
-#define TLB_PAGE(addr) (addr & 0xfffff000)
+#define TLB_INDEX(addr) ((((addr >> PAGE_BITS) ^ (addr >> (PAGE_BITS + TLB_BITS))) & (TLB_SIZE - 1)))
+#ifdef GUEST_ARM64
+#define TLB_PAGE(addr) ((addr) & 0xfffffffffffff000ULL)
+#else
+#define TLB_PAGE(addr) ((addr) & 0xfffff000)
+#endif
 #define TLB_PAGE_EMPTY 1
 void tlb_refresh(struct tlb *tlb, struct mmu *mmu);
 void tlb_free(struct tlb *tlb);
@@ -34,7 +53,6 @@ forceinline __no_instrument void *__tlb_read_ptr(struct tlb *tlb, addr_t addr) {
     struct tlb_entry entry = tlb->entries[TLB_INDEX(addr)];
     if (entry.page == TLB_PAGE(addr)) {
         void *address = (void *) (entry.data_minus_addr + addr);
-        posit(address != NULL);
         return address;
     }
     return tlb_handle_miss(tlb, addr, MEM_READ);
@@ -50,12 +68,21 @@ forceinline __no_instrument bool tlb_read(struct tlb *tlb, addr_t addr, void *ou
     return true;
 }
 
+// C-level write watchpoint: detect stores that bypass assembly write_prep
+#define ENABLE_C_WRITE_WATCHPOINT 1
+extern volatile addr_t g_watch_page_val;
+void c_watch_write_hit(addr_t addr, const char *caller);
+
 forceinline __no_instrument void *__tlb_write_ptr(struct tlb *tlb, addr_t addr) {
+#ifdef ENABLE_C_WRITE_WATCHPOINT
+    if (g_watch_page_val && (addr & ~0xfffULL) == g_watch_page_val) {
+        c_watch_write_hit(addr, __func__);
+    }
+#endif
     struct tlb_entry entry = tlb->entries[TLB_INDEX(addr)];
     if (entry.page_if_writable == TLB_PAGE(addr)) {
         tlb->dirty_page = TLB_PAGE(addr);
         void *address = (void *) (entry.data_minus_addr + addr);
-        posit(address != NULL);
         return address;
     }
     return tlb_handle_miss(tlb, addr, MEM_WRITE);

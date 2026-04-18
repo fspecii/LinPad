@@ -75,6 +75,9 @@ void FsInitialize(void) {
             write_file("/ish/version", currentVersionFile.UTF8String, [currentVersionFile lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
         }
     }
+
+    // Apply rootfs overlay patches (e.g. fetch-polyfill.js)
+    FsApplyOverlay();
 }
 
 bool FsIsManaged(void) {
@@ -105,6 +108,95 @@ void FsUpdateRepositories(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         [NSNotificationCenter.defaultCenter postNotificationName:FsUpdatedNotification object:nil];
     });
+}
+
+void FsApplyOverlay(void) {
+    // Locate RootfsPatch.bundle inside the app bundle
+    NSURL *patchBundleURL = [NSBundle.mainBundle URLForResource:@"RootfsPatch" withExtension:@"bundle"];
+    if (patchBundleURL == nil) {
+        NSLog(@"[RootfsPatch] bundle not found in app, skipping overlay");
+        return;
+    }
+    NSBundle *patchBundle = [NSBundle bundleWithURL:patchBundleURL];
+    if (patchBundle == nil) {
+        NSLog(@"[RootfsPatch] failed to load bundle at %@", patchBundleURL);
+        return;
+    }
+
+    // Read manifest
+    NSURL *manifestURL = [patchBundle URLForResource:@"manifest" withExtension:@"plist"];
+    if (manifestURL == nil) {
+        NSLog(@"[RootfsPatch] manifest.plist not found in bundle");
+        return;
+    }
+    NSDictionary *manifest = [NSDictionary dictionaryWithContentsOfURL:manifestURL];
+    if (manifest == nil) {
+        NSLog(@"[RootfsPatch] failed to parse manifest.plist");
+        return;
+    }
+
+    int patchVersion = [manifest[@"version"] intValue];
+    if (patchVersion <= 0)
+        return;
+
+    // Check installed overlay version in guest fs
+    char buf[100];
+    int installedVersion = 0;
+    ssize_t n = read_file("/ish/overlay-version", buf, sizeof(buf));
+    if (n > 0) {
+        buf[n] = '\0';
+        installedVersion = atoi(buf);
+    }
+    if (installedVersion >= patchVersion) {
+        NSLog(@"[RootfsPatch] v%d already installed (bundle v%d), skipping", installedVersion, patchVersion);
+        return;
+    }
+
+    NSLog(@"[RootfsPatch] applying v%d (installed v%d)", patchVersion, installedVersion);
+
+    // Apply each file from the manifest
+    NSArray *files = manifest[@"files"];
+    if (files == nil)
+        return;
+
+    int applied = 0, failed = 0;
+    for (NSDictionary *entry in files) {
+        NSString *src = entry[@"src"];
+        NSString *dst = entry[@"dst"];
+        if (src == nil || dst == nil)
+            continue;
+
+        // Ensure parent directories exist in guest fs
+        NSString *parentDir = [dst stringByDeletingLastPathComponent];
+        if (parentDir.length > 1)
+            generic_mkdirat(AT_PWD, parentDir.UTF8String, 0755);
+
+        // Read file from patch bundle
+        NSURL *srcURL = [patchBundle.bundleURL URLByAppendingPathComponent:src];
+        NSData *data = [NSData dataWithContentsOfURL:srcURL];
+        if (data == nil) {
+            NSLog(@"[RootfsPatch] SKIP %@ (not found in bundle)", src);
+            failed++;
+            continue;
+        }
+
+        ssize_t written = write_file(dst.UTF8String, data.bytes, data.length);
+        if (written < 0) {
+            NSLog(@"[RootfsPatch] FAIL %@ -> %@ (error %zd)", src, dst, written);
+            failed++;
+        } else {
+            NSLog(@"[RootfsPatch] OK %@ -> %@ (%lu bytes)", src, dst, (unsigned long)data.length);
+            applied++;
+        }
+    }
+
+    // Record installed version
+    generic_mkdirat(AT_PWD, "/ish", 0755);
+    NSString *versionStr = [NSString stringWithFormat:@"%d\n", patchVersion];
+    write_file("/ish/overlay-version", versionStr.UTF8String,
+               [versionStr lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
+
+    NSLog(@"[RootfsPatch] done: %d applied, %d failed, now at v%d", applied, failed, patchVersion);
 }
 
 NSString *const FsUpdatedNotification = @"FsUpdatedNotification";
