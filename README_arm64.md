@@ -35,32 +35,32 @@ fundamental limits:
 ## Architecture Overview
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│  iOS App (iSH ARM64)                                     │
-│  ┌────────────────────────────────────────────────────┐  │
-│  │  Asbestos (threaded-code interpreter)              │  │
-│  │  ┌──────────┐  ┌───────────��  ┌────────────────┐  │  │
-│  │  │ Decoder  │→ │ Code Gen  │→ │ Fiber Blocks   │  │  │
-│  │  │ (gen.c)  ���  │ (gadgets) │  │ (block cache)  │  │  │
-│  │  └─���────────┘  └───────────┘  └────────────────┘  │  │
-│  │       ↕              ↕               ↕             │  │
-│  │  ┌──────────────────────────────────────────────┐  │  │
-│  │  ���  48-bit Virtual Memory (4-level page table)  │  │  │
-│  │  │  TLB (8192 entries) + CoW + Lazy Reservations│  │  │
-│  │  └──────────────��───────────────────────────���───┘  │  │
-│  └────────────────────────────────────────────────────┘  │
-│  ┌─────────────────┐  ┌───────────────────────────────┐  │
-│  │  Linux Kernel    │  │  Agent Integration            │  │
-│  │  (syscalls,      │  │  - ISHShellExecutor           │  │
-│  │   signals,       │  ��  - DebugServer (JSON-RPC)     ���  │
-│  │   futex, epoll)  │  │  - Native Offload             │  │
-│  └─────────────────┘  │  - Bind Mounts                 │  │
-│  ┌──────���──────────┐  └───────────────────────────────┘  │
-│  │  Filesystem      │                                    │
-│  │  fakefs + realfs │                                    │
-│  │  + bind mounts   │                                    │
-│  └─────��───────────┘                                     │
-└───────────────���──────────────────────────────────────────┘
++--------------------------------------------------------------+
+|  iOS App (iSH ARM64)                                         |
+|                                                              |
+|  +--------------------------------------------------------+  |
+|  |  Asbestos (threaded-code interpreter)                  |  |
+|  |                                                        |  |
+|  |   Decoder  -->  Gadget program  -->  Fiber Blocks      |  |
+|  |   (gen.c)       builder              (block cache)     |  |
+|  |                                                        |  |
+|  |   --- 48-bit Virtual Memory (4-level page table) ---   |  |
+|  |       TLB (8192 entries) + CoW + Lazy Reservations     |  |
+|  +--------------------------------------------------------+  |
+|                                                              |
+|  +-------------------+    +-------------------------------+  |
+|  |  Linux Kernel     |    |  Agent Integration            |  |
+|  |  (syscalls,       |    |  - ISHShellExecutor           |  |
+|  |   signals,        |    |  - DebugServer (JSON-RPC)     |  |
+|  |   futex, epoll)   |    |  - Native Offload             |  |
+|  +-------------------+    |  - Bind Mounts                |  |
+|                           +-------------------------------+  |
+|  +-------------------+                                       |
+|  |  Filesystem       |                                       |
+|  |  fakefs + realfs  |                                       |
+|  |  + bind mounts    |                                       |
+|  +-------------------+                                       |
++--------------------------------------------------------------+
 ```
 
 ---
@@ -334,11 +334,11 @@ iSH/
 │   ├── AppARM64.xcconfig        # ARM64 build config
 │   ├── GuestARM64.xcconfig      # Guest arch definition
 │   ├── ISHShellExecutor.h/m     # Shell execution API
-│   ��── DebugServer.c/h          # JSON-RPC debug server
+│   ├── DebugServer.c/h          # JSON-RPC debug server
 │   └── RootfsPatch.bundle/      # Versioned rootfs overlay
-└── bench/
-    ├── bench_triarch.sh          # Native vs x86 vs ARM64 benchmark
-    ├── cross_lang_bench.sh       # ARM64 vs Docker (40 tests)
+└── benchmark/
+    ├── run.sh                    # Unified benchmark entry point
+    ├── assets/                   # shellbench.sh + cbench_lite + prebuilt binaries
     ├── BENCHMARK_PERF.md         # Performance report
     └── BENCHMARK_COMPAT.md       # Compatibility report
 ```
