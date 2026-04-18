@@ -1,11 +1,19 @@
-# iSH ARM64 — Linux on iOS via Native JIT
+# iSH ARM64 — Linux on iOS via Native Threaded-Code Interpreter
 
 **Fork of [ish-app/ish](https://github.com/ish-app/ish)** — a userspace Linux emulator for iOS.
 
-This fork adds a **native ARM64 JIT engine** (codename *Asbestos*) that emulates AArch64 Linux
-on Apple Silicon, alongside the original x86 interpreter (*Jitter*). The result is a dramatically
-faster and more compatible Linux environment capable of running **Python, Node.js, Go, Rust, and
-native CLI tools** directly on iPhone and iPad.
+This fork adds a **native ARM64 threaded-code interpreter** (codename *Asbestos*) that emulates
+AArch64 Linux on Apple Silicon, alongside the original x86 interpreter (*Jitter*). The result
+is a dramatically faster and more compatible Linux environment capable of running **Python,
+Node.js, Go, Rust, and native CLI tools** directly on iPhone and iPad.
+
+> **Naming note**: Asbestos and upstream Jitter are both *threaded-code interpreters*, not true
+> JITs. Neither emits machine code at runtime — both decode guest instructions into arrays of
+> pointers to pre-compiled native "gadget" functions that tail-call one another (the technique
+> Forth interpreters use). Asbestos's gadgets target ARM64 guests on an ARM64 host, giving
+> near-direct translation; Jitter's gadgets target x86 guests and always cross architectures.
+> Some prose below still says "JIT" as convenient shorthand — read it as "same-arch gadget
+> dispatch," not runtime codegen.
 
 ---
 
@@ -30,7 +38,7 @@ fundamental limits:
 ┌──────────────────────────────────────────────────────────┐
 │  iOS App (iSH ARM64)                                     │
 │  ┌────────────────────────────────────────────────────┐  │
-│  │  Asbestos JIT Engine                               │  │
+│  │  Asbestos (threaded-code interpreter)              │  │
 │  │  ┌──────────┐  ┌───────────��  ┌────────────────┐  │  │
 │  │  │ Decoder  │→ │ Code Gen  │→ │ Fiber Blocks   │  │  │
 │  │  │ (gen.c)  ���  │ (gadgets) │  │ (block cache)  │  │  │
@@ -59,14 +67,19 @@ fundamental limits:
 
 ## Key Changes from Upstream
 
-### 1. Asbestos JIT Engine
+### 1. Asbestos — Threaded-Code Interpreter
 
-The core of the ARM64 port. Compiles guest ARM64 instructions into host ARM64 code at runtime.
+The core of the ARM64 port. For each guest basic block it builds a **gadget program**: an
+array of `unsigned long` values alternating pointers to pre-compiled ARM64 gadget functions
+with inline operands. Execution is a chain of tail calls — each gadget loads the next pointer
+from the program stream and branches to it (`br x8`). No executable memory is allocated, no
+machine code is generated at runtime. The host-code overhead per guest instruction is a few
+ARM64 instructions inside the corresponding gadget.
 
 **Key files:**
-- `asbestos/asbestos.c` — JIT cache, block management, RCU-like jetsam cleanup
-- `asbestos/guest-arm64/gen.c` — Instruction decoder and gadget generator (~200+ opcodes)
-- `asbestos/guest-arm64/gadgets-aarch64/` — Assembly gadgets:
+- `asbestos/asbestos.c` — Block cache, block management, RCU-like jetsam cleanup
+- `asbestos/guest-arm64/gen.c` — Instruction decoder + gadget program builder (~200+ opcodes)
+- `asbestos/guest-arm64/gadgets-aarch64/` — Hand-written ARM64 assembly gadgets:
   - `entry.S` — fiber_enter/exit, crash recovery trampoline
   - `memory.S` — Load/store with inline TLB lookup (~12 instructions fast path)
   - `control.S` — Branches, conditionals, fused compare-and-branch
@@ -76,7 +89,7 @@ The core of the ARM64 port. Compiles guest ARM64 instructions into host ARM64 co
 **Design highlights:**
 - **Block chaining**: Sequential basic blocks link directly, skipping dispatch overhead
 - **Persistent TLB**: 8192-entry TLB survives across syscalls (not flushed on every entry)
-- **Crash recovery**: SIGSEGV in JIT code redirects to trampoline for CoW resolution
+- **Crash recovery**: SIGSEGV inside a gadget redirects to a trampoline for CoW resolution
 - **Full NEON**: All 128-bit SIMD operations including crypto extensions
 
 ### 2. 48-bit Virtual Address Space
@@ -218,10 +231,11 @@ timing (startup overhead excluded). Full details in
 - **Shell `seq+awk 100K`**: ARM64 **7.2x faster** (882ms vs 6338ms)
 - **C `matrix_64x64`** / **`mem_seq_4MB`**: near-native speed on ARM64 (~1.1-1.5x)
 
-> **Why ARM64 wins**: same-architecture JIT (1-3 host instructions per guest instruction),
-> full NEON + crypto extensions, 48-bit address space for V8/Go/Rust, and Node.js-specific
-> fixes (V8 binary patch, guard pages, `--jitless` injection, io_uring syscall) that the
-> upstream x86 branch lacks. Node.js 22 cannot run on x86 iSH (missing syscall 425 / `io_uring_setup`).
+> **Why ARM64 wins**: same-architecture gadget dispatch (each guest instruction costs only a
+> few ARM64 host instructions inside its gadget), full NEON + crypto extensions, 48-bit
+> address space for V8/Go/Rust, and Node.js-specific fixes (V8 binary patch, guard pages,
+> `--jitless` injection, io_uring syscall) that the upstream x86 branch lacks. Node.js 22
+> cannot run on x86 iSH (missing syscall 425 / `io_uring_setup`).
 
 ## Compatibility
 
@@ -232,8 +246,8 @@ architectures tested under fakefs with the same installed package set. Full repo
 
 | Architecture | Pass | Fail | Rate |
 |---|:---:|:---:|:---:|
-| **x86** (Jitter) | 201 | 4 | **98%** |
-| **ARM64** (Asbestos JIT) | 205 | 0 | **100%** |
+| **x86** (Jitter, threaded-code) | 201 | 4 | **98%** |
+| **ARM64** (Asbestos, threaded-code) | 205 | 0 | **100%** |
 
 **x86's 4 failures** are all genuine limitations (not benchmark bugs):
 `automake`, `perl` (/dev/null write quirk), `go env`, `go compile` (32-bit VA).
@@ -269,7 +283,7 @@ architectures tested under fakefs with the same installed package set. Full repo
 86 commits on `feature-arm64`, 101 files changed, +23,198 / -7,620 lines.
 
 Major milestones:
-1. **JIT foundation**: fiber_enter/exit, basic block compilation, TLB
+1. **Interpreter foundation**: fiber_enter/exit, basic block compilation (to gadget program), TLB
 2. **Instruction coverage**: 200+ ARM64 opcodes including full NEON/Crypto
 3. **48-bit address space**: 4-level page table, lazy reservations
 4. **Node.js support**: V8 guard pages, MAP_NORESERVE, binary patch, exit cleanup
@@ -284,13 +298,13 @@ Major milestones:
 
 ```
 iSH/
-├── asbestos/                    # ARM64 JIT engine
+├── asbestos/                    # ARM64 threaded-code interpreter
 │   ├── asbestos.c/h             # Block cache, RCU cleanup
 │   └── guest-arm64/
 │       ├── gen.c                # Instruction decoder → gadgets
 │       ├── crypto_helpers.c     # AES/SHA/CRC32 helpers
 │       └── gadgets-aarch64/     # Assembly gadgets
-│           ├── entry.S          # JIT entry/exit, crash handler
+│           ├── entry.S          # Fiber enter/exit, crash handler
 │           ├── memory.S         # Load/store, TLB inline lookup
 │           ├── control.S        # Branches, conditionals
 │           ├── math.S           # ALU, shifts, NEON/SIMD

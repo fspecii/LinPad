@@ -12,8 +12,8 @@
 
 | Architecture | Pass | Fail | Rate |
 |:---:|:---:|:---:|:---:|
-| **x86** (Jitter) | 201 | 4 | **98%** |
-| **ARM64** (Asbestos JIT) | 205 | 0 | **100%** |
+| **x86** (Jitter, threaded-code) | 201 | 4 | **98%** |
+| **ARM64** (Asbestos, threaded-code) | 205 | 0 | **100%** |
 
 ---
 

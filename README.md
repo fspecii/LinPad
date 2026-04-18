@@ -3,11 +3,18 @@
 > ## 🚀 ARM64 Fork Notice
 >
 > **This repository is a fork of [ish-app/ish](https://github.com/ish-app/ish)** that adds a
-> **native ARM64 JIT engine** (codename *Asbestos*) for emulating AArch64 Linux on Apple Silicon,
-> alongside the original x86 interpreter.
+> **native ARM64 threaded-code interpreter** (codename *Asbestos*) for emulating AArch64 Linux
+> on Apple Silicon, alongside the original x86 interpreter (*Jitter*).
+>
+> Like upstream's Jitter, Asbestos is not a true JIT — it doesn't emit machine code at
+> runtime. Instead it decodes each guest instruction into a sequence of pointers to
+> pre-compiled ARM64 "gadget" functions that tail-call each other (the same threaded-code
+> technique Forth interpreters use). Because the gadgets are hand-written ARM64 assembly
+> and the guest is ARM64 too, each guest instruction typically costs only a handful of
+> host instructions.
 >
 > **Key enhancements over upstream:**
-> - **Native ARM64 JIT** — same-architecture translation, 2-12x faster than x86 for compute
+> - **Native ARM64 gadget dispatch** — same-architecture, 2-12x faster than x86 for compute
 > - **48-bit virtual address space** — 4-level page table supports V8/Go/Rust runtimes
 > - **Node.js 22 / npm / npx** — V8 guard pages, binary patch, `--jitless` injection
 > - **Go and Rust** — large VA reservations, signal frame alignment, FUTEX_WAIT_BITSET, PMULL

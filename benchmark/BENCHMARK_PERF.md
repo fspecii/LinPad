@@ -8,9 +8,9 @@
 
 ## Architecture
 
-| | x86 Emulation | ARM64 JIT |
+| | x86 Emulation | ARM64 |
 |---|:---:|:---:|
-| Engine | Interpreter (Jitter) | JIT Compiler (Asbestos) |
+| Engine | Threaded-code interpreter (Jitter) | Threaded-code interpreter (Asbestos) |
 | Guest | i386 → ARM64 host | AArch64 → AArch64 host |
 | Address | 32-bit (4 GB) | 48-bit (256 TB) |
 | SIMD | Partial SSE/SSE2 | Full NEON + Crypto |
@@ -40,9 +40,11 @@
 
 ### Why ARM64 wins
 
-1. **Same-architecture JIT (Asbestos)** — ARM64 guest instructions translate to 1-3 host
-   instructions directly; the x86 interpreter decodes every i386 instruction through
-   ARM64 helper code, ~30-100x overhead per instruction.
+1. **Same-architecture gadget dispatch (Asbestos)** — each guest ARM64 instruction costs only
+   a handful of host ARM64 instructions inside its gadget; the x86 Jitter must decode every
+   i386 instruction through cross-architecture helper code, ~30-100x overhead per instruction.
+   Both engines are threaded-code interpreters, not true JITs (no runtime codegen) — the win
+   comes from *architecture parity*, not from machine-code emission.
 2. **Full NEON/crypto** — TLS, hashing, simdjson all work at native-ish speed.
 3. **48-bit address space** — V8, Go, Rust all need large virtual reservations
    that don't fit in x86's 32-bit space.
@@ -52,7 +54,7 @@
 ### Where x86 ties or wins
 
 - **Simple shell loops** (`loop 5000`): x86 is 0.8x vs ARM64 — busybox x86 integer
-  arithmetic maps closely to fast host ARM64 ops while iSH ARM64 still pays JIT
+  arithmetic maps closely to fast host ARM64 ops while iSH ARM64 still pays gadget
   dispatch overhead per shell iteration.
 
 ---
