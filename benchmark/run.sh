@@ -3,14 +3,17 @@
 # iSH Unified Benchmark — Performance & Compatibility
 #
 # Usage:
-#   ./run.sh                  # Run all suites
-#   ./run.sh shell            # Shell-level: Native vs x86 vs ARM64
-#   ./run.sh python           # Python workloads (ARM64 only)
-#   ./run.sh node             # Node.js workloads (ARM64 only)
-#   ./run.sh c                # C workloads (compile + run inside ARM64)
-#   ./run.sh compat           # Compatibility pass/fail tests
+#   ./run.sh             # Run both performance + compatibility suites
+#   ./run.sh shell       # Performance only (Shell + Python + Node.js + Go + C)
+#   ./run.sh compat      # Compatibility only (205 tests across 18 categories)
 #
-# Assets:  assets/pybench.py, assets/nodebench.js, assets/cbench.c
+# Performance: assets/shellbench.sh runs guest-side inside each architecture
+# with monotonic-clock timing, so fakefs startup cost is excluded.
+# Pre-compiled C binaries (cbench_lite_x86, cbench_lite_arm64, cbench_lite_macos)
+# avoid slow in-emulator gcc compilation.
+#
+# Assets:  assets/shellbench.sh, assets/cbench_lite.c (source),
+#          assets/cbench_lite_{x86,arm64,macos} (prebuilt binaries)
 # Reports: BENCHMARK_PERF.md, BENCHMARK_COMPAT.md
 # Data:    results/
 # ═══════════════════════════════════════════════════════════════════════
@@ -231,169 +234,13 @@ _md_shell_section() {
     echo "" >> "$PERF_MD"
 }
 
-# ═══════════════════════════════════════════════════════════════════
-# SUITE 2: Python — run pybench.py inside ARM64 iSH
-# ═══════════════════════════════════════════════════════════════════
-
-suite_python() {
-    log "Python benchmark (ARM64 iSH)"
-    hr
-
-    push_asset "$ASSETS_DIR/pybench.py" "/tmp/pybench.py"
-
-    # Single run: capture both /usr/bin/time and stdout
-    local output_tmp; output_tmp=$(mktemp)
-    local time_tmp; time_tmp=$(mktemp)
-    timeout "$TIMEOUT_S" /usr/bin/time -l \
-        "$ISH_ARM64" -f "$FAKEFS_ARM64" /bin/sh -c "python3 /tmp/pybench.py" \
-        > "$output_tmp" 2>"$time_tmp" || true
-
-    local total_time; total_time=$(awk '/real/{print $1}' "$time_tmp" | head -1); [ -z "$total_time" ] && total_time=0
-    local total_insns; total_insns=$(awk '/instructions retired/{gsub(/,/,""); print $1}' "$time_tmp"); [ -z "$total_insns" ] && total_insns=0
-
-    echo ""
-    cat "$output_tmp"
-    echo ""
-    ok "Python total: ${total_time}s ($(_fmti "$total_insns") instructions)"
-
-    echo "python,total,pybench.py,$total_time,$total_insns,,,," >> "$CSV"
-
-    {
-        echo "## 2. Python Benchmark (ARM64 iSH)"
-        echo ""
-        echo "> \`assets/pybench.py\` — 19 tests: text, math, JSON, crypto, list/dict."
-        echo "> x86 iSH cannot run Python (no python3 in minirootfs; 32-bit limit)."
-        echo ""
-        echo "\`\`\`"
-        cat "$output_tmp"
-        echo "\`\`\`"
-        echo ""
-        echo "**Total wall clock:** ${total_time}s | **Instructions:** $(_fmti "$total_insns")"
-        echo ""
-    } >> "$PERF_MD"
-
-    rm -f "$output_tmp" "$time_tmp"
-}
+# NOTE: Python, Node.js, Go, and C benchmarks all run inside suite_shell
+# via assets/shellbench.sh. The separate suite_python / suite_node / suite_c
+# functions were removed — shellbench.sh performs identical work with
+# guest-side timing (no startup overhead) and produces comparable x86 data.
 
 # ═══════════════════════════════════════════════════════════════════
-# SUITE 3: Node.js — run nodebench.js inside ARM64 iSH
-# ═══════════════════════════════════════════════════════════════════
-
-suite_node() {
-    log "Node.js benchmark (ARM64 iSH)"
-    hr
-
-    # Check if node exists
-    if ! timeout 10 "$ISH_ARM64" -f "$FAKEFS_ARM64" /bin/sh -c "which node" >/dev/null 2>&1; then
-        fail "node not installed in ARM64 rootfs — skipping"
-        {
-            echo "## 3. Node.js Benchmark (ARM64 iSH)"
-            echo ""
-            echo "> **Skipped** — node not installed in ARM64 rootfs."
-            echo ""
-        } >> "$PERF_MD"
-        return
-    fi
-
-    push_asset "$ASSETS_DIR/nodebench.js" "/tmp/nodebench.js"
-
-    local output_tmp; output_tmp=$(mktemp)
-    local time_tmp; time_tmp=$(mktemp)
-    timeout "$TIMEOUT_S" /usr/bin/time -l \
-        "$ISH_ARM64" -f "$FAKEFS_ARM64" /bin/sh -c "node /tmp/nodebench.js" \
-        > "$output_tmp" 2>"$time_tmp" || true
-
-    local total_time; total_time=$(awk '/real/{print $1}' "$time_tmp" | head -1); [ -z "$total_time" ] && total_time=0
-    local total_insns; total_insns=$(awk '/instructions retired/{gsub(/,/,""); print $1}' "$time_tmp"); [ -z "$total_insns" ] && total_insns=0
-
-    echo ""
-    cat "$output_tmp"
-    echo ""
-    ok "Node.js total: ${total_time}s ($(_fmti "$total_insns") instructions)"
-
-    echo "node,total,nodebench.js,$total_time,$total_insns,,,," >> "$CSV"
-
-    {
-        echo "## 3. Node.js Benchmark (ARM64 iSH)"
-        echo ""
-        echo "> \`assets/nodebench.js\` — 18 tests: text, math, JSON, crypto, buffer."
-        echo "> x86 iSH cannot run Node.js (V8 requires 48-bit address space)."
-        echo ""
-        echo "\`\`\`"
-        cat "$output_tmp"
-        echo "\`\`\`"
-        echo ""
-        echo "**Total wall clock:** ${total_time}s | **Instructions:** $(_fmti "$total_insns")"
-        echo ""
-    } >> "$PERF_MD"
-
-    rm -f "$output_tmp" "$time_tmp"
-}
-
-# ═══════════════════════════════════════════════════════════════════
-# SUITE 4: C — compile cbench.c inside ARM64, then run
-# ═══════════════════════════════════════════════════════════════════
-
-suite_c() {
-    log "C benchmark (compile + run inside ARM64 iSH)"
-    hr
-
-    if ! timeout 10 "$ISH_ARM64" -f "$FAKEFS_ARM64" /bin/sh -c "which gcc" >/dev/null 2>&1; then
-        fail "gcc not installed in ARM64 rootfs — skipping"
-        {
-            echo "## 4. C Benchmark (ARM64 iSH)"
-            echo ""
-            echo "> **Skipped** — gcc not installed in ARM64 rootfs."
-            echo ""
-        } >> "$PERF_MD"
-        return
-    fi
-
-    push_asset "$ASSETS_DIR/cbench.c" "/tmp/cbench.c"
-
-    log "Compiling cbench.c inside iSH..."
-    if ! timeout 120 "$ISH_ARM64" -f "$FAKEFS_ARM64" /bin/sh -c \
-        "gcc -O2 -o /tmp/cbench /tmp/cbench.c -lm" >/dev/null 2>&1; then
-        fail "Compilation failed — skipping"
-        return
-    fi
-    ok "Compiled"
-
-    local output_tmp; output_tmp=$(mktemp)
-    local time_tmp; time_tmp=$(mktemp)
-    timeout "$TIMEOUT_S" /usr/bin/time -l \
-        "$ISH_ARM64" -f "$FAKEFS_ARM64" /bin/sh -c "/tmp/cbench" \
-        > "$output_tmp" 2>"$time_tmp" || true
-
-    local total_time; total_time=$(awk '/real/{print $1}' "$time_tmp" | head -1); [ -z "$total_time" ] && total_time=0
-    local total_insns; total_insns=$(awk '/instructions retired/{gsub(/,/,""); print $1}' "$time_tmp"); [ -z "$total_insns" ] && total_insns=0
-
-    echo ""
-    cat "$output_tmp"
-    echo ""
-    ok "C total: ${total_time}s ($(_fmti "$total_insns") instructions)"
-
-    echo "c,total,cbench.c,$total_time,$total_insns,,,," >> "$CSV"
-
-    {
-        echo "## 4. C Benchmark (ARM64 iSH)"
-        echo ""
-        echo "> \`assets/cbench.c\` — 10 tests: integer, float, memory, branch, matrix, string."
-        echo "> Compiled with \`gcc -O2\` inside iSH, then executed."
-        echo ""
-        echo "\`\`\`"
-        cat "$output_tmp"
-        echo "\`\`\`"
-        echo ""
-        echo "**Total wall clock:** ${total_time}s | **Instructions:** $(_fmti "$total_insns")"
-        echo ""
-    } >> "$PERF_MD"
-
-    rm -f "$output_tmp" "$time_tmp"
-}
-
-# ═══════════════════════════════════════════════════════════════════
-# SUITE 5: Compatibility — pass/fail across x86 and ARM64
+# SUITE 2: Compatibility — pass/fail across x86 and ARM64
 # ═══════════════════════════════════════════════════════════════════
 
 # ── All compatibility tests (both x86 and ARM64 attempt every test) ──
@@ -869,18 +716,12 @@ main() {
     case "$suite" in
         all)
             write_perf_header
-            echo ""; suite_shell
-            echo ""; suite_python
-            echo ""; suite_node
-            echo ""; suite_c
-            echo ""; suite_compat
+            echo ""; suite_shell     # includes Shell + Python + Node.js + Go + C (guest-side timing)
+            echo ""; suite_compat    # 205 tests across 18 categories
             ;;
-        shell)   write_perf_header; suite_shell ;;
-        python)  write_perf_header; suite_python ;;
-        node)    write_perf_header; suite_node ;;
-        c)       write_perf_header; suite_c ;;
-        compat)  suite_compat ;;
-        *)       echo "Usage: $0 [all|shell|python|node|c|compat]"; exit 1 ;;
+        shell|perf)  write_perf_header; suite_shell ;;
+        compat)      suite_compat ;;
+        *)           echo "Usage: $0 [all|shell|compat]"; exit 1 ;;
     esac
 
     echo ""
