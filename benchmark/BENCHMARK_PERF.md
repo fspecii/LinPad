@@ -120,17 +120,16 @@
 
 | Test | Native | x86 | ARM64 | x86/Native | **x86/ARM64** | x86 Status |
 |------|:---:|:---:|:---:|:---:|:---:|:---|
-| startup | 107ms | 1639ms | 1008ms | 15.3x | **1.6x** | ✅ completes |
-| sum 1M | 46ms | 30246ms | 1455ms | 657.5x | **20.8x** | ⚠ 30s timeout — never completes |
-| JSON 10K | 39ms | 325ms | 1223ms | 8.3x | **0.3x** | ❌ crashes at startup |
-| sha256 | 30ms | 316ms | 946ms | 10.5x | **0.3x** | ❌ crashes at startup |
+| startup | 107ms | 1639ms | 1008ms | 15.3x | **1.6x** | completes |
+| sum 1M | 46ms | FAIL | 1455ms | — | — | hangs (30s timeout) |
+| JSON 10K | 39ms | FAIL | 1223ms | — | — | crashes at startup |
+| sha256 | 30ms | FAIL | 946ms | — | — | crashes at startup |
 
-> **Warning — x86 Node.js numbers are not comparable**: Node.js 22 requires the
-> Linux `io_uring_setup` syscall (#425) which iSH x86 does not implement. Every
-> Node invocation logs `missing syscall 425` and either hangs until timeout
-> (`sum 1M`) or crashes before finishing real work (`JSON 10K`, `sha256`).
-> The 0.3x ratios for JSON/sha256 reflect **crash exit time, not computation time**.
-> See the "Known x86 Limitations" section at the end for details.
+> **Note**: Node.js 22 requires the Linux `io_uring_setup` syscall (#425) which
+> iSH x86 does not implement. All non-trivial scripts print `missing syscall 425`
+> and then hang until timeout or crash before doing real work, so these rows are
+> marked FAIL rather than reporting meaningless cleanup-time numbers.
+> See "Known x86 Limitations" at the end for details.
 
 
 ---

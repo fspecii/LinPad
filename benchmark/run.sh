@@ -155,19 +155,37 @@ suite_shell() {
         [ -z "$nat_ms" ] && nat_ms="—"
         [ -z "$x86_ms" ] && x86_ms="—"
 
+        # Detect failed measurements on x86:
+        # - Near-timeout value (≥29000ms when tests use timeout 30): treat as hang
+        # - Node.js non-startup tests that finish "suspiciously fast" (faster than
+        #   ARM64 AND less than 500ms AND ARM64 > 800ms) likely crashed before work
+        if [ "$x86_ms" != "—" ] && [ "$x86_ms" -ge 29000 ] 2>/dev/null; then
+            x86_ms="FAIL"
+        fi
+        if [ "$cat" = "Node.js" ] && [ "$name" != "startup" ] && \
+           [ "$x86_ms" != "—" ] && [ "$x86_ms" != "FAIL" ] && \
+           [ "$arm_ms" -gt 800 ] 2>/dev/null && \
+           [ "$x86_ms" -lt 500 ] 2>/dev/null; then
+            x86_ms="FAIL"
+        fi
+
         # Format times
         local nat_f x86_f arm_f xn_r xa_r
         [ "$nat_ms" = "—" ] && nat_f="—" || nat_f="${nat_ms}ms"
-        [ "$x86_ms" = "—" ] && x86_f="—" || x86_f="${x86_ms}ms"
+        if [ "$x86_ms" = "—" ]; then x86_f="—"
+        elif [ "$x86_ms" = "FAIL" ]; then x86_f="FAIL"
+        else x86_f="${x86_ms}ms"
+        fi
         arm_f="${arm_ms}ms"
 
-        # Ratios
-        if [ "$nat_ms" != "—" ] && [ "$x86_ms" != "—" ] && [ "$nat_ms" -gt 0 ] 2>/dev/null; then
+        # Ratios — skip when either side is non-numeric
+        if [ "$nat_ms" != "—" ] && [ "$x86_ms" != "—" ] && [ "$x86_ms" != "FAIL" ] && \
+           [ "$nat_ms" -gt 0 ] 2>/dev/null; then
             xn_r=$(awk "BEGIN{printf\"%.1fx\",$x86_ms/$nat_ms}")
         else
             xn_r="—"
         fi
-        if [ "$x86_ms" != "—" ] && [ "$arm_ms" -gt 0 ] 2>/dev/null; then
+        if [ "$x86_ms" != "—" ] && [ "$x86_ms" != "FAIL" ] && [ "$arm_ms" -gt 0 ] 2>/dev/null; then
             xa_r=$(awk "BEGIN{printf\"%.1fx\",$x86_ms/$arm_ms}")
         else
             xa_r="—"
