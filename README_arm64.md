@@ -35,8 +35,8 @@ fundamental limits:
 | Architecture translation | i386 → ARM64 (cross) | AArch64 → AArch64 (same) |
 | Address space | 32-bit (4 GB) | 48-bit (256 TB) |
 | SIMD | Partial SSE/SSE2 | Full NEON + Crypto |
-| Node.js / V8 | Not possible (needs >4 GB VA) | Fully supported |
-| Go / Rust | Not possible (large VA requirements) | Fully supported |
+| Node.js / V8 | Not possible (needs >4 GB VA) | Supported |
+| Go / Rust | Not possible (large VA requirements) | Supported |
 | Compute overhead | 15-100x native | 3-30x native |
 
 ## Architecture Overview
