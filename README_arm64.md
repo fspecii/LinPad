@@ -2,10 +2,12 @@
 
 **Fork of [ish-app/ish](https://github.com/ish-app/ish)** — a userspace Linux emulator for iOS.
 
-This fork adds a **native ARM64 threaded-code interpreter** (codename *Asbestos*) that emulates
-AArch64 Linux on Apple Silicon, alongside the original x86 interpreter (*Jitter*). The result
-is a dramatically faster and more compatible Linux environment capable of running **Python,
-Node.js, Go, Rust, and native CLI tools** directly on iPhone and iPad.
+This fork adds a **native ARM64 guest backend** to upstream iSH's threaded-code interpreter
+(*Asbestos*, formerly called *jit* — renamed upstream in 2024 because it doesn't actually emit
+machine code). The new backend emulates AArch64 Linux on Apple Silicon, running alongside
+the original x86 (i386) guest backend. The result is a dramatically faster and more
+compatible Linux environment capable of running **Python, Node.js, Go, Rust, and native
+CLI tools** directly on iPhone and iPad.
 
 > ## 🚢 Production Use
 >
@@ -14,13 +16,18 @@ Node.js, Go, Rust, and native CLI tools** directly on iPhone and iPad.
 > on iOS. The numbers and stability claims in this README are grounded in that real-world
 > deployment, not just synthetic benchmarks.
 
-> **Naming note**: Asbestos and upstream Jitter are both *threaded-code interpreters*, not true
-> JITs. Neither emits machine code at runtime — both decode guest instructions into arrays of
-> pointers to pre-compiled native "gadget" functions that tail-call one another (the technique
-> Forth interpreters use). Asbestos's gadgets target ARM64 guests on an ARM64 host, giving
-> near-direct translation; Jitter's gadgets target x86 guests and always cross architectures.
-> Some prose below still says "JIT" as convenient shorthand — read it as "same-arch gadget
-> dispatch," not runtime codegen.
+> **Naming note**: *Asbestos* is the upstream project's name for its threaded-code
+> interpreter (see the upstream commit [`d375656f` "Rename the JIT"](https://github.com/ish-app/ish/commit/d375656f)
+> from June 2024). It is **not a JIT** — neither Asbestos nor its predecessor emits machine
+> code at runtime. For each basic block it builds an array of pointers to pre-compiled
+> native "gadget" functions that tail-call one another (the technique Forth interpreters use).
+>
+> What this fork adds is an **ARM64 guest backend** inside that same Asbestos infrastructure:
+> new gadgets (`asbestos/guest-arm64/gadgets-aarch64/`) that map AArch64 guest instructions
+> to a few ARM64 host instructions each — same-architecture dispatch, so each guest
+> instruction costs only a handful of host instructions. The upstream x86 backend continues
+> to ship unchanged alongside it. Some prose below says "JIT" as convenient shorthand —
+> read it as "same-arch gadget dispatch," not runtime codegen.
 
 ---
 
@@ -74,14 +81,16 @@ fundamental limits:
 
 ## Key Changes from Upstream
 
-### 1. Asbestos — Threaded-Code Interpreter
+### 1. ARM64 Guest Backend inside Asbestos
 
-The core of the ARM64 port. For each guest basic block it builds a **gadget program**: an
-array of `unsigned long` values alternating pointers to pre-compiled ARM64 gadget functions
-with inline operands. Execution is a chain of tail calls — each gadget loads the next pointer
-from the program stream and branches to it (`br x8`). No executable memory is allocated, no
-machine code is generated at runtime. The host-code overhead per guest instruction is a few
-ARM64 instructions inside the corresponding gadget.
+This fork's main contribution. It plugs into upstream Asbestos (the existing threaded-code
+interpreter) and replaces the per-instruction cost model: for each guest basic block the new
+backend builds a **gadget program** — an array of `unsigned long` values alternating pointers
+to pre-compiled ARM64 gadget functions with inline operands. Execution is a chain of tail
+calls — each gadget loads the next pointer from the program stream and branches to it
+(`br x8`). No executable memory is allocated, no machine code is generated at runtime.
+The host-code overhead per guest instruction is a few ARM64 instructions inside the
+corresponding gadget.
 
 **Key files:**
 - `asbestos/asbestos.c` — Block cache, block management, RCU-like jetsam cleanup

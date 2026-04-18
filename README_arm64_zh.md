@@ -2,8 +2,9 @@
 
 **Fork 自 [ish-app/ish](https://github.com/ish-app/ish)** — iOS 上的用户态 Linux 模拟器。
 
-本 fork 新增了**原生 ARM64 threaded-code 解释器**（代号 *Asbestos*），可在 Apple Silicon 上模拟
-AArch64 Linux，与原始 x86 解释器（*Jitter*）并存。结果是一个性能和兼容性大幅提升的 Linux 环境,
+本 fork 在上游 iSH 的 threaded-code 解释器（**Asbestos**，2024 年之前叫 *jit*，上游重命名是因为
+它本来就不是真正的 JIT）之上**新增了 ARM64 guest 后端**，在 Apple Silicon 上模拟 AArch64 Linux，
+与原版 x86 (i386) guest 后端并存。结果是一个性能和兼容性大幅提升的 Linux 环境，
 能在 iPhone / iPad 上直接运行 **Python、Node.js、Go、Rust 和原生 CLI 工具**。
 
 > ## 🚢 生产环境使用
@@ -12,11 +13,15 @@ AArch64 Linux，与原始 x86 解释器（*Jitter*）并存。结果是一个性
 > 经过 **10,000+ 用户**在 iOS 上稳定运行 Linux 工具和 shell 负载的真实检验。README 中的性能
 > 数据和稳定性声明均来自这个真实线上部署，而不仅仅是合成基准测试。
 
-> **命名说明**：Asbestos 和上游 Jitter 都是 **threaded-code 解释器**，不是真正的 JIT ——
-> 两者都不在运行时生成机器码，而是把 guest 指令解码成"指向预编译原生 gadget 函数的指针数组"，
-> 各 gadget 通过尾调用衔接（与 Forth 解释器采用相同技术）。Asbestos 的 gadget 处理 ARM64 guest
-> 运行在 ARM64 host（同架构、接近直接翻译），Jitter 的 gadget 处理 x86 guest（总是跨架构）。
-> 下文部分地方仍用 "JIT" 作为简写，请理解为"同架构 gadget 分派"而非运行时代码生成。
+> **命名说明**：*Asbestos* 是上游项目给自家 threaded-code 解释器起的名字（见上游 commit
+> [`d375656f` "Rename the JIT"](https://github.com/ish-app/ish/commit/d375656f)，2024 年 6 月）。
+> 它**不是 JIT** —— Asbestos 及其前身都不会在运行时生成机器码，而是为每个基本块构造一个
+> 指针数组（指向预编译的原生 gadget 函数），各 gadget 通过尾调用衔接（Forth 解释器采用的技术）。
+>
+> 本 fork 所做的是在这个 Asbestos 框架里**新增一个 ARM64 guest 后端**：
+> 新的 gadget（`asbestos/guest-arm64/gadgets-aarch64/`）把 AArch64 guest 指令映射到若干条
+> ARM64 host 指令——同架构分派，每条 guest 指令只需几条 host 指令。上游 x86 后端依然并存。
+> 下文部分地方用 "JIT" 作为简写，请理解为"同架构 gadget 分派"，而非运行时代码生成。
 >
 > 英文版: [README_arm64.md](README_arm64.md)
 
@@ -71,12 +76,13 @@ AArch64 Linux，与原始 x86 解释器（*Jitter*）并存。结果是一个性
 
 ## 相对上游的主要增强
 
-### 1. Asbestos — threaded-code 解释器
+### 1. Asbestos 框架内的 ARM64 guest 后端
 
-ARM64 移植的核心。每个 guest 基本块会被编译成一个 **gadget 程序**：一个 `unsigned long`
-数组，交替存放预编译 ARM64 gadget 函数指针和内联操作数。执行流程是一串尾调用 —— 每个 gadget
-从程序流读取下一条指针并 `br` 跳过去。**不分配可执行内存，不在运行时生成任何机器码**。每条
-guest 指令的 host 指令开销就是对应 gadget 中的几条 ARM64 指令。
+本 fork 的主要贡献。在上游既有的 Asbestos threaded-code 解释器里接入一个 ARM64 guest 后端，
+改写了每条指令的成本模型：每个 guest 基本块被编译成一个 **gadget 程序** —— 一个
+`unsigned long` 数组，交替存放预编译 ARM64 gadget 函数指针和内联操作数。执行流程是一串尾调用 ——
+每个 gadget 从程序流读取下一条指针并 `br` 跳过去。**不分配可执行内存，不在运行时生成任何机器码**。
+每条 guest 指令的 host 指令开销就是对应 gadget 中的几条 ARM64 指令。
 
 **关键文件:**
 - `asbestos/asbestos.c` — 块缓存、块管理、RCU 风格的 jetsam 清理
