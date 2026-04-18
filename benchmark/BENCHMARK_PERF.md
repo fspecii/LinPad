@@ -6,6 +6,8 @@
 > **ARM64:** ish (656K, fakefs)
 > **Runs:** 3 (median) | **Timeout:** 120s
 
+## Architecture
+
 | | x86 Emulation | ARM64 JIT |
 |---|:---:|:---:|
 | Engine | Interpreter (Jitter) | JIT Compiler (Asbestos) |
@@ -16,7 +18,48 @@
 
 ---
 
-## 1. Shell Benchmark (Native vs x86 vs ARM64)
+## Summary
+
+### Overhead vs Native (by workload category)
+
+| Category | x86/Native | ARM64/Native | **ARM64 vs x86** |
+|---|:---:|:---:|:---:|
+| **C (pure compute)** | 14-208x | 1-66x | **1.1-12.0x** |
+| **Shell pipelines** | 57-305x | 3-42x | **5.3-7.2x** |
+| **Python** | 12-201x | 3.8-169x | **3.8-10.2x** |
+| **Go (startup)** | 10-26x | 2.5-3.1x | **2.5-3.1x** |
+| **Node.js** | — | 1.6-20.8x | N/A (x86 broken) |
+
+### Headline numbers
+
+- **C `int_arith_2M`**: ARM64 **12x faster** than x86 (65ms vs 782ms), only 6.5x slower than native
+- **Shell `seq+awk 100K`**: ARM64 **7.2x faster** than x86 (882ms vs 6338ms)
+- **Python `fib(30)`**: ARM64 **9.2x faster** than x86 (1.66s vs 15.2s)
+- **Python `sum(1M)`**: ARM64 **10.2x faster** (610ms vs 6.2s)
+- **C `matrix_64x64`** and **`mem_seq_4MB`**: ARM64 near-native speed (8ms vs 0ms native, ~1.1-1.5x)
+
+### Why ARM64 wins
+
+1. **Same-architecture JIT (Asbestos)** — ARM64 guest instructions translate to 1-3 host
+   instructions directly; the x86 interpreter decodes every i386 instruction through
+   ARM64 helper code, ~30-100x overhead per instruction.
+2. **Full NEON/crypto** — TLS, hashing, simdjson all work at native-ish speed.
+3. **48-bit address space** — V8, Go, Rust all need large virtual reservations
+   that don't fit in x86's 32-bit space.
+4. **iSH ARM64 fork has Node.js fixes** — V8 binary patch, guard pages, `--jitless`
+   injection, io_uring syscall, etc.
+
+### Where x86 ties or wins
+
+- **Simple shell loops** (`loop 5000`): x86 is 0.8x vs ARM64 — busybox x86 integer
+  arithmetic maps closely to fast host ARM64 ops while iSH ARM64 still pays JIT
+  dispatch overhead per shell iteration.
+
+---
+
+## Detailed Results
+
+### 1. Shell Benchmark (Native vs x86 vs ARM64)
 
 > **Guest-side timing** — each test measured inside the emulator with
 > monotonic clock. Startup overhead (fakefs init) is excluded.
@@ -131,43 +174,6 @@
 > marked FAIL rather than reporting meaningless cleanup-time numbers.
 > See "Known x86 Limitations" at the end for details.
 
-
----
-
-## Summary
-
-| Category | x86/Native | ARM64/Native | **ARM64 vs x86** |
-|---|:---:|:---:|:---:|
-| **C (pure compute)** | 14-208x | 1-66x | **1.1-12.0x** |
-| **Shell pipelines** | 57-305x | 3-42x | **5.3-7.2x** |
-| **Python** | 12-201x | 3.8-169x | **3.8-10.2x** |
-| **Go (startup)** | 10-26x | 2.5-3.1x | **2.5-3.1x** |
-| **Node.js** | — | 1.6-20.8x | N/A (x86 broken) |
-
-### Headline numbers
-
-- **C `int_arith_2M`**: ARM64 **12x faster** than x86 (65ms vs 782ms), only 6.5x slower than native
-- **Shell `seq+awk 100K`**: ARM64 **7.2x faster** than x86 (882ms vs 6338ms)
-- **Python `fib(30)`**: ARM64 **9.2x faster** than x86 (1.66s vs 15.2s)
-- **Python `sum(1M)`**: ARM64 **10.2x faster** (610ms vs 6.2s)
-- **C `matrix_64x64`** and **`mem_seq_4MB`**: ARM64 near-native speed (8ms vs 0ms native, ~1.1-1.5x)
-
-### Why ARM64 wins
-
-1. **Same-architecture JIT (Asbestos)** — ARM64 guest instructions translate to 1-3 host
-   instructions directly; the x86 interpreter decodes every i386 instruction through
-   ARM64 helper code, ~30-100x overhead per instruction.
-2. **Full NEON/crypto** — TLS, hashing, simdjson all work at native-ish speed.
-3. **48-bit address space** — V8, Go, Rust all need large virtual reservations
-   that don't fit in x86's 32-bit space.
-4. **iSH ARM64 fork has Node.js fixes** — V8 binary patch, guard pages, `--jitless`
-   injection, io_uring syscall, etc.
-
-### Where x86 ties or wins
-
-- **Simple shell loops** (`loop 5000`): x86 is 0.8x vs ARM64 — busybox x86 integer
-  arithmetic maps closely to fast host ARM64 ops while iSH ARM64 still pays JIT
-  dispatch overhead per shell iteration.
 
 ---
 
