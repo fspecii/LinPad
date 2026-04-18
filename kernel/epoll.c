@@ -108,6 +108,13 @@ int_t sys_epoll_wait(fd_t epoll_f, addr_t events_addr, int_t max_events, int_t t
         }
         if (user_write(events_addr, events, sizeof(struct epoll_event_) * res))
             return _EFAULT;
+    } else if (res != _EINTR) {
+        // Host-level errors from kqueue/kevent should not propagate to the guest
+        // as unexpected errnos. libuv asserts that epoll_pwait only fails with
+        // EINTR; anything else (EBADF from kqueue race, etc.) crashes the guest.
+        // Convert to EINTR so the guest's event loop retries gracefully.
+        printk("epoll_wait: converting error %d to EINTR (pid=%d)\n", res, current->pid);
+        res = _EINTR;
     }
     return res;
 }

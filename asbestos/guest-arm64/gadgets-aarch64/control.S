@@ -32,6 +32,10 @@
  * CPU_pc is set from block->addr (not truncated pointer).
  */
 .macro inline_chain reg, unchained_label
+#ifdef DISABLE_BLOCK_CHAINING
+    // Block chaining disabled — always go through main loop
+    b \unchained_label
+#else
     tbnz \reg, #63, \unchained_label
     // Chained fast path — poke check only (no inline cycle counter)
     // Cycle checking happens in main loop (every ~1024 unchained blocks)
@@ -48,6 +52,7 @@
 7778:   // poke — exit to main loop
     mov _pc, \reg
     b fiber_ret
+#endif
 .endm
 
 /*
@@ -84,10 +89,12 @@
     ldr x8, [_pc, #8]
     // Save return address to X30
     str x8, [_cpu, #(CPU_x0 + 30*8)]
+#ifndef DISABLE_RET_CACHE
     // Store _pc in ret_cache keyed by return address
     ubfx w12, w8, #4, #12
     add x13, _cpu, #LOCAL_ret_cache
     str _pc, [x13, x12, lsl #3]
+#endif
     // Load call target from _pc[3]
     ldr x9, [_pc, #24]
     inline_chain x9, 1f
@@ -152,6 +159,7 @@
     ldr x10, [x9, x8, lsl #3]   // x10 = return address (guest PC)
     // Always set CPU_pc first (full 48-bit address)
     str x10, [_cpu, #CPU_pc]
+#ifndef DISABLE_RET_CACHE
     // Look up return address in ret_cache
     ubfx w12, w10, #4, #12
     add x13, _cpu, #LOCAL_ret_cache
@@ -178,6 +186,7 @@ ret_unchained:
     str x8, [_cpu, #LOCAL_last_block]
     b fiber_ret
 ret_no_cache:
+#endif
     b fiber_ret
 
 /*

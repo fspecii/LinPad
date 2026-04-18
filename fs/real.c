@@ -609,6 +609,10 @@ int realfs_setflags(struct fd *fd, dword_t flags) {
 ssize_t realfs_ioctl_size(int cmd) {
     if (cmd == FIONREAD_)
         return sizeof(dword_t);
+    if (cmd == TCGETS_)
+        return sizeof(struct termios_);
+    if (cmd == TIOCGWINSZ_)
+        return sizeof(struct winsize_);
     return -1;
 }
 
@@ -622,6 +626,37 @@ int realfs_ioctl(struct fd *fd, int cmd, void *arg) {
                 return errno_map();
             *(dword_t *) arg = nread;
             return 0;
+        case TCGETS_:
+            // For piped stdio fds backed by a real host TTY, return a
+            // plausible termios so that musl isatty() succeeds.
+            if (isatty(fd->real_fd)) {
+                struct termios host_termios;
+                if (tcgetattr(fd->real_fd, &host_termios) == 0) {
+                    struct termios_ *guest = (struct termios_ *)arg;
+                    memset(guest, 0, sizeof(*guest));
+                    guest->iflags = host_termios.c_iflag;
+                    guest->oflags = host_termios.c_oflag;
+                    guest->cflags = host_termios.c_cflag;
+                    guest->lflags = host_termios.c_lflag;
+                    return 0;
+                }
+            }
+            return _ENOTTY;
+        case TIOCGWINSZ_: {
+            // libuv calls TIOCGWINSZ during uv_tty_init to get terminal size.
+            if (isatty(fd->real_fd)) {
+                struct winsize host_ws;
+                if (ioctl(fd->real_fd, TIOCGWINSZ, &host_ws) == 0) {
+                    struct winsize_ *guest_ws = (struct winsize_ *)arg;
+                    guest_ws->row = host_ws.ws_row;
+                    guest_ws->col = host_ws.ws_col;
+                    guest_ws->xpixel = host_ws.ws_xpixel;
+                    guest_ws->ypixel = host_ws.ws_ypixel;
+                    return 0;
+                }
+            }
+            return _ENOTTY;
+        }
     }
     return _ENOTTY;
 }

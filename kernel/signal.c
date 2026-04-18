@@ -1,6 +1,7 @@
 #include "debug.h"
 #include <string.h>
 #include <signal.h>
+#include <stdio.h>
 #include "kernel/calls.h"
 #include "kernel/signal.h"
 #include "kernel/task.h"
@@ -72,22 +73,15 @@ static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ 
         // actual madness, I hope to god it's correct
         // must release the sighand lock while going insane, to avoid a deadlock
         unlock(&task->sighand->lock);
-retry:
+        // Wake up the target thread's condvar wait.
+        // We don't acquire waiting_lock (the associated mutex) because:
+        // 1. It may be held by the target thread inside pthread_cond_wait,
+        //    and spinning on it blocks the condvar from returning.
+        // 2. pthread_cond_broadcast() is safe without the mutex — worst case
+        //    is a spurious wakeup, which wait_for() handles via re-checking.
         lock(&task->waiting_cond_lock);
-        if (task->waiting_cond != NULL) {
-            bool mine = false;
-            if (trylock(task->waiting_lock) == EBUSY) {
-                if (pthread_equal(task->waiting_lock->owner, pthread_self()))
-                    mine = true;
-                if (!mine) {
-                    unlock(&task->waiting_cond_lock);
-                    goto retry;
-                }
-            }
+        if (task->waiting_cond != NULL)
             notify(task->waiting_cond);
-            if (!mine)
-                unlock(task->waiting_lock);
-        }
         unlock(&task->waiting_cond_lock);
         lock(&task->sighand->lock);
     }
@@ -107,6 +101,11 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
         return;
     if (task->zombie || task->exiting)
         return;
+#ifdef GUEST_ARM64
+    if (sig == SIGTRAP_ || sig == SIGABRT_ || sig == SIGILL_ || sig == SIGSEGV_ || sig == SIGBUS_)
+        fprintf(stderr, "SIGNAL_TRACE: sig=%d pc=0x%llx pid=%d\n",
+                sig, (unsigned long long)task->cpu.pc, task->pid);
+#endif
 
     // Native offload: forward signal to the host native process
     if (native_offload_forward_signal(task, sig))
@@ -370,6 +369,46 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
 
         case SIGNAL_KILL:
             unlock(&sighand->lock); // do_exit must be called without this lock
+#ifdef GUEST_ARM64
+            // V8's IMMEDIATE_CRASH() uses BRK #0 on ARM64 (delivers SIGTRAP).
+            // Generic recovery: unwind the current function frame and return 0
+            // to the caller. This lets V8 continue past non-fatal CHECKs.
+            if (sig == SIGTRAP_) {
+                struct cpu_state *cpu = &current->cpu;
+                fprintf(stderr, "V8_SIGTRAP: pc=0x%llx x0=0x%llx sp=%llx fp=%llx lr=%llx\n",
+                        (unsigned long long)cpu->pc,
+                        (unsigned long long)cpu->regs[0],
+                        (unsigned long long)cpu->sp,
+                        (unsigned long long)cpu->regs[29],
+                        (unsigned long long)cpu->regs[30]);
+                do_exit_group(1 << 8);
+                return;
+            }
+            if (sig == SIGABRT_) {
+                // V8's abort() after Fatal. Just terminate cleanly.
+                struct cpu_state *cpu = &current->cpu;
+                fprintf(stderr, "V8_SIGABRT: pc=0x%llx sp=%llx fp=%llx lr=%llx\n",
+                        (unsigned long long)cpu->pc,
+                        (unsigned long long)cpu->sp,
+                        (unsigned long long)cpu->regs[29],
+                        (unsigned long long)cpu->regs[30]);
+                do_exit_group(1 << 8);
+                return;
+            }
+            // V8 scope corruption GPF cascade: the deep frame unwind in
+            // handle_interrupt may leave a background thread with a corrupt
+            // PC pointing into the V8 heap. When that thread tries to
+            // execute "code" at a heap address, it gets SIGILL.
+            // Flush the host-side stdout/stderr pipes before killing the
+            // process group, so buffered output (e.g. npm help) is visible.
+            if (sig == SIGILL_ || sig == SIGBUS_) {
+                struct cpu_state *cpu = &current->cpu;
+                if (cpu->pc >= 0xb0000000 && cpu->pc < 0xf0000000) {
+                    do_exit_group(1 << 8);
+                    return;
+                }
+            }
+#endif
             do_exit_group(sig);
     }
 

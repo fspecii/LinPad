@@ -103,11 +103,87 @@ static int futex_wait(addr_t uaddr, dword_t val, struct timespec *timeout) {
         wait.cond = COND_INITIALIZER;
         wait.futex = futex;
         list_add_tail(&futex->queue, &wait.queue);
-        err = wait_for(&wait.cond, &futex_lock, timeout);
+        {
+            // On macOS, pthread_cond_timedwait_relative_np can block forever
+            // under thread contention. Use nanosleep polling for all waits.
+            list_remove_safe(&wait.queue);
+            futex_put_unlocked(futex);
+            unlock(&futex_lock);
+
+            // Calculate deadline for timed waits
+            int64_t deadline_ns = 0; // 0 = infinite
+            if (timeout) {
+                struct timespec now;
+                clock_gettime(CLOCK_MONOTONIC, &now);
+                deadline_ns = (int64_t)now.tv_sec * 1000000000LL + now.tv_nsec
+                            + (int64_t)timeout->tv_sec * 1000000000LL + timeout->tv_nsec;
+            }
+
+            current->blocking = true;
+            int stall_count = 0;
+            for (;;) {
+                struct timespec ts = {.tv_sec = 0, .tv_nsec = 10000000}; // 10ms
+                nanosleep(&ts, NULL);
+                stall_count++;
+                // Timed wait: check expiry
+                if (deadline_ns) {
+                    struct timespec now;
+                    clock_gettime(CLOCK_MONOTONIC, &now);
+                    int64_t now_ns = (int64_t)now.tv_sec * 1000000000LL + now.tv_nsec;
+                    if (now_ns >= deadline_ns) { err = _ETIMEDOUT; break; }
+                }
+                if (current->group->doing_group_exit) { err = _EINTR; break; }
+                if (current->sighand) {
+                    lock(&current->sighand->lock);
+                    bool sig_pending = !!(current->pending & ~current->blocked);
+                    unlock(&current->sighand->lock);
+                    if (sig_pending) { err = _EINTR; break; }
+                }
+                read_wrlock(&current->mem->lock);
+                dword_t *ptr = mem_ptr(current->mem, uaddr, MEM_READ);
+                read_wrunlock(&current->mem->lock);
+                if (ptr == NULL) { err = _EFAULT; break; }
+                if (*ptr != val) { err = 0; break; }
+                // Safety valve: continuous infinite futex stall > 180s.
+                // Catches V8 cleanup hangs where a single thread is stuck
+                // on a semaphore/join that never completes.
+                if (timeout == NULL && stall_count >= 18000) { // 180s
+                    // Check if any thread in this group has live children.
+                    // Lock order: pids_lock → group->lock (same as do_exit).
+                    bool has_live_children = false;
+                    int live = 0;
+                    lock(&pids_lock);
+                    lock(&current->group->lock);
+                    struct task *t;
+                    list_for_each_entry(&current->group->threads, t, group_links) {
+                        live++;
+                        struct task *child;
+                        list_for_each_entry(&t->children, child, siblings) {
+                            // Skip threads in the same group
+                            if (child->group == current->group)
+                                continue;
+                            if (!child->zombie) {
+                                has_live_children = true;
+                            }
+                        }
+                    }
+                    unlock(&current->group->lock);
+                    unlock(&pids_lock);
+                    if (live > 1 && !has_live_children) {
+                        do_exit_group(0);
+                    }
+                    if (has_live_children)
+                        stall_count = 0; // Reset: waiting for child is legit
+                }
+            }
+            current->blocking = false;
+            goto futex_wait_done;
+        }
         futex = wait.futex;
         list_remove_safe(&wait.queue);
     }
     futex_put(futex);
+futex_wait_done:
     STRACE("%d end futex(FUTEX_WAIT)", current->pid);
     return err;
 }
@@ -165,9 +241,10 @@ dword_t sys_futex(addr_t uaddr, dword_t op, dword_t val, addr_t timeout_or_val2,
         timeout.tv_nsec = timeout_.nsec;
     }
     switch (op & FUTEX_CMD_MASK_) {
-        case FUTEX_WAIT_:
+        case FUTEX_WAIT_: {
             STRACE("futex(FUTEX_WAIT, %#x, %d, 0x%x {%ds %dns}) = ...\n", uaddr, val, timeout_or_val2, timeout.tv_sec, timeout.tv_nsec);
             return futex_wait(uaddr, val, timeout_or_val2 ? &timeout : NULL);
+        }
         case FUTEX_WAKE_:
             STRACE("futex(FUTEX_WAKE, %#x, %d)", uaddr, val);
             return futex_wakelike(op & FUTEX_CMD_MASK_, uaddr, val, 0, 0);

@@ -78,6 +78,9 @@ struct fiber_block {
     unsigned long code[];
 };
 
+// High-bit tracing: detect emulation bugs that leave bits 32+ dirty in guest regs
+extern volatile bool g_trace_highbits;
+
 // Create a new asbestos
 struct asbestos *asbestos_new(struct mmu *mmu);
 void asbestos_free(struct asbestos *asbestos);

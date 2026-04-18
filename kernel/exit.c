@@ -53,13 +53,19 @@ noreturn void do_exit(int status) {
             futex_wake(clear_tid, 1);
     }
 
-    // release all our resources
-    mm_release(current->mm);
-    current->mm = NULL;
-    fdtable_release(current->files);
-    current->files = NULL;
-    fs_info_release(current->fs);
-    current->fs = NULL;
+    // release all our resources (may already be NULL if force-released by do_exit_group)
+    if (current->mm != NULL) {
+        mm_release(current->mm);
+        current->mm = NULL;
+    }
+    if (current->files != NULL) {
+        fdtable_release(current->files);
+        current->files = NULL;
+    }
+    if (current->fs != NULL) {
+        fs_info_release(current->fs);
+        current->fs = NULL;
+    }
     // sighand must be released below so it can be protected by pids_lock
     // since it can be accessed by other threads
 
@@ -94,6 +100,10 @@ noreturn void do_exit(int status) {
     }
 
     if (exit_tgroup(current)) {
+        // If already marked zombie by do_exit_group force path, skip
+        if (leader->zombie)
+            goto skip_zombie_notify;
+
         // notify parent that we died
         struct task *parent = leader->parent;
         if (parent == NULL && current->pid != 1) {
@@ -124,6 +134,7 @@ noreturn void do_exit(int status) {
 
         if (exit_hook != NULL)
             exit_hook(current, status);
+    skip_zombie_notify: ;
     }
 
     vfork_notify(current);
@@ -156,10 +167,7 @@ noreturn void do_exit_group(int status) {
         task->group->stopped = false;
         notify(&task->group->stopped_cond);
     }
-    if (is_group_leader && thread_count > 1) {
-        printk("exit_group[%d]: group leader killing %d threads, waiting...\n",
-               current->pid, thread_count);
-    }
+    (void)is_group_leader;
 
     // Only the first thread (group leader) waits for others to exit
     // Other threads exit immediately to avoid deadlock
@@ -189,10 +197,7 @@ noreturn void do_exit_group(int status) {
             unlock(&group->lock);
             unlock(&pids_lock);
 
-            if (remaining != last_remaining) {
-                printk("exit_group[%d]: %d threads remaining\n", current->pid, remaining);
-                last_remaining = remaining;
-            }
+            last_remaining = remaining;
 
             if (remaining == 0) {
                 break;
@@ -205,10 +210,56 @@ noreturn void do_exit_group(int status) {
         }
 
         if (waited_ms >= max_wait_ms) {
-            printk("exit_group[%d]: timeout after %dms, %d threads still remain\n",
-                   current->pid, waited_ms, last_remaining);
+            // Threads are stuck in blocking syscalls and won't exit.
+            // Force-cancel them so the process can terminate.
+            // This is critical for npm lifecycle scripts where node's
+            // libuv thread pool threads block on pipe I/O after exit.
+            lock(&pids_lock);
+            lock(&group->lock);
+            list_for_each_entry(&group->threads, task, group_links) {
+                if (task != current) {
+                    pthread_kill(task->thread, SIGUSR1);
+                }
+            }
+            unlock(&group->lock);
+            unlock(&pids_lock);
+            // Give them a brief moment to handle the signal and exit
+            struct timespec ts2 = {0, 200 * 1000000L};  // 200ms
+            nanosleep(&ts2, NULL);
+            // Close stdio fds to signal EOF to parent's pipes.
+            // Don't release the full fdtable (stuck threads may crash).
+            // Just close fds 0-2 which are the piped stdio.
+            if (current->files != NULL) {
+                f_close(0);
+                f_close(1);
+                f_close(2);
+            }
+            // Brief delay for pipe EOF to propagate
+            {
+                struct timespec ts3 = {0, 100 * 1000000L};  // 100ms
+                nanosleep(&ts3, NULL);
+            }
+            // Notify parent that we're dead.
+            {
+                lock(&pids_lock);
+                struct task *leader = group->leader;
+                struct task *parent = leader->parent;
+                if (parent != NULL && !leader->zombie) {
+                    leader->zombie = true;
+                    leader->exit_code = status;
+                    notify(&parent->group->child_exit);
+                    struct siginfo_ info = {
+                        .code = SI_KERNEL_,
+                        .child.pid = leader->pid,
+                        .child.uid = current->uid,
+                        .child.status = status,
+                    };
+                    if (leader->exit_signal != 0)
+                        send_signal(parent, leader->exit_signal, info);
+                }
+                unlock(&pids_lock);
+            }
         } else {
-            printk("exit_group[%d]: all threads exited after %dms\n", current->pid, waited_ms);
 
             // Give extra time for pthread cleanup on host system
             // This ensures:
@@ -286,6 +337,12 @@ static void halt_system(void) {
         mount_remove(mount);
     }
     unlock(&mounts_lock);
+
+    // Force exit the entire host process. Orphaned guest threads
+    // (stuck in JIT loops after do_exit_group force cleanup) keep
+    // the host process alive indefinitely. _exit is safe here since
+    // init dying means we're shutting down completely.
+    _exit(0);
 }
 
 dword_t sys_exit(dword_t status) {
@@ -440,12 +497,28 @@ retry:
     if (got_signal)
         goto error;
 
-    // no matching zombie found, wait for one
-    if (wait_for(&current->group->child_exit, &pids_lock, NULL)) {
-        // maybe we got a SIGCHLD! go through the loop one more time to make
-        // sure the newly exited process is returned in that case.
-        got_signal = true;
-        goto retry;
+    // no matching zombie found, wait for one.
+    // Use a bounded 1-second timeout to work around macOS condvar issues
+    // (pthread_cond_wait can block forever under thread contention).
+    current->blocking = true;
+    {
+        struct timespec waitpid_timeout = {.tv_sec = 1, .tv_nsec = 0};
+        if (wait_for(&current->group->child_exit, &pids_lock, &waitpid_timeout)) {
+            // Signal received during wait
+            got_signal = true;
+        }
+    }
+    current->blocking = false;
+    {
+        // Update last_progress_ns: waitpid is actively polling for a child,
+        // this is real work (not a stuck thread). Prevents the poll_wait
+        // safety valve from killing a parent waiting for a long-running child.
+        struct timespec _ts;
+        clock_gettime(CLOCK_MONOTONIC, &_ts);
+        uint64_t now = (uint64_t)_ts.tv_sec * 1000000000ULL + _ts.tv_nsec;
+        current->last_unblocked_ns = now;
+        atomic_store_explicit(&current->group->last_progress_ns, now,
+                              memory_order_relaxed);
     }
     goto retry;
 

@@ -1,3 +1,4 @@
+#include <time.h>
 #include "debug.h"
 #include "kernel/task.h"
 #include "fs/fd.h"
@@ -56,6 +57,13 @@ static struct tgroup *tgroup_copy(struct tgroup *old_group) {
     group->itimer = NULL;
     group->doing_group_exit = false;
     group->children_rusage = (struct rusage_) {};
+    {
+        struct timespec _ts;
+        clock_gettime(CLOCK_MONOTONIC, &_ts);
+        atomic_store_explicit(&group->last_progress_ns,
+            (uint64_t)_ts.tv_sec * 1000000000ULL + _ts.tv_nsec,
+            memory_order_relaxed);
+    }
     cond_init(&group->child_exit);
     cond_init(&group->stopped_cond);
     lock_init(&group->lock);
@@ -152,9 +160,6 @@ fail_free_mem:
 }
 
 dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t ctid) {
-    if (!(flags & CLONE_THREAD_)) {
-        printk("fork[%d] → ", current->pid);
-    }
     STRACE("clone(0x%x, 0x%x, 0x%x, 0x%x, 0x%x)", flags, stack, ptid, tls, ctid);
     if (flags & ~CSIGNAL_ & ~IMPLEMENTED_FLAGS) {
         FIXME("unimplemented clone flags 0x%x", flags & ~CSIGNAL_ & ~IMPLEMENTED_FLAGS);
@@ -168,9 +173,6 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
     struct task *task = task_create_(current);
     if (task == NULL)
         return _ENOMEM;
-    if (!(flags & CLONE_THREAD_)) {
-        printk("%d\n", task->pid);
-    }
     int err = copy_task(task, flags, stack, ptid, tls, ctid);
     if (err < 0) {
         // FIXME: there is a window between task_create_ and task_destroy where

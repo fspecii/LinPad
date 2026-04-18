@@ -6738,9 +6738,6 @@ make_fp_across fminnmv, fminnmv
  * STR Qt, [Xn, #imm] - Store quad (128-bit) from SIMD register
  */
 .gadget str_simd_q
-    // Debug: first do a safe test write
-    str xzr, [_cpu, #LOCAL_value]
-
     ldr x8, [_pc]
     add _pc, _pc, #8
     and x8, x8, #0x1f

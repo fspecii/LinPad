@@ -68,6 +68,13 @@ NAME(fiber_enter):
  */
 .global fiber_ret_chain
 fiber_ret_chain:
+#ifdef DISABLE_BLOCK_CHAINING
+    // Block chaining disabled — always return to main loop
+    // Clear last_block so the C main loop doesn't patch fake_ip values
+    // (patched values are host code pointers, not guest PCs)
+    str xzr, [_cpu, #LOCAL_last_block]
+    b fiber_ret
+#else
     // Check bit 63: if set, it's a fake_ip (unchained) → return to main loop
     tbnz _pc, #63, fiber_ret
     // Check if we've been poked (timer interrupt pending)
@@ -88,6 +95,7 @@ fiber_ret_chain:
     str x8, [_cpu, #LOCAL_last_block]
     // Continue executing in JIT — this is the fast path
     gret
+#endif
 
 poke:
     // Timer interrupt pending — load guest PC from block->addr and return
@@ -377,6 +385,108 @@ segfault_write_cp:
     ldp x19, x20, [sp], #0x60
 
     add _pc, _pc, #8           // Skip past the 64-bit guest PC data
+    gret
+
+/*
+ * gadget_check_highbits - Fast check for dirty bits 32-63 in guest registers
+ *
+ * All guest register values should fit in 32 bits in the current memory layout.
+ * If any register has bits 32+ set, it indicates an emulation bug.
+ *
+ * Fast path (~35 cycles): OR together bits 32-63 of all 32 GP regs (x0-x30 + SP).
+ * If all zero, skip ahead. No function call overhead.
+ *
+ * Slow path (detection only): Call jit_highbit_alert(cpu) to log the offender.
+ *
+ * Code stream: [gadget_check_highbits addr][guest_pc (64-bit)]
+ */
+.gadget check_highbits
+    // Fast path: OR bits 32-63 of all guest registers
+    // x0-x30 are at [_cpu + CPU_x0] through [_cpu + CPU_x0 + 30*8]
+    // SP is at [_cpu + CPU_sp]
+    // Load pairs and accumulate high bits via OR
+    ldp x9, x10, [_cpu, #CPU_x0]          // x0, x1
+    orr x9, x9, x10
+    ldp x10, x11, [_cpu, #(CPU_x0 + 16)]  // x2, x3
+    orr x9, x9, x10
+    orr x9, x9, x11
+    ldp x10, x11, [_cpu, #(CPU_x0 + 32)]  // x4, x5
+    orr x9, x9, x10
+    orr x9, x9, x11
+    ldp x10, x11, [_cpu, #(CPU_x0 + 48)]  // x6, x7
+    orr x9, x9, x10
+    orr x9, x9, x11
+    ldp x10, x11, [_cpu, #(CPU_x0 + 64)]  // x8, x9
+    orr x9, x9, x10
+    orr x9, x9, x11
+    ldp x10, x11, [_cpu, #(CPU_x0 + 80)]  // x10, x11
+    orr x9, x9, x10
+    orr x9, x9, x11
+    ldp x10, x11, [_cpu, #(CPU_x0 + 96)]  // x12, x13
+    orr x9, x9, x10
+    orr x9, x9, x11
+    ldp x10, x11, [_cpu, #(CPU_x0 + 112)] // x14, x15
+    orr x9, x9, x10
+    orr x9, x9, x11
+    ldp x10, x11, [_cpu, #(CPU_x0 + 128)] // x16, x17
+    orr x9, x9, x10
+    orr x9, x9, x11
+    ldp x10, x11, [_cpu, #(CPU_x0 + 144)] // x18, x19
+    orr x9, x9, x10
+    orr x9, x9, x11
+    ldp x10, x11, [_cpu, #(CPU_x0 + 160)] // x20, x21
+    orr x9, x9, x10
+    orr x9, x9, x11
+    ldp x10, x11, [_cpu, #(CPU_x0 + 176)] // x22, x23
+    orr x9, x9, x10
+    orr x9, x9, x11
+    ldp x10, x11, [_cpu, #(CPU_x0 + 192)] // x24, x25
+    orr x9, x9, x10
+    orr x9, x9, x11
+    ldp x10, x11, [_cpu, #(CPU_x0 + 208)] // x26, x27
+    orr x9, x9, x10
+    orr x9, x9, x11
+    ldp x10, x11, [_cpu, #(CPU_x0 + 224)] // x28, x29
+    orr x9, x9, x10
+    orr x9, x9, x11
+    ldr x10, [_cpu, #(CPU_x0 + 240)]      // x30
+    orr x9, x9, x10
+    ldr x10, [_cpu, #CPU_sp]               // SP
+    orr x9, x9, x10
+
+    // Check if any bit 32+ is set
+    lsr x9, x9, #32
+    cbnz x9, check_highbits_alert
+
+    // Fast path: no dirty bits, skip past the 64-bit guest PC data
+    add _pc, _pc, #8
+    gret
+
+check_highbits_alert:
+    // Slow path: save state and call C function
+    ldr x8, [_pc]
+    str x8, [_cpu, #CPU_pc]    // Set guest PC for the alert function
+
+    stp x19, x20, [sp, #-0x60]!
+    stp x21, x22, [sp, #0x10]
+    stp x23, x24, [sp, #0x20]
+    stp x25, x26, [sp, #0x30]
+    stp x27, x28, [sp, #0x40]
+    str lr, [sp, #0x50]
+
+    save_c
+    mov x0, _cpu
+    bl NAME(jit_highbit_alert)
+    restore_c
+
+    ldr lr, [sp, #0x50]
+    ldp x27, x28, [sp, #0x40]
+    ldp x25, x26, [sp, #0x30]
+    ldp x23, x24, [sp, #0x20]
+    ldp x21, x22, [sp, #0x10]
+    ldp x19, x20, [sp], #0x60
+
+    add _pc, _pc, #8
     gret
 
 // Convenience gadgets for specific interrupts

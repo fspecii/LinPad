@@ -21,7 +21,7 @@
 #include <pthread.h>
 #ifdef __APPLE__
 #include <TargetConditionals.h>
-#if !TARGET_OS_IOS && !TARGET_OS_SIMULATOR
+#if TARGET_OS_OSX
 #include <spawn.h>
 #include <mach-o/dyld.h>
 #define HAS_POSIX_SPAWN 1

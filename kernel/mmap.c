@@ -90,8 +90,11 @@ static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
 
     if (flags & MMAP_ANONYMOUS) {
 #if ANON_MMAP_LIMIT_PAGES > 0
-        if (atomic_load(&anon_page_count) + (long)pages > ANON_MMAP_LIMIT_PAGES)
+        if (atomic_load(&anon_page_count) + (long)pages > ANON_MMAP_LIMIT_PAGES) {
+            printk("ANON_LIMIT: count=%ld + pages=%ld > limit=%ld\n",
+                   (long)atomic_load(&anon_page_count), (long)pages, (long)ANON_MMAP_LIMIT_PAGES);
             return _ENOMEM;
+        }
         atomic_fetch_add(&anon_page_count, (long)pages);
 #endif
         if ((err = pt_map_nothing(current->mem, page, pages, prot)) < 0) {
@@ -240,8 +243,27 @@ int_t sys_mprotect(addr_t addr, uint_t len, int_t prot) {
     return err;
 }
 
-dword_t sys_madvise(addr_t UNUSED(addr), dword_t UNUSED(len), dword_t UNUSED(advice)) {
-    // portable applications should not rely on linux's destructive semantics for MADV_DONTNEED.
+dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice) {
+    STRACE("madvise(0x%llx, 0x%x, %d)", (unsigned long long)addr, len, advice);
+    // MADV_DONTNEED (4): discard pages, replace with zero-fill on next access
+    // MADV_FREE (8): lazy free, pages may be reclaimed
+    // Programs expect zeroed pages after MADV_DONTNEED. Without this, stale
+    // data persists and V8's Zone allocator sees corrupt pointers from
+    // previous allocations.
+    if (advice == 4 /* MADV_DONTNEED */) {
+        // Zero-fill the pages to match Linux MADV_DONTNEED semantics
+        addr_t start = BYTES_ROUND_DOWN(addr);
+        addr_t end = BYTES_ROUND_UP(addr + len);
+        struct mm *mm = current->mm;
+        read_wrlock(&mm->mem.lock);
+        for (addr_t page = start; page < end; page += PAGE_SIZE) {
+            char *ptr = mem_ptr(&mm->mem, PAGE(page), MEM_WRITE);
+            if (ptr != NULL) {
+                memset(ptr, 0, PAGE_SIZE);
+            }
+        }
+        read_wrunlock(&mm->mem.lock);
+    }
     return 0;
 }
 
@@ -287,10 +309,13 @@ addr_t sys_brk(addr_t new_brk) {
             goto out;
         }
     } else if (new_brk < old_brk) {
-        // shrink heap: unmap region from new_brk to old_brk
-        // first page to unmap is PAGE(new_brk)
-        // last page to unmap is PAGE(old_brk)
-        pt_unmap_always(&mm->mem, PAGE(new_brk), PAGE(old_brk) - PAGE(new_brk));
+        // shrink heap: unmap pages that are entirely above new_brk
+        // PAGE_ROUND_UP(new_brk) is the first page we can safely unmap
+        // (the page containing new_brk may still have live data below new_brk)
+        page_t first_unmap = PAGE_ROUND_UP(new_brk);
+        page_t last_unmap = PAGE_ROUND_UP(old_brk);
+        if (first_unmap < last_unmap)
+            pt_unmap_always(&mm->mem, first_unmap, last_unmap - first_unmap);
     }
 
     mm->brk = new_brk;

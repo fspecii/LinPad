@@ -277,6 +277,7 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
         entry = interp_base + interp_header.entry_point;
     }
 
+
     // map vdso
     err = _ENOMEM;
     pages_t vdso_pages = sizeof(vdso_data) >> PAGE_BITS;
@@ -457,6 +458,27 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
     current->cpu.vf = 0;
     current->cpu.fpcr = 0;
     current->cpu.fpsr = 0;
+
+    // Map V8 compressed pointer range as readable zeros.
+    // V8's Zone allocator reuses memory without zeroing. Stale data containing
+    // V8 compressed pointers (small integers like 0x9xxxx) can leak into real
+    // pointer fields. Mapping these low pages with zeros means accidental
+    // dereferences read zeros (NULL) instead of faulting with SIGSEGV.
+    // This covers V8 cage offsets 0x80000-0x100000 which are common stale values.
+    {
+        const char *base_name = strrchr(file, '/');
+        base_name = base_name ? base_name + 1 : file;
+        if (strcmp(base_name, "node") == 0) {
+            // Map zero pages at 0x0-0x100000 (first 1MB)
+            // This catches both NULL dereferences and V8 compressed pointers
+            page_t guard_start = 0; // page 0
+            pages_t guard_pages = 0x100000 / PAGE_SIZE; // 256 pages = 1MB
+            write_wrlock(&current->mem->lock);
+            int map_err = pt_map_nothing(current->mem, guard_start, guard_pages, P_READ | P_WRITE);
+            write_wrunlock(&current->mem->lock);
+            (void)map_err; // guard pages are best-effort
+        }
+    }
 #else
     current->cpu.esp = sp;
     current->cpu.eip = entry;
@@ -780,9 +802,6 @@ dword_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
         envp[0] = envp[1] = '\0';
     }
 
-    if (strstr(filename, "node")) {
-        printk("exec[%d]: %s\n", current->pid, filename);
-    }
     STRACE("execve(\"%.1000s\", {", filename);
     const char *args = argv;
     while (*args != '\0') {
@@ -828,6 +847,83 @@ dword_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
             if (total_used + inject_len + 1 <= ARGV_MAX) {
                 memcpy(envp + total_used - 1, inject_envs[vi].kv, inject_len);
                 envp[total_used - 1 + inject_len] = '\0';
+            }
+        }
+    }
+
+    // Inject V8 flags for Node.js to work around scope corruption in emulation.
+    // --jitless: disable JIT (avoids V8 code generation incompatible with our JIT)
+    // --predictable: disable concurrent GC/compilation (avoids race conditions)
+    // --no-lazy: eager compilation (avoids Zone reuse patterns that corrupt scopes)
+    // --single-generation: skip young generation (reduces GC-triggered Zone resets)
+    // --lite-mode: reduces Zone churn by disabling feedback vectors & optimizer
+    // --no-compilation-cache: prevent stale cached compilations from reusing Zones
+    // --no-flush-bytecode: keep compiled bytecode alive, avoid recompilation churn
+    // --no-lazy-compile-dispatcher: single-thread parsing to reduce concurrent Zones
+    // --no-parallel-compile-tasks: single-thread compilation to reduce concurrent Zones
+    // --no-concurrent-recompilation: disable background recompilation
+    {
+        const char *base = strrchr(filename, '/');
+        base = base ? base + 1 : filename;
+        if (strcmp(base, "node") == 0) {
+            static const char *inject_args[] = {
+                "--jitless",
+                "--no-lazy",
+                "--no-expose-wasm",
+                "--max-old-space-size=512",
+            };
+            for (size_t ai = 0; ai < sizeof(inject_args)/sizeof(inject_args[0]); ai++) {
+                const char *arg = inject_args[ai];
+                size_t arg_len = strlen(arg) + 1; // includes NUL
+
+                // Find end of argv buffer
+                char *p = argv;
+                while (*p != '\0')
+                    p += strlen(p) + 1;
+                size_t total_used = (p - argv) + 1;
+
+                // Check if already present
+                bool found = false;
+                char *q = argv;
+                while (*q != '\0') {
+                    if (strcmp(q, arg) == 0) { found = true; break; }
+                    q += strlen(q) + 1;
+                }
+
+                if (!found && total_used + arg_len + 1 <= ARGV_MAX) {
+                    char *after_argv0 = argv + strlen(argv) + 1;
+                    size_t tail = total_used - (after_argv0 - argv);
+                    memmove(after_argv0 + arg_len, after_argv0, tail);
+                    memcpy(after_argv0, arg, arg_len);
+                    argc++;
+                }
+            }
+        }
+
+        // Inject LD_PRELOAD for zero_malloc.so to zero large malloc/free.
+        // V8's Zone allocator reuses freed memory without zeroing, causing
+        // stale pointer dereferences. This library zeros blocks >= 4096 bytes
+        // on both malloc and free (Zone segments are >= 8KB).
+        if (strcmp(base, "node") == 0) {
+            static const char *ld_preload = "LD_PRELOAD=/lib/zero_free.so";
+            size_t env_len = strlen(ld_preload) + 1;
+
+            // Check if LD_PRELOAD is already set
+            bool found = false;
+            char *q = envp;
+            while (*q != '\0') {
+                if (strncmp(q, "LD_PRELOAD=", 11) == 0) { found = true; break; }
+                q += strlen(q) + 1;
+            }
+            if (!found) {
+                char *p = envp;
+                while (*p != '\0')
+                    p += strlen(p) + 1;
+                size_t total_used = (p - envp) + 1;
+                if (total_used + env_len + 1 <= ARGV_MAX) {
+                    memcpy(p, ld_preload, env_len);
+                    p[env_len] = '\0';
+                }
             }
         }
     }

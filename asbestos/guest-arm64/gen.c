@@ -32,6 +32,7 @@ extern void gadget_interrupt(void);
 extern void gadget_exit(void);
 extern void gadget_set_pc(void);
 extern void gadget_trace(void);
+extern void gadget_check_highbits(void);
 
 // Data processing gadgets
 extern void gadget_load_reg(void);
@@ -833,6 +834,13 @@ static int gen_ldst(struct gen_state *state, uint32_t insn);
 static int gen_dp_reg(struct gen_state *state, uint32_t insn);
 static int gen_simd_fp(struct gen_state *state, uint32_t insn);
 
+extern volatile bool g_trace_highbits;
+
+static void gen_trace_highbits(struct gen_state *state) {
+    gen(state, (unsigned long)gadget_check_highbits);
+    gen(state, (uint64_t)state->orig_ip);  // guest PC for this instruction
+}
+
 int gen_step(struct gen_state *state, struct tlb *tlb) {
     state->orig_ip = state->ip;
     state->orig_ip_extra = 0;
@@ -872,23 +880,29 @@ int gen_step(struct gen_state *state, struct tlb *tlb) {
 
     enum arm64_insn_type type = arm64_classify_insn(insn);
 
+    int result;
     switch (type) {
         case INSN_DP_IMM:
-            return gen_dp_imm(state, insn);
+            result = gen_dp_imm(state, insn); break;
         case INSN_BRANCH:
         case INSN_EXCEPTION:
         case INSN_SYSTEM:
-            return gen_branch(state, insn);
+            result = gen_branch(state, insn); break;
         case INSN_LD_ST:
-            return gen_ldst(state, insn);
+            result = gen_ldst(state, insn); break;
         case INSN_DP_REG:
-            return gen_dp_reg(state, insn);
+            result = gen_dp_reg(state, insn); break;
         case INSN_SIMD_FP:
-            return gen_simd_fp(state, insn);
+            result = gen_simd_fp(state, insn); break;
         default:
             gen_interrupt(state, INT_UNDEFINED);
-            return 0;
+            result = 0; break;
     }
+
+    if (result == 1 && g_trace_highbits)
+        gen_trace_highbits(state);
+
+    return result;
 }
 
 /*

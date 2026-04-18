@@ -10,7 +10,7 @@
 // 0 = no limit. Non-zero = hard limit in pages (4KB each).
 // Go runtime alone needs ~1.1GB for page summary reservations (PROT_NONE).
 // 524288 pages = 2GB.
-#define ANON_MMAP_LIMIT_PAGES 524288
+#define ANON_MMAP_LIMIT_PAGES 1048576
 
 #if ANON_MMAP_LIMIT_PAGES > 0
 extern _Atomic long anon_page_count;

@@ -61,15 +61,26 @@ bool __tlb_write_cross_page(struct tlb *tlb, addr_t addr, const char *value, uns
     return true;
 }
 
-
 __no_instrument void *tlb_handle_miss(struct tlb *tlb, addr_t addr, int type) {
     char *ptr = mmu_translate(tlb->mmu, TLB_PAGE(addr), type);
-    if (tlb->mmu->changes != tlb->mem_changes)
+    if (tlb->mmu->changes != tlb->mem_changes) {
         tlb_flush(tlb);
+        // Re-translate after flush. The ptr we got may be stale if another
+        // thread did mmap/munmap concurrently. When a multi-page data object
+        // is partially unmapped, the old host memory stays readable (refcount
+        // > 0 means no PROT_NONE), so a stale ptr silently reads wrong data.
+        // Re-translating ensures we get a pointer to the CURRENT mapping.
+        ptr = mmu_translate(tlb->mmu, TLB_PAGE(addr), type);
+    }
     if (ptr == NULL) {
         tlb->segfault_addr = addr;
         return NULL;
     }
+
+    // Snapshot changes BEFORE populating entry. If another thread modifies
+    // the page table between here and the next mem_changes check, the
+    // mismatch will be detected and the TLB will be flushed.
+    tlb->mem_changes = __atomic_load_n(&tlb->mmu->changes, __ATOMIC_ACQUIRE);
 
     tlb->dirty_page = TLB_PAGE(addr);
 
@@ -81,8 +92,6 @@ __no_instrument void *tlb_handle_miss(struct tlb *tlb, addr_t addr, int type) {
         tlb_ent->page_if_writable = TLB_PAGE(addr);
     } else {
         // On read miss, speculatively check if the page is also writable.
-        // Uses nofault check: no CoW, no GROWSDOWN, no locking — just a
-        // page table flag check. Eliminates ~25% of misses (read→write upgrades).
         if (tlb->mmu->ops->translate_write_nofault) {
             char *wptr = tlb->mmu->ops->translate_write_nofault(tlb->mmu, TLB_PAGE(addr));
             tlb_ent->page_if_writable = wptr ? TLB_PAGE(addr) : TLB_PAGE_EMPTY;
@@ -91,8 +100,7 @@ __no_instrument void *tlb_handle_miss(struct tlb *tlb, addr_t addr, int type) {
         }
     }
 
-    void *result = (void *) (tlb_ent->data_minus_addr + addr);
-    return result;
+    return (void *) (tlb_ent->data_minus_addr + addr);
 }
 
 #if defined(GUEST_ARM64)

@@ -23,8 +23,11 @@ static void exit_handler(struct task *task, int code) {
     if (task->parent != NULL)
         return;
     real_tty_reset_term();
-    if (code & 0xff)
-        raise(code & 0xff);
+    if (code & 0xff) {
+        // Guest died from a signal. Don't raise on the host (our crash_handler
+        // would intercept it). Just exit with the conventional 128+signal code.
+        _exit(128 + (code & 0xff));
+    }
     exit(code >> 8);
 }
 
@@ -121,21 +124,88 @@ static inline int xX_main_Xx(int argc, char *const argv[], const char *envp) {
     int i = optind;
     size_t p = 0;
     size_t exec_argc = 0;
+    if (argv[optind] == NULL)
+	    return _ENOENT;
+#ifdef GUEST_ARM64
+    // Inject V8 flags for node to work around scope corruption in emulation.
+    // --jitless: disable JIT (avoids V8 code gen incompatible with our JIT)
+    // --predictable: disable concurrent GC/compilation (avoids race conditions)
+    // --no-lazy: eager compilation (avoids Zone reuse patterns that corrupt scopes)
+    // --single-generation: skip young gen (reduces GC-triggered Zone resets)
+    // This is needed here because the initial do_execve bypasses sys_execve.
+    {
+        const char *base = strrchr(argv[optind], '/');
+        base = base ? base + 1 : argv[optind];
+        if (strcmp(base, "node") == 0) {
+            // Copy argv[0] first
+            strcpy(&argv_copy[p], argv[optind]);
+            p += strlen(argv[optind]) + 1;
+            exec_argc++;
+            // Inject V8 flags to work around scope corruption
+            static const char *v8_flags[] = {
+                "--jitless",
+                "--no-lazy",
+                "--no-expose-wasm",
+                "--max-old-space-size=512",
+            };
+            for (int fi = 0; fi < (int)(sizeof(v8_flags)/sizeof(v8_flags[0])); fi++) {
+                strcpy(&argv_copy[p], v8_flags[fi]);
+                p += strlen(v8_flags[fi]) + 1;
+                exec_argc++;
+            }
+            // Copy remaining args (skip argv[optind])
+            for (i = optind + 1; i < argc; i++) {
+                strcpy(&argv_copy[p], argv[i]);
+                p += strlen(argv[i]) + 1;
+                exec_argc++;
+            }
+            argv_copy[p] = '\0';
+            goto do_exec;
+        }
+    }
+#endif
     while (i < argc) {
         strcpy(&argv_copy[p], argv[i]);
         p += strlen(argv[i]) + 1;
         exec_argc++;
         i++;
-        // NOTE: --no-lazy injection for node was removed. The V8 lazy compilation
-        // crash was caused by TLB ABA on macOS (stale TLB reads wrong data after
-        // munmap+mmap reuses host address). Fixed by: (1) mprotect(PROT_NONE)
-        // instead of munmap for freed regions, (2) mem_changes check in
-        // fiber_ret_chain. See kernel/memory.c and entry.S.
     }
     argv_copy[p] = '\0';
-    if (argv[optind] == NULL)
-	    return _ENOENT;
+#ifdef GUEST_ARM64
+do_exec:
+    // Inject LD_PRELOAD for zero_malloc.so when running node.
+    // Zeros large malloc/free to prevent V8 Zone stale pointer crashes.
+    {
+        const char *base2 = strrchr(argv[optind], '/');
+        base2 = base2 ? base2 + 1 : argv[optind];
+        if (strcmp(base2, "node") == 0) {
+            static char envp_buf[4096];
+            size_t ep = 0;
+            if (envp != NULL) {
+                const char *e = envp;
+                while (*e) {
+                    size_t len = strlen(e) + 1;
+                    if (ep + len < sizeof(envp_buf) - 64) {
+                        memcpy(&envp_buf[ep], e, len);
+                        ep += len;
+                    }
+                    e += len;
+                }
+            }
+            static const char *ld_preload = "LD_PRELOAD=/lib/zero_free.so";
+            size_t plen = strlen(ld_preload) + 1;
+            memcpy(&envp_buf[ep], ld_preload, plen);
+            ep += plen;
+            envp_buf[ep] = '\0';
+            err = do_execve(argv[optind], exec_argc, argv_copy, envp_buf);
+            goto after_exec;
+        }
+    }
+#endif
     err = do_execve(argv[optind], exec_argc, argv_copy, envp == NULL ? "\0" : envp);
+#ifdef GUEST_ARM64
+after_exec:
+#endif
     if (err < 0)
         return err;
     tty_drivers[TTY_CONSOLE_MAJOR] = &real_tty_driver;

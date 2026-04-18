@@ -54,6 +54,16 @@ static void show_kb(struct proc_data *buf, const char *name, uint64_t value) {
 
 static int proc_show_meminfo(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     struct mem_usage usage = get_mem_usage();
+#if defined(GUEST_ARM64)
+    // Cap reported memory to match sys_sysinfo limit.
+    // Reporting full host RAM (e.g. 24GB) causes V8 to set heap_size_limit=4GB
+    // which exhausts the emulator's limited address space.
+    #define MEMINFO_MAX_RAM (4ULL * 1024 * 1024 * 1024)
+    if (usage.total > MEMINFO_MAX_RAM)
+        usage.total = MEMINFO_MAX_RAM;
+    if (usage.free > MEMINFO_MAX_RAM)
+        usage.free = MEMINFO_MAX_RAM;
+#endif
     show_kb(buf, "MemTotal:       ", usage.total);
     show_kb(buf, "MemFree:        ", usage.free);
     show_kb(buf, "MemShared:      ", usage.free);

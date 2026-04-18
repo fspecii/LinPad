@@ -1,6 +1,14 @@
 #include "../../gadgets-generic.h"
 #include "cpu-offsets.h"
 
+// === DEBUG ISOLATION SWITCHES ===
+// Uncomment to disable specific JIT optimizations for debugging:
+// #define DISABLE_RET_CACHE       1    // RET always returns to main loop
+// #define DISABLE_BLOCK_CHAINING  1    // All branches return to main loop
+// #define ENABLE_HIGHBIT_CHECK    1    // Check for dirty bits 32-63 after each insn
+#define ENABLE_WRITE_WATCHPOINT  1    // Check every store against watched page
+// =================================
+
 // Interrupt types (from emu/interrupt.h)
 #define INT_NONE -1
 #define INT_DIV 0
@@ -80,6 +88,20 @@ _addr   .req x7    // Changed from x3/x4 to x7 to avoid conflict with guest low 
 .irp type, read,write
 
 .macro \type\()_prep size, id
+#ifdef ENABLE_WRITE_WATCHPOINT
+    .ifc \type,write
+    // Write watchpoint: compare guest page against watched page
+    // x7 = guest address at this point (before TLB translation)
+    // g_watch_page_val is loaded from a nearby literal pool
+    adrp x8, NAME(g_watch_page_val)@PAGE
+    ldr x8, [x8, NAME(g_watch_page_val)@PAGEOFF]
+    cbz x8, 9f                        // skip if no watchpoint set
+    and x9, x7, #0xfffffffffffff000   // guest page
+    cmp x9, x8
+    b.eq watch_hit_\id
+9:
+    .endif
+#endif
     // Cross-page check: if page offset > (0x1000 - access_size), need special handling
     and w8, w7, #0xfff
     cmp x8, #(0x1000-(\size/8))
@@ -156,6 +178,50 @@ crosspage_store_\id :
     bl NAME(crosspage_store)
     b back_write_done_\id
 .endif
+#ifdef ENABLE_WRITE_WATCHPOINT
+.ifc \type,write
+watch_hit_\id :
+    // Write watchpoint hit: guest addr in x7 matches watched page
+    // Save all state and call C handler
+    // x24 = saved guest addr (set by caller before write_prep)
+    // _pc = current position in code stream
+    stp x19, x20, [sp, #-0x60]!
+    stp x21, x22, [sp, #0x10]
+    stp x23, x24, [sp, #0x20]
+    stp x25, x26, [sp, #0x30]
+    stp x27, x28, [sp, #0x40]
+    str lr, [sp, #0x50]
+    save_c
+    mov x0, _cpu               // arg0: cpu_state
+    mov x1, x7                 // arg1: guest store address (still in x7)
+    mov x2, _pc                // arg2: code stream pointer (for PC recovery)
+    bl NAME(jit_watch_write_hit)
+    restore_c
+    ldr lr, [sp, #0x50]
+    ldp x27, x28, [sp, #0x40]
+    ldp x25, x26, [sp, #0x30]
+    ldp x23, x24, [sp, #0x20]
+    ldp x21, x22, [sp, #0x10]
+    ldp x19, x20, [sp], #0x60
+    // Fall through to the normal write_prep path (re-do the cross-page check)
+    and w8, w7, #0xfff
+    cmp x8, #(0x1000-(\size/8))
+    b.hi crosspage_write_prep_\id
+    and x8, x7, #0xfffffffffffff000
+    str x8, [_tlb, #(-TLB_entries+TLB_dirty_page)]
+    ubfx x9, x7, #12, #13
+    eor x9, x9, x7, lsr #25
+    and w9, w9, #0x1fff
+    lsl x9, x9, #5
+    add x9, x9, _tlb
+    ldr x10, [x9, #TLB_ENTRY_page_if_writable]
+    cmp x8, x10
+    b.ne handle_miss_\id
+    ldr x10, [x9, #TLB_ENTRY_data_minus_addr]
+    add x7, x10, x7
+    b back_\id
+.endif
+#endif
 .endm
 
 .endr

@@ -1,5 +1,6 @@
 #include <signal.h>
 #include <string.h>
+#include <time.h>
 #include <sys/stat.h>
 #include "fs/dev.h"
 #include "fs/devices.h"
@@ -64,6 +65,13 @@ static struct task *construct_task(struct task *parent) {
     memcpy(group->limits, init_rlimits, sizeof(init_rlimits));
     group->leader = task;
     group->personality = ADDR_NO_RANDOMIZE_;
+    {
+        struct timespec _ts;
+        clock_gettime(CLOCK_MONOTONIC, &_ts);
+        atomic_store_explicit(&group->last_progress_ns,
+            (uint64_t)_ts.tv_sec * 1000000000ULL + _ts.tv_nsec,
+            memory_order_relaxed);
+    }
     list_add(&group->threads, &task->group_links);
     task->group = group;
     task->tgid = task->pid;
@@ -175,7 +183,9 @@ static struct fd *open_fd_from_actual_fd(int fd_no) {
         // shows for TTY fds. This allows node's libuv uv_guess_handle() to
         // detect them as TTY-like (when combined with isatty/TCGETS support)
         // or fall back to a generic stream.
-        if (S_ISSOCK(fd->stat.mode)) {
+        // Make guest see TTY-like char device when host fd is a socket
+        // (macOS piped stdio) or an actual TTY (terminal).
+        if (S_ISSOCK(fd->stat.mode) || isatty(fd_no)) {
             fd->stat.mode = S_IFCHR | 0620;
             fd->stat.rdev = dev_make(TTY_PSEUDO_SLAVE_MAJOR, 0);
         }
