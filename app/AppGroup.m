@@ -102,12 +102,6 @@ NSArray<NSString *> *CurrentAppGroups(void) {
 }
 
 NSURL *ContainerURL(void) {
-    NSArray *groups = CurrentAppGroups();
-    if (groups.count > 0) {
-        NSURL *url = [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:groups[0]];
-        if (url)
-            return url;
-    }
-    // Fallback: use the app's own container when app group is unavailable
-    return [NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
+    NSString *appGroup = CurrentAppGroups()[0];
+    return [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:appGroup];
 }
