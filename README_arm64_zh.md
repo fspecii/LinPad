@@ -196,42 +196,47 @@ ninja -C build-arm64-release
 
 ## 性能
 
-在 macOS 26.4.1 / Apple Silicon 上使用 **guest 内置计时**（排除启动开销）测试。
+使用 `benchmark/run.sh` 在 macOS 26.4.1 / Apple Silicon 上测试，采用 guest 内置计时
+（排除启动开销）。完整数据见
+**[benchmark/BENCHMARK_PERF.md](benchmark/BENCHMARK_PERF.md)**。
 
-### 计算密集型（ARM64 vs x86）
+### 相对原生的开销（按负载类型）
 
-| 测试 | Native | x86 | ARM64 | **ARM64 vs x86** |
-|------|:---:|:---:|:---:|:---:|
-| C `int_arith_2M` | 10ms | 782ms | 65ms | **12.0x** |
-| C `string_200K` | 3ms | 625ms | 198ms | **3.2x** |
-| Shell `seq+awk 100K` | 22ms | 6338ms | 882ms | **7.2x** |
-| Shell `sort 5K` | 6ms | 117ms | 20ms | **5.8x** |
-| Python `fib(30)` | 130ms | 15219ms | 1661ms | **9.2x** |
-| Python `sum(1M)` | 33ms | 6200ms | 610ms | **10.2x** |
-| Python `sort 100K` | 62ms | 10261ms | 1561ms | **6.6x** |
+| 类别 | x86/Native | ARM64/Native | **ARM64 vs x86** |
+|---|:---:|:---:|:---:|
+| C 纯计算 | 14-208x | 1-66x | **1.1-12.0x** |
+| Shell 管道 | 57-305x | 3-42x | **5.3-7.2x** |
+| Python | 12-201x | 3.8-169x | **3.8-10.2x** |
+| Go 启动 | 10-26x | 2.5-3.1x | **2.5-3.1x** |
+| Node.js | — | 1.6-20.8x | N/A（x86 不可用） |
 
-### 相对原生的开销
+### 亮点数据（计算密集型）
 
-| 类别 | x86/Native | ARM64/Native |
-|------|:---:|:---:|
-| C 纯计算 | 14-208x | **1-66x** |
-| Shell 管道 | 57-305x | **3-42x** |
-| Python | 12-201x | **3.8-169x** |
-| Go 启动 | 10-26x | **2.5-3.1x** |
+- **C `int_arith_2M`**: ARM64 比 x86 **快 12.0x**（65ms vs 782ms）
+- **Python `sum(1M)`**: ARM64 **快 10.2x**（610ms vs 6200ms）
+- **Python `fib(30)`**: ARM64 **快 9.2x**（1661ms vs 15219ms）
+- **Shell `seq+awk 100K`**: ARM64 **快 7.2x**（882ms vs 6338ms）
+- **C `matrix_64x64`** / **`mem_seq_4MB`**: ARM64 接近原生速度（仅 ~1.1-1.5x）
 
-**关键结论**:
-- C `matrix_64x64` 和 `mem_seq_4MB` — ARM64 几乎达到原生速度（仅 1.1-1.5x 开销）
-- Node.js 只能在 ARM64 上运行（x86 iSH 缺少 syscall 425 即 io_uring_setup）
-- x86 在简单 shell 循环上偶尔略快（0.8x），因为 busybox x86 的整数算术映射很好
+> **ARM64 为什么快**: 同架构 JIT（每条 guest 指令只需 1-3 条 host 指令）、完整 NEON + 加密扩展、
+> 48-bit 地址空间支持 V8/Go/Rust，以及 Node.js 专项修复（V8 二进制补丁、守护页、`--jitless`
+> 注入、io_uring syscall）—— 这些上游 x86 分支都没有。Node.js 22 在 x86 iSH 上无法运行
+> （缺少 syscall 425 即 `io_uring_setup`）。
 
-### 兼容性（205 项测试）
+## 兼容性
+
+205 项测试覆盖 18 个分类（基础 OS、文件操作、文本处理、构建、Python、Node.js、
+Go/Rust/Perl/…、网络、VCS、编辑器、Shell、数据库、多媒体、加密、系统监控、调试、
+包管理、信号）。两个架构在相同 fakefs 环境下安装相同软件包后测试。完整报告见
+**[benchmark/BENCHMARK_COMPAT.md](benchmark/BENCHMARK_COMPAT.md)**。
 
 | 架构 | 通过 | 失败 | 通过率 |
 |---|:---:|:---:|:---:|
-| x86 (Jitter) | 203 | 2 | **99%** |
-| ARM64 (Asbestos JIT) | 205 | 0 | **100%** |
+| **x86** (Jitter) | 201 | 4 | **98%** |
+| **ARM64** (Asbestos JIT) | 205 | 0 | **100%** |
 
-> 完整报告: [Performance](benchmark/BENCHMARK_PERF.md) | [Compatibility](benchmark/BENCHMARK_COMPAT.md)
+**x86 的 4 项失败**均为模拟器真实限制（而非 benchmark bug）：
+`automake`、`perl`（/dev/null 写入 quirk）、`go env`、`go compile`（32-bit 虚拟地址空间限制）。
 
 ---
 

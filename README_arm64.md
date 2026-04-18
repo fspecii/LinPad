@@ -196,63 +196,47 @@ ninja -C build-arm64-release
 
 ## Performance
 
-### ARM64 vs x86 vs Native
+Measured with `benchmark/run.sh` on macOS 26.4.1 / Apple Silicon using guest-side
+timing (startup overhead excluded). Full details in
+**[benchmark/BENCHMARK_PERF.md](benchmark/BENCHMARK_PERF.md)**.
 
-Tested on macOS 26.4.1 / Apple Silicon using `/usr/bin/time -l` for precise measurement.
-**Instructions retired** is the fairest metric (eliminates filesystem mode differences):
+### Overhead vs Native (by workload)
 
-| Test | Native | x86 | | ARM64 | | **x86/ARM64** |
-|------|:---:|:---:|:---:|:---:|:---:|:---:|
-| | | time | insns | time | insns | **insns ratio** |
-| echo hello | 0.00s | 0.00s | 61M | 0.28s | 5.3B | — (startup) |
-| loop 5000 | 0.01s | 0.95s | 12.5B | 0.57s | 7.1B | **1.7x** |
-| seq+awk 10K | 0.00s | 0.66s | 11.4B | 0.52s | 6.8B | **1.7x** |
-| seq+awk 50K | 0.01s | 3.30s | 57.0B | 0.74s | 12.4B | **4.6x** |
-| fork+exec 50 | 0.02s | 0.09s | 1.7B | 0.46s | 7.4B | 0.2x |
+| Category | x86/Native | ARM64/Native | **ARM64 vs x86** |
+|---|:---:|:---:|:---:|
+| C (pure compute) | 14-208x | 1-66x | **1.1-12.0x** |
+| Shell pipelines | 57-305x | 3-42x | **5.3-7.2x** |
+| Python | 12-201x | 3.8-169x | **3.8-10.2x** |
+| Go (startup) | 10-26x | 2.5-3.1x | **2.5-3.1x** |
+| Node.js | — | 1.6-20.8x | N/A (x86 broken) |
 
-**Key findings**:
-- **Compute-heavy**: ARM64 JIT executes **4.6x fewer instructions** than x86 for `seq+awk 50K`,
-  and is **4.5x faster** in wall clock time. The gap widens with workload size.
-- **Startup**: ARM64's 5.3B instruction baseline is fakefs (SQLite) initialization. On iOS
-  this cost is paid once at app launch, not per-command. x86 uses realfs (zero startup).
-- **Instruction efficiency**: x86 emulates `echo` in 61M host instructions; ARM64 needs
-  5.3B — but 99% of that is one-time fakefs init, not the echo itself.
+### Headline numbers (compute-heavy)
 
-### Language Runtime Performance (ARM64 vs Docker Native)
+- **C `int_arith_2M`**: ARM64 **12.0x faster** than x86 (65ms vs 782ms)
+- **Python `sum(1M)`**: ARM64 **10.2x faster** (610ms vs 6200ms)
+- **Python `fib(30)`**: ARM64 **9.2x faster** (1661ms vs 15219ms)
+- **Shell `seq+awk 100K`**: ARM64 **7.2x faster** (882ms vs 6338ms)
+- **C `matrix_64x64`** / **`mem_seq_4MB`**: near-native speed on ARM64 (~1.1-1.5x)
 
-Measured with `bench/cross_lang_bench.sh` against Docker Alpine aarch64 (bare metal):
+> **Why ARM64 wins**: same-architecture JIT (1-3 host instructions per guest instruction),
+> full NEON + crypto extensions, 48-bit address space for V8/Go/Rust, and Node.js-specific
+> fixes (V8 binary patch, guard pages, `--jitless` injection, io_uring syscall) that the
+> upstream x86 branch lacks. Node.js 22 cannot run on x86 iSH (missing syscall 425 / `io_uring_setup`).
 
-| Language | Typical Overhead | Startup | Best Case |
-|----------|:---:|:---:|:---:|
-| C/C++ tools | 5-15x | 0.3s | 8.5x (perl) |
-| Go binaries | 8-15x | 0.4s | — |
-| Python | 30-120x | 0.5s | 33.6x (print) |
-| Node.js | 25-80x | 0.4s | 47.4x (npm list) |
-| Rust (uv) | 5-12x | 0.3s | — |
+## Compatibility
 
-> **Why interpreters are slower**: Python/Node create "double virtualization" — bytecode
-> dispatch through the interpreter, then JIT translation of the interpreter itself. Each
-> Python bytecode operation costs ~100+ memory accesses (vs ~10 natively).
+205 tests across 18 categories (Core OS, FileOps, Text, Build, Python, Node.js, Go/Rust/Perl/…,
+Network, VCS, Editors, Shell, DB, Media, Crypto, SysMon, Debug, PkgMgr, Signal). Both
+architectures tested under fakefs with the same installed package set. Full report:
+**[benchmark/BENCHMARK_COMPAT.md](benchmark/BENCHMARK_COMPAT.md)**.
 
-### Compatibility (68 tests, CLI mode)
+| Architecture | Pass | Fail | Rate |
+|---|:---:|:---:|:---:|
+| **x86** (Jitter) | 201 | 4 | **98%** |
+| **ARM64** (Asbestos JIT) | 205 | 0 | **100%** |
 
-| Test Suite | x86 (Jitter) + minirootfs | ARM64 (Asbestos) + full rootfs |
-|---|:---:|:---:|
-| Core utilities (24 tests) | 46% | **100%** |
-| File operations (13 tests) | 62% | **100%** |
-| Text processing (13 tests) | 15% | **100%** |
-| /proc & /dev (9 tests) | 67% | **100%** |
-| **Overall (68 tests)** | **44%** | **100%** |
-
-> x86 failures are largely due to the minimal busybox rootfs (no `/dev` nodes, no `apk`).
-> With the iOS app's full rootfs, x86 passes most of these. ARM64's fakefs provides
-> virtual devices and a complete Alpine package ecosystem out of the box.
-
-**Extended compatibility (ARM64 only)**:
-- Node.js ecosystem: **93%** pass (201/214 tests)
-- Software packages: **82-85%** pass (249 tests)
-
-> Full benchmark reports: [Performance](benchmark/BENCHMARK_PERF.md) | [Compatibility](benchmark/BENCHMARK_COMPAT.md)
+**x86's 4 failures** are all genuine limitations (not benchmark bugs):
+`automake`, `perl` (/dev/null write quirk), `go env`, `go compile` (32-bit VA).
 
 ---
 
