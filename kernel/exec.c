@@ -960,9 +960,18 @@ dword_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
     // Native offload: check if this binary should run natively on the host
     const char *native_path = native_offload_lookup(filename);
     if (native_path) {
-        // native_offload_exec calls do_exit() on success (never returns).
-        // On failure, fall through to normal emulated exec.
+        // native_offload_exec calls do_exit() on success, which unwinds via
+        // pthread_exit() and skips the err_free_{argv,envp} labels below.
+        // Register pthread cleanup handlers so the ARGV_MAX-sized buffers are
+        // freed on that unwind path; without them each native-offloaded exec
+        // (ffmpeg, minis-open, …) leaks ~2 × ARGV_MAX per process.
+        pthread_cleanup_push(free, envp);
+        pthread_cleanup_push(free, argv);
         err = native_offload_exec(native_path, filename, argc, argv, envp);
+        // Only reach here on fallback. Do not execute cleanups — the normal
+        // err_free_{argv,envp} path below will free them.
+        pthread_cleanup_pop(0);
+        pthread_cleanup_pop(0);
         if (err == 0) {
             // Should not reach here (do_exit doesn't return), but just in case
             goto err_free_envp;

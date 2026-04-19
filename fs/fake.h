@@ -29,4 +29,9 @@ int fakefs_bind_unmount(const char *linux_path);
  * Returns true and writes to out_path if a match was found. */
 bool fakefs_bind_mount_resolve_path(const char *resolved, char *out_path, size_t out_size);
 
+/* Translate a Linux (guest) path to its resolved host path via bind mount
+ * table. Returns true and writes to out_path on a match. Used by native
+ * offload handlers that execute on the host but receive guest paths. */
+bool fakefs_bind_mount_translate_path(const char *path, char *out_path, size_t out_size);
+
 #endif
