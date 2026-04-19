@@ -137,6 +137,9 @@ bool fakefs_bind_mount_resolve_path(const char *resolved, char *out_path, size_t
  * E.g. "/var/minis/skills/foo" -> "/var/mobile/.../Library/MinisChat/skills/foo"
  * Handles both "/var/minis/..." (with leading /) and "var/minis/..." (without).
  * Returns true and writes to out_path if the path is under a bind mount. */
+/* Public wrapper for native offload handlers. See fake.h. */
+bool fakefs_bind_mount_translate_path(const char *path, char *out_path, size_t out_size);
+
 static bool bind_mount_translate_path(const char *path, char *out_path, size_t out_size) {
     /* Normalize: if path lacks leading /, prepend it for comparison.
      * Bind mount table always stores paths with leading /. */
@@ -1041,3 +1044,7 @@ const struct fs_ops fakefs = {
 
     .inode_orphaned = fakefs_inode_orphaned,
 };
+
+bool fakefs_bind_mount_translate_path(const char *path, char *out_path, size_t out_size) {
+    return bind_mount_translate_path(path, out_path, out_size);
+}

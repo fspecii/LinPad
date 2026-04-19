@@ -34,6 +34,13 @@
 #include "kernel/fs.h"
 #include "fs/fd.h"
 #include "fs/fake-db.h"
+#ifdef ISH_INTERNAL
+#include "fs/fake.h"
+#else
+#define ISH_INTERNAL
+#include "fs/fake.h"
+#undef ISH_INTERNAL
+#endif
 
 #if !__APPLE__
 int native_offload_add(const char *spec) { (void)spec; return -1; }
@@ -186,6 +193,29 @@ static const char *get_root_source(void) {
     return NULL;
 }
 
+// Translate a guest absolute path to the real host path, honoring bind
+// mounts. iSH bind-mounts guest directories (e.g. /var/minis/workspace) to
+// real host locations outside the fakefs data/ tree; native offload
+// handlers that execute on the host must follow those bind mounts, or
+// they'll read/write the wrong files and the guest will see a ghost
+// filesystem divergence. Falls back to fakefs->source + guest_path when
+// no bind-mount rule matches. Returns true on success.
+static bool build_host_path_for_guest(const char *guest_path,
+                                      char *out, size_t out_size) {
+    if (!guest_path || !out || out_size == 0) return false;
+    // 1) bind-mount wins: /var/minis/... → /Users/.../Library/MinisChat/...
+    if (guest_path[0] == '/' &&
+        fakefs_bind_mount_translate_path(guest_path, out, out_size))
+        return true;
+    // 2) fall back to fakefs source directory
+    const char *root = get_root_source();
+    if (!root) return false;
+    const char *rel = guest_path;
+    if (rel[0] == '/') rel++;
+    int n = snprintf(out, out_size, "%s/%s", root, rel);
+    return n > 0 && (size_t)n < out_size;
+}
+
 static void native_free_string_array(char **arr) {
     if (!arr) return;
     for (char **p = arr; *p; p++) free(*p);
@@ -312,10 +342,11 @@ static void scan_dir_for_new_files(struct fakefs_db *fs, const char *guest_dir) 
     if (!g_fakefs_mount || !g_fakefs_mount->source)
         return;
 
+    // Follow bind mounts: guest_dir may live under a bind-mounted prefix
+    // whose real content is outside the fakefs data/ tree.
     char host_dir[PATH_MAX];
-    const char *rel = guest_dir;
-    if (rel[0] == '/') rel++;
-    snprintf(host_dir, sizeof(host_dir), "%s/%s", g_fakefs_mount->source, rel);
+    if (!build_host_path_for_guest(guest_dir, host_dir, sizeof(host_dir)))
+        return;
 
     DIR *d = opendir(host_dir);
     if (!d) return;
@@ -360,13 +391,12 @@ static void register_new_files(size_t argc, const char *packed_argv) {
 
     for (size_t i = 1; i < argc; i++) {
         if ((p[0] == '/' || (p[0] == '.' && p[1] == '/')) && !strstr(p, "://")) {
-            // It's a path — check both as file and scan its parent dir
+            // It's a path — check both as file and scan its parent dir.
+            // Use bind-mount-aware translation so we register the file at
+            // the real host location the handler actually wrote to.
             char host_path[PATH_MAX];
-            const char *rel = p;
-            if (rel[0] == '/') rel++;
-            snprintf(host_path, sizeof(host_path), "%s/%s",
-                     g_fakefs_mount->source, rel);
-            register_file_if_new(fs, p, host_path);
+            if (build_host_path_for_guest(p, host_path, sizeof(host_path)))
+                register_file_if_new(fs, p, host_path);
 
             // Also scan parent directory for pattern-generated files
             char parent[PATH_MAX];
@@ -393,18 +423,23 @@ static char *get_host_cwd(void) {
     int err = current->fs->pwd->mount->fs->getpath(current->fs->pwd, guest_cwd);
     if (err < 0) return NULL;
 
-    const char *root_source = get_root_source();
-    if (!root_source) return NULL;
-
     char *host_cwd = malloc(PATH_MAX);
     if (!host_cwd) return NULL;
 
-    const char *rel = guest_cwd;
-    if (rel[0] == '/') rel++;
-    if (rel[0] == '\0')
-        snprintf(host_cwd, PATH_MAX, "%s", root_source);
-    else
-        snprintf(host_cwd, PATH_MAX, "%s/%s", root_source, rel);
+    // Handle empty guest cwd ("/" after stripping leading slash) by falling
+    // back directly to the fakefs source — bind-mount translation is only
+    // meaningful for subpaths of a mounted prefix.
+    if (guest_cwd[0] == '\0' || (guest_cwd[0] == '/' && guest_cwd[1] == '\0')) {
+        const char *root = get_root_source();
+        if (!root) { free(host_cwd); return NULL; }
+        snprintf(host_cwd, PATH_MAX, "%s", root);
+        return host_cwd;
+    }
+
+    if (!build_host_path_for_guest(guest_cwd, host_cwd, PATH_MAX)) {
+        free(host_cwd);
+        return NULL;
+    }
     return host_cwd;
 }
 
@@ -524,13 +559,14 @@ static int exec_handler(native_handler_func handler, const char *guest_file,
 
     const char *p = argv;
     for (size_t i = 0; i < argc; i++) {
+        // Absolute guest path → host path, honoring bind mounts first.
+        // Skip URLs (anything containing "://") which are not filesystem paths.
         if (root_source && p[0] == '/' && !strstr(p, "://")) {
-            // Absolute guest path → host path: prepend root_source
-            // Skip URLs (e.g. https://...) which don't start with '/'
-            // but also skip any arg containing "://" to be safe
             char host_path[PATH_MAX];
-            snprintf(host_path, sizeof(host_path), "%s%s", root_source, p);
-            handler_argv[i] = strdup(host_path);
+            if (build_host_path_for_guest(p, host_path, sizeof(host_path)))
+                handler_argv[i] = strdup(host_path);
+            else
+                handler_argv[i] = strdup(p);
         } else {
             handler_argv[i] = strdup(p);
         }
