@@ -23,6 +23,21 @@
 // compiler check
 #define is_gcc(version) (__GNUC__ >= version)
 
+// Cached check for ISH_EXEC_TRACE env var. getenv() walks the entire
+// environ table and is called from hot paths (every sys_write, every
+// INT_GPF diagnostic, etc.), so cache the result at first use. The env
+// var is only read once at host startup — if the user needs to change
+// it they restart ish.
+#ifndef __KERNEL__
+#include <stdlib.h>
+static inline bool ish_exec_trace(void) {
+    static int cached = -1;
+    if (cached < 0)
+        cached = (getenv("ISH_EXEC_TRACE") != NULL) ? 1 : 0;
+    return cached != 0;
+}
+#endif
+
 #if !defined(__has_attribute)
 #define has_attribute(x) 0
 #else
