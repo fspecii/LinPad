@@ -375,8 +375,9 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
                     unlock(&current->group->lock);
                     unlock(&pids_lock);
                     if (!has_live_children) {
-                        printk("SAFETY-VALVE[poll]: pid=%d idle %llds, %d threads → exit_group\n",
-                               current->pid, (long long)idle_s, thread_count);
+                        if (ish_exec_trace())
+                            printk("SAFETY-VALVE[poll]: pid=%d idle %llds, %d threads → exit_group\n",
+                                   current->pid, (long long)idle_s, thread_count);
                         do_exit_group(0);
                     }
                 }

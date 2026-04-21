@@ -275,6 +275,15 @@ static bool v8_abort_prefix(const char *buf, size_t size) {
         "----- JavaScript stack trace -----",
         "Attempt to print stack while printing stack",
         "<--- Last few GCs --->",          // V8 OOM dump
+        // V8's FATAL() macro prints "FATAL ERROR: <reason>\n". Match on
+        // the specific V8/Node prefixes after "FATAL ERROR: " to avoid
+        // silencing user programs that happen to use the same banner.
+        "FATAL ERROR: v8::",               // e.g. v8::HandleScope::Create...
+        "FATAL ERROR: CALL_AND_RETRY_",    // V8 heap OOM
+        "FATAL ERROR: MarkCompactCollector",
+        "FATAL ERROR: Reached heap limit", // OOM
+        "FATAL ERROR: Scavenger",
+        "FATAL ERROR: NewSpace",
         // V8 Runtime_Abort prints "abort: <reason>\n" via OS::PrintError.
         // Known V8 abort reasons from src/runtime/runtime-internal.cc's
         // GetAbortReason enum. Match only these specific strings so
