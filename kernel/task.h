@@ -172,6 +172,12 @@ struct tgroup {
     bool doing_group_exit;
     dword_t group_exit_code;
 
+    // Once V8 prints a fatal-abort prefix to stderr (e.g. "abort: " or
+    // "# Fatal error"), suppress every subsequent stderr write from the
+    // group. The process is about to BRK anyway — further output is noise.
+    // Cleared on execve (new program state).
+    bool v8_aborting;
+
     struct rusage_ children_rusage;
     cond_t child_exit;
 

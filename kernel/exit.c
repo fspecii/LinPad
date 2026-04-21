@@ -449,6 +449,11 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
     if (options & WNOWAIT_)
         return true;
 
+    if (ish_exec_trace()) {
+        printk("REAP[reaper=%d]: pid=%d exit=0x%x comm=%.16s\n",
+               current->pid, task->pid, (unsigned)exit_code, task->comm);
+    }
+
     // tear down group
     cond_destroy(&task->group->child_exit);
     task_leave_session(task);

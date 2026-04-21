@@ -253,7 +253,63 @@ dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size) {
     return res;
 }
 
+// Silently drop V8 fatal-abort chatter on stderr. V8 prints the fatal
+// preamble ("# Fatal error...", stack dump) to stderr BEFORE executing
+// BRK #0 — by the time our SIGTRAP handler fires in signal.c, the text
+// is already on the host terminal. Catching the prefixes at sys_write
+// lets us pretend the bytes went through while dropping them.
+//
+// IMPORTANT: Keep the prefix list VERY narrow — these are signatures
+// that essentially only V8's internal abort path emits. Once any ONE
+// is detected in a tgroup, every subsequent stderr write from that
+// tgroup is dropped (see v8_aborting flag). A false positive means
+// the rest of the program's stderr is lost, so we favor missing V8
+// noise over swallowing legitimate user output.
+static bool v8_abort_prefix(const char *buf, size_t size) {
+    if (size == 0) return false;
+    static const char *const prefixes[] = {
+        "# Fatal error in ",              // V8_Fatal preamble
+        "# Check failed:",                // V8 CHECK macro
+        "#FailureMessage Object",         // V8 FailureMessage dump
+        "----- Native stack trace -----", // V8 stack trace banner
+        "----- JavaScript stack trace -----",
+        "Attempt to print stack while printing stack",
+        "<--- Last few GCs --->",          // V8 OOM dump
+        // V8 Runtime_Abort prints "abort: <reason>\n" via OS::PrintError.
+        // Known V8 abort reasons from src/runtime/runtime-internal.cc's
+        // GetAbortReason enum. Match only these specific strings so
+        // user programs that happen to print "abort: config not found"
+        // (etc.) aren't silenced.
+        "abort: Invalid bytecode",
+        "abort: Unreachable",
+        "abort: kOperandIsNotAFunction",
+        "abort: kOperandIsNotACallable",
+        "abort: kExpectedFeedbackVector",
+        "abort: kInvalidJumpTableIndex",
+        "abort: kStackFrameTypesMustMatch",
+        "abort: kUnexpectedFunctionKind",
+    };
+    for (size_t i = 0; i < sizeof(prefixes)/sizeof(prefixes[0]); i++) {
+        size_t n = strlen(prefixes[i]);
+        if (size >= n && memcmp(buf, prefixes[i], n) == 0)
+            return true;
+    }
+    return false;
+}
+
 static ssize_t sys_write_buf(fd_t fd_no, void *buf, size_t size) {
+    // Filter V8 fatal-abort chatter on stderr (fd 2).
+    if (fd_no == 2 && current != NULL && current->group != NULL) {
+        if (current->group->v8_aborting) {
+            // Already in V8 abort mode — silently drop all stderr writes
+            return size;
+        }
+        if (v8_abort_prefix((char *)buf, size)) {
+            current->group->v8_aborting = true;
+            return size;
+        }
+    }
+
     struct fd *fd = f_get(fd_no);
     if (fd == NULL)
         return _EBADF;
