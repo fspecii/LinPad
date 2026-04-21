@@ -263,7 +263,13 @@ void handle_interrupt(int interrupt) {
                         uint64_t pc = check_pcs[ci];
                         if ((pc >= 0xee270000 && pc < 0xee290000) ||
                             (pc >= 0xee810000 && pc < 0xee830000) ||
-                            (pc >= 0xee7e0000 && pc < 0xee830000)) {
+                            (pc >= 0xee7e0000 && pc < 0xee830000) ||
+                            // TieringManager::OnInterruptTick — V8 JIT tier-up
+                            // path reached from interpreter dispatch. Reads
+                            // Handle<JSFunction> slot that may be zeroed by
+                            // Zone allocator reuse; crashes in fs.promises
+                            // cleanup (fs.rmSync recursive).
+                            (pc >= 0xee3f0000 && pc < 0xee3f1000)) {
                             is_scope_pc = true;
                             break;
                         }
@@ -286,7 +292,8 @@ void handle_interrupt(int interrupt) {
                             }
                             if (!ok || slr < 0xed000000 || slr >= 0xf0000000) break;
                             if ((slr >= 0xee270000 && slr < 0xee290000) ||
-                                (slr >= 0xee7e0000 && slr < 0xee830000)) {
+                                (slr >= 0xee7e0000 && slr < 0xee830000) ||
+                                (slr >= 0xee3f0000 && slr < 0xee3f1000)) {
                                 is_scope_pc = true;
                             }
                             fp = sfp;
@@ -464,12 +471,20 @@ void handle_interrupt(int interrupt) {
                 }  // is_sentinel
             }  // scope block
 #endif
+            // Diagnostic output for every INT_GPF is verbose (register dump,
+            // block insn dump). Suppress unless ISH_EXEC_TRACE is set — the
+            // SIGSEGV will still be delivered, so the shell still reports
+            // "Segmentation fault" and exit status, which is what users
+            // normally need. Opt-in verbose is for kernel debugging.
+            bool trace_enabled = ish_exec_trace();
 #if defined(GUEST_X86) || !defined(GUEST_ARM64)
-            printk("%d page fault on 0x%x at 0x%x\n", current->pid, cpu->segfault_addr, cpu->eip);
+            if (trace_enabled)
+                printk("%d page fault on 0x%x at 0x%x\n", current->pid, cpu->segfault_addr, cpu->eip);
 #elif defined(GUEST_ARM64)
-            printk("%d page fault on 0x%llx at 0x%llx (%s)\n", current->pid, (unsigned long long)cpu->segfault_addr, (unsigned long long)cpu->pc, cpu->segfault_was_write ? "write" : "read");
+            if (trace_enabled)
+                printk("%d page fault on 0x%llx at 0x%llx (%s)\n", current->pid, (unsigned long long)cpu->segfault_addr, (unsigned long long)cpu->pc, cpu->segfault_was_write ? "write" : "read");
             // Dump instruction bytes and key registers for debugging
-            {
+            if (trace_enabled) {
                 uint32_t fault_insn = 0;
                 for (int j = 0; j < 4; j++) {
                     uint8_t b;
@@ -526,23 +541,36 @@ void handle_interrupt(int interrupt) {
                     read_recovery_count = 0;
                     last_recovery_addr = cpu->segfault_addr;
                 }
-                if (read_recovery_count < 5) {
+                if (read_recovery_count < 8) {
                     read_recovery_count++;
-                    uint32_t insn = 0;
-                    bool insn_ok = true;
-                    for (int j = 0; j < 4; j++) {
-                        uint8_t b;
-                        if (user_get(cpu->pc + j, b)) { insn_ok = false; break; }
-                        insn |= (uint32_t)b << (j * 8);
-                    }
-                    if (insn_ok) {
+                    // The JIT reports cpu->pc as the block start, not the faulting
+                    // insn. Scan forward up to 8 insns to find the first load —
+                    // intermediate non-memory ops (SUB/ADD/MOV) can't fault, so
+                    // the first load is the culprit.
+                    for (int scan = 0; scan < 8; scan++) {
+                        addr_t insn_pc = cpu->pc + scan * 4;
+                        uint32_t insn = 0;
+                        bool insn_ok = true;
+                        for (int j = 0; j < 4; j++) {
+                            uint8_t b;
+                            if (user_get(insn_pc + j, b)) { insn_ok = false; break; }
+                            insn |= (uint32_t)b << (j * 8);
+                        }
+                        if (!insn_ok) break;
+                        // Stop at branches — we can't assume fallthrough past them
+                        if ((insn & 0xfc000000) == 0x14000000 || // B
+                            (insn & 0xfc000000) == 0x94000000 || // BL
+                            (insn & 0xfffffc1f) == 0xd61f0000 || // BR
+                            (insn & 0xfffffc1f) == 0xd63f0000 || // BLR
+                            insn == 0xd65f03c0 ||                // RET
+                            (insn & 0xff000010) == 0x54000000 || // B.cond
+                            (insn & 0x7e000000) == 0x34000000 || // CBZ/CBNZ
+                            (insn & 0x7e000000) == 0x36000000)   // TBZ/TBNZ
+                            break;
                         // Check if instruction is a load (LDR/LDRSB/LDRSH/LDRSW/LDRB/LDRH)
-                        // Pre-indexed: LDRSB Wt, [Xn, #imm]! = 0x38C00C00 (size=0, opc=3, bit21=0)
-                        // Various load encodings share common patterns
                         uint32_t rt = insn & 0x1f;
                         bool is_load = false;
                         bool is_32bit = false;
-                        // LDR/LDRSB/LDRSH/LDRSW with pre/post/unscaled offset
                         uint32_t rn = (insn >> 5) & 0x1f;
                         int has_writeback = 0;
                         if ((insn & 0x3b200c00) == 0x38000400 || // post-indexed
@@ -551,7 +579,6 @@ void handle_interrupt(int interrupt) {
                             uint32_t opc = (insn >> 22) & 3;
                             is_load = (opc != 0); // opc=0 is store, 1/2/3 are loads
                             is_32bit = ((insn >> 22) & 1) == 0 && opc >= 2;
-                            // Pre/post indexed have writeback
                             uint32_t idx_type = (insn >> 10) & 3;
                             if (idx_type == 1 || idx_type == 3) // post=01, pre=11
                                 has_writeback = 1;
@@ -566,22 +593,27 @@ void handle_interrupt(int interrupt) {
                             is_load = (opc != 0);
                         }
                         // LDP (load pair)
+                        uint32_t ldp_rt2 = 0;
+                        bool is_ldp = false;
                         if ((insn & 0x7fc00000) == 0xa9400000 || // LDP x
                             (insn & 0x7fc00000) == 0x29400000) { // LDP w
                             is_load = true;
+                            is_ldp = true;
                             rn = (insn >> 5) & 0x1f;
-                            uint32_t rt2 = (insn >> 10) & 0x1f;
-                            if (rt2 < 31) cpu->regs[rt2] = 0;
+                            ldp_rt2 = (insn >> 10) & 0x1f;
                         }
                         if (is_load && rt < 31) {
                             cpu->regs[rt] = 0;
+                            if (is_ldp && ldp_rt2 < 31)
+                                cpu->regs[ldp_rt2] = 0;
+                            (void)is_32bit;
                             // Handle writeback for pre/post-indexed loads
                             if (has_writeback && rn < 31) {
                                 int32_t imm9 = (int32_t)((insn >> 12) & 0x1ff);
                                 if (imm9 & 0x100) imm9 |= ~0x1ff; // sign-extend
                                 cpu->regs[rn] = (cpu->regs[rn] + imm9) & 0xffffffffffffULL;
                             }
-                            cpu->pc += 4;
+                            cpu->pc = insn_pc + 4;
                             goto gpf_handled;
                         }
                     }
@@ -593,8 +625,10 @@ void handle_interrupt(int interrupt) {
                 .code = mem_segv_reason(current->mem, cpu->segfault_addr),
                 .fault.addr = cpu->segfault_addr,
             };
-            dump_stack(8);
-            dump_maps();
+            if (getenv("ISH_EXEC_TRACE")) {
+                dump_stack(8);
+                dump_maps();
+            }
             deliver_signal(current, SIGSEGV_, info);
         }
 #ifdef GUEST_ARM64
@@ -642,9 +676,30 @@ void handle_interrupt(int interrupt) {
                 brk_insn |= (uint32_t)b << (j * 8);
             }
             uint16_t brk_imm = (brk_insn >> 5) & 0xFFFF;
+            (void)brk_imm;
 
             // BRK #0xBC handler: V8 derived constructor new.target fix
             // (binary trampoline at code cave handles this now — no BRK needed)
+
+            // BRK is a synchronous exception. Linux's force_sig_fault()
+            // ensures delivery: unblock in task->blocked and, if the
+            // signal was being IGNORED (SIG_IGN), reset to SIG_DFL so the
+            // default terminate action runs. A user-registered handler is
+            // preserved (debuggers etc.). Without unblocking, V8 (which
+            // masks SIGTRAP) would re-execute the same BRK in a tight
+            // loop because SIGTRAP stays pending.
+            if (current->sighand != NULL) {
+                lock(&current->sighand->lock);
+                sigset_del(&current->blocked, SIGTRAP_);
+                // SIG_IGN only: reset to default so it actually terminates.
+                // Don't touch user-set handlers.
+                addr_t h = current->sighand->action[SIGTRAP_].handler;
+                if (h == (addr_t)SIG_IGN_) {
+                    current->sighand->action[SIGTRAP_].handler = (addr_t)SIG_DFL_;
+                    current->sighand->action[SIGTRAP_].flags = 0;
+                }
+                unlock(&current->sighand->lock);
+            }
         }
 #endif
         lock(&pids_lock);

@@ -441,11 +441,17 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         unlock(&asbestos->lock);
 
         // Write lock ensures all JIT threads have exited (they hold read lock).
-        write_wrlock(&asbestos->jetsam_lock);
-        lock(&asbestos->lock);
-        fiber_free_jetsam(asbestos);
-        unlock(&asbestos->lock);
-        write_wrunlock(&asbestos->jetsam_lock);
+        // Use trylock so only ONE cleaner thread runs at a time; others skip
+        // and let the winner handle the jetsam list. This avoids a
+        // multi-writer contention pattern that can wedge macOS psynch rwlock
+        // when many node/npm worker threads all try to clean jetsam at once.
+        // (The jetsam list will still get drained by whichever thread wins.)
+        if (write_wrtrylock(&asbestos->jetsam_lock)) {
+            lock(&asbestos->lock);
+            fiber_free_jetsam(asbestos);
+            unlock(&asbestos->lock);
+            write_wrunlock(&asbestos->jetsam_lock);
+        }
     } else {
         unlock(&asbestos->lock);
     }

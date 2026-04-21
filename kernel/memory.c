@@ -796,7 +796,22 @@ have_entry:
                     MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
 
             read_wrunlock(&mem->lock);
-            write_wrlock(&mem->lock);
+            // In JIT context other threads hold mem->lock READ from
+            // task_run_current. Blocking write_wrlock here deadlocks when
+            // parallel CoW faults race with readers doing futex_wait
+            // (which re-acquires rdlock periodically) — the writer queues
+            // ahead on macOS psynch and starves all readers.
+            // Use trylock: on contention return NULL so handle_write_miss
+            // retries via INT_GPF where the upgrade is safe.
+            if (in_jit) {
+                if (!write_wrtrylock(&mem->lock)) {
+                    munmap(copy, PAGE_SIZE);
+                    read_wrlock(&mem->lock);
+                    return NULL;
+                }
+            } else {
+                write_wrlock(&mem->lock);
+            }
             // Re-fetch entry after lock upgrade — another thread may have
             // already resolved this CoW while we were waiting for the lock.
             entry = mem_pt(mem, page);

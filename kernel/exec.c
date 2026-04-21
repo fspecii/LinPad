@@ -654,6 +654,11 @@ static int shebang_exec(struct fd *fd, const char *file, struct exec_args argv, 
 }
 
 int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) {
+    // New program starts fresh — clear V8 abort-in-progress flag so the
+    // fresh process's stderr isn't permanently muted from a prior abort.
+    if (current && current->group)
+        current->group->v8_aborting = false;
+
     struct fd *fd = generic_open(file, O_RDONLY, 0);
     if (IS_ERR(fd))
         return PTR_ERR(fd);
@@ -816,6 +821,28 @@ dword_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
         args += strlen(args) + 1;
     }
     STRACE("})");
+
+    // One-line exec trace (opt-in via ISH_EXEC_TRACE env at host startup).
+    // Lets us correlate V8 crashes with the specific child command.
+    if (ish_exec_trace()) {
+        char argbuf[512];
+        size_t p = 0;
+        const char *a = argv;
+        int n = 0;
+        while (*a != '\0' && p < sizeof(argbuf) - 4 && n < 8) {
+            int wrote = snprintf(argbuf + p, sizeof(argbuf) - p,
+                                 "%s%.200s", n == 0 ? "" : " ", a);
+            if (wrote < 0 || (size_t)wrote >= sizeof(argbuf) - p) break;
+            p += wrote;
+            a += strlen(a) + 1;
+            n++;
+        }
+        argbuf[sizeof(argbuf) - 1] = 0;
+        printk("EXEC[pid=%d ppid=%d]: %.200s [%s]\n",
+               current->pid,
+               current->parent ? current->parent->pid : 0,
+               filename, argbuf);
+    }
 
 #if defined(GUEST_ARM64)
     // Force-inject environment variables into every execve'd process.
