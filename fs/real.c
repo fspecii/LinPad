@@ -13,6 +13,7 @@
 #include <poll.h>
 
 #include "debug.h"
+#include "misc.h"
 #include "kernel/errno.h"
 #include "kernel/calls.h"
 #include "kernel/fs.h"
@@ -629,6 +630,8 @@ ssize_t realfs_ioctl_size(int cmd) {
         return sizeof(dword_t);
     if (cmd == TCGETS_)
         return sizeof(struct termios_);
+    if (cmd == TCSETS_ || cmd == TCSETSW_ || cmd == TCSETSF_)
+        return sizeof(struct termios_);
     if (cmd == TIOCGWINSZ_)
         return sizeof(struct winsize_);
     return -1;
@@ -675,6 +678,34 @@ int realfs_ioctl(struct fd *fd, int cmd, void *arg) {
             }
             return _ENOTTY;
         }
+        case TCSETS_:
+        case TCSETSW_:
+        case TCSETSF_:
+            if (ish_exec_trace())
+                fprintf(stderr, "TCSETS_DBG: fd=%d cmd=0x%x real_fd=%d isatty=%d\n",
+                        fd->real_fd, cmd, fd->real_fd, isatty(fd->real_fd));
+            // Node 22's ResetStdio() calls tcsetattr() on any fd it
+            // previously saw as a TTY (via uv_guess_handle → TCGETS).
+            // For piped stdio backed by a host TTY, apply the termios to
+            // the host fd so terminal mode restoration actually takes
+            // effect. For anything else, succeed silently — Node will
+            // CHECK() on errors other than 0 / -EPERM.
+            if (isatty(fd->real_fd)) {
+                struct termios_ *guest = (struct termios_ *)arg;
+                struct termios host_termios = {0};
+                if (tcgetattr(fd->real_fd, &host_termios) == 0) {
+                    host_termios.c_iflag = guest->iflags;
+                    host_termios.c_oflag = guest->oflags;
+                    host_termios.c_cflag = guest->cflags;
+                    host_termios.c_lflag = guest->lflags;
+                    int how = (cmd == TCSETSW_) ? TCSADRAIN
+                            : (cmd == TCSETSF_) ? TCSAFLUSH
+                            : TCSANOW;
+                    (void)tcsetattr(fd->real_fd, how, &host_termios);
+                }
+                return 0;
+            }
+            return 0;
     }
     return _ENOTTY;
 }

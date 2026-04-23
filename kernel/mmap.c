@@ -56,30 +56,82 @@ static addr_t do_mmap(addr_t addr, uint64_t len, dword_t prot, dword_t flags, fd
     int err;
     pages_t pages = (len + PAGE_SIZE - 1) / PAGE_SIZE;
     if (!pages) return _EINVAL;
+    extern bool ish_exec_trace(void);
+    if (ish_exec_trace() && len >= 0x200000ULL) {
+        fprintf(stderr, "MMAP: pid=%d addr=0x%llx len=0x%llx prot=0x%x flags=0x%x fd=%d\n",
+                current->pid,
+                (unsigned long long)addr,
+                (unsigned long long)len,
+                prot, flags, fd_no);
+    }
     page_t page;
     if (addr != 0) {
         if (PGOFFSET(addr) != 0)
             return _EINVAL;
         page = PAGE(addr);
 #ifdef GUEST_ARM64
-        // Reject hints above 4GB to prevent Go's scavengeIndex metadata
-        // collision (Go tries arenas at 0x4000000000 whose metadata lands
-        // at 0x80000, colliding with program text). Also reject hints that
-        // would overlap the stack. Hints within the low 4GB are allowed —
-        // V8 Wasm guard regions legitimately need large mappings near the
-        // stack region (e.g. 0xee400000 + 256MB).
-        if (page >= 0x100000 || page + pages > STACK_TOP_PAGE) {
-            if (flags & MMAP_FIXED)
-                return _ENOMEM;
-            addr = 0;
-            page = 0;
+        // Reject hints that would overlap the stack region in low 4GB
+        // or exceed the 48-bit user address limit.
+        // Hints within low 4GB (up to the stack) are unchanged — V8
+        // Wasm guard regions use those. Hints above 4GB are now
+        // honoured (Go's arena hints at 0x4000000000, 0x14000000000…
+        // need to be placed where asked so the runtime's scavengeIndex
+        // metadata is consistent with the actual arena layout).
+        bool low_hint = (page < 0x100000);  // < 4GB
+        if (low_hint) {
+            if (page + pages > STACK_TOP_PAGE) {
+                if (flags & MMAP_FIXED)
+                    return _ENOMEM;
+                addr = 0;
+                page = 0;
+            }
+        } else {
+            if (page + pages > USER_ADDR_MAX_PAGE) {
+                if (flags & MMAP_FIXED)
+                    return _ENOMEM;
+                addr = 0;
+                page = 0;
+            }
         }
 #endif
         if (addr != 0 && !(flags & MMAP_FIXED) && !pt_is_hole(current->mem, page, pages))
             addr = 0;
     }
     if (addr == 0) {
+#ifdef GUEST_ARM64
+        // V8 reserves its heap cage with:
+        //     mmap(NULL, chunk_size, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0)
+        //     (typical chunk_size: 128MB, reserved before mprotect'ing
+        //      sub-regions RW as it allocates).
+        // Node 22 is built without pointer compression, so V8 stores
+        // full 64-bit tagged pointers into heap slots. If the cage
+        // lives in low 4GB (0xc0000000..0xd0000000), a slot that
+        // accidentally holds a small integer 0x00c36a73 looks like a
+        // valid heap pointer and V8 derefs it into unmapped memory.
+        // Placing the cage above 4GB makes such stray values obviously
+        // non-canonical so V8's own `ptr & kHeapObjectTagMask` checks
+        // catch them before deref.
+        //
+        // Match criteria (conservative, only V8-cage shape):
+        //  * PROT_NONE reservation
+        //  * private + anonymous
+        //  * ≥ 128MB (0x8000 pages). V8 reserves 128MB+ chunks; Go
+        //    arenas default to 64MB and need to stay in low 4GB
+        //    because the Go runtime's arenaIndex / scavengeIndex
+        //    metadata is laid out with that assumption.
+        bool is_v8_cage_reservation =
+            prot == 0 &&
+            (flags & (MMAP_PRIVATE | MMAP_ANONYMOUS))
+                == (MMAP_PRIVATE | MMAP_ANONYMOUS) &&
+            !(flags & MMAP_SHARED) &&
+            pages >= 0x8000;  // 128MB
+        if (is_v8_cage_reservation)
+            page = pt_find_hole_for_reservation(current->mem, pages);
+        else
+            page = pt_find_hole(current->mem, pages);
+#else
         page = pt_find_hole(current->mem, pages);
+#endif
         if (page == BAD_PAGE)
             return _ENOMEM;
     }
@@ -98,6 +150,19 @@ static addr_t do_mmap(addr_t addr, uint64_t len, dword_t prot, dword_t flags, fd
             page_t aligned = (page / align_pages) * align_pages;
             if (aligned >= MMAP_HOLE_END && pt_is_hole(current->mem, aligned, pages))
                 page = aligned;
+            if ((err = pt_map_lazy(current->mem, page, pages, prot)) < 0)
+                return err;
+            return page << PAGE_BITS;
+        }
+        // Large PROT_NONE reservations (V8 heap cage chunks) use lazy
+        // mapping even without MAP_NORESERVE. V8 reserves 128MB
+        // chunks with PROT_NONE then mprotect's sub-regions RW as it
+        // allocates. Allocating all 128MB of host memory up front
+        // would waste ~640MB per node process; track the region as a
+        // mem_reservation instead and demand-map each page on first
+        // mprotect/touch. The INT_GPF write-fault demand-map path
+        // uses mem_find_reservation to detect cage pages.
+        if (is_prot_none && pages >= 0x8000) {
             if ((err = pt_map_lazy(current->mem, page, pages, prot)) < 0)
                 return err;
             return page << PAGE_BITS;

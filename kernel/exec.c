@@ -265,6 +265,10 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
 
     addr_t entry = bias + header.entry_point;
     addr_t interp_base = 0;
+#ifdef GUEST_ARM64
+    current->mm->exe_bias = bias;
+    current->mm->exe_entry = entry;
+#endif
 
     if (interp_name) {
         // map dat shit! interpreter edition

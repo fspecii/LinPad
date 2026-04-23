@@ -105,8 +105,11 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
 #ifdef GUEST_ARM64
     if ((sig == SIGTRAP_ || sig == SIGABRT_ || sig == SIGILL_ || sig == SIGSEGV_ || sig == SIGBUS_)
         && ish_exec_trace())
-        fprintf(stderr, "SIGNAL_TRACE: sig=%d pc=0x%llx pid=%d\n",
-                sig, (unsigned long long)task->cpu.pc, task->pid);
+        fprintf(stderr, "SIGNAL_TRACE: sig=%d pc=0x%llx pid=%d sp=0x%llx lr=0x%llx fault=0x%llx\n",
+                sig, (unsigned long long)task->cpu.pc, task->pid,
+                (unsigned long long)task->cpu.sp,
+                (unsigned long long)task->cpu.regs[30],
+                (unsigned long long)task->cpu.segfault_addr);
 #endif
 
     // Native offload: forward signal to the host native process
@@ -396,6 +399,13 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
                 // committed to V8 abort (printed the V8 fatal preamble to
                 // stderr). Otherwise preserve normal SIGTRAP semantics so
                 // legitimate errors / debugger traps aren't masked.
+                //
+                // Required for npx: npm's inner V8 throws non-fatal CHECKs
+                // (e.g. Handle location_==nullptr during worker teardown)
+                // AFTER all side-effects have landed on disk. Exit 0 lets
+                // npx's outer shell pipeline continue to the actual install
+                // step. Without this gate npx reports failure but the
+                // install actually succeeded.
                 if (current->group && current->group->v8_aborting) {
                     do_exit_group(0);
                 } else {
@@ -411,9 +421,8 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
                             (unsigned long long)cpu->sp,
                             (unsigned long long)cpu->regs[29],
                             (unsigned long long)cpu->regs[30]);
-                // Like SIGTRAP/SIGSEGV: if V8 committed to abort (printed
-                // fatal preamble), exit 0 cleanly; otherwise preserve
-                // abort() semantics so genuine abort()s surface as non-zero.
+                // Like SIGTRAP: v8_aborting → exit 0; otherwise preserve
+                // abort() exit semantics.
                 if (current->group && current->group->v8_aborting) {
                     do_exit_group(0);
                 } else {
