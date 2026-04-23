@@ -273,6 +273,15 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     struct fiber_frame *frame = tlb->frame;
     if (frame == NULL) {
         frame = calloc(1, sizeof(struct fiber_frame));
+        if (frame == NULL) {
+            // Out of memory. fiber_frame is ~48KB; under heavy Node/npm
+            // workloads with many worker threads each needing their own
+            // TLB+frame, allocation can fail. Release jetsam_lock and
+            // surface this as INT_GPF so the guest sees a crash rather
+            // than the host deref'ing a NULL frame pointer below.
+            read_wrunlock(&asbestos->jetsam_lock);
+            return INT_GPF;
+        }
         tlb->frame = frame;
     } else if (caches_stale) {
         // ret_cache holds pointers into block->code; must clear on invalidation
