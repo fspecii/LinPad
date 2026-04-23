@@ -641,15 +641,28 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
         if (entry == NULL) {
 #ifdef GUEST_ARM64
             // Page is reservation-only (V8 heap cage chunk reserved
-            // PROT_NONE, guest now mprotect'ing RW). Narrow the
-            // covering reservation to exclude this single page so
-            // future reads/writes materialize it with the requested
-            // flags via pt_map_nothing below — i.e. treat the
-            // mprotect call as "commit this page with the new
-            // protection".
+            // PROT_NONE, guest now mprotect'ing RW). Materialise it
+            // via pt_map_nothing with the requested flags — i.e. treat
+            // mprotect as "commit this page with the new protection".
+            //
+            // Coalesce runs of contiguous reservation-only pages into a
+            // single pt_map_nothing call so the underlying host mmap
+            // allocates one VM region instead of one per page. V8
+            // typically mprotect'es a full 128MB cage (32k pages) in
+            // one syscall; per-page mmap exhausts the iOS vm_map entry
+            // limit (~64k entries) and ENOMEM's out well before
+            // physical memory is tight — this is the primary npm
+            // segfault cause on iPhone 8/iOS 16.
             unsigned want = flags & (P_READ | P_WRITE | P_EXEC);
             if (want) {
-                pt_map_nothing(mem, page, 1, flags | P_ANONYMOUS);
+                page_t run_start = page;
+                pages_t run_len = 1;
+                while (page + 1 < start + pages &&
+                       mem_pt(mem, page + 1) == NULL) {
+                    page++;
+                    run_len++;
+                }
+                pt_map_nothing(mem, run_start, run_len, flags | P_ANONYMOUS);
             }
 #endif
             continue;
