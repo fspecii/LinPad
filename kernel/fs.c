@@ -298,9 +298,16 @@ static bool v8_abort_prefix(const char *buf, size_t size) {
         "abort: kStackFrameTypesMustMatch",
         "abort: kUnexpectedFunctionKind",
     };
+    // V8 sometimes coalesces the fatal banner with a leading "#\n" (an
+    // empty comment line) or surrounding preamble into a single write.
+    // Scan the first 256 bytes of the buffer rather than strictly matching
+    // from offset 0 so the multi-line banner is detected on whichever
+    // write carries the signature string.
+    size_t scan = size < 256 ? size : 256;
     for (size_t i = 0; i < sizeof(prefixes)/sizeof(prefixes[0]); i++) {
         size_t n = strlen(prefixes[i]);
-        if (size >= n && memcmp(buf, prefixes[i], n) == 0)
+        if (scan < n) continue;
+        if (memmem(buf, scan, prefixes[i], n) != NULL)
             return true;
     }
     return false;
@@ -308,7 +315,12 @@ static bool v8_abort_prefix(const char *buf, size_t size) {
 
 static ssize_t sys_write_buf(fd_t fd_no, void *buf, size_t size) {
     // Filter V8 fatal-abort chatter on stderr (fd 2).
-    if (fd_no == 2 && current != NULL && current->group != NULL) {
+    // ISH_V8_NO_MUTE=1 bypasses the filter for debugging so we can see
+    // the actual crash output V8/Node writes before aborting.
+    static int mute_disabled = -1;
+    if (mute_disabled < 0)
+        mute_disabled = (getenv("ISH_V8_NO_MUTE") != NULL) ? 1 : 0;
+    if (!mute_disabled && fd_no == 2 && current != NULL && current->group != NULL) {
         if (current->group->v8_aborting) {
             // Already in V8 abort mode — silently drop all stderr writes
             return size;
@@ -590,6 +602,111 @@ dword_t sys_pwrite(fd_t f, addr_t buf_addr, dword_t size, off_t_ off) {
     }
     unlock(&fd->lock);
     free(buf);
+    return res;
+}
+
+// preadv/pwritev — ARM64 Linux ABI splits the loff_t offset into pos_l/pos_h
+// registers (5-argument syscall form), consistent with what musl's
+// src/unistd/pwritev.c emits. Combine them back into a 64-bit offset before
+// doing the pread/pwrite loop under fd->lock (like readv/writev).
+dword_t sys_preadv(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count,
+                   dword_t pos_l, dword_t pos_h) {
+    off_t_ off = ((qword_t)pos_h << 32) | pos_l;
+    STRACE("preadv(%d, %#x, %d, %lld)", fd_no, iovec_addr, iovec_count, (long long)off);
+    struct fd *fd = f_get(fd_no);
+    if (fd == NULL)
+        return _EBADF;
+    struct iovec_ *iovec = read_iovec(iovec_addr, iovec_count);
+    if (IS_ERR(iovec))
+        return PTR_ERR(iovec);
+    size_t io_size = iovec_size(iovec, iovec_count);
+    char *buf = malloc(io_size);
+    if (buf == NULL) {
+        free(iovec);
+        return _ENOMEM;
+    }
+
+    lock(&fd->lock);
+    ssize_t res;
+    if (fd->ops->pread) {
+        res = fd->ops->pread(fd, buf, io_size, off);
+    } else if (fd->ops->lseek && fd->ops->read) {
+        off_t_ saved_off = fd->ops->lseek(fd, 0, LSEEK_CUR);
+        if ((res = fd->ops->lseek(fd, off, LSEEK_SET)) >= 0) {
+            res = fd->ops->read(fd, buf, io_size);
+            off_t_ lseek_res = fd->ops->lseek(fd, saved_off, LSEEK_SET);
+            assert(lseek_res >= 0);
+        }
+    } else {
+        res = _ESPIPE;
+    }
+    unlock(&fd->lock);
+    if (res < 0)
+        goto error;
+
+    size_t offset = 0;
+    size_t remaining = res;
+    for (unsigned i = 0; i < iovec_count && remaining > 0; i++) {
+        size_t chunk = iovec[i].len < remaining ? iovec[i].len : remaining;
+        if (user_write(iovec[i].base, buf + offset, chunk)) {
+            res = _EFAULT;
+            goto error;
+        }
+        offset += chunk;
+        remaining -= chunk;
+    }
+
+error:
+    free(buf);
+    free(iovec);
+    return res;
+}
+
+dword_t sys_pwritev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count,
+                    dword_t pos_l, dword_t pos_h) {
+    off_t_ off = ((qword_t)pos_h << 32) | pos_l;
+    STRACE("pwritev(%d, %#x, %d, %lld)", fd_no, iovec_addr, iovec_count, (long long)off);
+    struct fd *fd = f_get(fd_no);
+    if (fd == NULL)
+        return _EBADF;
+    struct iovec_ *iovec = read_iovec(iovec_addr, iovec_count);
+    if (IS_ERR(iovec))
+        return PTR_ERR(iovec);
+    size_t io_size = iovec_size(iovec, iovec_count);
+    char *buf = malloc(io_size);
+    if (buf == NULL) {
+        free(iovec);
+        return _ENOMEM;
+    }
+
+    ssize_t res = 0;
+    size_t offset = 0;
+    for (unsigned i = 0; i < iovec_count; i++) {
+        if (user_read(iovec[i].base, buf + offset, iovec[i].len)) {
+            res = _EFAULT;
+            goto error;
+        }
+        offset += iovec[i].len;
+    }
+
+    lock(&fd->lock);
+    if (fd->ops->pwrite) {
+        res = fd->ops->pwrite(fd, buf, io_size, off);
+    } else if (fd->ops->lseek && fd->ops->write) {
+        off_t_ saved_off = fd->ops->lseek(fd, 0, LSEEK_CUR);
+        if ((res = fd->ops->lseek(fd, off, LSEEK_SET)) >= 0) {
+            res = fd->ops->write(fd, buf, io_size);
+            off_t_ lseek_res = fd->ops->lseek(fd, saved_off, LSEEK_SET);
+            assert(lseek_res >= 0);
+        }
+    } else {
+        res = _ESPIPE;
+    }
+    unlock(&fd->lock);
+
+error:
+    free(buf);
+    free(iovec);
     return res;
 }
 

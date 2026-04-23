@@ -1,6 +1,6 @@
 # iSH Compatibility: x86 vs ARM64
 
-> **Generated:** 2026-04-18 15:20:20 | **Tests:** 205 | **Host:** macOS 26.4.1
+> **Generated:** 2026-04-23 20:04:33 | **Tests:** 205 | **Host:** macOS 26.4.1
 >
 > Both architectures use **fakefs** mode with virtual device nodes.
 > x86 rootfs = Alpine x86 minirootfs (busybox only)
@@ -12,8 +12,8 @@
 
 | Architecture | Pass | Fail | Rate |
 |:---:|:---:|:---:|:---:|
-| **x86** (Jitter, threaded-code) | 201 | 4 | **98%** |
-| **ARM64** (Asbestos, threaded-code) | 205 | 0 | **100%** |
+| **x86** (Jitter) | 203 | 2 | **99%** |
+| **ARM64** (Asbestos JIT) | 205 | 0 | **100%** |
 
 ---
 
@@ -192,11 +192,11 @@
 | bash | PASS | PASS |
 | ash | PASS | PASS |
 | go version | PASS | PASS |
-| go env | FAIL | PASS |
-| go compile | FAIL | PASS |
+| go env | PASS | PASS |
+| go compile | PASS | PASS |
 | clang | PASS | PASS |
 
-> x86: 7/10 — ARM64: 10/10
+> x86: 9/10 — ARM64: 10/10
 
 ### Network (14 tests)
 
@@ -356,8 +356,6 @@
 
 - `automake` (Build)
 - `perl` (Lang)
-- `go env` (Lang)
-- `go compile` (Lang)
 
 ### ARM64 only
 

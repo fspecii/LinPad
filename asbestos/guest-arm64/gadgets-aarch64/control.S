@@ -121,7 +121,11 @@
     add x9, _cpu, #CPU_x0
     ldr x10, [x9, x8, lsl #3]
 
-    // Store guest PC (full 48-bit address)
+    // Mask to 48-bit guest address space. Guest register may hold a
+    // fake_ip tag (bit 63 set) if the value came from our own
+    // demand-mapped slot or was touched by branch-chaining code —
+    // neither should land in cpu->pc uncleaned.
+    and x10, x10, #0xffffffffffff
     str x10, [_cpu, #CPU_pc]
     // Indirect branch: always return to main loop
     b fiber_ret
@@ -142,7 +146,8 @@
     // Save return address to X30
     str x11, [_cpu, #(CPU_x0 + 30*8)]
 
-    // Store guest PC (full 48-bit address)
+    // Mask to 48-bit (see branch_reg for rationale)
+    and x10, x10, #0xffffffffffff
     str x10, [_cpu, #CPU_pc]
     // Indirect branch: always return to main loop
     b fiber_ret
@@ -162,7 +167,10 @@
     and x8, x8, #0x1f
     add x9, _cpu, #CPU_x0
     ldr x10, [x9, x8, lsl #3]   // x10 = return address (guest PC)
-    // Always set CPU_pc first (full 48-bit address)
+    // Mask to 48-bit: guest x30 may carry a fake_ip tag if a prior
+    // branch left the register dirty; leaking bit 63 into cpu->pc would
+    // trap the main loop in fiber_lookup on unmapped addresses.
+    and x10, x10, #0xffffffffffff
     str x10, [_cpu, #CPU_pc]
 #ifndef DISABLE_RET_CACHE
     // Look up return address in ret_cache

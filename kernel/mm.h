@@ -34,6 +34,11 @@ struct mm {
     addr_t auxv_end;
     addr_t stack_start;
     struct fd *exefile;
+
+    // Main executable load bias + entry point (ARM64 only — used to
+    // precisely identify V8's self-abort BRK site in node at signal time).
+    addr_t exe_bias;
+    addr_t exe_entry;
 };
 
 // Create a new address space
