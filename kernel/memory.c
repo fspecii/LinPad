@@ -1,5 +1,6 @@
 #include <fcntl.h>
 #include <unistd.h>
+#include <sched.h>
 #include <sys/mman.h>
 #include <string.h>
 #include <stdlib.h>
@@ -335,7 +336,25 @@ static page_t pt_find_hole_high(struct mem *mem, pages_t size) {
     return BAD_PAGE;
 }
 
-page_t pt_find_hole(struct mem *mem, pages_t size) {
+// Find a hole for a mmap allocation.
+//  * `prefer_high` asks for addresses above 4GB when possible. This is
+//    used for large V8 heap-cage reservations (PROT_NONE chunks ≥32MB)
+//    so their contents cannot be confused with legitimate low-address
+//    guest pointers. Node V8 without pointer compression stores full
+//    64-bit tagged pointers into heap slots: when iSH places the heap
+//    in 0xc0000000..0xd0000000 (low 4GB), a slot containing garbage
+//    24-bit value 0x00c39b1b looks indistinguishable from a real heap
+//    pointer and V8's later deref lands on an unmapped page. Placing
+//    the heap above 4GB makes such values obviously non-canonical so
+//    V8's own null-checks catch them.
+static page_t pt_find_hole_impl(struct mem *mem, pages_t size, bool prefer_high) {
+    if (prefer_high) {
+        page_t result = pt_find_hole_high(mem, size);
+        if (result != BAD_PAGE && !hole_overlaps_reservation(mem, result, size))
+            return result;
+        // fall through to low search as a last resort
+    }
+
     page_t start = mem->mmap_hint;
     if (start == 0 || start > MMAP_HOLE_START || start <= MMAP_HOLE_END + size)
         start = MMAP_HOLE_START;
@@ -380,11 +399,21 @@ page_t pt_find_hole(struct mem *mem, pages_t size) {
     }
 
     // Low 4GB exhausted — try high address space (above 4GB).
-    page_t result = pt_find_hole_high(mem, size);
-    if (result != BAD_PAGE && !hole_overlaps_reservation(mem, result, size))
-        return result;
+    if (!prefer_high) {
+        page_t result = pt_find_hole_high(mem, size);
+        if (result != BAD_PAGE && !hole_overlaps_reservation(mem, result, size))
+            return result;
+    }
 
     return BAD_PAGE;
+}
+
+page_t pt_find_hole(struct mem *mem, pages_t size) {
+    return pt_find_hole_impl(mem, size, /*prefer_high=*/false);
+}
+
+page_t pt_find_hole_for_reservation(struct mem *mem, pages_t size) {
+    return pt_find_hole_impl(mem, size, /*prefer_high=*/true);
 }
 
 #else
@@ -609,8 +638,35 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
     }
     for (page_t page = start; page < start + pages; page++) {
         struct pt_entry *entry = mem_pt(mem, page);
-        if (entry == NULL)
+        if (entry == NULL) {
+#ifdef GUEST_ARM64
+            // Page is reservation-only (V8 heap cage chunk reserved
+            // PROT_NONE, guest now mprotect'ing RW). Materialise it
+            // via pt_map_nothing with the requested flags — i.e. treat
+            // mprotect as "commit this page with the new protection".
+            //
+            // Coalesce runs of contiguous reservation-only pages into a
+            // single pt_map_nothing call so the underlying host mmap
+            // allocates one VM region instead of one per page. V8
+            // typically mprotect'es a full 128MB cage (32k pages) in
+            // one syscall; per-page mmap exhausts the iOS vm_map entry
+            // limit (~64k entries) and ENOMEM's out well before
+            // physical memory is tight — this is the primary npm
+            // segfault cause on iPhone 8/iOS 16.
+            unsigned want = flags & (P_READ | P_WRITE | P_EXEC);
+            if (want) {
+                page_t run_start = page;
+                pages_t run_len = 1;
+                while (page + 1 < start + pages &&
+                       mem_pt(mem, page + 1) == NULL) {
+                    page++;
+                    run_len++;
+                }
+                pt_map_nothing(mem, run_start, run_len, flags | P_ANONYMOUS);
+            }
+#endif
             continue;
+        }
         int old_flags = entry->flags;
         entry->flags = flags | (old_flags & P_META_FLAGS);
 
@@ -721,21 +777,42 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         }
 
         // Lock upgrade: release read, acquire write.
-        // In JIT context (inside fiber_enter), other threads hold mem->lock
-        // READ from their task_run_current, so write_wrlock deadlocks.
-        // Use trylock: if contended, return NULL for INT_GPF retry from
-        // handle_interrupt where the lock upgrade is safe.
+        // In JIT context (inside fiber_enter), other threads hold
+        // mem->lock READ from their task_run_current. Our own read lock
+        // is released just below; write_wrlock would then block on
+        // OTHER threads' read locks, but those threads also eventually
+        // release their read lock (each cycle of cpu_run_to_interrupt).
+        //
+        // CRITICAL: must NOT return NULL → INT_GPF on trylock contention
+        // in the growsdown path. INT_GPF → JIT block retry → re-execute
+        // `sub sp, sp, #N` → sp is decremented AGAIN, compounding the
+        // allocation on each retry. Observed with musl's printf_core
+        // where `sub sp, sp, #0x1dd0` after 3 retries leaves sp 3x
+        // lower than intended; later ldp/ret read zeros from a fresh
+        // page and jump to PC=0.
+        //
+        // Busy-wait spin on trylock with a cap (~32 iterations) to
+        // avoid unbounded spin in a pathological case. Each reader
+        // releases its lock on the next JIT block boundary, so 32
+        // iterations give other threads time to finish their current
+        // block without our thread needing to return and risk the
+        // retry SP compounding.
         read_wrunlock(&mem->lock);
-        if (in_jit) {
-            if (!write_wrtrylock(&mem->lock)) {
-                // Can't get write lock — other threads hold read locks
-                // Re-acquire read lock and return NULL for GPF retry
-                read_wrlock(&mem->lock);
-                return NULL;
-            }
-        } else {
-            write_wrlock(&mem->lock);
-        }
+        // BLOCKING write_wrlock (not trylock) in BOTH JIT and non-JIT
+        // contexts. The earlier concern was "JIT context other threads
+        // hold mem->lock READ — blocking would deadlock"; actually the
+        // JIT-context thread released its own read lock just above and
+        // other threads release their read locks on each JIT block
+        // boundary. Blocking here waits at most one JIT cycle.
+        //
+        // Returning NULL → INT_GPF from this path is catastrophic for
+        // growsdown: INT_GPF retry re-enters the JIT block from the
+        // start, re-executing the `sub sp, sp, #N` prologue and
+        // decrementing guest SP a second time. After 3 retries, the
+        // caller's saved x29/x30 location is 3× the intended offset
+        // below the original SP; the caller's epilogue ldp reads 0/0
+        // from a fresh growsdown page and ret jumps to PC=0.
+        write_wrlock(&mem->lock);
         // Re-check after acquiring write lock (another thread may have grown it)
         entry = mem_pt(mem, page);
         if (entry != NULL) {
@@ -744,10 +821,31 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
             read_wrlock(&mem->lock);
             goto have_entry;
         }
+        // Grow stack aggressively: allocate from `page` up to but not
+        // including the next mapped page. This matches native Linux
+        // expand_stack behaviour where a large `sub sp, sp, #N` followed
+        // by stores anywhere within the new frame works without
+        // faulting on every intermediate page. Musl's deeper fs helpers
+        // use ~2-page frames (sub sp, #0x1dd0) — growing one page at a
+        // time on first access misses pages above the fault that
+        // haven't been touched yet, which later store instructions then
+        // fault on. The SIGSEGV handler runs on the same shallow stack
+        // and recursively faults, corrupting PC to 0 (infinite loop).
+        // Cap expansion at 16 pages (64KB) to bound accidental
+        // expansion when a wild pointer just happens to fall into a
+        // growsdown region.
+        {
+            const pages_t max_grow = 16;
+            pages_t grow_end = p; // first already-mapped page
+            pages_t grow_start = page;
+            if ((pages_t)(grow_end - grow_start) > max_grow)
+                grow_start = grow_end - max_grow;
+            pages_t grow_count = grow_end - grow_start;
 #if ANON_MMAP_LIMIT_PAGES > 0
-        atomic_fetch_add(&anon_page_count, 1);
+            atomic_fetch_add(&anon_page_count, grow_count);
 #endif
-        pt_map_nothing(mem, page, 1, P_WRITE | P_GROWSDOWN);
+            pt_map_nothing(mem, grow_start, grow_count, P_WRITE | P_GROWSDOWN);
+        }
         write_wrunlock(&mem->lock);
         read_wrlock(&mem->lock);
 
@@ -759,14 +857,10 @@ check_reservation: ;
         if (res == NULL)
             return NULL;
         read_wrunlock(&mem->lock);
-        if (in_jit) {
-            if (!write_wrtrylock(&mem->lock)) {
-                read_wrlock(&mem->lock);
-                return NULL;
-            }
-        } else {
-            write_wrlock(&mem->lock);
-        }
+        // BLOCKING: avoid NULL → INT_GPF retry (which re-runs the JIT
+        // block's prologue and can compound sub-sp or other side
+        // effects). See growsdown branch above for the full rationale.
+        write_wrlock(&mem->lock);
         entry = mem_pt(mem, page);
         if (entry == NULL) {
 #if ANON_MMAP_LIMIT_PAGES > 0
@@ -796,6 +890,14 @@ have_entry:
                     MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
 
             read_wrunlock(&mem->lock);
+            // BLOCKING write_wrlock (not trylock) in both JIT and
+            // non-JIT contexts. Returning NULL → INT_GPF retry re-runs
+            // the entire JIT block from the start; if the block
+            // contains a prologue like `sub sp, sp, #N` before the
+            // faulting store, each retry decrements SP again,
+            // corrupting the frame layout. Blocking briefly waits for
+            // other readers to release their per-block read locks,
+            // which is bounded (~one JIT cycle).
             write_wrlock(&mem->lock);
             // Re-fetch entry after lock upgrade — another thread may have
             // already resolved this CoW while we were waiting for the lock.

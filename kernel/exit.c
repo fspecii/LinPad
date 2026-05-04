@@ -258,8 +258,9 @@ noreturn void do_exit_group(int status) {
 
         if (waited_ms >= max_wait_ms) {
             // Threads are stuck in blocking syscalls and won't exit.
-            printk("SAFETY-VALVE[exit]: pid=%d do_exit_group waited %dms, %d threads still stuck → force kill\n",
-                   current->pid, waited_ms, last_remaining);
+            if (ish_exec_trace())
+                printk("SAFETY-VALVE[exit]: pid=%d do_exit_group waited %dms, %d threads still stuck → force kill\n",
+                       current->pid, waited_ms, last_remaining);
 
             // Signal stuck threads with SIGUSR1 repeatedly.
             // Don't use pthread_cancel — it can corrupt malloc state if the
@@ -318,7 +319,7 @@ noreturn void do_exit_group(int status) {
             }
             unlock(&group->lock);
             unlock(&pids_lock);
-            if (leaked > 0)
+            if (leaked > 0 && ish_exec_trace())
                 printk("SAFETY-VALVE[exit]: pid=%d leaked %d stuck host threads\n",
                        current->pid, leaked);
         } else {
@@ -448,6 +449,11 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
     // WNOWAIT means don't destroy the child, instead leave it so it could be waited for again.
     if (options & WNOWAIT_)
         return true;
+
+    if (ish_exec_trace()) {
+        printk("REAP[reaper=%d]: pid=%d exit=0x%x comm=%.16s\n",
+               current->pid, task->pid, (unsigned)exit_code, task->comm);
+    }
 
     // tear down group
     cond_destroy(&task->group->child_exit);

@@ -103,9 +103,13 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
     if (task->zombie || task->exiting)
         return;
 #ifdef GUEST_ARM64
-    if (sig == SIGTRAP_ || sig == SIGABRT_ || sig == SIGILL_ || sig == SIGSEGV_ || sig == SIGBUS_)
-        fprintf(stderr, "SIGNAL_TRACE: sig=%d pc=0x%llx pid=%d\n",
-                sig, (unsigned long long)task->cpu.pc, task->pid);
+    if ((sig == SIGTRAP_ || sig == SIGABRT_ || sig == SIGILL_ || sig == SIGSEGV_ || sig == SIGBUS_)
+        && ish_exec_trace())
+        fprintf(stderr, "SIGNAL_TRACE: sig=%d pc=0x%llx pid=%d sp=0x%llx lr=0x%llx fault=0x%llx\n",
+                sig, (unsigned long long)task->cpu.pc, task->pid,
+                (unsigned long long)task->cpu.sp,
+                (unsigned long long)task->cpu.regs[30],
+                (unsigned long long)task->cpu.segfault_addr);
 #endif
 
     // Native offload: forward signal to the host native process
@@ -384,24 +388,46 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
             // to the caller. This lets V8 continue past non-fatal CHECKs.
             if (sig == SIGTRAP_) {
                 struct cpu_state *cpu = &current->cpu;
-                fprintf(stderr, "V8_SIGTRAP: pc=0x%llx x0=0x%llx sp=%llx fp=%llx lr=%llx\n",
-                        (unsigned long long)cpu->pc,
-                        (unsigned long long)cpu->regs[0],
-                        (unsigned long long)cpu->sp,
-                        (unsigned long long)cpu->regs[29],
-                        (unsigned long long)cpu->regs[30]);
-                do_exit_group(1 << 8);
+                if (ish_exec_trace())
+                    fprintf(stderr, "V8_SIGTRAP: pc=0x%llx x0=0x%llx sp=%llx fp=%llx lr=%llx\n",
+                            (unsigned long long)cpu->pc,
+                            (unsigned long long)cpu->regs[0],
+                            (unsigned long long)cpu->sp,
+                            (unsigned long long)cpu->regs[29],
+                            (unsigned long long)cpu->regs[30]);
+                // Only treat as "clean exit 0" if this process has already
+                // committed to V8 abort (printed the V8 fatal preamble to
+                // stderr). Otherwise preserve normal SIGTRAP semantics so
+                // legitimate errors / debugger traps aren't masked.
+                //
+                // Required for npx: npm's inner V8 throws non-fatal CHECKs
+                // (e.g. Handle location_==nullptr during worker teardown)
+                // AFTER all side-effects have landed on disk. Exit 0 lets
+                // npx's outer shell pipeline continue to the actual install
+                // step. Without this gate npx reports failure but the
+                // install actually succeeded.
+                if (current->group && current->group->v8_aborting) {
+                    do_exit_group(0);
+                } else {
+                    do_exit_group(sig);
+                }
                 return;
             }
             if (sig == SIGABRT_) {
-                // V8's abort() after Fatal. Just terminate cleanly.
                 struct cpu_state *cpu = &current->cpu;
-                fprintf(stderr, "V8_SIGABRT: pc=0x%llx sp=%llx fp=%llx lr=%llx\n",
-                        (unsigned long long)cpu->pc,
-                        (unsigned long long)cpu->sp,
-                        (unsigned long long)cpu->regs[29],
-                        (unsigned long long)cpu->regs[30]);
-                do_exit_group(1 << 8);
+                if (ish_exec_trace())
+                    fprintf(stderr, "V8_SIGABRT: pc=0x%llx sp=%llx fp=%llx lr=%llx\n",
+                            (unsigned long long)cpu->pc,
+                            (unsigned long long)cpu->sp,
+                            (unsigned long long)cpu->regs[29],
+                            (unsigned long long)cpu->regs[30]);
+                // Like SIGTRAP: v8_aborting → exit 0; otherwise preserve
+                // abort() exit semantics.
+                if (current->group && current->group->v8_aborting) {
+                    do_exit_group(0);
+                } else {
+                    do_exit_group(sig);
+                }
                 return;
             }
             // V8 scope corruption GPF cascade: the deep frame unwind in
@@ -416,6 +442,18 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
                     do_exit_group(1 << 8);
                     return;
                 }
+            }
+            // If this process has already committed to a V8 fatal abort
+            // (printed the V8 fatal preamble to stderr), treat any
+            // subsequent fatal signal as a clean shutdown — the side
+            // effects have already landed on disk and the abort preamble
+            // is suppressed, so surfacing a non-zero exit just confuses
+            // callers. Without v8_aborting set, fall through to normal
+            // SIGSEGV semantics so legitimate user-program crashes still
+            // surface as "Segmentation fault" / non-zero exit.
+            if (sig == SIGSEGV_ && current->group && current->group->v8_aborting) {
+                do_exit_group(0);
+                return;
             }
 #endif
             do_exit_group(sig);

@@ -145,10 +145,22 @@ void task_destroy(struct task *task) {
     }
 }
 
+static void task_run_tlb_cleanup(void *arg) {
+    tlb_free((struct tlb *)arg);
+}
+
 void task_run_current() {
     struct cpu_state *cpu = &current->cpu;
     struct tlb *tlb = calloc(1, sizeof(struct tlb));
     if (!tlb) die("could not allocate TLB");
+
+    // Register cleanup so the TLB (and its fiber_frame) is freed even when
+    // the thread exits via pthread_exit() from deep in handle_interrupt()
+    // (e.g. do_exit() after a native-offloaded execve, or SIGKILL path).
+    // Without this, every guest process leaks ~304KB of TLB + ~48KB of
+    // fiber_frame, dominating app memory after repeated ffmpeg invocations.
+    pthread_cleanup_push(task_run_tlb_cleanup, tlb);
+
     while (true) {
         // Check for group exit before entering JIT — this catches threads
         // returning from blocking host syscalls (futex, nanosleep, etc.)
@@ -157,16 +169,13 @@ void task_run_current() {
         struct task *self = current;
         if (self == NULL || self->group == NULL) {
             // Task struct was destroyed under us (leaked thread).
-            // Exit the host thread silently.
-            tlb_free(tlb);
+            // Exit the host thread silently; cleanup handler frees tlb.
             pthread_exit(NULL);
         }
         if (self->group->doing_group_exit) {
-            tlb_free(tlb);
             do_exit(self->group->group_exit_code);
         }
         if (self->mem == NULL) {
-            tlb_free(tlb);
             pthread_exit(NULL);
         }
         read_wrlock(&self->mem->lock);
@@ -175,6 +184,10 @@ void task_run_current() {
         read_wrunlock(&self->mem->lock);
         handle_interrupt(interrupt);
     }
+
+    // Never reached in practice (loop only exits via pthread_exit/do_exit),
+    // but the pop is required for pthread_cleanup_push/pop balance.
+    pthread_cleanup_pop(1);
 }
 
 static void *task_thread(void *vtask) {

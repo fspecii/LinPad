@@ -273,6 +273,15 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     struct fiber_frame *frame = tlb->frame;
     if (frame == NULL) {
         frame = calloc(1, sizeof(struct fiber_frame));
+        if (frame == NULL) {
+            // Out of memory. fiber_frame is ~48KB; under heavy Node/npm
+            // workloads with many worker threads each needing their own
+            // TLB+frame, allocation can fail. Release jetsam_lock and
+            // surface this as INT_GPF so the guest sees a crash rather
+            // than the host deref'ing a NULL frame pointer below.
+            read_wrunlock(&asbestos->jetsam_lock);
+            return INT_GPF;
+        }
         tlb->frame = frame;
     } else if (caches_stale) {
         // ret_cache holds pointers into block->code; must clear on invalidation
@@ -295,12 +304,44 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         }
 
         addr_t ip = CPU_IP(&frame->cpu);
-        // Guard: null guest PC means corrupted state (e.g., branch to unmapped
-        // address 0). Return INT_GPF instead of trying to compile/execute.
+        // Diagnostic: fake_ip leaked into cpu->pc (bit 63 set). This
+        // indicates a gadget wrote a tagged pointer without masking.
+        // Trace the first occurrence per task with the frame's LR /
+        // previous block so we can locate the culprit gadget.
+        // Guest PC with bit 63 set indicates corrupted state — BLR/RET
+        // landed on a fake_ip tag or a sentinel pointer leaked through
+        // guest memory (e.g. a zero-initialized V8 heap slot combined
+        // with pointer tagging). Convert to an INT_GPF at a canonical
+        // NULL fault so handle_interrupt's V8 zone recovery can try to
+        // unwind instead of looping on fiber_block_compile at the
+        // tagged address (which reads unmapped memory forever).
+        if (ip & 0xffff000000000000ULL) {
+            read_wrunlock(&asbestos->jetsam_lock);
+            *cpu = frame->cpu;
+            cpu->segfault_addr = ip;
+            cpu->segfault_was_write = 0;
+            cpu->pc = ip & 0xffffffffffffULL;
+            return INT_GPF;
+        }
+        // Guard: null guest PC means corrupted state (e.g., RET with LR=0
+        // after a BL return-address got clobbered, or BR to NULL). Native
+        // Linux would deliver SIGSEGV and terminate. In iSH the fault
+        // address resolves to the guard-page zeros we map at 0x0-0x1MB,
+        // so no SIGSEGV fires from the JIT; instead handle_interrupt
+        // re-enters the loop forever. Force-exit with 139 (128+SIGSEGV) so
+        // the shell reports "Segmentation fault" and userspace sees a
+        // non-zero exit status.
         if (ip == 0) {
-            frame->cpu.segfault_addr = 0;
-            interrupt = INT_GPF;
-            break;
+            // Release asbestos jetsam_lock held by cpu_step_to_interrupt
+            // before calling do_exit_group (which may synchronously reap).
+            read_wrunlock(&asbestos->jetsam_lock);
+            *cpu = frame->cpu;
+            // Fall through to cpu_run_to_interrupt — return INT_GPF with
+            // a canonical write=0 so handle_interrupt delivers SIGSEGV.
+            cpu->segfault_addr = 0;
+            cpu->segfault_was_write = 0;
+            cpu->pc = 0;
+            return INT_GPF;
         }
         size_t cache_index = fiber_cache_hash(ip);
         struct fiber_block *block = cache[cache_index];
@@ -350,6 +391,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         in_jit = 1;
         interrupt = fiber_enter(block, frame, tlb);
         in_jit = 0;
+
 
         // Check if fiber_enter returned due to a JIT crash (signal handler
         // redirected PC to jit_crash_trampoline which returns INT_JIT_CRASH).
@@ -441,11 +483,17 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         unlock(&asbestos->lock);
 
         // Write lock ensures all JIT threads have exited (they hold read lock).
-        write_wrlock(&asbestos->jetsam_lock);
-        lock(&asbestos->lock);
-        fiber_free_jetsam(asbestos);
-        unlock(&asbestos->lock);
-        write_wrunlock(&asbestos->jetsam_lock);
+        // Use trylock so only ONE cleaner thread runs at a time; others skip
+        // and let the winner handle the jetsam list. This avoids a
+        // multi-writer contention pattern that can wedge macOS psynch rwlock
+        // when many node/npm worker threads all try to clean jetsam at once.
+        // (The jetsam list will still get drained by whichever thread wins.)
+        if (write_wrtrylock(&asbestos->jetsam_lock)) {
+            lock(&asbestos->lock);
+            fiber_free_jetsam(asbestos);
+            unlock(&asbestos->lock);
+            write_wrunlock(&asbestos->jetsam_lock);
+        }
     } else {
         unlock(&asbestos->lock);
     }

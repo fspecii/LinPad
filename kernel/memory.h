@@ -143,6 +143,9 @@ page_t pt_find_hole(struct mem *mem, pages_t size);
 int pt_map_lazy(struct mem *mem, page_t start, pages_t pages, unsigned flags);
 struct mem_reservation *mem_find_reservation(struct mem *mem, page_t page);
 void mem_remove_reservations(struct mem *mem, page_t start, pages_t pages);
+// Find a hole for a V8-style large reservation. Prefers addresses
+// above 4GB so heap pointers are non-canonical in low 32 bits.
+page_t pt_find_hole_for_reservation(struct mem *mem, pages_t size);
 #endif
 
 // Map memory + offset into fake memory, unmapping existing mappings. Takes
