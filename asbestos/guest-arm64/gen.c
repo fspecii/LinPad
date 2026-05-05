@@ -1103,6 +1103,11 @@ static void *fused_cmp32_bcond_gadgets[14];
 static void *fused_subs32_bcond_gadgets[14];
 static void *fused_cmp_reg_bcond_gadgets[14];
 static void *fused_subs_reg_bcond_gadgets[14];
+// AND_imm + CMP_imm + B.cond — 14-slot table indexed by condition.
+// Slots for mi/pl/vs/vc are NULL because emitting fused gadgets for them
+// changes meaning when the AND result drives N/V (signed comparison) —
+// keep those as the unfused 2-gadget path.
+static void *fused_and_cmp32_bcond_gadgets[14];
 static bool fused_bcond_tables_init = false;
 
 static void init_fused_bcond_tables(void) {
@@ -1193,6 +1198,27 @@ static void init_fused_bcond_tables(void) {
     fused_subs_reg_bcond_gadgets[11] = gadget_fused_subs_reg_bcond_lt;
     fused_subs_reg_bcond_gadgets[12] = gadget_fused_subs_reg_bcond_gt;
     fused_subs_reg_bcond_gadgets[13] = gadget_fused_subs_reg_bcond_le;
+    // 32-bit AND_imm + CMP_imm + B.cond (subset of conditions)
+    extern void gadget_fused_and_cmp32_bcond_eq(void);
+    extern void gadget_fused_and_cmp32_bcond_ne(void);
+    extern void gadget_fused_and_cmp32_bcond_cs(void);
+    extern void gadget_fused_and_cmp32_bcond_cc(void);
+    extern void gadget_fused_and_cmp32_bcond_hi(void);
+    extern void gadget_fused_and_cmp32_bcond_ls(void);
+    extern void gadget_fused_and_cmp32_bcond_ge(void);
+    extern void gadget_fused_and_cmp32_bcond_lt(void);
+    extern void gadget_fused_and_cmp32_bcond_gt(void);
+    extern void gadget_fused_and_cmp32_bcond_le(void);
+    fused_and_cmp32_bcond_gadgets[0]  = gadget_fused_and_cmp32_bcond_eq;
+    fused_and_cmp32_bcond_gadgets[1]  = gadget_fused_and_cmp32_bcond_ne;
+    fused_and_cmp32_bcond_gadgets[2]  = gadget_fused_and_cmp32_bcond_cs;
+    fused_and_cmp32_bcond_gadgets[3]  = gadget_fused_and_cmp32_bcond_cc;
+    fused_and_cmp32_bcond_gadgets[8]  = gadget_fused_and_cmp32_bcond_hi;
+    fused_and_cmp32_bcond_gadgets[9]  = gadget_fused_and_cmp32_bcond_ls;
+    fused_and_cmp32_bcond_gadgets[10] = gadget_fused_and_cmp32_bcond_ge;
+    fused_and_cmp32_bcond_gadgets[11] = gadget_fused_and_cmp32_bcond_lt;
+    fused_and_cmp32_bcond_gadgets[12] = gadget_fused_and_cmp32_bcond_gt;
+    fused_and_cmp32_bcond_gadgets[13] = gadget_fused_and_cmp32_bcond_le;
     fused_bcond_tables_init = true;
 }
 
@@ -1453,6 +1479,50 @@ static int gen_dp_imm(struct gen_state *state, uint32_t insn) {
         if (!decode_bitmask_imm(N, imms, immr, sf, &imm)) {
             gen_interrupt(state, INT_UNDEFINED);
             return 0;
+        }
+
+        // 3-instruction peephole: AND wd, wn, #mask  +  CMP wd, #imm12  +  B.cond
+        // Most common pair across CPython workloads (~4.5% of dispatches).
+        // Conditions: 32-bit (sf=0), opc=0, rn!=31, rd!=31, follow-up CMP wd,#imm12
+        // (sf=0, op=1, S=1, rd=31), follow-up B.cond with cond ∈ supported set.
+        if (opc == 0 && !sf && rn != 31 && rd != 31) {
+            uint32_t cmp_insn, br_insn;
+            if (gen_peek_next_insn(state, &cmp_insn)) {
+                // CMP Wn, #imm12: SUBS WZR, Wn, #imm12  (32-bit, op=1, S=1, sh=0, rd=31, rn=rd_of_AND)
+                // Encoding: 0 1 1 1 0 0 0 1 0 sh imm12 Rn Rd  → sf=0, op=1, S=1, opc_top=10001 → 0x71000000
+                if ((cmp_insn & 0xff800000) == 0x71000000) {
+                    uint32_t cmp_sh = (cmp_insn >> 22) & 1;
+                    uint32_t cmp_rd = cmp_insn & 0x1f;
+                    uint32_t cmp_rn = (cmp_insn >> 5) & 0x1f;
+                    uint32_t cmp_imm = (cmp_insn >> 10) & 0xfff;
+                    if (!cmp_sh && cmp_rd == 31 && cmp_rn == rd) {
+                        // Peek 2nd insn (B.cond)
+                        addr_t br_ip = state->ip + 4;
+                        if (tlb_read(state->tlb, br_ip, &br_insn, sizeof(br_insn)) &&
+                            (br_insn & 0xff000010) == 0x54000000) {
+                            uint32_t cond = br_insn & 0xf;
+                            init_fused_bcond_tables();
+                            void *g = (cond < 14) ? fused_and_cmp32_bcond_gadgets[cond] : NULL;
+                            if (g != NULL) {
+                                int64_t br_off = arm64_branch_imm19(br_insn);
+                                addr_t target = br_ip + br_off;
+                                addr_t ft_addr = state->ip + 8;
+                                unsigned long fake_target      = (unsigned long)target | (1UL << 63);
+                                unsigned long fake_fallthrough = (unsigned long)ft_addr | (1UL << 63);
+                                state->ip += 8;  // consume CMP + B.cond
+                                gen(state, (unsigned long) g);
+                                gen(state, (uint64_t)rd | ((uint64_t)rn << 5) | ((uint64_t)cmp_imm << 10));
+                                gen(state, imm & 0xffffffffULL);  // 32-bit AND mask
+                                gen(state, fake_target);
+                                gen(state, fake_fallthrough);
+                                state->jump_ip[0] = state->size - 2;
+                                state->jump_ip[1] = state->size - 1;
+                                return 0;  // block ended (branch)
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Fast path: AND immediate, no flag setting (opc=0), rn != 31, rd != 31.

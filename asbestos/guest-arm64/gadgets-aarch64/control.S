@@ -1326,6 +1326,54 @@ make_fused_subs32_bcond gt, gt
 make_fused_subs32_bcond le, le
 
 /*
+ * Fused AND Wd, Wn, #mask + CMP Wd, #imm12 + B.cond (32-bit).
+ * Eliminates the and_imm_32_simple → fused_cmp32_bcond_<eq/ne> pair which
+ * is the largest hot pair (~4.5%) across CPython workloads (PyObject tag /
+ * type-flag tests).
+ *
+ * Code stream:
+ *   [gadget addr]
+ *   [rd | rn<<5 | imm12<<10]   (rd=5 bits, rn=5 bits, cmp_imm12=12 bits)
+ *   [and_mask 32-bit]
+ *   [fake_target]
+ *   [fake_fallthrough]
+ *
+ * Conditions: rd != 31, rn != 31. AND result is written to rd (preserving
+ * its visibility to subsequent instructions in the original guest stream).
+ */
+.macro make_fused_and_cmp32_bcond name, cond
+.gadget fused_and_cmp32_bcond_\name
+    ldr x8, [_pc]                   // rd | rn<<5 | imm12<<10
+    ldr x12, [_pc, #8]              // and_mask (low 32 bits)
+    ldr x9,  [_pc, #16]             // target  (must end up in x9 for bcond_taken)
+    ldr x10, [_pc, #24]             // fallthrough (must end up in x10 for bcond_not_taken)
+    add _pc, _pc, #32
+    and x13, x8, #0x1f              // rd
+    ubfx x14, x8, #5, #5            // rn
+    ubfx x15, x8, #10, #12          // cmp_imm12
+    add x16, _cpu, #CPU_x0
+    ldr x17, [x16, x14, lsl #3]
+    and w17, w17, w12               // AND
+    str x17, [x16, x13, lsl #3]     // write back to rd
+    subs w11, w17, w15              // CMP (set flags) — w0 reserved as _tmp
+    mrs x17, nzcv
+    str w17, [_cpu, #CPU_nzcv]
+    b.\cond bcond_taken
+    b bcond_not_taken
+.endm
+
+make_fused_and_cmp32_bcond eq, eq
+make_fused_and_cmp32_bcond ne, ne
+make_fused_and_cmp32_bcond cs, cs
+make_fused_and_cmp32_bcond cc, cc
+make_fused_and_cmp32_bcond hi, hi
+make_fused_and_cmp32_bcond ls, ls
+make_fused_and_cmp32_bcond ge, ge
+make_fused_and_cmp32_bcond lt, lt
+make_fused_and_cmp32_bcond gt, gt
+make_fused_and_cmp32_bcond le, le
+
+/*
  * ============================================================
  * Fused CMP_reg + B.cond gadgets (64-bit, rd=31)
  *

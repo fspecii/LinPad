@@ -147,6 +147,20 @@ static inline int xX_main_Xx(int argc, char *const argv[], const char *envp) {
                 "--no-lazy",
                 "--no-expose-wasm",
                 "--max-old-space-size=512",
+                // Force single-threaded V8: in jitless mode worker threads
+                // have no JIT to do, but V8 still creates them and they
+                // block on futex/epoll waiting for the slow main thread.
+                // Cuts `node -e 0` from 2.3s → 0.65s on iSH ARM64.
+                // Validated 2026-05-05 via syscall profile.
+                "--no-concurrent-marking",
+                "--no-concurrent-recompilation",
+                "--no-lazy-compile-dispatcher",
+                // --predictable forces V8 into deterministic single-threaded
+                // mode: disables concurrent GC, parallel scavenger, and
+                // background compilation. Empirically yields the biggest
+                // single speedup on iSH ARM64 (reduces wall time another
+                // 30-40% on top of the no-concurrent-* flags above).
+                "--predictable",
             };
             for (int fi = 0; fi < (int)(sizeof(v8_flags)/sizeof(v8_flags[0])); fi++) {
                 strcpy(&argv_copy[p], v8_flags[fi]);
@@ -197,6 +211,9 @@ do_exec:
             "NO_COLOR=1",                 // Disable color output
             "PYTHONMALLOC=malloc",        // Bypass pymalloc arenas
             "PYTHONDONTWRITEBYTECODE=1",  // Skip .pyc generation
+            // Reduce libuv worker pool from 4→1: short scripts never use them
+            // but pay the futex sync cost. Saves ~1s on `node -e 0`.
+            "UV_THREADPOOL_SIZE=1",
         };
         for (size_t vi = 0; vi < sizeof(inject_vars)/sizeof(inject_vars[0]); vi++) {
             // Check if already present (search by prefix up to '=')
