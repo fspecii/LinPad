@@ -247,6 +247,13 @@ addr_t sys_mmap(addr_t args_addr) {
 
 int_t sys_munmap(addr_t addr, addr_t len) {
     STRACE("munmap(0x%llx, 0x%llx)", (unsigned long long)addr, (unsigned long long)len);
+    if (getenv("ISH_PROT_TRACE")) {
+        addr_t end = addr + len;
+        if (end > 0xed000000ULL && addr < 0xf0000000ULL) {
+            fprintf(stderr, "[PROT_TRACE] munmap(0x%llx, 0x%llx)\n",
+                    (unsigned long long)addr, (unsigned long long)len);
+        }
+    }
     pages_t pages = (len + PAGE_SIZE - 1) / PAGE_SIZE;
     if (PGOFFSET(addr) != 0)
         return _EINVAL;
@@ -309,6 +316,14 @@ addr_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags) 
 
 int_t sys_mprotect(addr_t addr, addr_t len, int_t prot) {
     STRACE("mprotect(0x%llx, 0x%llx, 0x%x)", (unsigned long long)addr, (unsigned long long)len, prot);
+    if (getenv("ISH_PROT_TRACE")) {
+        // Trace mprotect that touches the node binary range (V8 codespace candidate).
+        addr_t end = addr + len;
+        if (end > 0xed000000ULL && addr < 0xf0000000ULL) {
+            fprintf(stderr, "[PROT_TRACE] mprotect(0x%llx, 0x%llx, prot=0x%x)\n",
+                    (unsigned long long)addr, (unsigned long long)len, prot);
+        }
+    }
     if (PGOFFSET(addr) != 0)
         return _EINVAL;
     if (prot & ~P_RWX)

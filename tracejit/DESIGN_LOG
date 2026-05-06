@@ -1,0 +1,23 @@
+tracejit design log — append-only, plain text, terse.
+
+2026-05-06  step 3 (indirect-chain emit) postponed
+  Attempted: br/blr/ret xN decoders + dispatch-table indirect terminator
+  per ABI note. End-to-end measurement at end of step 3 (n=3, node hello
+  & require workloads) regressed from 1.66x (step 1) to 0.94x.
+  Root cause: under current minimal body coverage (only movz/add-imm),
+  most ret/br xN targets jump out of the V8 codespace into runtime/libc
+  callbacks. The translated indirect terminator therefore takes the
+  range-check miss path on every call, breaking ish gadget's existing
+  ret_cache chaining without a native chain to replace it. The miss
+  cost (4-22 host insns + dispatch round-trip) exceeds the gadget
+  ret_cache hop it displaces.
+  Resequencing: step 5 (ldr/str + ALU body coverage) before step 3.
+  Rationale: more block bodies translatable → higher density of
+  in-codespace chain targets → indirect-table hit rate becomes useful;
+  longer block bodies amortize the indirect dispatch overhead.
+  Re-test threshold for step 3 (after step 5): same ≥2x end-to-end on
+  node hello + require workloads (n=5 interleaved, ISH_TRACEJIT
+  on/off). <2x triggers the IC path per ABI note.
+  Stash kept for reference: stash@{0} "step3-attempt-regressed".
+  Includes emit_indirect_terminator + br/blr decoders + movz/movk x
+  extension. Do not drop until step 3 retry completes.

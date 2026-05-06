@@ -13,6 +13,9 @@
 #include "emu/tlb.h"
 #include "kernel/memory.h"
 #include "util/list.h"
+#include "util/signpost.h"
+#include "tracejit/tracejit.h"
+#include "tracejit/dispatch.h"
 
 // Thread-local recovery state for JIT crash handling.
 // When a host SIGSEGV occurs inside JIT code (due to a stale TLB pointer
@@ -25,6 +28,84 @@
 // to cpu_state via the _cpu pointer (x1) from ucontext.
 __thread volatile sig_atomic_t in_jit;
 __thread volatile addr_t jit_saved_pc;  // block start PC, read by signal handler
+
+// PC dispatch trace: capture first N consecutive guest PCs hitting the
+// dispatch loop. Used for V8-realistic micro-bench harness. Set
+// ISH_PC_TRACE_FILE=/path to enable; trace is filtered to a hot range
+// for size, written at exit.
+#define PC_TRACE_MAX 4096
+static uint64_t g_pc_trace[PC_TRACE_MAX];
+static _Atomic int g_pc_trace_n;
+static int g_pc_trace_enabled = -1;
+static uint64_t g_pc_trace_lo, g_pc_trace_hi;
+
+static inline void pc_trace_record(uint64_t pc) {
+    if (g_pc_trace_enabled == -1) {
+        const char *path = getenv("ISH_PC_TRACE_FILE");
+        g_pc_trace_enabled = path ? 1 : 0;
+        const char *r = getenv("ISH_PC_TRACE_RANGE");
+        if (r) {
+            unsigned long long lo, hi;
+            if (sscanf(r, "%llx-%llx", &lo, &hi) == 2) {
+                g_pc_trace_lo = lo; g_pc_trace_hi = hi;
+            }
+        }
+        if (g_pc_trace_lo == 0) {
+            g_pc_trace_lo = 0xee900000ULL;
+            g_pc_trace_hi = 0xee940000ULL;
+        }
+    }
+    if (g_pc_trace_enabled <= 0) return;
+    if (pc < g_pc_trace_lo || pc >= g_pc_trace_hi) return;
+    int n = atomic_fetch_add_explicit(&g_pc_trace_n, 1, memory_order_relaxed);
+    if (n < PC_TRACE_MAX) g_pc_trace[n] = pc;
+}
+
+void dump_pc_trace(void) {
+    if (g_pc_trace_enabled <= 0) return;
+    const char *path = getenv("ISH_PC_TRACE_FILE");
+    if (!path) return;
+    FILE *f = fopen(path, "w");
+    if (!f) return;
+    int n = atomic_load_explicit(&g_pc_trace_n, memory_order_relaxed);
+    if (n > PC_TRACE_MAX) n = PC_TRACE_MAX;
+    for (int i = 0; i < n; i++) fprintf(f, "0x%llx\n", (unsigned long long)g_pc_trace[i]);
+    fclose(f);
+    fprintf(stderr, "[pc_trace] wrote %d PCs to %s\n", n, path);
+}
+
+// PC histogram for trace-JIT feasibility study.
+// Sampled at every INT_TIMER tick (every 1024 blocks). 1MB buckets covering
+// low 4GB. Set ISH_PC_HIST=1 to enable. Dump via dump_pc_hist() at exit.
+#define PC_HIST_BUCKETS 65536  // 64KB each, low 4GB
+#define PC_HIST_SHIFT   16
+static _Atomic uint64_t pc_hist[PC_HIST_BUCKETS];
+static int pc_hist_enabled = -1;
+static inline int pc_hist_on(void) {
+    if (pc_hist_enabled == -1) {
+        const char *e = getenv("ISH_PC_HIST");
+        pc_hist_enabled = (e && e[0] == '1') ? 1 : 0;
+    }
+    return pc_hist_enabled;
+}
+void dump_pc_hist(void) {
+    if (!pc_hist_on()) return;
+    uint64_t total = 0;
+    for (int i = 0; i < PC_HIST_BUCKETS; i++) total += pc_hist[i];
+    if (total == 0) return;
+    fprintf(stderr, "=== PC histogram (insn-weighted, dispatched blocks, total=%llu) ===\n",
+            (unsigned long long)total);
+    for (int i = 0; i < PC_HIST_BUCKETS; i++) {
+        uint64_t c = pc_hist[i];
+        if (c == 0) continue;
+        double pct = 100.0 * (double)c / (double)total;
+        if (pct < 0.1) continue;
+        fprintf(stderr, "  0x%08x-0x%08x  %8llu  %6.2f%%\n",
+                i << PC_HIST_SHIFT, ((i + 1) << PC_HIST_SHIFT) - 1,
+                (unsigned long long)c, pct);
+    }
+    fflush(stderr);
+}
 // Marker set to 1 on iSH execution threads so the signal handler can distinguish
 // iSH threads from app threads (Swift async, networking, UI).
 __thread int ish_thread_marker;
@@ -198,6 +279,7 @@ static struct fiber_block *fiber_lookup(struct asbestos *asbestos, addr_t addr) 
 }
 
 static struct fiber_block *fiber_block_compile(addr_t ip, struct tlb *tlb) {
+    ISH_SIGNPOST_SCOPE_BEGIN(jit, "block_compile", _bc_spid);
     struct gen_state state;
     TRACE("%d %08x --- compiling:\n", current_pid(), ip);
     gen_start(ip, &state);
@@ -217,6 +299,7 @@ static struct fiber_block *fiber_block_compile(addr_t ip, struct tlb *tlb) {
     gen_end(&state);
     assert(state.ip - ip <= PAGE_SIZE);
     state.block->used = state.capacity;
+    ISH_SIGNPOST_SCOPE_END(jit, "block_compile", _bc_spid);
     return state.block;
 }
 
@@ -311,6 +394,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         }
 
         addr_t ip = CPU_IP(&frame->cpu);
+        pc_trace_record(ip);
         // Diagnostic: fake_ip leaked into cpu->pc (bit 63 set). This
         // indicates a gadget wrote a tagged pointer without masking.
         // Trace the first occurrence per task with the frame's LR /
@@ -350,22 +434,43 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             cpu->pc = 0;
             return INT_GPF;
         }
-        size_t cache_index = fiber_cache_hash(ip);
-        struct fiber_block *block = cache[cache_index];
-        if (block == NULL || block->addr != ip) {
-            lock(&asbestos->lock);
-            block = fiber_lookup(asbestos, ip);
-            if (block == NULL) {
-                block = fiber_block_compile(ip, tlb);
-                fiber_insert(asbestos, block);
+        // Trace-JIT bypass: if a native translation already exists for
+        // this PC (in the dispatch table), skip the gadget block compile
+        // and run native instead. If no translation exists yet, kick off
+        // an async translation attempt — but DON'T call into native this
+        // iteration; let the gadget run once, future iterations get the
+        // native fast path.
+        bool have_tjit = false;
+        if (tracejit_enabled() && tracejit_pc_in_codespace(ip)) {
+            if (tracejit_table_lookup(ip) != NULL) {
+                have_tjit = true;
             } else {
-                TRACE("%d %08x --- missed cache\n", current_pid(), ip);
+                // Best-effort eager translate. Result is published to the
+                // table on success; we don't use the return value here.
+                (void)tracejit_translate(ip);
+                have_tjit = (tracejit_table_lookup(ip) != NULL);
             }
-            cache[cache_index] = block;
-            unlock(&asbestos->lock);
+        }
+
+        struct fiber_block *block = NULL;
+        if (!have_tjit) {
+            size_t cache_index = fiber_cache_hash(ip);
+            block = cache[cache_index];
+            if (block == NULL || block->addr != ip) {
+                lock(&asbestos->lock);
+                block = fiber_lookup(asbestos, ip);
+                if (block == NULL) {
+                    block = fiber_block_compile(ip, tlb);
+                    fiber_insert(asbestos, block);
+                } else {
+                    TRACE("%d %08x --- missed cache\n", current_pid(), ip);
+                }
+                cache[cache_index] = block;
+                unlock(&asbestos->lock);
+            }
         }
         struct fiber_block *last_block = frame->last_block;
-        if (last_block != NULL &&
+        if (block != NULL && last_block != NULL &&
                 !last_block->is_jetsam && !block->is_jetsam &&
                 (last_block->jump_ip[0] != NULL ||
                  last_block->jump_ip[1] != NULL)) {
@@ -384,7 +489,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                 unlock(&asbestos->lock);
             }
         }
-        frame->last_block = block;
+        if (block != NULL) frame->last_block = block;
 
         // block may be jetsam, but that's ok, because it can't be freed until
         // every thread on this asbestos is not executing anything
@@ -395,9 +500,27 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         // The signal handler reads this to restore cpu->pc on SIGSEGV.
         jit_saved_pc = frame->cpu.pc;
 
-        in_jit = 1;
-        interrupt = fiber_enter(block, frame, tlb);
-        in_jit = 0;
+        // Count dispatch-loop iterations (gated). Cached env check.
+        {
+            static int g_dispatch_count = -1;
+            extern _Atomic uint64_t s_dispatch_iterations;
+            if (g_dispatch_count == -1) {
+                const char *e = getenv("ISH_DISPATCH_COUNT");
+                g_dispatch_count = (e && e[0] == '1') ? 1 : 0;
+            }
+            if (g_dispatch_count)
+                atomic_fetch_add_explicit(&s_dispatch_iterations, 1, memory_order_relaxed);
+        }
+
+        if (have_tjit) {
+            in_jit = 1;
+            interrupt = tracejit_enter(frame);
+            in_jit = 0;
+        } else {
+            in_jit = 1;
+            interrupt = fiber_enter(block, frame, tlb);
+            in_jit = 0;
+        }
 
 
         // Check if fiber_enter returned due to a JIT crash (signal handler
@@ -439,6 +562,23 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             interrupt = INT_TIMER;
         if (interrupt == INT_NONE && (++frame->cpu.cycle & ((1 << 10) - 1)) == 0)
             interrupt = INT_TIMER;
+        // PC histogram: sample on every block exit (not just timer ticks).
+        // Weight by guest insn count of the block just executed; this gives
+        // the per-insn share rather than per-block-dispatch share.
+        // Chained blocks skip this loop entirely — but V8 jitless interp
+        // dispatch ends in computed-goto (gret, unchainable) so V8 ranges
+        // remain fully visible. Other code (loops with direct jumps) gets
+        // chained and becomes invisible, biasing the histogram TOWARD V8.
+        // Therefore the V8 share measured here is a lower bound on V8's
+        // true insn-level share.
+        if (pc_hist_on() && frame->last_block != NULL) {
+            struct fiber_block *b = frame->last_block;
+            uint64_t pc = b->addr;
+            uint64_t weight = (b->end_addr - b->addr) >> 2;  // insns
+            if (weight == 0) weight = 1;
+            if (pc < ((uint64_t)PC_HIST_BUCKETS << PC_HIST_SHIFT))
+                atomic_fetch_add_explicit(&pc_hist[pc >> PC_HIST_SHIFT], weight, memory_order_relaxed);
+        }
     }
     *cpu = frame->cpu;
 

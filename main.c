@@ -3,6 +3,7 @@
 #include <string.h>
 #include <signal.h>
 #include <execinfo.h>
+#include "util/signpost.h"
 #include <termios.h>
 #include <unistd.h>
 #include <mach/mach.h>
@@ -232,7 +233,49 @@ void dump_gadget_profile(void) {
 }
 #endif
 
+extern void dump_pc_hist(void);
+extern void dump_pc_trace(void);
+extern void tracejit_dump_stats(void);
+
+#include "tracejit/page_alloc.h"
+
+static void microbench_signal_dump(int sig) {
+    (void)sig;
+    dump_pc_hist();
+    dump_pc_trace();
+    tracejit_dump_stats();
+    // Walk all tasks, dump guest x21 if available (microbench counter reg).
+    extern struct pid pids[];
+    for (int i = 1; i < 8; i++) {
+        struct task *t = pid_get_task(i);
+        if (t && t->cpu.x21 != 0) {
+            fprintf(stderr, "guest_pid=%d  x21=%llu\n", i, (unsigned long long)t->cpu.x21);
+        }
+    }
+    _exit(0);
+}
+
 int main(int argc, char *const argv[]) {
+    ish_signpost_init();
+    atexit(dump_pc_hist);
+
+    // Trace-JIT scaffolding self-test (gated). Verifies MAP_JIT + W↔X
+    // toggle work in this process under the current codesigning. Run with
+    // ISH_TRACEJIT_SELFTEST=1 to see the result; never gates startup.
+    if (getenv("ISH_TRACEJIT_SELFTEST")) {
+        bool ok = jit_page_alloc_self_test(0x1234);
+        fprintf(stderr, "[tracejit] self-test: %s\n", ok ? "PASS" : "FAIL");
+    }
+
+    // Microbench helper: on SIGTERM/SIGINT, dump stats then _exit. This
+    // bypasses the normal halt_system path which doesn't trigger when
+    // ish is killed externally during an infinite-loop guest workload.
+    if (getenv("ISH_DUMP_ON_SIGTERM")) {
+        struct sigaction sa = { .sa_handler = microbench_signal_dump };
+        sigemptyset(&sa.sa_mask);
+        sigaction(SIGTERM, &sa, NULL);
+        sigaction(SIGINT,  &sa, NULL);
+    }
 #ifdef ISH_GADGET_PROFILE
     atexit(dump_gadget_profile);
 #endif

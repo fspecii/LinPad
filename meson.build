@@ -62,6 +62,9 @@ offsets = custom_target('offsets',
 # Common emu sources
 emu_src = [
     'emu/tlb.c',
+    'tracejit/page_alloc.c',
+    'tracejit/dispatch.c',
+    'tracejit/tracejit.c',
 ]
 
 # Architecture-specific emu sources
@@ -205,6 +208,7 @@ if get_option('kernel') == 'ish'
         'util/sync.c',
         'util/fifo.c',
         'util/fchdir.c',
+        'util/signpost.c',
 
         'platform/' + host_machine.system() + '.c',
     ]
