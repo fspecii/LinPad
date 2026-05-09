@@ -235,15 +235,11 @@ void dump_gadget_profile(void) {
 
 extern void dump_pc_hist(void);
 extern void dump_pc_trace(void);
-extern void tracejit_dump_stats(void);
-
-#include "tracejit/page_alloc.h"
 
 static void microbench_signal_dump(int sig) {
     (void)sig;
     dump_pc_hist();
     dump_pc_trace();
-    tracejit_dump_stats();
     // Walk all tasks, dump guest x21 if available (microbench counter reg).
     extern struct pid pids[];
     for (int i = 1; i < 8; i++) {
@@ -258,14 +254,6 @@ static void microbench_signal_dump(int sig) {
 int main(int argc, char *const argv[]) {
     ish_signpost_init();
     atexit(dump_pc_hist);
-
-    // Trace-JIT scaffolding self-test (gated). Verifies MAP_JIT + W↔X
-    // toggle work in this process under the current codesigning. Run with
-    // ISH_TRACEJIT_SELFTEST=1 to see the result; never gates startup.
-    if (getenv("ISH_TRACEJIT_SELFTEST")) {
-        bool ok = jit_page_alloc_self_test(0x1234);
-        fprintf(stderr, "[tracejit] self-test: %s\n", ok ? "PASS" : "FAIL");
-    }
 
     // Microbench helper: on SIGTERM/SIGINT, dump stats then _exit. This
     // bypasses the normal halt_system path which doesn't trigger when

@@ -55,10 +55,8 @@ noreturn void do_exit(int status) {
     if (current && current->pid == 1) {
         extern void dump_pc_hist(void);
         extern void dump_pc_trace(void);
-        extern void tracejit_dump_stats(void);
         dump_pc_hist();
         dump_pc_trace();
-        tracejit_dump_stats();
     }
     // If this thread was already marked as leaked by the safety valve,
     // the group leader has finished exiting and the group struct may be

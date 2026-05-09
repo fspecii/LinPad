@@ -62,9 +62,6 @@ offsets = custom_target('offsets',
 # Common emu sources
 emu_src = [
     'emu/tlb.c',
-    'tracejit/page_alloc.c',
-    'tracejit/dispatch.c',
-    'tracejit/tracejit.c',
 ]
 
 # Architecture-specific emu sources

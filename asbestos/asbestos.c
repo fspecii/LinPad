@@ -14,8 +14,6 @@
 #include "kernel/memory.h"
 #include "util/list.h"
 #include "util/signpost.h"
-#include "tracejit/tracejit.h"
-#include "tracejit/dispatch.h"
 
 // Thread-local recovery state for JIT crash handling.
 // When a host SIGSEGV occurs inside JIT code (due to a stale TLB pointer
@@ -27,6 +25,7 @@
 // total execution time). The signal handler writes crash info directly
 // to cpu_state via the _cpu pointer (x1) from ucontext.
 __thread volatile sig_atomic_t in_jit;
+_Atomic uint64_t s_dispatch_iterations = 0;
 __thread volatile addr_t jit_saved_pc;  // block start PC, read by signal handler
 
 // PC dispatch trace: capture first N consecutive guest PCs hitting the
@@ -440,20 +439,8 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         // an async translation attempt — but DON'T call into native this
         // iteration; let the gadget run once, future iterations get the
         // native fast path.
-        bool have_tjit = false;
-        if (tracejit_enabled() && tracejit_pc_in_codespace(ip)) {
-            if (tracejit_table_lookup(ip) != NULL) {
-                have_tjit = true;
-            } else {
-                // Best-effort eager translate. Result is published to the
-                // table on success; we don't use the return value here.
-                (void)tracejit_translate(ip);
-                have_tjit = (tracejit_table_lookup(ip) != NULL);
-            }
-        }
-
         struct fiber_block *block = NULL;
-        if (!have_tjit) {
+        {
             size_t cache_index = fiber_cache_hash(ip);
             block = cache[cache_index];
             if (block == NULL || block->addr != ip) {
@@ -512,15 +499,9 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                 atomic_fetch_add_explicit(&s_dispatch_iterations, 1, memory_order_relaxed);
         }
 
-        if (have_tjit) {
-            in_jit = 1;
-            interrupt = tracejit_enter(frame);
-            in_jit = 0;
-        } else {
-            in_jit = 1;
-            interrupt = fiber_enter(block, frame, tlb);
-            in_jit = 0;
-        }
+        in_jit = 1;
+        interrupt = fiber_enter(block, frame, tlb);
+        in_jit = 0;
 
 
         // Check if fiber_enter returned due to a JIT crash (signal handler
