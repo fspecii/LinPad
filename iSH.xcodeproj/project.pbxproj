@@ -161,6 +161,7 @@
 		AA000121AF96D90D00FFB7A4 /* fakefs.c in Sources */ = {isa = PBXBuildFile; fileRef = BB10E5C2248DBA7B009C7A74 /* fakefs.c */; };
 		AA000122AF96D90D00FFB7A4 /* ArrowBarButton.m in Sources */ = {isa = PBXBuildFile; fileRef = BBFB557F21587B6800DFE6DE /* ArrowBarButton.m */; };
 		AA000130AF96D90D00FFB7A4 /* DebugServer.c in Sources */ = {isa = PBXBuildFile; fileRef = AA000131AF96D90D00FFB7A4 /* DebugServer.c */; };
+		B20B8D9D93D12BC8EF47721C /* FakeFFmpeg.m in Sources */ = {isa = PBXBuildFile; fileRef = 68570BE6CDABEAFE6F2A5207 /* FakeFFmpeg.m */; };
 		BB0F552E239F8A790032A2A1 /* Icons.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB0F552D239F8A790032A2A1 /* Icons.plist */; };
 		BB10E5C9248DBAAC009C7A74 /* libarchive.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB10E5C8248DBAA1009C7A74 /* libarchive.a */; };
 		BB10E5D0248DC21D009C7A74 /* Roots.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BB10E5CF248DC21D009C7A74 /* Roots.storyboard */; };
@@ -667,6 +668,7 @@
 		AA000015AF96D90D00FFB7A4 /* AppARM64.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AppARM64.xcconfig; sourceTree = "<group>"; };
 		AA000131AF96D90D00FFB7A4 /* DebugServer.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = DebugServer.c; sourceTree = "<group>"; };
 		AA000132AF96D90D00FFB7A4 /* DebugServer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DebugServer.h; sourceTree = "<group>"; };
+		68570BE6CDABEAFE6F2A5207 /* FakeFFmpeg.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FakeFFmpeg.m; sourceTree = "<group>"; };
 		AA9C2BB72F44A3DD00F41633 /* iSH ARM64 ffmpeg.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "iSH ARM64 ffmpeg.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB0B848E2586A4CF00208600 /* XcodeDefault.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = XcodeDefault.xcconfig; sourceTree = "<group>"; };
 		BB0B859B2586F13200208600 /* XcodeDebug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = XcodeDebug.xcconfig; sourceTree = "<group>"; };
@@ -1142,6 +1144,7 @@
 				BB792B541F96D90D00FFB7A4 /* AppDelegate.m */,
 				AA000132AF96D90D00FFB7A4 /* DebugServer.h */,
 				AA000131AF96D90D00FFB7A4 /* DebugServer.c */,
+				68570BE6CDABEAFE6F2A5207 /* FakeFFmpeg.m */,
 				BB565EA52734F22D00C93EAE /* CurrentRoot.h */,
 				BB565EA32734F1FB00C93EAE /* CurrentRoot.m */,
 				BBCC9D942365430800424C83 /* SceneDelegate.h */,
@@ -2403,6 +2406,7 @@
 				AA000121AF96D90D00FFB7A4 /* fakefs.c in Sources */,
 				AA000122AF96D90D00FFB7A4 /* ArrowBarButton.m in Sources */,
 				AA000130AF96D90D00FFB7A4 /* DebugServer.c in Sources */,
+				B20B8D9D93D12BC8EF47721C /* FakeFFmpeg.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
