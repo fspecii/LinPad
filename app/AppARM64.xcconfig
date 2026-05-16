@@ -1,0 +1,16 @@
+#include "App.xcconfig"
+#include "GuestARM64.xcconfig"
+
+// Differentiate the ARM64 app from the x86 app
+PRODUCT_NAME = iSH ARM64
+PRODUCT_BUNDLE_IDENTIFIER = $(ROOT_BUNDLE_IDENTIFIER).arm64
+PRODUCT_APP_GROUP_IDENTIFIER = group.$(ROOT_BUNDLE_IDENTIFIER).arm64
+
+// Link meson-built libraries directly from the arm64 meson build dir.
+// These are NOT in the Frameworks build phase to prevent Xcode from
+// auto-discovering implicit dependencies on the x86 library targets.
+OTHER_LDFLAGS = $(inherited) $(MESON_BUILD_DIR)/libish.a $(MESON_BUILD_DIR)/libish_emu.a $(MESON_BUILD_DIR)/libfakefs.a
+
+// Header search paths needed for sources compiled directly in this target
+// (previously compiled in libiSHApp, which used AppLib.xcconfig)
+HEADER_SEARCH_PATHS = $(inherited) $(SRCROOT) $(SRCROOT)/deps/libarchive/libarchive

@@ -8,8 +8,12 @@ GUEST_ARCH = arm64
 ISH_GUEST_DEFINES = GUEST_ARM64=1
 // NOTE: Do NOT use $(inherited) here — the project-level GuestX86.xcconfig
 // sets GUEST_X86=1, and both defines being active breaks #if GUEST_X86 checks.
-// We re-add DEBUG=1 for debug builds since we can't inherit it.
-GCC_PREPROCESSOR_DEFINITIONS = GUEST_ARM64=1 DEBUG=1
+// ARM64 targets bypass the Project{Debug,Release}.xcconfig chain, so DEBUG=1
+// must be set explicitly per build configuration. Release variants leave it
+// unset so DEBUG-gated code (e.g. DebugServer) is fully excluded.
+GCC_PREPROCESSOR_DEFINITIONS = GUEST_ARM64=1
+GCC_PREPROCESSOR_DEFINITIONS[config=Debug-ApplePleaseFixFB19282108] = GUEST_ARM64=1 DEBUG=1
+GCC_PREPROCESSOR_DEFINITIONS[config=DebugLinux] = GUEST_ARM64=1 DEBUG=1
 
 // Meson options for ARM64 guest
 MESON_GUEST_OPTION = -Dguest_arch=arm64

@@ -28,7 +28,7 @@
 #include "fs/dyndev.h"
 #include "fs/devices.h"
 #include "fs/path.h"
-#if defined(GUEST_ARM64)
+#if defined(GUEST_ARM64) && defined(DEBUG)
 #include "DebugServer.h"
 #endif
 #include "kernel/native_offload.h"
@@ -159,7 +159,7 @@ static NSString *const kSkipStartupMessage = @"Skip Startup Message";
     if (err < 0)
         return err;
 
-#if defined(GUEST_ARM64)
+#if defined(GUEST_ARM64) && defined(DEBUG)
     debug_server_start(1234);
 #endif
 
