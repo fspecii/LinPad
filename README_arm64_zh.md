@@ -225,39 +225,40 @@ ninja -C build-arm64-release
 
 | 类别 | x86/Native | ARM64/Native | **ARM64 vs x86** |
 |---|:---:|:---:|:---:|
-| C 纯计算 | 14-208x | 1-66x | **1.1-12.0x** |
-| Shell 管道 | 57-305x | 3-42x | **5.3-7.2x** |
-| Python | 12-201x | 3.8-169x | **3.8-10.2x** |
-| Go 启动 | 10-26x | 2.5-3.1x | **2.5-3.1x** |
-| Node.js | — | 1.6-20.8x | N/A（x86 不可用） |
+| C 纯计算 | 13-212x | 0.5-30x | **0.5-3.8x** |
+| Shell 管道 | 2-164x | 1-127x | **1.0-4.3x** |
+| Python | 5-77x | 2-77x | **1.7-3.2x** |
+| Go 启动 | 2.6-6.2x | 2.4-5.5x | **1.1x** |
+| Node.js | 7-25x | 5-22x | **0.5-1.3x** |
 
 ### 亮点数据（计算密集型）
 
-- **C `int_arith_2M`**: ARM64 比 x86 **快 12.0x**（65ms vs 782ms）
-- **Python `sum(1M)`**: ARM64 **快 10.2x**（610ms vs 6200ms）
-- **Python `fib(30)`**: ARM64 **快 9.2x**（1661ms vs 15219ms）
-- **Shell `seq+awk 100K`**: ARM64 **快 7.2x**（882ms vs 6338ms）
-- **C `matrix_64x64`** / **`mem_seq_4MB`**: ARM64 接近原生速度（仅 ~1.1-1.5x）
+- **Shell `seq+awk 100K`**: ARM64 比 x86 **快 4.2x**（828ms vs 3447ms）
+- **C `int_arith_2M`**: ARM64 **快 3.8x**（62ms vs 233ms）
+- **Shell `grep count`**: ARM64 **快 3.6x**（49ms vs 174ms）
+- **Python `sort 100K`**: ARM64 **快 3.2x**（1570ms vs 5053ms）
+- **Python `json roundtrip`**: ARM64 **快 2.5x**（1270ms vs 3149ms）
+- **Crypto `md5sum`**: ARM64 借助硬件 crypto **快 2.2x**（6ms vs 13ms）
 
 > **ARM64 为什么快**: 同架构 gadget 分派（每条 guest 指令只需对应 gadget 中的几条 host 指令）、完整 NEON + 加密扩展、
 > 48-bit 地址空间支持 V8/Go/Rust，以及 Node.js 专项修复（V8 二进制补丁、守护页、`--jitless`
-> 注入、io_uring syscall）—— 这些上游 x86 分支都没有。Node.js 22 在 x86 iSH 上无法运行
-> （缺少 syscall 425 即 `io_uring_setup`）。
+> 注入、io_uring syscall）。在少数微基准上 x86 解释器与 ARM64 持平甚至更快（Node.js `sum 1M`、
+> `JSON 10K`、C `mem_seq`/`func_call`）—— 多为小分配或紧密循环，JIT 单次编译成本不划算的场景。
 
 ## 兼容性
 
-205 项测试覆盖 18 个分类（基础 OS、文件操作、文本处理、构建、Python、Node.js、
+223 项测试覆盖 18 个分类（基础 OS、文件操作、文本处理、构建、Python、Node.js、
 Go/Rust/Perl/…、网络、VCS、编辑器、Shell、数据库、多媒体、加密、系统监控、调试、
 包管理、信号）。两个架构在相同 fakefs 环境下安装相同软件包后测试。完整报告见
 **[benchmark/BENCHMARK_COMPAT.md](benchmark/BENCHMARK_COMPAT.md)**。
 
 | 架构 | 通过 | 失败 | 通过率 |
 |---|:---:|:---:|:---:|
-| **x86** (Jitter, threaded-code) | 201 | 4 | **98%** |
-| **ARM64** (Asbestos, threaded-code) | 205 | 0 | **100%** |
+| **x86** (Jitter, threaded-code) | 221 | 2 | **99%** |
+| **ARM64** (Asbestos, threaded-code) | 223 | 0 | **100%** |
 
-**x86 的 4 项失败**均为模拟器真实限制（而非 benchmark bug）：
-`automake`、`perl`（/dev/null 写入 quirk）、`go env`、`go compile`（32-bit 虚拟地址空间限制）。
+**x86 的 2 项失败**为 DNS 查询测试（`nslookup localhost`、`nslookup 8.8.8.8`）——
+x86 minirootfs 缺 bind-tools/解析器配置，非模拟器 bug。
 
 ---
 

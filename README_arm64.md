@@ -233,40 +233,42 @@ timing (startup overhead excluded). Full details in
 
 | Category | x86/Native | ARM64/Native | **ARM64 vs x86** |
 |---|:---:|:---:|:---:|
-| C (pure compute) | 14-208x | 1-66x | **1.1-12.0x** |
-| Shell pipelines | 57-305x | 3-42x | **5.3-7.2x** |
-| Python | 12-201x | 3.8-169x | **3.8-10.2x** |
-| Go (startup) | 10-26x | 2.5-3.1x | **2.5-3.1x** |
-| Node.js | — | 1.6-20.8x | N/A (x86 broken) |
+| C (pure compute) | 13-212x | 0.5-30x | **0.5-3.8x** |
+| Shell pipelines | 2-164x | 1-127x | **1.0-4.3x** |
+| Python | 5-77x | 2-77x | **1.7-3.2x** |
+| Go (startup) | 2.6-6.2x | 2.4-5.5x | **1.1x** |
+| Node.js | 7-25x | 5-22x | **0.5-1.3x** |
 
 ### Headline numbers (compute-heavy)
 
-- **C `int_arith_2M`**: ARM64 **12.0x faster** than x86 (65ms vs 782ms)
-- **Python `sum(1M)`**: ARM64 **10.2x faster** (610ms vs 6200ms)
-- **Python `fib(30)`**: ARM64 **9.2x faster** (1661ms vs 15219ms)
-- **Shell `seq+awk 100K`**: ARM64 **7.2x faster** (882ms vs 6338ms)
-- **C `matrix_64x64`** / **`mem_seq_4MB`**: near-native speed on ARM64 (~1.1-1.5x)
+- **Shell `seq+awk 100K`**: ARM64 **4.2x faster** than x86 (828ms vs 3447ms)
+- **C `int_arith_2M`**: ARM64 **3.8x faster** (62ms vs 233ms)
+- **Shell `grep count`**: ARM64 **3.6x faster** (49ms vs 174ms)
+- **Python `sort 100K`**: ARM64 **3.2x faster** (1570ms vs 5053ms)
+- **Python `json roundtrip`**: ARM64 **2.5x faster** (1270ms vs 3149ms)
+- **Crypto `md5sum`**: ARM64 **2.2x faster** with hardware crypto (6ms vs 13ms)
 
 > **Why ARM64 wins**: same-architecture gadget dispatch (each guest instruction costs only a
 > few ARM64 host instructions inside its gadget), full NEON + crypto extensions, 48-bit
 > address space for V8/Go/Rust, and Node.js-specific fixes (V8 binary patch, guard pages,
-> `--jitless` injection, io_uring syscall) that the upstream x86 branch lacks. Node.js 22
-> cannot run on x86 iSH (missing syscall 425 / `io_uring_setup`).
+> `--jitless` injection, io_uring syscall). On a few microbench cases the x86 interpreter is
+> competitive or faster (Node.js `sum 1M`, `JSON 10K`, C `mem_seq`/`func_call`) — typically
+> small allocations or tight loops where the JIT's per-block compile cost isn't amortized.
 
 ## Compatibility
 
-205 tests across 18 categories (Core OS, FileOps, Text, Build, Python, Node.js, Go/Rust/Perl/…,
+223 tests across 18 categories (Core OS, FileOps, Text, Build, Python, Node.js, Go/Rust/Perl/…,
 Network, VCS, Editors, Shell, DB, Media, Crypto, SysMon, Debug, PkgMgr, Signal). Both
 architectures tested under fakefs with the same installed package set. Full report:
 **[benchmark/BENCHMARK_COMPAT.md](benchmark/BENCHMARK_COMPAT.md)**.
 
 | Architecture | Pass | Fail | Rate |
 |---|:---:|:---:|:---:|
-| **x86** (Jitter, threaded-code) | 201 | 4 | **98%** |
-| **ARM64** (Asbestos, threaded-code) | 205 | 0 | **100%** |
+| **x86** (Jitter, threaded-code) | 221 | 2 | **99%** |
+| **ARM64** (Asbestos, threaded-code) | 223 | 0 | **100%** |
 
-**x86's 4 failures** are all genuine limitations (not benchmark bugs):
-`automake`, `perl` (/dev/null write quirk), `go env`, `go compile` (32-bit VA).
+**x86's 2 failures** are DNS lookups (`nslookup localhost`, `nslookup 8.8.8.8`)
+— missing bind-tools/resolver in the x86 minirootfs, not an emulation bug.
 
 ---
 
