@@ -66,11 +66,20 @@ struct fakefs_change_event {
  * any thread. No-op if no consumer is installed. */
 void fakefs_record_change(const char *linux_path, int op);
 
-/* Consumer registration — invoked once at iSH boot from ObjC.
- * `handler` runs on a dedicated serial queue. `batch` and `count` are
- * stack-owned for the duration of the call; copy if you need to retain.
- * Replacing an existing consumer is allowed but not expected. */
+/* Consumer registration — invoked once at iSH boot from ObjC on Apple
+ * builds. `handler` runs on a dedicated serial queue. `batch` and
+ * `count` are stack-owned for the duration of the call; copy if you
+ * need to retain. Replacing an existing consumer is allowed but not
+ * expected.
+ *
+ * Block syntax `^` is Clang-only. On non-Apple builds (Linux/GCC) we
+ * fall back to a plain function-pointer typedef so the header still
+ * compiles — the matching .c stub ignores its argument either way. */
+#if defined(__APPLE__)
 typedef void (^fakefs_change_handler_t)(const struct fakefs_change_event *batch, int count);
+#else
+typedef void (*fakefs_change_handler_t)(const struct fakefs_change_event *batch, int count);
+#endif
 void fakefs_install_change_consumer(fakefs_change_handler_t handler);
 
 /* Diagnostic — number of events dropped due to ring overflow since boot. */

@@ -10,10 +10,12 @@
 #include <dirent.h>
 #include <errno.h>
 #include <stdatomic.h>
-#include <os/lock.h>
-#include <dispatch/dispatch.h>
-#include <mach/mach_time.h>
-#include <Block.h>
+#if defined(__APPLE__)
+#  include <os/lock.h>
+#  include <dispatch/dispatch.h>
+#  include <mach/mach_time.h>
+#  include <Block.h>
+#endif
 #include "util/signpost.h"
 
 #include "debug.h"
@@ -1076,7 +1078,17 @@ bool fakefs_bind_mount_translate_path(const char *path, char *out_path, size_t o
  * fakefs_change_dropped_count()). The producer side is bounded:
  *   lock + memcpy(linux_path, ~64B avg) + atomic_store + merge_data
  * which on Apple Silicon measures around 150–250ns.
+ *
+ * Implementation is Apple-only: it relies on GCD (dispatch sources),
+ * Clang blocks (Block_copy / Block_release), os_unfair_lock and mach
+ * time. On non-Apple builds (Linux / x86 iSH), the public API still
+ * resolves at link time but every entry point is a no-op so the host
+ * never observes events. This matches the upstream iSH stance of
+ * keeping fs/fake.c portable while letting Apple-side ports layer
+ * platform features on top.
  */
+
+#if defined(__APPLE__)
 
 #define FAKEFS_CHANGE_RING_SIZE 1024  /* must be power of two */
 
@@ -1158,3 +1170,25 @@ void fakefs_install_change_consumer(fakefs_change_handler_t handler) {
 uint64_t fakefs_change_dropped_count(void) {
     return atomic_load_explicit(&g_change_dropped, memory_order_relaxed);
 }
+
+#else /* !__APPLE__ — non-Apple stubs.
+       *
+       * The host (Swift / ObjC) bridge that consumes these events only
+       * exists on Apple. On Linux / x86 iSH builds we still need the
+       * three symbols to resolve at link time (callers in fs/fake.c and
+       * fs/real.c invoke them unconditionally), but they must do
+       * nothing — no ring buffer, no consumer queue, no host wakeups. */
+
+void fakefs_record_change(const char *linux_path, int op) {
+    (void)linux_path; (void)op;
+}
+
+void fakefs_install_change_consumer(fakefs_change_handler_t handler) {
+    (void)handler;
+}
+
+uint64_t fakefs_change_dropped_count(void) {
+    return 0;
+}
+
+#endif /* __APPLE__ */
