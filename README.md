@@ -1,102 +1,281 @@
-# [iSH](https://ish.app)
-
-> ## 🚀 ARM64 Fork Notice
->
-> **This repository is a fork of [ish-app/ish](https://github.com/ish-app/ish)** that adds a
-> **native ARM64 guest backend** to upstream iSH's threaded-code interpreter (*Asbestos*,
-> renamed from *jit* upstream in 2024 — [ish-app/ish@d375656f](https://github.com/ish-app/ish/commit/d375656f)).
-> It emulates AArch64 Linux on Apple Silicon, running alongside the original x86 (i386)
-> guest backend.
->
-> Asbestos is **not a JIT** — it doesn't emit machine code at runtime. For each basic block
-> it builds an array of pointers to pre-compiled native "gadget" functions that tail-call
-> each other (the threaded-code technique Forth interpreters use). This fork's contribution
-> is the **ARM64 guest backend** inside that framework: new hand-written ARM64 gadgets that
-> map each AArch64 guest instruction to just a handful of host instructions — same-architecture
-> dispatch, so the overhead per guest instruction is small.
->
-> **Key enhancements over upstream:**
-> - **Native ARM64 gadget dispatch** — same-architecture, 2-12x faster than x86 for compute
-> - **48-bit virtual address space** — 4-level page table supports V8/Go/Rust runtimes
-> - **Node.js 22 / npm / npx** — V8 guard pages, binary patch, `--jitless` injection
-> - **Go and Rust** — large VA reservations, signal frame alignment, FUTEX_WAIT_BITSET, PMULL
-> - **Full NEON + Crypto** — AES/SHA/CRC32 instructions for TLS and hashing at native-ish speed
-> - **Agent integration** — `ISHShellExecutor` (Obj-C shell API), `DebugServer` (JSON-RPC over HTTP),
->   `Native Offload` (bypass emulation for selected binaries), bind mounts for host↔guest file sharing
-> - **iOS-first rootfs** — Alpine 3.21 aarch64 with full `apk` ecosystem and versioned overlay patching
->
-> **Performance (ARM64 vs x86, compute-heavy):** C `int_arith_2M` **12x faster**,
-> Python `fib(30)` **9.2x faster**, `sum(1M)` **10.2x faster**, shell `seq+awk 100K` **7.2x faster**.
->
-> **Full docs:** [README_arm64.md](README_arm64.md) · [中文版](README_arm64_zh.md) ·
-> [Performance report](benchmark/BENCHMARK_PERF.md) · [Compatibility report](benchmark/BENCHMARK_COMPAT.md)
->
-> ---
-
-[![Build Status](https://github.com/ish-app/ish/actions/workflows/ci.yml/badge.svg)](https://github.com/ish-app/ish/actions)
-[![goto counter](https://img.shields.io/github/search/ish-app/ish/goto.svg)](https://github.com/ish-app/ish/search?q=goto)
-[![fuck counter](https://img.shields.io/github/search/ish-app/ish/fuck.svg)](https://github.com/ish-app/ish/search?q=fuck)
-[![shit counter](https://img.shields.io/github/search/ish-app/ish/shit.svg)](https://github.com/ish-app/ish/search?q=shit)
-
 <p align="center">
-<a href="https://ish.app">
-<img src="https://ish.app/assets/github-readme.png">
-</a>
+  <img src="https://img.shields.io/badge/🐧-LinPad-0A84FF?style=for-the-badge&labelColor=1a1a1a" alt="LinPad" height="60">
 </p>
 
-A project to get a Linux shell running on iOS, using usermode x86 emulation and syscall translation.
+<h1 align="center">LinPad — Linux for iPad</h1>
 
-For the current status of the project, check the issues tab, and the commit logs.
+<p align="center">
+  <strong>A real Linux desktop on your iPad</strong><br>
+  <em>Windows, tiling, workspaces and real Linux apps — Firefox, VS Code, Thunar, VLC, Node, git, Claude Code — running on the iPad itself. No VM. No jailbreak. One app.</em>
+</p>
 
-- [App Store page](https://apps.apple.com/us/app/ish-shell/id1436902243)
-- [TestFlight beta](https://testflight.apple.com/join/97i7KM8O)
-- [Discord server](https://discord.gg/HFAXj44)
-- [Wiki with help and tutorials](https://github.com/ish-app/ish/wiki)
-- [README中文](https://github.com/ish-app/ish/blob/master/README_ZH.md) (如若未能保持最新，请提交PR以更新)
+<p align="center">
+  <a href="https://www.youtube.com/@Ambsd-yy7os">
+    <img src="https://img.shields.io/badge/▶_Subscribe-YouTube-FF0000?style=for-the-badge&logo=youtube" alt="Subscribe on YouTube">
+  </a>
+  <a href="https://x.com/AmbsdOP">
+    <img src="https://img.shields.io/badge/Follow-@AmbsdOP-1DA1F2?style=for-the-badge&logo=x&logoColor=white" alt="Follow on X">
+  </a>
+  <a href="https://webdesignstudio.london">
+    <img src="https://img.shields.io/badge/Web_Design-webdesignstudio.london-d4ff00?style=for-the-badge&labelColor=000000" alt="Web Design Studio London">
+  </a>
+</p>
 
-# Hacking
+<p align="center">
+  <a href="#-screenshots">Screenshots</a> •
+  <a href="#-why-linpad">Why LinPad</a> •
+  <a href="#-features">Features</a> •
+  <a href="#-how-it-works">How it works</a> •
+  <a href="#-quick-start">Quick start</a> •
+  <a href="#-keyboard--trackpad">Shortcuts</a> •
+  <a href="#-roadmap">Roadmap</a>
+</p>
 
-This project has a git submodule, make sure to clone with `--recurse-submodules` or run `git submodule update --init` after cloning.
+<p align="center">
+  <img src="https://img.shields.io/badge/iPadOS-17%2B-000000?style=flat-square&logo=apple" alt="iPadOS 17+">
+  <img src="https://img.shields.io/badge/Apple_Silicon-M--series-555555?style=flat-square&logo=apple" alt="Apple Silicon">
+  <img src="https://img.shields.io/badge/Alpine_Linux-3.21-0D597F?style=flat-square&logo=alpinelinux" alt="Alpine Linux">
+  <img src="https://img.shields.io/badge/SwiftUI-Desktop-F05138?style=flat-square&logo=swift&logoColor=white" alt="SwiftUI">
+  <img src="https://img.shields.io/badge/Wayland-Compositor-FFBC00?style=flat-square&logo=wayland&logoColor=black" alt="Wayland">
+  <img src="https://img.shields.io/badge/Vulkan-Venus_→_Metal-AC162C?style=flat-square&logo=vulkan" alt="Vulkan">
+  <img src="https://img.shields.io/badge/License-GPLv3-blue?style=flat-square" alt="GPLv3">
+</p>
 
-You'll need these things to build the project:
+---
 
- - Python 3
-   + Meson (`pip3 install meson`)
- - Ninja
- - Clang and LLD (on mac, `brew install llvm`, on linux, `sudo apt install clang lld` or `sudo pacman -S clang lld` or whatever)
- - sqlite3 (this is so common it may already be installed on linux and is definitely already installed on mac. if not, do something like `sudo apt install libsqlite3-dev`)
- - libarchive (`brew install libarchive`, `sudo port install libarchive`, `sudo apt install libarchive-dev`) TODO: bundle this dependency
+## 📸 Screenshots
 
-## Build for iOS
+<p align="center">
+  <img src="docs/screenshots/02-firefox.jpg" alt="Firefox running on LinPad" width="100%">
+</p>
 
-Open the project in Xcode, open iSH.xcconfig, and change `ROOT_BUNDLE_IDENTIFIER` to something unique. You'll also need to update the development team ID in the project (not target!) build settings. Then click Run. There are scripts that should do everything else automatically. If you run into any problems, open an issue and I'll try to help.
+<p align="center">
+  <em>Real Firefox, rendering Wikipedia, as a native window on the iPad</em>
+</p>
 
-## Build command line tool for testing
+| | |
+|:---:|:---:|
+| ![Visual Studio Code](docs/screenshots/04-vscode.jpg)<br>**Visual Studio Code** with TypeScript, git and Claude Code | ![foot + fastfetch](docs/screenshots/03-foot-fastfetch.jpg)<br>**foot terminal** + fastfetch |
+| ![Thunar](docs/screenshots/10-thunar-native-window.jpg)<br>**Thunar** as a native window | ![Wallhaven](docs/screenshots/09-wallhaven.jpg)<br>**Wallhaven** wallpapers built in |
+| ![macOS style](docs/screenshots/05-style-macos.jpg)<br>**macOS** style | ![Windows style](docs/screenshots/06-style-windows.jpg)<br>**Windows** style |
+| ![Ubuntu style](docs/screenshots/07-style-ubuntu-overview.jpg)<br>**Ubuntu** style overview | ![Kylin style](docs/screenshots/08-style-kylin.jpg)<br>**Kylin** style |
 
-To set up your environment, cd to the project and run `meson build` to create a build directory in `build`. Then cd to the build directory and run `ninja`.
+---
 
-To set up a self-contained Alpine linux filesystem, download the Alpine minirootfs tarball for i386 from the [Alpine website](https://alpinelinux.org/downloads/) and run `./tools/fakefsify`, with the minirootfs tarball as the first argument and the name of the output directory as the second argument. Then you can run things inside the Alpine filesystem with `./ish -f alpine /bin/sh`, assuming the output directory is called `alpine`. If `tools/fakefsify` doesn't exist for you in your build directory, that might be because it couldn't find libarchive on your system (see above for ways to install it.)
+## 🚀 Why LinPad?
 
-You can replace `ish` with `tools/ptraceomatic` to run the program in a real process and single step and compare the registers at each step. I use it for debugging. Requires 64-bit Linux 4.11 or later.
+**The iPad Air M3 is as fast as a MacBook Air.** Put a Logitech keyboard with a trackpad on it and it looks like a laptop — but it can't do laptop things. No real terminal. No VS Code. No Linux tools. A powerful machine that ends up as a Netflix screen.
 
-## Logging
+LinPad turns it into the computer the hardware already is.
 
-iSH has several logging channels which can be enabled at build time. By default, all of them are disabled. To enable them:
+| | Stock iPadOS | LinPad |
+|---|---|---|
+| **Desktop** | Stage Manager | **Real windowed desktop** with tiling, snapping, workspaces |
+| **Terminal** | Toy shells | **Full Alpine Linux** — apk, bash, Node, Python, git |
+| **Code editor** | Web-based at best | **Visual Studio Code** (the real one) |
+| **Browser engine** | WebKit only | **Firefox** + Safari's engine side by side |
+| **Linux GUI apps** | ❌ | **Thunar, Mousepad, VLC, GTK & Qt apps** |
+| **AI coding** | ❌ | **Claude Code** in the terminal and VS Code |
+| **Keyboard + trackpad** | Partial | **Right-click, shortcuts, pointer everywhere** |
+| **Cost** | — | **Free & open source** |
 
-- In Xcode: Set the `ISH_LOG` setting in iSH.xcconfig to a space-separated list of log channels.
-- With Meson (command line tool for testing): Run `meson configure -Dlog="<space-separated list of log channels>"`.
+---
 
-Available channels:
+## ✨ Features
 
-- `strace`: The most useful channel, logs the parameters and return value of almost every system call.
-- `instr`: Logs every instruction executed by the emulator. This slows things down a lot.
-- `verbose`: Debug logs that don't fit into another category.
-- Grep for `DEFAULT_CHANNEL` to see if more log channels have been added since this list was updated.
+### 🖥️ Native Desktop
+| Feature | Description |
+|---------|-------------|
+| **Window manager** | Move, resize from any edge, snap to halves and quarters, maximize, minimize to the taskbar |
+| **Auto-tiling** | Master-stack, columns, grid and monocle layouts — on or off per workspace, float any window |
+| **Workspaces** | Switch with keys or three-finger swipes, drag windows between them in the overview |
+| **Overview & switcher** | Exposé-style overview, ⌥Tab switcher with live thumbnails, taskbar hover previews |
+| **Notification center** | History, Do Not Disturb, swipe to dismiss |
+| **Quick settings** | Volume, brightness, appearance, style, tiling, battery, network, fast mode |
+| **Lock screen & session** | Lock, restart the desktop session, session restore on launch |
 
-# A note on the interpreter
+### 🎨 Styles & Themes
+| Feature | Description |
+|---------|-------------|
+| **Five desktop styles** | LinPad, Windows, macOS, Ubuntu, Kylin — each changes the *layout*, not just colours |
+| **Matching Linux themes** | GTK & Qt themes, cursors and fonts follow the style (Fluent, WhiteSur, Yaru, UKUI, Adwaita) |
+| **Icon packs** | Papirus, Fluent, WhiteSur, Yaru, UKUI and more — independent of the style |
+| **Light & dark** | Per style, or follow iPadOS |
+| **Wallpapers** | Photos, Files, `~/Pictures`, or browse [Wallhaven](https://wallhaven.cc) (SFW only) right from the desktop |
 
-Possibly the most interesting thing I wrote as part of iSH is the interpreter. It's not quite a JIT since it doesn't target machine code. Instead it generates an array of pointers to functions called gadgets, and each gadget ends with a tailcall to the next function; like the threaded code technique used by some Forth interpreters. The result is a speedup of roughly 3-5x compared to emulation using a simpler switch dispatch.
+### 🐧 Real Linux
+| Feature | Description |
+|---------|-------------|
+| **Alpine Linux 3.21** | Unmodified aarch64 binaries, full `apk` package manager |
+| **Linux GUI apps as native windows** | Built-in Wayland compositor — every Linux window is a real iPad window |
+| **Firefox** | The real thing, tuned for LinPad |
+| **Visual Studio Code** | Microsoft's official build, installed on first use, with extensions & the integrated terminal |
+| **Developer tools** | Node 22, npm, git, Python, Vite with hot reload, TypeScript, Claude Code |
+| **Lean by design** | Optional apps — mail, PDF viewer, office, image editor, VLC — are *ticked* by you, never preinstalled |
 
-Unfortunately, I made the decision to write nearly all of the gadgets in assembly language. This was probably a good decision with regards to performance (though I'll never know for sure), but a horrible decision with regards to readability, maintainability, and my sanity. The amount of bullshit I've had to put up with from the compiler/assembler/linker is insane. It's like there's a demon in there that makes sure my code is sufficiently deformed, and if not, makes up stupid reasons why it shouldn't compile. In order to stay sane while writing this code, I've had to ignore best practices in code structure and naming. You'll find macros and variables with such descriptive names as `ss` and `s` and `a`. Assembler macros nested beyond belief. And to top it off, there are almost no comments.
+### ⚡ Performance
+| Feature | Description |
+|---------|-------------|
+| **Native ARM64 JIT** | ≈4.8× faster than the threaded-code engine — `tsc` 5.4×, Node 12×, `vite build` 3.5× |
+| **Fast mode in one tap** | Hands off to [StikDebug](https://github.com/StikDebug/StikDebug) at launch and comes back with JIT enabled |
+| **GPU acceleration** | Linux Vulkan & OpenGL ES on the Apple GPU (Venus → virglrenderer → MoltenVK → Metal) |
+| **Firefox** | Scrolling at 30–50 fps, URL bar in ~40 ms |
 
-So a warning: Long-term exposure to this code may cause loss of sanity, nightmares about GAS macros and linker errors, or any number of other debilitating side effects. This code is known to the State of California to cause cancer, birth defects, and reproductive harm.
+### ⌨️ Input & Integration
+| Feature | Description |
+|---------|-------------|
+| **Keyboard, trackpad, touch** | All first-class; touch-sized controls when no keyboard is attached |
+| **Right-click everywhere** | Desktop, Files, title bars, taskbar, and inside Linux apps |
+| **Text input for every language** | Accents, emoji, dictation, Japanese & Chinese composition — in Linux apps too |
+| **Clipboard & drag-and-drop** | Between Linux apps, native apps and iPadOS |
+| **Sound** | Linux audio plays through iOS |
+| **Files app** | Thunar-style manager with Trash, Open With, Properties, desktop as a real folder |
+
+---
+
+## 🧠 How it works
+
+LinPad does not run a virtual machine and needs no jailbreak — it is **one iPad app**.
+
+```mermaid
+flowchart TB
+    subgraph app["LinPad app (one iOS process)"]
+        desk["DesktopKit — SwiftUI desktop shell<br/>windows · tiling · workspaces · styles · apps"]
+        bridge["Linux window bridge<br/>frames · input · clipboard · DnD · text input"]
+        audio["Audio bridge → AVAudioEngine"]
+        gpu["virglrenderer + MoltenVK → Metal"]
+        emu["iSH-ARM64 emulator<br/>Linux syscall translation · ARM64 JIT"]
+    end
+    subgraph guest["Alpine Linux (aarch64)"]
+        apps["Firefox · VS Code · Thunar · VLC · foot · node · git · claude"]
+        ishwl["ishwl — Wayland compositor"]
+        pulse["PulseAudio"]
+        mesa["Mesa Venus / Zink"]
+    end
+    apps --> ishwl --> bridge --> desk
+    apps --> pulse --> audio
+    apps --> mesa --> gpu
+    guest -. "runs on" .-> emu
+```
+
+| Layer | What it does |
+|-------|-------------|
+| **Emulator** | Fork of [iSH](https://github.com/ish-app/ish) / [iSH-ARM64](https://github.com/meikis/ish-arm64): translates Linux system calls to iOS; LinPad adds a native ARM64 JIT and dozens of kernel fixes (signals, sockets, memory, inotify, netlink, futexes, memfd, virtio-gpu) |
+| **ishwl** | A small Wayland compositor inside Linux; each window's pixels are shared through memory-mapped files, input goes back through FIFOs |
+| **DesktopKit** | The native SwiftUI desktop — one window manager for native apps and Linux windows |
+| **GPU** | A virtio-gpu device in the emulator feeds virglrenderer's Venus renderer, running on MoltenVK and Metal |
+
+---
+
+## ⚡ Quick start
+
+| Requirement | Specification |
+|-------------|---------------|
+| **iPad** | Apple Silicon (M1 or newer) — developed on an iPad Air M3, iPadOS 27.2 |
+| **Mac** | Xcode, Homebrew `llvm lld meson ninja libarchive`, `libimobiledevice` |
+| **Account** | An Apple developer account (LinPad is sideloaded, not on the App Store) |
+| **Optional** | [StikDebug](https://github.com/StikDebug/StikDebug) + LocalDevVPN for fast mode |
+
+```sh
+export PATH=/opt/homebrew/opt/lld/bin:/opt/homebrew/opt/llvm/bin:$PATH
+
+gpu/build-third-party.sh          # virglrenderer + MoltenVK (once)
+release/build-rootfs.sh           # the Alpine system image (~50 min)
+
+xcodebuild -project iSH.xcodeproj -target iSH-ARM64 -configuration Release -sdk iphoneos \
+  -allowProvisioningUpdates SYMROOT=$PWD/build-ios-release IPHONEOS_DEPLOYMENT_TARGET=17.0 \
+  DEVELOPMENT_TEAM=<your team> ISH_JIT_BUILD=enabled build
+
+release/embed-rootfs.sh --device "build-ios-release/Release-iphoneos/iSH ARM64.app" \
+  release/out/ish-linux-rootfs-arm64.tar.gz
+ideviceinstaller install "build-ios-release/Release-iphoneos/iSH ARM64.app"
+```
+
+Full guide: **[release/INSTALL-DEVICE.md](release/INSTALL-DEVICE.md)**
+
+> Visual Studio Code is Microsoft's proprietary build. It is downloaded on your iPad when you choose to install it and is never redistributed by this project.
+
+---
+
+## ⌨️ Keyboard & trackpad
+
+| Shortcut | Action |
+|----------|--------|
+| `⌃⌥A` | Applications |
+| `⌃⌥T` | New terminal |
+| `⌃⌥W` | Close window |
+| `⌃⌥M` | Minimize |
+| `⌃⌥←` `⌃⌥→` `⌃⌥↑` | Snap left / right / maximize |
+| `⌃⌥U` `I` `J` `K` | Snap to quarters |
+| `⌃⌥⇧T` | Toggle auto-tiling |
+| `⌃⌥O` | Overview |
+| `⌥Tab` | Window switcher |
+| `⌃⌥1…9` | Switch workspace |
+| `⌘ …` | Goes to the app (⌘S saves, ⌘W closes a tab, ⌘C/⌘V copy & paste) |
+| Two-finger click | Right-click |
+| Three-finger swipe | Overview / switch workspace |
+
+---
+
+## 🗺️ Roadmap
+
+- [x] Native desktop with tiling, snapping, workspaces, five styles
+- [x] Real Firefox, VS Code, Thunar, VLC as native windows
+- [x] Native ARM64 JIT with one-tap fast mode
+- [x] GPU acceleration via Venus → Metal
+- [x] Wallhaven wallpapers, icon packs, notification center
+- [ ] Optional app catalog: mail client, PDF viewer, office, image editor (tick to install)
+- [ ] iPad Files & Photos access from Linux
+- [ ] Quick Look with Space, like macOS
+- [ ] Faster Firefox page loads, lower memory
+
+---
+
+## 💻 Tech stack
+
+| Layer | Technologies |
+|-------|-------------|
+| **Desktop** | Swift, SwiftUI, UIKit |
+| **Emulator** | C, ARM64 assembly, iSH, meson |
+| **Linux** | Alpine Linux 3.21, Mesa (Venus/Zink), PulseAudio, GTK, Qt |
+| **Graphics** | Wayland, virglrenderer, MoltenVK, Metal |
+
+---
+
+## 👤 About the Author
+
+LinPad is built and maintained by **Vali** — open-source developer and founder of [Web Design Studio London](https://webdesignstudio.london), a specialist web design and development studio serving London businesses and international clients.
+
+I bought an iPad Air M3, attached a Logitech keyboard with a trackpad, and realised I owned a laptop-class machine that couldn't run a terminal, an editor or a real browser. LinPad is the fix.
+
+---
+
+## 🙏 Credits
+
+- **[iSH](https://github.com/ish-app/ish)** — the Linux shell for iOS that started it all
+- **[iSH-ARM64](https://github.com/meikis/ish-arm64)** — the native ARM64 guest backend LinPad builds on
+- **[Alpine Linux](https://alpinelinux.org)** — the lightweight Linux underneath
+- **[Mesa](https://mesa3d.org)**, **[virglrenderer](https://gitlab.freedesktop.org/virgl/virglrenderer)**, **[MoltenVK](https://github.com/KhronosGroup/MoltenVK)** — the GPU path
+- **[StikDebug](https://github.com/StikDebug/StikDebug)** — JIT on modern iPadOS
+- **[Wallhaven](https://wallhaven.cc)** — wallpapers
+- The open-source themes and icon packs in `themes/`, each under its own license
+
+---
+
+## 📄 License
+
+LinPad is licensed under the **GPLv3**, like iSH — see [LICENSE.md](LICENSE.md). The original iSH README is kept at [docs/README-iSH.md](docs/README-iSH.md).
+
+---
+
+<p align="center">
+  <strong>⭐ If LinPad turned your iPad into a real computer, please star this repo! ⭐</strong>
+</p>
+
+<p align="center">
+  <em>Made with ❤️ for everyone whose iPad deserves more than Netflix</em>
+</p>
+
+<p align="center">
+  <strong>Stop using your iPad as a TV. Start using it as a computer.</strong>
+</p>
