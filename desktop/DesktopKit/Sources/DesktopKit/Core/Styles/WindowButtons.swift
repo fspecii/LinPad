@@ -8,12 +8,21 @@ struct WindowButtons: View {
     let manager: WindowManager
     let shape: DesktopStyleSpec.ButtonShape
     let isFocused: Bool
+    /// Era skins (EraWindowButtons.swift): which side of the title bar this group sits on.
+    var skin: EraSkin? = nil
+    var side: DesktopStyleSpec.ButtonPlacement = .trailing
 
     @State private var isHovering = false
 
     var body: some View {
         HStack(spacing: 0) {
             switch shape {
+            case .era:
+                if let skin {
+                    EraWindowButtons(skin: skin, kinds: EraWindowButtons.kinds(for: skin, side: side),
+                                     isMaximized: window.isMaximized, isFocused: isFocused, metrics: manager.metrics,
+                                     titleBarHeight: manager.titleBarHeight, perform: perform)
+                }
             case .trafficLight:
                 light(.close)
                 light(.minimize)
@@ -112,30 +121,35 @@ private struct ChromeButton: View {
 
     @ViewBuilder
     private var glyph: some View {
-        let image = Image(systemName: kind.symbol(isMaximized: isMaximized, shape: shape))
         switch shape {
         case .kylin:
             // 1 pt line art in a 30 pt box; hover tile radius 6 (DESIGN-SPEC.md §4).
-            image.font(.system(size: 11, weight: .light))
+            image(size: 11).font(.system(size: 11, weight: .light))
                 .foregroundStyle(isHovered && kind == .close ? Color.white
                                  : theme.primaryText.opacity(isFocused ? 1 : 0.3))
                 .frame(width: 30, height: 30)
                 .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(kylinFill))
         case .caption:
-            image.font(.system(size: 12, weight: .regular))
+            image(size: 12).font(.system(size: 12, weight: .regular))
                 .foregroundStyle(isHovered && kind == .close ? Color.white : theme.primaryText)
         case .round:
             let isClose = kind == .close
-            image.font(.system(size: 9, weight: .heavy))
+            image(size: 10).font(.system(size: 9, weight: .heavy))
                 .foregroundStyle(theme.primaryText)
                 .frame(width: 24, height: 24)
                 .background(Circle().fill(roundFill(isClose: isClose)))
         default:
-            image.font(.system(size: 11, weight: .bold))
+            image(size: 11).font(.system(size: 11, weight: .bold))
                 .foregroundStyle(isHovered && kind == .close ? Color.white : theme.secondaryText)
                 .frame(width: 32, height: 26)
                 .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(glyphFill))
         }
+    }
+
+    /// The icon pack's window-close/-minimize/-maximize glyph, else the SF Symbol.
+    private func image(size: CGFloat) -> ThemeGlyph {
+        ThemeGlyph(ThemeIconNames.windowButton(kind, isMaximized: isMaximized),
+                   symbol: kind.symbol(isMaximized: isMaximized, shape: shape), size: size)
     }
 
     private var kylinFill: Color {
@@ -270,9 +284,24 @@ private struct SnapLayoutsGrid: View {
                 .hoverEffect(.highlight)
                 .frame(width: frame.width, height: frame.height)
                 .offset(x: frame.minX, y: frame.minY)
-                .accessibilityLabel(zone.rawValue)
+                .accessibilityLabel(zone.title)
             }
         }
         .frame(width: size.width, height: size.height)
+    }
+}
+
+extension SnapZone {
+    /// What VoiceOver says for the zone (the names the window menu uses).
+    var title: String {
+        switch self {
+        case .leftHalf: "Left Half"
+        case .rightHalf: "Right Half"
+        case .topLeft: "Top Left"
+        case .topRight: "Top Right"
+        case .bottomLeft: "Bottom Left"
+        case .bottomRight: "Bottom Right"
+        case .maximize: "Maximize"
+        }
     }
 }

@@ -53,7 +53,7 @@ struct KylinPanel: View {
     var body: some View {
         HStack(spacing: 4) {
             tile(label: "Start", identifier: "desktop.panel.applications", isActive: controller.isLauncherPresented) {
-                Image(systemName: "circle.hexagongrid.fill")
+                ThemeGlyph(ThemeIconNames.launcher, symbol: "circle.hexagongrid.fill", size: 22)
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(theme.accent)
             } action: { controller.toggleLauncher() }

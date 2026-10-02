@@ -50,6 +50,7 @@ struct ToastStack: View {
                 .transition(.move(edge: .trailing).combined(with: .opacity))
                 .accessibilityAddTraits(.isStaticText)
                 .accessibilityAction(named: "Dismiss") { controller.dismissToast(toast.id) }
+                .onAppear { AccessibilityNotification.Announcement(toast.message).post() }
                 .accessibilityIdentifier("desktop.toast")
             }
         }

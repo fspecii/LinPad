@@ -16,6 +16,23 @@ guest).
 | `ubuntu` | Ubuntu 24.04 | Yaru / Yaru-dark | Yaru / Yaru-dark | Adwaita | Ubuntu 11 | KvYaru / KvGnomeDark |
 | `kylin` | Kylin / UKUI 4 | ukui-white / ukui-black | ukui-icon-theme-default | dark-sense | Noto Sans 10 | KvUKUI / KvUKUIDark |
 | `ish` (default) | iSH dark | Adwaita (dark) | Papirus / Papirus-Dark | Adwaita | Cantarell 11 | KvGnomeDark |
+| `tiler` | minimal tiling | Adwaita (dark) | Papirus / Papirus-Dark | Adwaita | JetBrains Mono 10 | KvGnomeDark |
+| `luna` | desktop theme Luna (XP era) | LinPad-Luna* / Adwaita | Papirus / Papirus-Dark | Adwaita | DejaVu Sans 9 | Fluent / KvGnomeDark |
+| `aero` | desktop theme Aero (7 era) | LinPad-Aero* / Adwaita | Fluent / Fluent-dark | Fluent-cursors | Noto Sans 9 | Fluent / FluentDark |
+| `aeronight` | desktop theme Aero Night (Vista era) | LinPad-AeroNight* / Adwaita | Fluent / Fluent-dark | Fluent-cursors | Noto Sans 9 | Fluent / FluentDark |
+| `classic` | desktop theme Classic 98 | LinPad-Classic* | Papirus | Adwaita | DejaVu Sans 9 | KvYaru |
+| `platinum` | desktop theme Platinum (classic Mac era) | LinPad-Platinum* | Qogir (else Papirus) | Adwaita | DejaVu Sans Condensed 9 | KvYaru |
+| `aqua` | desktop theme Aqua (early OS X) | LinPad-Aqua* / WhiteSur-Dark | WhiteSur / WhiteSur-dark | WhiteSur-cursors | DejaVu Sans 9 | WhiteSur |
+| `berry` | desktop theme Berry (dark) | Adwaita (recoloured) | Papirus-Dark | Adwaita | Noto Sans 10 | KvGnomeDark |
+| `dotmatrix` | desktop theme Dot Matrix | Adwaita (recoloured) | kora-pgrey (else Papirus) | Adwaita | Noto Sans Mono 10 | KvUKUI / KvUKUIDark |
+
+\* Installed on first use by `ish-style-packs` (the conf's `STYLE_PACKS`): `ish-apply-style`
+downloads the pack (pinned, sha256-checked, a few MB; Chicago95 28 MB) and falls back to
+Adwaita when it cannot. `ish-style-packs list | install <id> | ensure <style> | remove <id>`.
+A conf may also name `ICON_FALLBACK` for an icon pack that is not in every image. The
+desktop themes' colour palettes (`themes/desktop-themes/colors`) carry `widgets=style` in
+theme.conf where the GTK theme's own bevels are the look: `ish-apply-colors` then leaves GTK
+and Kvantum to the style and colours terminals, btop, VS Code and Firefox only.
 
 Default variant: `light` for windows, macos, ubuntu and kylin; `dark` for ish.
 

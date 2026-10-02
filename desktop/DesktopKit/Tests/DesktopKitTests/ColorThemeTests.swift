@@ -16,7 +16,8 @@ final class ColorThemeTests: XCTestCase {
 
     func testBundledThemesExcludeTheUnlicensedOnes() {
         let ids = Set(ColorTheme.builtIn.map(\.id))
-        XCTAssertEqual(ids.count, 20)
+        // 20 from Omarchy plus the 9 palettes of the desktop themes (themes/desktop-themes/colors).
+        XCTAssertEqual(ids.count, 29)
         XCTAssertFalse(ids.contains("ristretto"))
         XCTAssertFalse(ids.contains("lumon"))
         XCTAssertTrue(ColorTheme.builtIn.allSatisfy { $0.terminalColors.count == 16 }, "every theme resolves 16 ANSI colours")

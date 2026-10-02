@@ -13,16 +13,41 @@ final class PanelSystemMonitor {
     /// Busy and total jiffies from the previous /proc/stat sample; usage is the delta between samples.
     private var previousCPUTimes: (busy: Double, total: Double)?
 
+    /// Views that show the numbers (every style's panel meters, the System Monitor widget)
+    /// share one sampling loop; it runs while at least one of them is on screen.
+    @ObservationIgnored private var subscribers = 0
+    @ObservationIgnored private var loop: Task<Void, Never>?
+
+    /// Keeps the shared loop alive until the calling task is cancelled.
     func poll(_ host: any LinuxHost) async {
-        while !Task.isCancelled {
-            await sample(host)
-            do {
-                try await Task.sleep(for: Self.interval)
-            } catch {
-                return
+        subscribers += 1
+        if loop == nil {
+            loop = Task { [weak self] in
+                while !Task.isCancelled {
+                    await self?.sample(host)
+                    do {
+                        try await Task.sleep(for: Self.interval)
+                    } catch {
+                        return
+                    }
+                }
             }
         }
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(for: .seconds(3600))
+            } catch {
+                break
+            }
+        }
+        subscribers -= 1
+        if subscribers == 0 {
+            loop?.cancel()
+            loop = nil
+        }
     }
+
+    var isSampling: Bool { loop != nil }
 
     private func sample(_ host: any LinuxHost) async {
         let stat = await host.run("head -1 /proc/stat")

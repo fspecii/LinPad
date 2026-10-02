@@ -124,7 +124,7 @@ struct TopBar: View {
         .foregroundStyle(theme.primaryText)
         .padding(.horizontal, 8)
         .frame(height: DesktopStyleSpec.ubuntu.topBarHeight)
-        .background(Color.black.ignoresSafeArea(edges: .top))
+        .background(theme.panelBackground.ignoresSafeArea(edges: .top))
     }
 }
 
@@ -166,7 +166,7 @@ struct WindowsTaskbar: View {
         HStack(spacing: 4) {
             TaskbarIconButton(isActive: controller.isLauncherPresented, label: "Start",
                               identifier: "desktop.panel.applications") {
-                Image(systemName: "square.grid.2x2.fill")
+                ThemeGlyph(ThemeIconNames.launcher, symbol: "square.grid.2x2.fill", size: 19)
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(theme.accent)
             } action: {
@@ -351,7 +351,8 @@ struct Dock: View {
             ZStack {
                 RoundedRectangle(cornerRadius: Self.iconSize * 0.24, style: .continuous)
                     .fill(style == .ubuntu ? Color.white.opacity(0.08) : Color(white: 0.25))
-                Image(systemName: style == .ubuntu ? "circle.grid.3x3.fill" : "square.grid.3x3.fill")
+                ThemeGlyph(ThemeIconNames.launcher, symbol: style == .ubuntu ? "circle.grid.3x3.fill" : "square.grid.3x3.fill",
+                           size: Self.iconSize * 0.42)
                     .font(.system(size: Self.iconSize * 0.42, weight: .semibold))
                     .foregroundStyle(style == .ubuntu ? Color.white : theme.accent)
             }

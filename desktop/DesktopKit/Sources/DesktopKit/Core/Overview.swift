@@ -125,9 +125,15 @@ struct OverviewBackdrop: View {
                 .accessibilityIdentifier("desktop.overview.addWorkspace")
             }
             if manager.windowsInCurrentWorkspace().allSatisfy(\.isMinimized) {
-                Text("No open windows on this workspace")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.7))
+                VStack(spacing: 6) {
+                    Text("No open windows on this workspace")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.9))
+                    Text("Open an app from the launcher, or drag a window here from another workspace.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.white.opacity(0.7))
+                }
+                .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(false)
             }

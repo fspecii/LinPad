@@ -4,7 +4,7 @@ import SwiftUI
 extension DesktopStyle {
     var quickSettingsAlignment: Alignment {
         switch self {
-        case .windows, .kylin: .bottomTrailing
+        case .windows, .kylin, .luna, .aero, .aeronight, .classic: .bottomTrailing
         default: .topTrailing
         }
     }
@@ -28,7 +28,10 @@ extension DesktopStyle {
         case .windows: "Quick Settings"
         case .ubuntu: "System Menu"
         case .kylin: "Quick Settings"
-        case .ish: "Settings"
+        case .ish, .tiler: "Settings"
+        case .luna, .aero, .aeronight, .classic, .berry: "Quick Settings"
+        case .platinum: "Control Strip"
+        case .aqua, .dotmatrix: "Control Center"
         }
     }
 }
@@ -43,6 +46,20 @@ struct SystemTrayButtons: View {
 
     var body: some View {
         HStack(spacing: 2) {
+            if controller.isRecordingScreen {
+                Button { controller.stopScreenRecording() } label: {
+                    Image(systemName: "record.circle.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(theme.urgent)
+                        .symbolEffect(.pulse)
+                        .frame(width: 30, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .hoverEffect(.highlight)
+                .accessibilityLabel("Stop Screen Recording")
+                .accessibilityIdentifier("desktop.panel.recording")
+            }
             if controller.showsKeyboardButton {
                 let keyboard = OnScreenKeyboard.shared
                 Button { keyboard.toggle(for: controller) } label: {

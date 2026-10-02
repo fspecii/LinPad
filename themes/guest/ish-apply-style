@@ -1,6 +1,6 @@
 #!/bin/sh
 # Switches the Linux desktop style and regenerates the icon cache the iOS shell reads.
-#   ish-apply-style <windows|macos|ubuntu|kylin|ish> [light|dark]
+#   ish-apply-style <windows|macos|ubuntu|kylin|ish|tiler> [light|dark]
 #   ish-apply-style --list | --current | --cache-only
 #   ish-apply-style --icons <icon-theme|match>   icon pack independent of the style
 #   ish-apply-style --icon-themes | --icon-previews
@@ -41,16 +41,57 @@ firefox firefox-esr org.mozilla.firefox vscode com.visualstudio.code code
 visual-studio-code code-oss foot falkon org.kde.falkon vlc org.videolan.VLC
 thunderbird mail-client multimedia-video-player"
 
+# Places, file types (freedesktop mimetype names, with the shared-mime-info generic icons)
+# and toolbar/window actions the shell draws from the pack. Looked up exactly, without
+# GTK's dash fallback: the shell walks its own fallback chain, and "text-x-python" must
+# not become "text" nor "user-home" become "user". Rendered at 128 px only; "2x" in
+# index.json names the same file.
+EXACT_ICONS="user-home folder-home user-desktop folder-desktop drive-harddisk
+drive-harddisk-system computer folder-temp folder-recent folder user-trash user-trash-full
+folder-pictures folder-remote drive-removable-media media-removable folder-documents
+folder-download folder-music folder-videos folder-publicshare folder-templates
+inode-directory inode-symlink start-here view-app-grid
+text-plain text-x-generic text-x-script text-x-python text-x-csrc text-x-chdr
+text-x-c++src text-x-c++hdr text-x-java text-x-rust text-x-go text-x-ruby text-x-perl
+text-x-lua text-x-makefile text-markdown text-x-markdown text-html text-css text-x-patch
+text-x-log text-xml text-csv text-x-typescript text-javascript application-javascript
+application-x-php application-json application-xml application-x-yaml application-toml
+application-sql application-x-shellscript text-x-sh application-x-desktop
+application-x-executable application-x-sharedlib application-x-object application-x-generic
+application-pdf application-zip application-x-tar application-x-compressed-tar
+application-gzip application-x-xz application-x-bzip application-x-7z-compressed
+application-vnd.rar application-vnd.debian.binary-package application-x-rpm
+application-vnd.android.package-archive application-x-iso9660-image application-vnd.sqlite3
+application-x-sqlite3 package-x-generic image-x-generic image-png image-jpeg image-gif
+image-svg+xml image-webp image-bmp image-tiff image-vnd.microsoft.icon image-heif
+audio-x-generic audio-mpeg audio-x-wav audio-flac audio-ogg audio-mp4 video-x-generic
+video-mp4 video-x-matroska video-webm video-quicktime video-x-msvideo font-x-generic
+font-ttf font-otf x-office-document x-office-spreadsheet x-office-presentation
+application-vnd.oasis.opendocument.text application-vnd.oasis.opendocument.spreadsheet
+application-vnd.oasis.opendocument.presentation application-rtf application-msword
+application-vnd.openxmlformats-officedocument.wordprocessingml.document application-vnd.ms-excel
+application-vnd.openxmlformats-officedocument.spreadsheetml.sheet application-vnd.ms-powerpoint
+application-vnd.openxmlformats-officedocument.presentationml.presentation application-octet-stream
+go-previous-symbolic go-next-symbolic go-up-symbolic folder-new-symbolic
+document-new-symbolic view-refresh-symbolic view-grid-symbolic view-list-symbolic
+view-app-grid-symbolic open-menu-symbolic view-more-symbolic sidebar-show-symbolic
+document-edit-symbolic edit-clear-all-symbolic user-trash-symbolic media-eject-symbolic
+drive-harddisk-symbolic list-add-symbolic start-here-symbolic window-minimize-symbolic
+window-maximize-symbolic window-restore-symbolic window-close-symbolic
+go-previous go-next go-up folder-new document-new view-refresh view-grid view-list
+open-menu window-minimize window-maximize window-restore window-close"
+
 die() { echo "ish-apply-style: $*" >&2; exit 1; }
 
 usage() {
-    echo "usage: ish-apply-style <windows|macos|ubuntu|kylin|ish> [light|dark]"
+    echo "usage: ish-apply-style <windows|macos|ubuntu|kylin|ish|tiler> [light|dark]"
     echo "       ish-apply-style --list | --current | --cache-only"
     echo "       ish-apply-style --icons <icon-theme|match> | --icon-themes | --icon-previews"
 }
 
 load_style() { # style variant
     [ -f "$STYLES/$1.conf" ] || die "unknown style '$1' (try --list)"
+    STYLE_PACKS= ICON_FALLBACK=
     # shellcheck disable=SC1090
     . "$STYLES/$1.conf"
     STYLE=$1
@@ -59,6 +100,10 @@ load_style() { # style variant
     eval "GTK_THEME=\$GTK_THEME_$VARIANT ICON_THEME=\$ICON_THEME_$VARIANT"
     eval "CURSOR_THEME=\$CURSOR_THEME_$VARIANT KVANTUM_THEME=\$KVANTUM_THEME_$VARIANT"
     [ "$VARIANT" = dark ] && DARK=1 || DARK=0
+    # Themes a style borrows from an optional pack (ish-style-packs) or icon pack may be
+    # missing: Adwaita and ICON_FALLBACK stand in until they are installed.
+    if ! theme_dir "$ICON_THEME" >/dev/null; then ICON_THEME=${ICON_FALLBACK:-Papirus}; fi
+    check_gtk_theme
     STYLE_ICON_THEME=$ICON_THEME
     # Fonts and cursor size the user chose (ish-apply-colors --fonts) outlive style switches.
     if [ -f "$SHARE/fonts.env" ]; then
@@ -71,6 +116,29 @@ load_style() { # style variant
     # A pack the user picked outlives style switches, as long as it is still installed.
     override=$(cat "$ICON_OVERRIDE" 2>/dev/null || true)
     if [ -n "$override" ] && theme_dir "$override" >/dev/null; then ICON_THEME=$override; fi
+}
+
+check_gtk_theme() {
+    case $GTK_THEME in Adwaita|HighContrast) return 0 ;; esac
+    [ -f "/usr/share/themes/$GTK_THEME/gtk-3.0/gtk.css" ] && return 0
+    # A pack-provided theme is reported by ensure_packs instead, if it cannot be installed.
+    [ -n "${STYLE_PACKS:-}" ] || echo "ish-apply-style: GTK theme $GTK_THEME is not installed; using Adwaita" >&2
+    GTK_THEME=Adwaita
+}
+
+# A desktop theme's GTK theme comes from ish-style-packs on first use (needs network).
+# Progress goes to stderr so stdout keeps the one-line summary.
+ensure_packs() {
+    [ -n "${STYLE_PACKS:-}" ] || return 0
+    eval "wanted=\$GTK_THEME_$VARIANT"
+    [ -f "/usr/share/themes/$wanted/gtk-3.0/gtk.css" ] && { GTK_THEME=$wanted; return 0; }
+    command -v ish-style-packs >/dev/null 2>&1 || return 0
+    if ish-style-packs ensure "$STYLE" >&2; then
+        GTK_THEME=$wanted
+        check_gtk_theme
+    else
+        echo "ish-apply-style: could not install $STYLE_PACKS (no network?); Adwaita until the next switch" >&2
+    fi
 }
 
 # Installed icon themes (not cursor-only ones): "<id>\t<display name>".
@@ -232,12 +300,20 @@ theme_dirs_by_size() { # theme-dir
     ' "$1/index.theme" | sort -rn
 }
 
+# theme_dirs_by_size, worked out once per theme for a whole cache build (in DIRS_MEMO).
+theme_dirs_cached() { # theme-dir
+    [ -n "${DIRS_MEMO:-}" ] || { theme_dirs_by_size "$1"; return 0; }
+    memo=$DIRS_MEMO/$(printf '%s' "$1" | tr -c 'A-Za-z0-9' '_')
+    [ -f "$memo" ] || theme_dirs_by_size "$1" > "$memo"
+    cat "$memo"
+}
+
 # Prints the best source file for an icon name, or nothing.
 find_icon_in_chain() { # name
     name=$1
     best_png= best_png_size=0 small_svg=
     for tdir in $CHAIN; do
-        dirs=$(theme_dirs_by_size "$tdir")
+        dirs=$(theme_dirs_cached "$tdir")
         found=$(echo "$dirs" | while read -r size dir; do
             [ -n "$dir" ] || continue
             if [ "${dir#*symbolic}" != "$dir" ] && [ "${name%-symbolic}" = "$name" ]; then continue; fi
@@ -249,13 +325,17 @@ find_icon_in_chain() { # name
         done)
         [ -n "$found" ] || continue
         # Within one theme: a large or scalable SVG, else the largest PNG of >= 128 px,
-        # else any SVG, else the largest PNG. The first theme with a match wins.
-        pick=$(echo "$found" | awk '
+        # else any SVG, else the largest PNG. The first theme with a match wins. A
+        # "-symbolic" name takes its symbolic directory's file first: some packs also put
+        # a coloured variant under the same name in their sized directories.
+        pick=$(echo "$found" | awk -v symbolic="$([ "${name%-symbolic}" != "$name" ] && echo 1)" '
+            symbolic && $1 == "svg" && $3 ~ /\/symbolic\// && svg_sym == "" { svg_sym = $3 }
             $1 == "svg" && $2 >= 48 && svg_big == "" { svg_big = $3 }
             $1 == "svg" && svg_any == "" { svg_any = $3 }
             $1 == "png" && png == "" { png = $3; png_size = $2 }
             END {
-                if (svg_big != "") print svg_big
+                if (svg_sym != "") print svg_sym
+                else if (svg_big != "") print svg_big
                 else if (png != "" && png_size >= 128) print png
                 else if (svg_any != "") print svg_any
                 else if (png != "") print png
@@ -279,6 +359,15 @@ resolve_icon() { # name
         [ -n "$src" ] && { echo "$src"; return 0; }
         case $n in *-*) n=${n%-*} ;; *) return 0 ;; esac
     done
+}
+
+# EXACT_ICONS lookup: the name itself; a "-symbolic" name may fall back to the full-colour
+# icon of the same name.
+resolve_exact() { # name
+    src=$(find_icon_in_chain "$1")
+    if [ -z "$src" ] && [ "${1%-symbolic}" != "$1" ]; then src=$(find_icon_in_chain "${1%-symbolic}"); fi
+    [ -n "$src" ] && echo "$src"
+    return 0
 }
 
 rasterize() { # src dest size
@@ -313,7 +402,10 @@ build_icon_cache() {
     mkdir -p "$tmp"
 
     entries=$(desktop_entries)
-    names=$( { echo "$NATIVE_ICONS" | tr ' ' '\n'; echo "$entries" | cut -f2; } | sed '/^$/d' | sort -u)
+    names=$( { echo "$NATIVE_ICONS $EXACT_ICONS" | tr ' ' '\n'; echo "$entries" | cut -f2; } | sed '/^$/d' | sort -u)
+    exact=" $(echo $EXACT_ICONS) " native=" $(echo $NATIVE_ICONS) "
+    DIRS_MEMO=$tmp/.dirs
+    mkdir -p "$DIRS_MEMO"
 
     icons_json=
     resolved=0 missing=
@@ -322,7 +414,12 @@ build_icon_cache() {
 '
     for name in $names; do
         IFS=$old_ifs
-        src=$(resolve_icon "$name")
+        case $exact in
+        *" $name "*)
+            src=$(resolve_exact "$name")
+            case $native in *" $name "*) sizes=$SIZES ;; *) sizes=128 ;; esac ;;
+        *) src=$(resolve_icon "$name"); sizes=$SIZES ;;
+        esac
         if [ -z "$src" ]; then
             missing="$missing $name"
             IFS='
@@ -331,14 +428,18 @@ build_icon_cache() {
         fi
         stem=$(safe_file_name "$name")
         ok=1
-        for size in $SIZES; do
+        for size in $sizes; do
             [ "$size" = 128 ] && file=$stem.png || file=$stem@2x.png
             rasterize "$src" "$tmp/$file" "$size" || ok=0
             [ -s "$tmp/$file" ] || ok=0
         done
+        file2x=$stem@2x.png
+        [ -f "$tmp/$file2x" ] || file2x=$stem.png
+        # Symbolic icons are one-colour masks; the shell tints them with the theme's text colour.
+        case $src in *-symbolic.*|*/symbolic/*) symbolic=', "symbolic": true' ;; *) symbolic= ;; esac
         if [ "$ok" = 1 ]; then
             resolved=$((resolved + 1))
-            entry="$(json_str "$name"): {\"1x\": $(json_str "$stem.png"), \"2x\": $(json_str "$stem@2x.png"), \"source\": $(json_str "$src")}"
+            entry="$(json_str "$name"): {\"1x\": $(json_str "$stem.png"), \"2x\": $(json_str "$file2x"), \"source\": $(json_str "$src")$symbolic}"
             icons_json="${icons_json:+$icons_json,
     }$entry"
         else
@@ -384,6 +485,7 @@ build_icon_cache() {
 }
 EOF
     # Swap the directory in one rename so a reader never sees a half-written cache.
+    rm -rf "$DIRS_MEMO"
     rm -rf "$out.old"
     [ -d "$out" ] && mv "$out" "$out.old"
     mv "$tmp" "$out"
@@ -438,6 +540,7 @@ case ${1:-} in
 esac
 
 load_style "$1" "${2:-}"
+ensure_packs
 apply_settings
 build_icon_cache
 printf '%s\n' "$STYLE" > "$CURRENT.tmp"

@@ -31,6 +31,10 @@ struct WindowLayer: View {
                 SnapPreviewView(frame: preview.frame)
                     .zIndex(Double(manager.stackingOrder(of: window)) - 0.5)
             }
+            if controller.isRegionCapturePresented {
+                RegionCaptureView(controller: controller)
+                    .zIndex(Double(Int32.max))
+            }
             ForEach(manager.windows) { window in
                 WindowView(window: window, controller: controller, overviewFrame: overview?.frames[window.id])
                     .zIndex(Double(manager.stackingOrder(of: window)))
@@ -88,7 +92,11 @@ struct WindowView: View {
         let frame = manager.displayFrame(for: window)
         let isMaximized = window.isMaximized && !isInOverview
         let radius = isMaximized ? 0 : theme.cornerRadius
-        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        let squareBottom = style.spec.skin?.squaresBottomCorners == true
+        // The clip stays a plain rounded rectangle (a square-bottomed clip hid centred titles on
+        // iOS 26); Luna's and Aqua's square bottom corners are filled in behind it instead.
+        let clip = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        let shape = WindowShape(radius: radius, squareBottom: squareBottom)
         let placement = placement(for: frame)
 
         VStack(spacing: 0) {
@@ -99,11 +107,21 @@ struct WindowView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(theme.windowBackground)
         }
-        .clipShape(shape)
+        .clipShape(clip)
+        .background(alignment: .bottom) {
+            if squareBottom && radius > 0 { theme.windowBackground.frame(height: radius) }
+        }
         .overlay {
-            border(shape)
-                .allowsHitTesting(false)
-                .animation(DesktopMotion.quick, value: isFocused)
+            Group {
+                // Era skins draw their own frame instead of the focus ring (EraStyles.swift).
+                if let skin = style.spec.skin {
+                    if !isMaximized { EraWindowFrame(skin: skin, shape: shape, isFocused: isFocused) }
+                } else {
+                    border(shape)
+                }
+            }
+            .allowsHitTesting(false)
+            .animation(DesktopMotion.quick, value: isFocused)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(window.title)
@@ -126,7 +144,7 @@ struct WindowView: View {
     /// window, neutral on the rest. Colour themes turn it on everywhere; with the style's own
     /// colours it marks tiles, and floating windows keep their hairline.
     @ViewBuilder
-    private func border(_ shape: RoundedRectangle) -> some View {
+    private func border(_ shape: some InsettableShape) -> some View {
         let tiled = manager.isTiledByLayout(window)
         let width = !theme.showsFocusRing ? 0 : theme.borderWidth > 0 ? theme.borderWidth : (tiled && !manager.isZen ? 2 : 0)
         let active = theme.borderActive ?? theme.accent
@@ -182,8 +200,9 @@ struct WindowView: View {
         let spec = style.spec
         let menu = WindowMenu(window: window, controller: controller)
         return HStack(spacing: 0) {
-            if spec.buttonPlacement == .leading {
-                WindowButtons(window: window, manager: manager, shape: spec.buttonShape, isFocused: isFocused)
+            if spec.buttonPlacement == .leading || spec.buttonPlacement == .split {
+                WindowButtons(window: window, manager: manager, shape: spec.buttonShape, isFocused: isFocused,
+                              skin: spec.skin, side: .leading)
                     .padding(.leading, 6)
             }
             ZStack {
@@ -225,23 +244,33 @@ struct WindowView: View {
                     .accessibilityLabel("Window menu")
                     .accessibilityIdentifier("desktop.window.menu")
                     Text(window.title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(isFocused ? theme.primaryText : theme.secondaryText)
+                        .font(spec.skin?.titleFont(compact: !manager.metrics.isTouch) ?? .system(size: 13, weight: .semibold))
+                        .foregroundStyle(spec.skin?.titleColor(isFocused: isFocused, theme: theme)
+                                         ?? (isFocused ? theme.primaryText : theme.secondaryText))
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .eraTitleTreatment(spec.skin, isFocused: isFocused)
+                        .layoutPriority(1)
                         .allowsHitTesting(false)
                     Spacer(minLength: 0)
                     if spec.centersTitle { Color.clear.frame(width: 40, height: 1).allowsHitTesting(false) }
                 }
             }
-            if spec.buttonPlacement == .trailing {
-                WindowButtons(window: window, manager: manager, shape: spec.buttonShape, isFocused: isFocused)
+            if spec.buttonPlacement == .trailing || spec.buttonPlacement == .split {
+                WindowButtons(window: window, manager: manager, shape: spec.buttonShape, isFocused: isFocused,
+                              skin: spec.skin, side: .trailing)
             }
         }
         .frame(height: manager.titleBarHeight)
-        .background(isFocused ? theme.titleBarActive : theme.titleBarInactive)
+        .background {
+            if let skin = spec.skin {
+                EraTitleBarBackground(skin: skin, isFocused: isFocused)
+            } else {
+                isFocused ? theme.titleBarActive : theme.titleBarInactive
+            }
+        }
         .overlay(alignment: .bottom) {
-            theme.separator.frame(height: 1)
+            if spec.skin?.showsTitleSeparator ?? true { theme.separator.frame(height: 1) }
         }
     }
 

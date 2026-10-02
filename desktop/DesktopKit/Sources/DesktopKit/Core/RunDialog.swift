@@ -40,6 +40,7 @@ struct RunDialog: View {
                 // Escape is bound by the shell for every overlay (DesktopKeyboardShortcuts).
                 Button("Cancel") { controller.isRunDialogPresented = false }
                     .buttonStyle(.bordered)
+                    .tint(theme.accent)
                 Button("Run", action: run)
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.primary)

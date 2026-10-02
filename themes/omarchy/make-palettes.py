@@ -6,6 +6,9 @@ import json, os, re, shutil
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "src")
+# LinPad's own palettes for the desktop themes (themes/desktop-themes/colors, CC0), copied
+# next to Omarchy's.
+LINPAD = os.path.join(HERE, "..", "desktop-themes", "colors")
 OUT = os.path.join(HERE, "guest", "colors")
 TPL = os.path.join(HERE, "guest", "templates")
 
@@ -63,6 +66,8 @@ def main():
             f.write(f"vscode_name={vs_name or 'generated'}\n")
             f.write(f"vscode_extension={vs_ext}\n")
             f.write(f"wallhaven_q={WALLHAVEN_Q.get(tid, '')}\n")
+    for tid in sorted(os.listdir(LINPAD)):
+        shutil.copytree(os.path.join(LINPAD, tid), os.path.join(OUT, tid))
     os.makedirs(TPL, exist_ok=True)
     for t in ("btop.theme.tpl", "vscode-theme.json.tpl"):
         shutil.copy(os.path.join(SRC, "default", "themed", t), os.path.join(TPL, t))

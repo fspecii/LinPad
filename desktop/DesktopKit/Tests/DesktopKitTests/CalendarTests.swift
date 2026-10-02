@@ -100,7 +100,7 @@ final class CalendarStoreTests: XCTestCase {
     }
 
     func testLocalStoreKeepsEventsAcrossLaunches() {
-        let store = CalendarStore(bundle: Bundle(for: Self.self), local: LocalCalendarBackend(fileURL: fileURL))
+        let store = CalendarStore(bundle: Bundle(for: Self.self), local: LocalCalendarBackend(fileURL: fileURL, schedulesAlerts: false))
         XCTAssertEqual(store.access, .unavailable)
         let start = Date(timeIntervalSince1970: 1_790_000_000)
         var event = CalendarEvent(title: "Dentist", start: start, end: start.addingTimeInterval(1800),
@@ -109,7 +109,7 @@ final class CalendarStoreTests: XCTestCase {
         event.title = "Dentist (moved)"
         XCTAssertTrue(store.save(event))
 
-        let reopened = CalendarStore(bundle: Bundle(for: Self.self), local: LocalCalendarBackend(fileURL: fileURL))
+        let reopened = CalendarStore(bundle: Bundle(for: Self.self), local: LocalCalendarBackend(fileURL: fileURL, schedulesAlerts: false))
         let found = reopened.events(in: DateInterval(start: start.addingTimeInterval(-60), duration: 3600))
         XCTAssertEqual(found.map(\.title), ["Dentist (moved)"])
         reopened.delete(found[0])
@@ -117,7 +117,7 @@ final class CalendarStoreTests: XCTestCase {
     }
 
     func testHiddenCalendarsAreFilteredOut() {
-        let store = CalendarStore(bundle: Bundle(for: Self.self), local: LocalCalendarBackend(fileURL: fileURL))
+        let store = CalendarStore(bundle: Bundle(for: Self.self), local: LocalCalendarBackend(fileURL: fileURL, schedulesAlerts: false))
         let start = Date(timeIntervalSince1970: 1_790_000_000)
         store.save(CalendarEvent(title: "Standup", start: start, end: start.addingTimeInterval(900), calendarID: "local.work"))
         let span = DateInterval(start: start, duration: 3600)
@@ -157,7 +157,7 @@ final class CalendarStoreTests: XCTestCase {
 
     func testICSExportWritesIntoTheGuestHome() async throws {
         let host = MockLinuxHost(latency: .zero)
-        let store = CalendarStore(bundle: Bundle(for: Self.self), local: LocalCalendarBackend(fileURL: fileURL))
+        let store = CalendarStore(bundle: Bundle(for: Self.self), local: LocalCalendarBackend(fileURL: fileURL, schedulesAlerts: false))
         store.save(CalendarEvent(title: "Release", start: Date().addingTimeInterval(3600), end: Date().addingTimeInterval(7200),
                                  calendarID: "local.personal"))
         let error = await store.exportICS(to: host)

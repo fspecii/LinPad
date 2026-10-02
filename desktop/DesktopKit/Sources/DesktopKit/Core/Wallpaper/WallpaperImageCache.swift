@@ -110,6 +110,7 @@ final class WallpaperImageCache: @unchecked Sendable {
 enum BuiltInWallpapers {
     static let prefix = "builtin-"
     static let names = ["dunes", "peaks", "nebula", "waves"]
+        + ["meadow", "aurora", "aurora-night", "platinum", "aqua", "sonora", "berry", "dots-light", "dots-dark"]
 
     static func url(for fileName: String) -> URL? {
         let name = String(fileName.dropFirst(prefix.count)).replacingOccurrences(of: ".jpg", with: "")

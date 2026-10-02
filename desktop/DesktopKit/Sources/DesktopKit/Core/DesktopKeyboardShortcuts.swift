@@ -104,9 +104,22 @@ struct DesktopCommand: Identifiable {
                            modifiers: onCommand ? .command : windowKeys, keyLabel: "R") { $0.presentRunDialog() },
             // ⌃⌥T is the usual Linux desktop's terminal key; ⌃⌥↩ is Maximize.
             DesktopCommand(id: "terminal", title: "New Terminal", group: .general, key: onCommand ? .return : "t",
-                           modifiers: onCommand ? .command : windowKeys, keyLabel: onCommand ? "↩" : "T") {
+                           modifiers: onCommand ? .command : windowKeys, keyLabel: onCommand ? "↩\u{FE0E}" : "T") {
                 $0.open(appID: AppID.terminal, arguments: [:])
             },
+            // ⌘ chords give way to Linux apps and the terminal while they have focus.
+            DesktopCommand(id: "commandMenu", title: "Command Menu", group: .general, key: "k",
+                           modifiers: .command, keyLabel: "K") { $0.toggleCommandMenu() },
+            DesktopCommand(id: "shortcuts", title: "Keyboard Shortcuts", group: .general, key: "/",
+                           modifiers: .command, keyLabel: "/") { $0.isShortcutSheetPresented.toggle() },
+            DesktopCommand(id: "capture.full", title: "Screenshot", group: .general, key: "s",
+                           modifiers: windowKeys, keyLabel: "S") { $0.takeScreenshot(.full) },
+            DesktopCommand(id: "capture.region", title: "Screenshot of an Area", group: .general, key: "s",
+                           modifiers: [.control, .option, .shift], keyLabel: "S") { $0.beginRegionCapture() },
+            DesktopCommand(id: "capture.window", title: "Screenshot of the Window", group: .general, key: "w",
+                           modifiers: [.control, .option, .shift], keyLabel: "W") { $0.takeScreenshot(.window) },
+            DesktopCommand(id: "capture.record", title: "Start or Stop Screen Recording", group: .general, key: "r",
+                           modifiers: [.control, .option, .shift], keyLabel: "R") { $0.toggleScreenRecording() },
             DesktopCommand(id: "theme.picker", title: "Color Themes", group: .general, key: .space,
                            modifiers: [.control, .option, .shift], keyLabel: "Space") { $0.presentThemePicker() },
             DesktopCommand(id: "theme.next", title: "Next Color Theme", group: .general, key: "c",
@@ -127,7 +140,7 @@ struct DesktopCommand: Identifiable {
             DesktopCommand(id: "minimize", title: "Minimize Window", group: .windows, key: "m",
                            modifiers: windowKeys, keyLabel: "M", perform: onFocused { $0.minimize($1) }),
             DesktopCommand(id: "maximize", title: "Toggle Maximize", group: .windows, key: .return,
-                           modifiers: windowKeys, keyLabel: "↩", perform: onFocused { $0.toggleMaximize($1) }),
+                           modifiers: windowKeys, keyLabel: "↩\u{FE0E}", perform: onFocused { $0.toggleMaximize($1) }),
             DesktopCommand(id: "center", title: "Center Window", group: .windows, key: "c",
                            modifiers: windowKeys, keyLabel: "C", perform: onFocused { $0.center($1) }),
             DesktopCommand(id: "pin", title: "Always on Top", group: .windows, key: "p",
@@ -277,6 +290,12 @@ final class DesktopKeyCommands {
         if controller.isOverlayPresented {
             overlayCommands.append(Self.keyCommand(title: "Close", key: .escape, modifiers: [], id: "overlay.close"))
         }
+        if controller.commandMenu != nil {
+            overlayCommands += [
+                Self.keyCommand(title: "Previous Item", key: .upArrow, modifiers: [], id: "menu.previous"),
+                Self.keyCommand(title: "Next Item", key: .downArrow, modifiers: [], id: "menu.next"),
+            ]
+        }
         if controller.themePicker != nil {
             overlayCommands += [
                 Self.keyCommand(title: "Previous Theme", key: .leftArrow, modifiers: [], id: "picker.previous"),
@@ -323,6 +342,8 @@ final class DesktopKeyCommands {
         case "switcher.previous": controller.switcher.move(by: -1)
         case "switcher.next": controller.switcher.move(by: 1)
         case "switcher.commit": controller.commitSwitcher()
+        case "menu.previous": controller.moveCommandMenu(by: -1)
+        case "menu.next": controller.moveCommandMenu(by: 1)
         case "picker.previous": controller.moveThemePicker(by: -1)
         case "picker.next": controller.moveThemePicker(by: 1)
         case "picker.commit": controller.commitThemePicker()

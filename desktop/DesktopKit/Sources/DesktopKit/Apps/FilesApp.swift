@@ -28,6 +28,8 @@ struct FilesPlace: Identifiable, Hashable {
     let name: String
     let symbol: String
     let path: String
+    /// Freedesktop icon names, in fallback order (ThemeIconNames).
+    var iconNames: [String] = []
     var id: String { path }
 }
 
@@ -79,11 +81,13 @@ final class FilesModel {
         trash = FileTrash(host: context.host, homeDirectory: home)
         path = AppPath.normalize(context.arguments[AppArgument.path] ?? home)
         places = [
-            FilesPlace(name: "Home", symbol: "house", path: home),
-            FilesPlace(name: "Desktop", symbol: "menubar.dock.rectangle", path: AppPath.join(home, "Desktop")),
-            FilesPlace(name: "File System", symbol: "internaldrive", path: "/"),
-            FilesPlace(name: "Temporary", symbol: "clock.arrow.circlepath", path: "/tmp"),
-            FilesPlace(name: "Trash", symbol: "trash", path: AppPath.join(home, ".local/share/Trash/files")),
+            FilesPlace(name: "Home", symbol: "house", path: home, iconNames: ThemeIconNames.home),
+            FilesPlace(name: "Desktop", symbol: "menubar.dock.rectangle", path: AppPath.join(home, "Desktop"),
+                       iconNames: ThemeIconNames.desktop),
+            FilesPlace(name: "File System", symbol: "internaldrive", path: "/", iconNames: ThemeIconNames.fileSystem),
+            FilesPlace(name: "Temporary", symbol: "clock.arrow.circlepath", path: "/tmp", iconNames: ThemeIconNames.temporary),
+            FilesPlace(name: "Trash", symbol: "trash", path: AppPath.join(home, ".local/share/Trash/files"),
+                       iconNames: ThemeIconNames.trash),
         ]
     }
 
@@ -711,24 +715,6 @@ struct DesktopLink {
 // MARK: - Icons
 
 enum FileIcon {
-    /// The freedesktop icon name the style's icon pack provides for this entry.
-    static func iconName(for entry: FileEntry) -> String {
-        if entry.isDirectory { return entry.isSymlink ? "folder-remote" : "folder" }
-        switch AppPath.pathExtension(entry.name) {
-        case "js", "mjs", "cjs", "jsx", "ts", "tsx", "py", "sh", "c", "h", "cpp", "swift", "rs", "go", "rb",
-             "json", "yaml", "yml", "toml", "html", "htm", "css", "scss", "less":
-            return "text-x-script"
-        case "md", "txt", "log", "rst", "lock":
-            return "text-x-generic"
-        case "png", "jpg", "jpeg", "gif", "svg", "webp", "ico":
-            return "image-x-generic"
-        case "zip", "tar", "gz", "tgz", "xz", "bz2", "apk":
-            return "package-x-generic"
-        default:
-            return "text-x-generic"
-        }
-    }
-
     static func symbol(for entry: FileEntry) -> String {
         if entry.isDirectory { return entry.isSymlink ? "folder.badge.gearshape" : "folder.fill" }
         switch AppPath.pathExtension(entry.name) {
@@ -938,26 +924,27 @@ struct FilesAppView: View {
 
     private var toolbar: some View {
         AppToolbar {
-            ToolbarIconButton("sidebar.left", help: "Toggle Sidebar", isActive: showsSidebar) {
+            ToolbarIconButton("sidebar.left", icon: ThemeIconNames.sidebar, help: "Toggle Sidebar", isActive: showsSidebar) {
                 withAnimation(.easeOut(duration: 0.2)) { showsSidebar.toggle() }
             }
-            ToolbarIconButton("chevron.left", help: "Back") { model.goBack() }
+            ToolbarIconButton("chevron.left", icon: ThemeIconNames.goBack, help: "Back") { model.goBack() }
                 .disabled(!model.canGoBack)
-            ToolbarIconButton("chevron.right", help: "Forward") { model.goForward() }
+            ToolbarIconButton("chevron.right", icon: ThemeIconNames.goForward, help: "Forward") { model.goForward() }
                 .disabled(!model.canGoForward)
-            ToolbarIconButton("arrow.up", help: "Enclosing Folder") { model.goUp() }
+            ToolbarIconButton("arrow.up", icon: ThemeIconNames.goUp, help: "Enclosing Folder") { model.goUp() }
                 .disabled(!model.canGoUp)
             pathBar
                 .padding(.horizontal, 4)
             if model.isTrash {
-                ToolbarIconButton("trash.slash", help: "Empty Trash") { confirmsEmptyTrash = true }
+                ToolbarIconButton("trash.slash", icon: ThemeIconNames.emptyTrash, help: "Empty Trash") { confirmsEmptyTrash = true }
                     .disabled(model.entries.isEmpty)
             } else {
-                ToolbarIconButton("folder.badge.plus", help: "New Folder") { beginPrompt(.newFolder, text: "New Folder") }
-                ToolbarIconButton("doc.badge.plus", help: "New File") { beginPrompt(.newFile, text: "untitled.txt") }
+                ToolbarIconButton("folder.badge.plus", icon: ThemeIconNames.newFolder, help: "New Folder") { beginPrompt(.newFolder, text: "New Folder") }
+                ToolbarIconButton("doc.badge.plus", icon: ThemeIconNames.newFile, help: "New File") { beginPrompt(.newFile, text: "untitled.txt") }
             }
-            ToolbarIconButton("arrow.clockwise", help: "Refresh") { model.reload() }
+            ToolbarIconButton("arrow.clockwise", icon: ThemeIconNames.refresh, help: "Refresh") { model.reload() }
             ToolbarIconButton(model.viewMode == .list ? "square.grid.2x2" : "list.bullet",
+                              icon: model.viewMode == .list ? ThemeIconNames.gridView : ThemeIconNames.listView,
                               help: model.viewMode == .list ? "Icon View" : "List View") {
                 model.viewMode = model.viewMode == .list ? .grid : .list
             }
@@ -1005,7 +992,7 @@ struct FilesAppView: View {
         .overlay(alignment: .trailing) {
             if !isEditingPath {
                 Button(action: beginEditingPath) {
-                    Image(systemName: "pencil")
+                    ThemeGlyph(ThemeIconNames.editPath, symbol: "pencil", size: 11)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(theme.secondaryText)
                         .frame(width: 26, height: 26)
@@ -1025,14 +1012,14 @@ struct FilesAppView: View {
             if component.path != "/" {
                 Image(systemName: "chevron.compact.right")
                     .font(.system(size: 11))
-                    .foregroundStyle(theme.secondaryText.opacity(0.6))
+                    .foregroundStyle(theme.secondaryText)
             }
             Button {
                 model.navigate(to: component.path)
             } label: {
                 Group {
                     if component.path == "/" {
-                        Image(systemName: "internaldrive")
+                        ThemeGlyph(ThemeIconNames.rootDrive, symbol: "internaldrive", size: 13)
                     } else {
                         Text(component.name)
                     }
@@ -1055,7 +1042,7 @@ struct FilesAppView: View {
         Menu {
             sortAndViewItems
         } label: {
-            Image(systemName: "line.3.horizontal.decrease.circle")
+            ThemeGlyph(ThemeIconNames.menu, symbol: "line.3.horizontal.decrease.circle", size: 14)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(theme.primaryText)
                 .frame(width: 30, height: 28)
@@ -1141,8 +1128,9 @@ struct FilesAppView: View {
             .padding(.bottom, 4)
     }
 
-    private func sidebarLabel(_ title: String, symbol: String, isCurrent: Bool, dimmed: Bool = false) -> some View {
-        Label(title, systemImage: symbol)
+    private func sidebarLabel(_ title: String, symbol: String, icon: [String], isCurrent: Bool,
+                              dimmed: Bool = false) -> some View {
+        Label { Text(title) } icon: { ThemeGlyph(icon, symbol: symbol, size: 15) }
             .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
             .foregroundStyle(theme.primaryText.opacity(dimmed ? 0.45 : (isCurrent ? 1 : 0.85)))
             .lineLimit(1)
@@ -1155,7 +1143,7 @@ struct FilesAppView: View {
 
     private var photosRow: some View {
         Button { showsPhotos = true } label: {
-            sidebarLabel("Photos", symbol: "photo.on.rectangle", isCurrent: showsPhotos)
+            sidebarLabel("Photos", symbol: "photo.on.rectangle", icon: ThemeIconNames.pictures, isCurrent: showsPhotos)
         }
         .buttonStyle(.plain)
         .hoverEffect(.highlight)
@@ -1173,11 +1161,12 @@ struct FilesAppView: View {
             }
         } label: {
             sidebarLabel(place.name, symbol: available ? "externaldrive" : "externaldrive.badge.exclamationmark",
-                         isCurrent: isCurrent, dimmed: !available)
+                         icon: ThemeIconNames.iPadFolder, isCurrent: isCurrent, dimmed: !available)
                 .overlay(alignment: .trailing) {
                     if available {
                         Button { model.eject(place) } label: {
-                            Image(systemName: "eject").font(.system(size: 11)).foregroundStyle(theme.secondaryText)
+                            ThemeGlyph(ThemeIconNames.eject, symbol: "eject", size: 11)
+                                .font(.system(size: 11)).foregroundStyle(theme.secondaryText)
                                 .frame(width: 24, height: 24).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -1209,7 +1198,7 @@ struct FilesAppView: View {
             showsPhotos = false
             model.navigate(to: place.path)
         } label: {
-            Label(place.name, systemImage: place.symbol)
+            Label { Text(place.name) } icon: { ThemeGlyph(place.iconNames, symbol: place.symbol, size: 15) }
                 .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
                 .foregroundStyle(isCurrent ? theme.primaryText : theme.primaryText.opacity(0.85))
                 .lineLimit(1)
@@ -1367,7 +1356,7 @@ struct FilesAppView: View {
 
     private func listRow(_ entry: FileEntry, striped: Bool) -> some View {
         HStack(spacing: 10) {
-            FileIconView(entry: entry, size: 14, theme: theme)
+            FileIconView(entry: entry, size: 14, theme: theme, home: model.homeDirectory)
                 .frame(width: 20)
             Text(entry.name)
                 .font(.system(size: 13))
@@ -1438,10 +1427,11 @@ struct FilesAppView: View {
         let isSelected = model.selection.contains(entry.path)
         let isDropTarget = model.dropTarget == entry.path
         return VStack(spacing: 6) {
-            FileIconView(entry: entry, size: 34, theme: theme)
+            FileIconView(entry: entry, size: 34, theme: theme, home: model.homeDirectory)
                 .frame(height: 40)
             Text(entry.name)
                 .font(.system(size: 12))
+                .foregroundStyle(isSelected ? theme.accent.readableLabel : theme.primaryText)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .truncationMode(.middle)
@@ -1728,15 +1718,17 @@ struct OptionalDrop: ViewModifier {
         .frame(width: 840, height: 540)
 }
 
-/// A file's icon from the style's icon pack, or its SF Symbol.
+/// A file's icon from the style's icon pack (by MIME type, FileTypeIcons), or its SF Symbol.
 struct FileIconView: View {
     let entry: FileEntry
     let size: CGFloat
     let theme: DesktopTheme
+    /// The home directory, whose Desktop, Documents, … folders have their own icons.
+    var home: String? = nil
     @Environment(\.desktopIcons) private var icons
 
     var body: some View {
-        if let image = icons?.image(named: FileIcon.iconName(for: entry)) {
+        if let image = icons?.icon(FileTypeIcons.iconNames(for: entry, home: home))?.image {
             Image(uiImage: image)
                 .resizable()
                 .interpolation(.high)

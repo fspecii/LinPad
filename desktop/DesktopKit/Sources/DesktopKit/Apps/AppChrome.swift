@@ -44,7 +44,8 @@ struct InlineBanner: View {
                 Button(actionTitle, action: action)
                     .buttonStyle(.plain)
                     .font(.callout.weight(.semibold))
-                    .foregroundStyle(kind.tint)
+                    .foregroundStyle(theme.primaryText)
+                    .underline()
                     .hoverEffect(.highlight)
             }
             if let onDismiss {
@@ -74,12 +75,15 @@ struct ToolbarIconButton: View {
     @Environment(\.desktopTheme) private var theme
     @Environment(\.isEnabled) private var isEnabled
     let symbol: String
+    /// Freedesktop icon names drawn from the icon pack in place of the symbol (ThemeIconNames).
+    var icon: [String] = []
     let help: String
     var isActive = false
     let action: () -> Void
 
-    init(_ symbol: String, help: String, isActive: Bool = false, action: @escaping () -> Void) {
+    init(_ symbol: String, icon: [String] = [], help: String, isActive: Bool = false, action: @escaping () -> Void) {
         self.symbol = symbol
+        self.icon = icon
         self.help = help
         self.isActive = isActive
         self.action = action
@@ -87,7 +91,7 @@ struct ToolbarIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
+            ThemeGlyph(icon, symbol: symbol, size: 14)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(isActive ? theme.accent : theme.primaryText)
                 .frame(width: 30, height: 28)

@@ -67,7 +67,7 @@ enum CalendarKey: String, CaseIterable {
             case .escape: (UIKeyCommand.inputEscape, [])
             }
         }()
-        let command = UIKeyCommand(title: "", action: #selector(CalendarKeyView.perform(_:)), input: input,
+        let command = UIKeyCommand(title: "", action: #selector(CalendarKeyView.performCalendarKey(_:)), input: input,
                                    modifierFlags: flags, propertyList: rawValue)
         command.wantsPriorityOverSystemBehavior = true
         return command
@@ -82,7 +82,7 @@ final class CalendarKeyView: UIView {
     override var canBecomeFirstResponder: Bool { true }
     override var keyCommands: [UIKeyCommand]? { CalendarKey.commands }
 
-    @objc func perform(_ sender: UIKeyCommand) {
+    @objc func performCalendarKey(_ sender: UIKeyCommand) {
         guard let raw = sender.propertyList as? String, let key = CalendarKey(rawValue: raw) else { return }
         onKey?(key)
     }
@@ -191,6 +191,7 @@ struct CalendarAppView: View {
                 ZStack {
                     theme.scrim.opacity(0.6).contentShape(Rectangle()).onTapGesture { editing = nil }
                     EventEditorView(store: store, event: event, onDone: { editing = nil })
+                        .id(event.id)
                 }
                 .transition(.opacity)
             }
@@ -201,6 +202,7 @@ struct CalendarAppView: View {
                 .frame(width: 1, height: 1)
                 .accessibilityHidden(true)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("calendar.app")
     }
 
@@ -316,6 +318,8 @@ struct CalendarAppView: View {
     }
 
     private func handle(_ key: CalendarKey, store: CalendarStore) {
+        // The key view can still hold the keyboard for a moment after the editor opens.
+        guard editing == nil || key == .escape else { return }
         switch key {
         case .today: select(Date())
         case .new: editing = store.draft(on: selection, calendar: calendar)

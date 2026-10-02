@@ -30,6 +30,25 @@ replaced by Noto Sans and Inter.
 Pruned from every GTK theme: GNOME Shell, Cinnamon, Metacity, XFWM, Plank and GTK 2
 directories (DesktopKit draws the window chrome; nothing under ishwl reads them).
 
+## Desktop themes' GTK themes (ish-style-packs, installed on first use)
+
+Installed under LinPad names (index.theme rewritten) because the upstream directory names
+carry vendor trademarks. GTK 3/4 only; GTK 2, shell, window-manager, icon, cursor and branding
+files are not installed. Chicago95's icons and cursors are left out on purpose: they redraw
+vendor artwork (its menu glyph is a vendor logo).
+
+| Pack (id) | Installed as | Source | Commit / sha256 of codeload tarball | Licence |
+|---|---|---|---|---|
+| `luna` | LinPad-Luna ("Windows XP Luna" folder) | https://github.com/B00merang-Project/Windows-XP | 7637830906823af40a3cd7e7079be753d8b7d679 / d1b23679eb66ac6cc8278736ed87b7dbf2be17d23fe11c6dc63b5cc0336ebb31 | GPL-3.0 |
+| `aero` | LinPad-Aero | https://github.com/B00merang-Project/Windows-7 | 943b5307b349d3526068be0fa32f7549ee37ab45 / c1aafb19489bf9becbb7b4f541883eee79a0eccb90e62ab0bcc4b356664b3225 | GPL-3.0 |
+| `aeronight` | LinPad-AeroNight | https://github.com/B00merang-Project/Windows-Vista | 719b12bdb6f6dd352f7ca26ac2fd78ddc10efb8c / 6b08f59b9d3910f803c09e7dd4dc2856d1c03e8a4cffe8598e34032c411c4551 | GPL-3.0 |
+| `classic` | LinPad-Classic (Theme/Chicago95) | https://github.com/grassmunk/Chicago95 | 5da19b8b1e2a886ebf6628403023d5fac3acc3ee / 08712ab1e8220723ca8b64cff0d944652e3d782283cc24056f7a98ab5287ae23 | GPL-3.0+ / MIT (README) |
+| `platinum` | LinPad-Platinum | https://github.com/B00merang-Project/Mac-OS-9 | ca8a5d2a3fb1976cf904133574a3d0022ac2cf71 / ea8b5f6c171a70ad87cb6df8adb3ed891dd662c453d9925ac0ddc2d355a48aab | GPL-3.0 |
+| `aqua` | LinPad-Aqua | https://github.com/B00merang-Project/Mac-OS-X-Cheetah | f0bf2e2e66e45cab6890fb05bd0cbb0633baf22a / 42f6569b2243248d2e9b744f748726229abfb9014acbffd81aebd581a32417ba | GPL-3.0 |
+
+The desktop themes' fonts are packages already in the image (DejaVu, Noto, Inter); their
+icon packs are Papirus, Fluent, WhiteSur, Qogir and kora (see below).
+
 ## Icon packs (Settings › Icons)
 
 Managed by `ish-icon-packs` (catalogue inside the script; GitHub tarballs are pinned to a

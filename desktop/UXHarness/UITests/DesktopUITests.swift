@@ -198,6 +198,48 @@ class DesktopUITests: XCTestCase {
         waitFor("exact frame back: \(themes.frame) vs \(original)", timeout: 5) { themes.frame == original }
     }
 
+    // MARK: Command Menu, cheatsheet, capture
+
+    func testCommandMenuOpensAnAppAndCheatsheetShows() {
+        app.typeKey("k", modifierFlags: .command)
+        let search = app.textFields["commandMenu.search"]
+        if !search.waitForExistence(timeout: 5) { debugShot("cmdk-missing") }
+        XCTAssertTrue(search.exists, "⌘K opens the Command Menu")
+        debugShot("command-menu")
+        search.typeText("files")
+        search.typeText("\n")
+        XCTAssertTrue(window("files").waitForExistence(timeout: 5), "Return runs the best match")
+        XCTAssertFalse(search.exists)
+
+        app.typeKey("/", modifierFlags: .command)
+        let sheet = app.descendants(matching: .any)["shortcutSheet"].firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5), "⌘/ shows the cheatsheet")
+        XCTAssertTrue(app.staticTexts["Command Menu"].exists, "generated from the binding table")
+        debugShot("cheatsheet")
+        app.typeKey("/", modifierFlags: .command)
+        waitFor("cheatsheet closed") { !sheet.exists }
+    }
+
+    func testBrightnessCommandShowsTheOSD() {
+        app.typeKey("k", modifierFlags: .command)
+        let search = app.textFields["commandMenu.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.typeText("brightness down\n")
+        let osd = app.descendants(matching: .any)["desktop.osd"].firstMatch
+        XCTAssertTrue(osd.waitForExistence(timeout: 3), "the OSD shows the new level")
+        debugShot("osd")
+        waitFor("the OSD fades", timeout: 4) { !osd.exists }
+    }
+
+    func testScreenshotIsSavedToPictures() {
+        app.typeKey("s", modifierFlags: windowKeys)
+        let toast = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS 'Screenshot saved to ~/Pictures/Screenshots'")).firstMatch
+        XCTAssertTrue(toast.waitForExistence(timeout: 10), "the toast says where the screenshot went")
+        XCTAssertTrue(app.buttons["Share"].exists, "the toast offers Share")
+        debugShot("screenshot-toast")
+    }
+
     // MARK: Themes app
 
     private func openThemes() -> XCUIElement {
@@ -240,13 +282,12 @@ class DesktopUITests: XCTestCase {
         if !status.waitForExistence(timeout: 10) { debugShot("editor-save") }
         XCTAssertTrue(status.exists)
         waitFor("saved: \(status.label)", timeout: 10) { status.label.hasPrefix("Saved UI Test Theme") }
-        app.buttons["themes.section.gallery"].tap()
-        let search = app.textFields["themes.search"]
-        XCTAssertTrue(search.waitForExistence(timeout: 5))
-        search.tap()
-        search.typeText("UI Test")
-        XCTAssertTrue(app.buttons["themes.apply.ui-test-theme"].waitForExistence(timeout: 5), "the new theme is in the gallery")
-        XCTAssertEqual(app.buttons["themes.apply.ui-test-theme"].label, "Applied")
+        // The saved theme is the desktop's current one: the colour theme picker opens on it.
+        app.typeKey(XCUIKeyboardKey.space.rawValue, modifierFlags: [.control, .option, .shift])
+        let title = app.staticTexts["themePicker.title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        XCTAssertEqual(title.label, "UI Test Theme")
+        XCTAssertTrue(app.buttons["themePicker.card.ui-test-theme"].exists, "listed with the other themes")
     }
 
     func testLightAndDarkModesApplyThePairedTheme() {
@@ -596,12 +637,14 @@ class DesktopUITests: XCTestCase {
         app.terminate()
         // No -desktop.style here: the argument domain would override the style onboarding saves.
         app.launchArguments = ["-desktop.resetSession", "YES", "-desktop.autostart", "",
-                               "-desktop.tiling", "", "-desktop.onboarded", "NO"]
+                               "-desktop.tiling", "", "-desktop.onboarded", "NO", "-desktop.onboarding.progress", ""]
         app.launch()
         let onboarding = app.descendants(matching: .any)["desktop.onboarding"]
         XCTAssertTrue(onboarding.waitForExistence(timeout: 15))
-        app.buttons["onboarding.style.kylin"].tap()
-        app.buttons["onboarding.done"].tap()
+        let kylin = app.buttons["onboarding.style.kylin"]
+        for _ in 0..<7 where !kylin.exists { app.buttons["onboarding.next"].tap() }
+        kylin.tap()
+        app.buttons["onboarding.skip"].tap()
         waitFor("onboarding closed") { !onboarding.exists }
         XCTAssertTrue(app.descendants(matching: .any)["desktop.panel.search"].firstMatch.waitForExistence(timeout: 5),
                       "the Kylin panel is up")

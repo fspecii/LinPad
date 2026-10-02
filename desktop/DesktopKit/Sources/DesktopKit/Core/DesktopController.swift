@@ -41,6 +41,16 @@ final class DesktopController {
     @ObservationIgnored var linuxFontsTask: Task<Void, Never>?
     /// The colour theme picker (⌃⌥⇧Space), while open.
     var themePicker: ColorThemePicker?
+    /// The Command Menu (⌘K), while open.
+    var commandMenu: CommandMenuState?
+    /// The keyboard shortcut cheatsheet (⌘/), while open.
+    var isShortcutSheetPresented = false
+    /// The volume / brightness / layout pill, while shown.
+    var osd: OSDState?
+    /// The screenshot area picker (⌃⌥⇧S), while open.
+    var isRegionCapturePresented = false
+    var isRecordingScreen = false
+    @ObservationIgnored var osdObserver: OSDObserver?
     /// Toasts under the pointer, which do not time out.
     @ObservationIgnored var hoveredToasts: Set<UUID> = []
     @ObservationIgnored private var wallpaperToast: UUID?
@@ -87,7 +97,8 @@ final class DesktopController {
     var isOverlayPresented: Bool {
         isLauncherPresented || isRunDialogPresented || switcher.isPresented || isOverviewPresented
             || isQuickSettingsPresented || isNotificationCenterPresented || isPowerMenuPresented || isLocked
-            || isOnboardingPresented || themePicker != nil
+            || isOnboardingPresented || themePicker != nil || commandMenu != nil || isShortcutSheetPresented
+            || isRegionCapturePresented
     }
 
     func toggleQuickSettings() {
@@ -173,6 +184,7 @@ final class DesktopController {
         linux?.delegate = self
         linux?.start()
         input.controller = self
+        osdObserver = OSDObserver(controller: self)
         colorThemes.onApplyRequest = { [weak self] id in self?.applyColorTheme(id) }
         colorThemes.onPickerRequest = { [weak self] in self?.presentThemePicker() }
         colorThemes.onFindWallpapersRequest = { [weak self] theme in self?.findWallpapers(for: theme) }
@@ -297,7 +309,9 @@ final class DesktopController {
         guard newStyle != style || icons.style != newStyle || icons.isDark != dark else { return }
         dismissTransientOverlays()
         isLauncherPresented = false
+        let changed = newStyle != style
         withAnimation(DesktopMotion.standard) { style = newStyle }
+        if changed { applyStyleDefaults(newStyle) }
         Task {
             guard await icons.needsApply(newStyle, dark: dark) else {
                 icons.useCache(for: newStyle, dark: dark)
@@ -332,6 +346,12 @@ final class DesktopController {
     func dismissTopOverlay() {
         if isLocked {
             unlockScreen()
+        } else if isRegionCapturePresented {
+            finishRegionCapture(nil)
+        } else if commandMenu != nil {
+            commandMenu = nil
+        } else if isShortcutSheetPresented {
+            isShortcutSheetPresented = false
         } else if themePicker != nil {
             cancelThemePicker()
         } else if isPowerMenuPresented {

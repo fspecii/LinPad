@@ -5,36 +5,90 @@
 	<key>PreferenceSpecifiers</key>
 	<array>
 		<dict>
+			<key>FooterText</key>
+			<string>Opens the app straight to the settings menu. Useful if you changed anything there and need to change it back but the app won't start.</string>
 			<key>Type</key>
 			<string>PSGroupSpecifier</string>
-			<key>FooterText</key>
-			<string>Opens the app straight to the settings menu. Useful if you changed anything there and need to change it back but the app won&apos;t start.</string>
 		</dict>
 		<dict>
-			<key>Type</key>
-			<string>PSToggleSwitchSpecifier</string>
-			<key>Title</key>
-			<string>Recovery Mode</string>
-			<key>Key</key>
-			<string>recovery</string>
 			<key>DefaultValue</key>
 			<false/>
-		</dict>
-		<dict>
-			<key>Type</key>
-			<string>PSGroupSpecifier</string>
-			<key>FooterText</key>
-			<string>Starts in the windowed desktop. Turn off to get the classic full-screen terminal.</string>
-		</dict>
-		<dict>
+			<key>Key</key>
+			<string>recovery</string>
+			<key>Title</key>
+			<string>Recovery Mode</string>
 			<key>Type</key>
 			<string>PSToggleSwitchSpecifier</string>
-			<key>Title</key>
-			<string>Desktop</string>
-			<key>Key</key>
-			<string>desktop.enabled</string>
+		</dict>
+		<dict>
+			<key>FooterText</key>
+			<string>Starts in the windowed desktop. Turn off to get the classic full-screen terminal.</string>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+		</dict>
+		<dict>
 			<key>DefaultValue</key>
 			<true/>
+			<key>Key</key>
+			<string>desktop.enabled</string>
+			<key>Title</key>
+			<string>Desktop</string>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+		</dict>
+		<dict>
+			<key>FooterText</key>
+			<string>For when the desktop is not usable. Repair puts back the system files that ship with the app and keeps all your data; it runs once the desktop has started. A reset reinstalls the Linux system at the next launch: Keep My Files keeps /root and /home, Erase Everything deletes them. A reset runs only with RESET typed below; both fields clear themselves at the next launch.</string>
+			<key>Title</key>
+			<string>Maintenance</string>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+		</dict>
+		<dict>
+			<key>DefaultValue</key>
+			<false/>
+			<key>Key</key>
+			<string>linux.repairAtLaunch</string>
+			<key>Title</key>
+			<string>Repair System at Next Launch</string>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+		</dict>
+		<dict>
+			<key>DefaultValue</key>
+			<string></string>
+			<key>Key</key>
+			<string>linux.factoryReset</string>
+			<key>Title</key>
+			<string>Reset to Factory at Next Launch</string>
+			<key>Titles</key>
+			<array>
+				<string>Off</string>
+				<string>Keep My Files</string>
+				<string>Erase Everything</string>
+			</array>
+			<key>Type</key>
+			<string>PSMultiValueSpecifier</string>
+			<key>Values</key>
+			<array>
+				<string></string>
+				<string>keep-files</string>
+				<string>erase</string>
+			</array>
+		</dict>
+		<dict>
+			<key>AutocapitalizationType</key>
+			<string>AllCharacters</string>
+			<key>AutocorrectionType</key>
+			<string>No</string>
+			<key>DefaultValue</key>
+			<string></string>
+			<key>Key</key>
+			<string>linux.factoryResetConfirm</string>
+			<key>Title</key>
+			<string>Type RESET to Confirm</string>
+			<key>Type</key>
+			<string>PSTextFieldSpecifier</string>
 		</dict>
 	</array>
 </dict>

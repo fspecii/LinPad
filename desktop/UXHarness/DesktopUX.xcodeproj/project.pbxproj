@@ -10,6 +10,8 @@
 		2B33A885D10821ABEBCCE783 /* StyleScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8EB04400C7FF26AA9C17D3 /* StyleScreenshots.swift */; };
 		2CAA187C22A74C4D6D805DE0 /* DesktopUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA42D54ACE41A9C571FC4AB /* DesktopUITests.swift */; };
 		2CF0767EF677E45DD338B6D5 /* HarnessApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE2A2A78AF0D7C4142E4F4D2 /* HarnessApp.swift */; };
+		36098F4958FA1BEC0AB2F7F5 /* OnboardingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E49C199BBB023D15AB1DE /* OnboardingUITests.swift */; };
+		427B6E473B1869A9336F521C /* WidgetsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38DE4AC7D1BB2AFB38216E07 /* WidgetsUITests.swift */; };
 		8D86F8A89EED996EBF66BEF6 /* DesktopKit in Frameworks */ = {isa = PBXBuildFile; productRef = 59EFA4C0450AFEE98FFD2EBC /* DesktopKit */; };
 		B644889ABB41FDE2E90E062F /* LiveWallhavenScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B1A430120A572ABD1A0BD75 /* LiveWallhavenScreenshots.swift */; };
 		FDB89417314278B38772EDAA /* RealAppScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 717FEA742F25D083F27BEC8B /* RealAppScreenshots.swift */; };
@@ -27,12 +29,14 @@
 
 /* Begin PBXFileReference section */
 		2D53A07B448DDFEFE0982BD2 /* DesktopHarness.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = DesktopHarness.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		38DE4AC7D1BB2AFB38216E07 /* WidgetsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetsUITests.swift; sourceTree = "<group>"; };
 		717FEA742F25D083F27BEC8B /* RealAppScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealAppScreenshots.swift; sourceTree = "<group>"; };
 		774B3726C143C053A03833F3 /* DesktopKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DesktopKit; path = ../DesktopKit; sourceTree = SOURCE_ROOT; };
 		8B1A430120A572ABD1A0BD75 /* LiveWallhavenScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveWallhavenScreenshots.swift; sourceTree = "<group>"; };
 		AE2A2A78AF0D7C4142E4F4D2 /* HarnessApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessApp.swift; sourceTree = "<group>"; };
 		DA4E3C8D783502C2C25F12E8 /* DesktopUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = DesktopUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EA8EB04400C7FF26AA9C17D3 /* StyleScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StyleScreenshots.swift; sourceTree = "<group>"; };
+		F11E49C199BBB023D15AB1DE /* OnboardingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingUITests.swift; sourceTree = "<group>"; };
 		FFA42D54ACE41A9C571FC4AB /* DesktopUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -53,8 +57,10 @@
 			children = (
 				FFA42D54ACE41A9C571FC4AB /* DesktopUITests.swift */,
 				8B1A430120A572ABD1A0BD75 /* LiveWallhavenScreenshots.swift */,
+				F11E49C199BBB023D15AB1DE /* OnboardingUITests.swift */,
 				717FEA742F25D083F27BEC8B /* RealAppScreenshots.swift */,
 				EA8EB04400C7FF26AA9C17D3 /* StyleScreenshots.swift */,
+				38DE4AC7D1BB2AFB38216E07 /* WidgetsUITests.swift */,
 			);
 			path = UITests;
 			sourceTree = "<group>";
@@ -186,8 +192,10 @@
 			files = (
 				2CAA187C22A74C4D6D805DE0 /* DesktopUITests.swift in Sources */,
 				B644889ABB41FDE2E90E062F /* LiveWallhavenScreenshots.swift in Sources */,
+				36098F4958FA1BEC0AB2F7F5 /* OnboardingUITests.swift in Sources */,
 				FDB89417314278B38772EDAA /* RealAppScreenshots.swift in Sources */,
 				2B33A885D10821ABEBCCE783 /* StyleScreenshots.swift in Sources */,
+				427B6E473B1869A9336F521C /* WidgetsUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -209,6 +217,7 @@
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record your voice with a screen recording.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save wallpapers you download to your photo library.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIStatusBarHidden = YES;
@@ -332,6 +341,7 @@
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record your voice with a screen recording.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save wallpapers you download to your photo library.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIStatusBarHidden = YES;

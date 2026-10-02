@@ -232,6 +232,8 @@ struct CalendarPopover: View {
                 Toggle("Week Numbers", isOn: $showsWeekNumbers)
                     .toggleStyle(.button)
                     .font(.system(size: 12))
+                    .lineLimit(1)
+                    .fixedSize()
                     .tint(theme.accent)
                 Spacer()
                 Button("Open Calendar") { openCalendar(on: Date()) }

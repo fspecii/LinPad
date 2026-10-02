@@ -45,6 +45,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Show and edit the events from your iPad's calendars in the desktop's Calendar, clock and widgets.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>This is required for connecting to localhost and using the ping command.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
@@ -86,6 +88,8 @@
 	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record your voice with a screen recording, when you turn the microphone on for it.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save wallpapers, images and videos from Linux apps to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

@@ -623,8 +623,28 @@ static BOOL DesktopEnabled(void) {
     return enabled == nil || [enabled boolValue];
 }
 
-/// Boots now, or (desktop, first launch or scheduled update) prepares the root on a
-/// background thread and boots when it is done, so the desktop's splash can show progress.
+/// The factory reset to run before this boot: scheduled by Settings › Maintenance, or
+/// chosen in the Settings app with RESET typed to confirm (app/Settings.bundle). The
+/// Settings app's fields are cleared either way, so a stale choice never fires later.
+static NSString *TakeFactoryResetRequest(Roots *roots) {
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSString *choice = [defaults stringForKey:@"linux.factoryReset"];
+    NSString *confirm = [[defaults stringForKey:@"linux.factoryResetConfirm"]
+                         stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].uppercaseString;
+    if (choice.length && [confirm isEqualToString:@"RESET"])
+        roots.pendingFactoryReset = choice;
+    [defaults removeObjectForKey:@"linux.factoryReset"];
+    [defaults removeObjectForKey:@"linux.factoryResetConfirm"];
+    NSString *reset = roots.pendingFactoryReset;
+    if (reset != nil && ![reset isEqualToString:RootsFactoryResetKeepFiles] && ![reset isEqualToString:RootsFactoryResetErase]) {
+        roots.pendingFactoryReset = nil;
+        reset = nil;
+    }
+    return reset;
+}
+
+/// Boots now, or (desktop, first launch, scheduled update or factory reset) prepares the
+/// root on a background thread and boots when it is done, so the desktop's splash can show progress.
 /// If the app is suspended meanwhile the import thread just pauses; if it is killed, the
 /// staging directory is discarded at the next launch and the import starts over.
 - (void)startBoot {
@@ -636,7 +656,21 @@ static BOOL DesktopEnabled(void) {
         roots.pendingUpdate = nil; // superseded or already installed
         update = nil;
     }
-    if (!DesktopEnabled() || (!import && update == nil)) {
+    NSString *reset = TakeFactoryResetRequest(roots);
+    BOOL keepFiles = [reset isEqualToString:RootsFactoryResetKeepFiles];
+    if (reset != nil) {
+        import = NO;
+        update = nil;
+        if (!DesktopEnabled()) {
+            // Classic UI: no splash to show progress on; the launch screen stays up.
+            NSError *error;
+            if (![roots resetDefaultRootKeepingFiles:keepFiles progress:nil error:&error])
+                NSLog(@"factory reset failed, booting the previous system: %@", error);
+            roots.pendingFactoryReset = nil;
+            reset = nil;
+        }
+    }
+    if (!DesktopEnabled() || (!import && update == nil && reset == nil)) {
         void (^boot)(void) = ^{
             CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
             bootError = [self boot];
@@ -651,7 +685,8 @@ static BOOL DesktopEnabled(void) {
         return;
     }
 
-    NSString *title = import ? @"Unpacking Linux…" : @"Updating Linux…";
+    NSString *title = reset ? (keepFiles ? @"Resetting Linux (keeping your files)…" : @"Resetting Linux…")
+                            : import ? @"Unpacking Linux…" : @"Updating Linux…";
     SetBootState(ISHBootPhaseUnpacking, 0, title, @"");
     UIApplication *app = UIApplication.sharedApplication;
     __block UIBackgroundTaskIdentifier task = [app beginBackgroundTaskWithName:@"Unpack Linux" expirationHandler:^{
@@ -662,7 +697,8 @@ static BOOL DesktopEnabled(void) {
     CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSError *error;
-        BOOL ok = import ? [roots importBundledRootWithProgress:progress error:&error]
+        BOOL ok = reset ? [roots resetDefaultRootKeepingFiles:keepFiles progress:progress error:&error]
+                : import ? [roots importBundledRootWithProgress:progress error:&error]
                          : [roots updateDefaultRootWithProgress:progress error:&error];
         CFAbsoluteTime unpacked = CFAbsoluteTimeGetCurrent();
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -670,10 +706,12 @@ static BOOL DesktopEnabled(void) {
                 [app endBackgroundTask:task];
                 task = UIBackgroundTaskInvalid;
             }
-            RecordBootStat(import ? @"import_seconds" : @"update_seconds",
+            RecordBootStat(reset ? @"reset_seconds" : import ? @"import_seconds" : @"update_seconds",
                            [NSString stringWithFormat:@"%.2f%@", unpacked - start, ok ? @"" : @" (failed)"]);
             if (!import)
                 roots.pendingUpdate = nil; // a failed update boots the old system and is offered again
+            if (reset)
+                roots.pendingFactoryReset = nil; // a failed reset boots the old system; never retried in a loop
             if (!ok && import) {
                 bootError = _EIO;
                 bootFailure = error.localizedDescription ?: @"unpacking failed";

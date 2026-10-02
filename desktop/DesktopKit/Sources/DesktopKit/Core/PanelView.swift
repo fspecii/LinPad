@@ -38,9 +38,6 @@ struct PanelView: View {
         .overlay(alignment: .bottom) {
             theme.separator.frame(height: 1)
         }
-        .task(id: ObjectIdentifier(controller.host)) {
-            await controller.systemMonitor.poll(controller.host)
-        }
     }
 }
 
@@ -60,7 +57,7 @@ private struct ApplicationsButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: "square.grid.3x3.fill")
+                ThemeGlyph(ThemeIconNames.launcher, symbol: "square.grid.3x3.fill", size: 13)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.accent)
                 Text("Applications")
@@ -241,12 +238,17 @@ struct WorkspaceSwitcher: View {
 
 struct SystemMeters: View {
     let monitor: PanelSystemMonitor
+    @Environment(\.desktopController) private var controller
 
     var body: some View {
         HStack(spacing: 8) {
             Meter(label: "CPU", value: monitor.cpuUsage,
                   detail: monitor.cpuUsage.map { String(format: "%.0f%%", $0 * 100) })
             Meter(label: "MEM", value: monitor.memoryUsage, detail: nil)
+        }
+        // Each style's panel shows the meters, so they keep the shared sampler running.
+        .task(id: controller.map { ObjectIdentifier($0.host) }) {
+            if let controller { await monitor.poll(controller.host) }
         }
     }
 }

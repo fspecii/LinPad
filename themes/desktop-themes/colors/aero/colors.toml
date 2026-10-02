@@ -1,0 +1,32 @@
+# LinPad desktop theme palette (themes/desktop-themes/README.md). CC0 1.0.
+mode = "light"
+
+accent = "#3399ff"
+selection = "#cce8ff"
+muted = "#9a9a9a"
+
+background = "#f0f0f0"
+dark_background = "#ffffff"
+darker_background = "#f7f7f7"
+lighter_background = "#fafafa"
+
+foreground = "#1e1e1e"
+dark_foreground = "#707070"
+light_foreground = "#333333"
+bright_foreground = "#000000"
+
+red = "#c50f1f"
+yellow = "#9a7b00"
+orange = "#ca5010"
+green = "#13a10e"
+cyan = "#2b88c2"
+blue = "#0037da"
+magenta = "#881798"
+brown = "#6b3f14"
+
+bright_red = "#e74856"
+bright_yellow = "#b59b00"
+bright_green = "#16c60c"
+bright_cyan = "#2f8fbf"
+bright_blue = "#3b78ff"
+bright_magenta = "#b4009e"

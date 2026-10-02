@@ -41,6 +41,35 @@ static NSURL *DownloadedRootDir(void) {
 
 static NSString *kDefaultRoot = @"Default Root";
 static NSString *kPendingUpdate = @"linux.pendingSystemUpdate";
+static NSString *kPendingFactoryReset = @"linux.pendingFactoryReset";
+NSString *const RootsFactoryResetKeepFiles = @"keep-files";
+NSString *const RootsFactoryResetErase = @"erase";
+/// iOSFS's remembered iPad folder mounts (app/iOSFS.m), mount point → bookmark.
+static NSString *kMountBookmarks = @"iOS Mount Bookmarks";
+/// A factory reset moves the replaced root here (RootsDir()/.reset-old.<name>) and deletes it
+/// once the new root is in place. Dot names are not roots.
+static NSString *kResetTrashPrefix = @".reset-old.";
+
+static void DeleteInBackground(NSURL *url) {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        [NSFileManager.defaultManager removeItemAtURL:url error:nil];
+    });
+}
+
+/// Finishes a factory reset that was interrupted: a root moved aside with no replacement
+/// in place goes back; one whose replacement is in place is deleted.
+static void RecoverInterruptedFactoryReset(void) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    for (NSString *entry in [fm contentsOfDirectoryAtPath:RootsDir().path error:nil]) {
+        if (![entry hasPrefix:kResetTrashPrefix] || entry.length == kResetTrashPrefix.length)
+            continue;
+        NSURL *trash = [RootsDir() URLByAppendingPathComponent:entry];
+        NSURL *original = [RootsDir() URLByAppendingPathComponent:[entry substringFromIndex:kResetTrashPrefix.length]];
+        if (![fm fileExistsAtPath:original.path] && [fm moveItemAtURL:trash toURL:original error:nil])
+            continue;
+        DeleteInBackground(trash);
+    }
+}
 
 @interface Roots ()
 @property NSMutableOrderedSet<NSString *> *roots;
@@ -54,6 +83,7 @@ static NSString *kPendingUpdate = @"linux.pendingSystemUpdate";
 - (instancetype)init {
     if (self = [super init]) {
         NSError *error = nil;
+        RecoverInterruptedFactoryReset();
         NSArray<NSString *> *rootNames = [NSFileManager.defaultManager contentsOfDirectoryAtPath:RootsDir().path error:&error];
         NSAssert(error == nil, @"couldn't list roots: %@", error);
         NSMutableOrderedSet<NSString *> *roots = [NSMutableOrderedSet new];
@@ -570,6 +600,88 @@ static void ListPackagesToReinstall(NSURL *old, NSURL *new) {
         addRoot();
     if (fromDownload)
         [fm removeItemAtURL:DownloadedRootDir() error:nil];
+    return YES;
+}
+
+#pragma mark - Factory reset
+
+- (NSString *)pendingFactoryReset {
+    return [NSUserDefaults.standardUserDefaults stringForKey:kPendingFactoryReset];
+}
+- (void)setPendingFactoryReset:(NSString *)pendingFactoryReset {
+    [NSUserDefaults.standardUserDefaults setObject:pendingFactoryReset forKey:kPendingFactoryReset];
+}
+
+/// "Keep my files": the user's directories, plus the mount points of the iPad folders
+/// (Files › Add iPad Folder…) outside them, so iOSFS can mount those folders again.
+static NSArray<NSString *> *FactoryResetKeptPaths(void) {
+    NSMutableArray<NSString *> *kept = [@[@"/root", @"/home"] mutableCopy];
+    NSDictionary *mounts = [NSUserDefaults.standardUserDefaults dictionaryForKey:kMountBookmarks];
+    for (NSString *point in mounts) {
+        if (![point isKindOfClass:NSString.class] || ![point hasPrefix:@"/"])
+            continue;
+        BOOL inside = NO;
+        for (NSString *path in @[@"/root", @"/home"])
+            inside = inside || [point isEqualToString:path] || [point hasPrefix:[path stringByAppendingString:@"/"]];
+        if (!inside)
+            [kept addObject:point];
+    }
+    return kept;
+}
+
+- (BOOL)resetDefaultRootKeepingFiles:(BOOL)keepFiles progress:(id<ProgressReporter>)progress error:(NSError **)error {
+    NSURL *archive = self.updateRootArchive;
+    BOOL fromDownload = self.prefersDownloadedRoot;
+    if (archive == nil) {
+        *error = [NSError errorWithDomain:@"iSH" code:ENOENT userInfo:@{NSLocalizedDescriptionKey: @"The app has no Linux system to reset to"}];
+        return NO;
+    }
+    NSFileManager *fm = NSFileManager.defaultManager;
+    if (self.needsDefaultRoot) {
+        if (![self importRootFromArchive:archive name:@"default" error:error progressReporter:progress])
+            return NO;
+    } else {
+        NSString *name = self.defaultRoot;
+        NSURL *old = [self rootUrl:name];
+        [fm createDirectoryAtURL:StagingDir() withIntermediateDirectories:YES attributes:nil error:nil];
+        NSURL *staged = [StagingDir() URLByAppendingPathComponent:[@"reset-" stringByAppendingString:NSProcessInfo.processInfo.globallyUniqueString]];
+        struct fakefsify_error fs_err;
+        if (!fakefs_import(archive.fileSystemRepresentation, staged.fileSystemRepresentation, &fs_err,
+                           (struct progress) {(__bridge void *) progress, root_progress_callback})) {
+            *error = [NSError errorWithDomain:fs_err.type == ERR_SQLITE ? @"SQLite" : NSPOSIXErrorDomain code:fs_err.code
+                                     userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%s, line %d", fs_err.message, fs_err.line]}];
+            free(fs_err.message);
+            [fm removeItemAtURL:staged error:nil];
+            return NO;
+        }
+        if (keepFiles) {
+            [progress updateProgress:1 message:@"Keeping your files…"];
+            NSString *message = nil;
+            if (!CarryUserData(old, staged, FactoryResetKeptPaths(), &message)) {
+                *error = [NSError errorWithDomain:@"iSH" code:EIO userInfo:@{NSLocalizedDescriptionKey: message ?: @"could not keep your files"}];
+                [fm removeItemAtURL:staged error:nil];
+                return NO;
+            }
+        }
+        // Swap. Until the second move completes, the next launch puts the old root back.
+        NSURL *trash = [RootsDir() URLByAppendingPathComponent:[kResetTrashPrefix stringByAppendingString:name]];
+        [fm removeItemAtURL:trash error:nil];
+        if (![fm moveItemAtURL:old toURL:trash error:error]) {
+            [fm removeItemAtURL:staged error:nil];
+            return NO;
+        }
+        if (![fm moveItemAtURL:staged toURL:old error:error]) {
+            [fm moveItemAtURL:trash toURL:old error:nil];
+            [fm removeItemAtURL:staged error:nil];
+            return NO;
+        }
+        DeleteInBackground(trash);
+    }
+    if (!keepFiles)
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:kMountBookmarks];
+    if (fromDownload)
+        [fm removeItemAtURL:DownloadedRootDir() error:nil];
+    self.pendingUpdate = nil;
     return YES;
 }
 

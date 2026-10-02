@@ -1557,6 +1557,7 @@
 				AA000012AF96D90D00FFB7A4 /* Generate APK Repositories File */,
 				AA000013AF96D90D00FFB7A4 /* Compile JavaScript */,
 				AA000010AF96D90D00FFB7A4 /* Resources */,
+				DE7A11000000000000000001 /* Bundle Repair Kit */,
 				AA000014AF96D90D00FFB7A4 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
@@ -1582,6 +1583,7 @@
 				AA000012AF96D90D00FFB7A4 /* Generate APK Repositories File */,
 				AA000013AF96D90D00FFB7A4 /* Compile JavaScript */,
 				AA000010AF96D90D00FFB7A4 /* Resources */,
+				DE7A11000000000000000001 /* Bundle Repair Kit */,
 				AA000014AF96D90D00FFB7A4 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
@@ -2035,6 +2037,26 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		DE7A11000000000000000001 /* Bundle Repair Kit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle Repair Kit";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/release/build-repair-kit.sh\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\n";
+			showEnvVarsInLog = 0;
+		};
 		AA000011AF96D90D00FFB7A4 /* Download Root */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;

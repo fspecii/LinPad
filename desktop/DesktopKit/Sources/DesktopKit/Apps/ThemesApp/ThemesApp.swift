@@ -174,6 +174,10 @@ struct ThemeGalleryView: View {
             toolbar
             theme.separator.frame(height: 1)
             ScrollView {
+                if filter == .all && search.isEmpty {
+                    DesktopThemesSection(controller: controller)
+                        .padding([.horizontal, .top], 18)
+                }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 290), spacing: 16)], spacing: 18) {
                     if filter == .all && search.isEmpty {
                         card(nil)
@@ -181,6 +185,15 @@ struct ThemeGalleryView: View {
                     ForEach(visible) { card($0) }
                 }
                 .padding(18)
+            }
+            .overlay {
+                if visible.isEmpty && !(filter == .all && search.isEmpty) {
+                    AppEmptyState(symbol: filter == .favorites && search.isEmpty ? "star" : "magnifyingglass",
+                                  title: filter == .favorites && search.isEmpty ? "No favorite themes yet" : "No matching themes",
+                                  message: filter == .favorites && search.isEmpty
+                                      ? "Tap the star on a theme to keep it here."
+                                      : "Try another name, or switch the filter to All.")
+                }
             }
         }
         .alert("Install Theme from Git", isPresented: $isInstallPromptPresented) {
@@ -246,8 +259,11 @@ struct ThemeGalleryView: View {
                 if let candidate {
                     Button { toggleFavorite(candidate.id) } label: {
                         Image(systemName: favorites.contains(candidate.id) ? "star.fill" : "star")
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .hoverEffect(.highlight)
                     .accessibilityLabel(favorites.contains(candidate.id) ? "Remove from Favorites" : "Add to Favorites")
                     .accessibilityIdentifier("themes.favorite.\(candidate.id)")
                     Menu {

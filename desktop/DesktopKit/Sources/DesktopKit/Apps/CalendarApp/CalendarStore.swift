@@ -156,9 +156,12 @@ final class LocalCalendarBackend: CalendarBackend {
 
     private let fileURL: URL
     private var contents: Contents
+    /// Off in unit tests, whose host process has no app bundle for notifications.
+    private let schedulesAlerts: Bool
 
-    init(fileURL: URL = LocalCalendarBackend.defaultFileURL) {
+    init(fileURL: URL = LocalCalendarBackend.defaultFileURL, schedulesAlerts: Bool = true) {
         self.fileURL = fileURL
+        self.schedulesAlerts = schedulesAlerts
         contents = (try? Data(contentsOf: fileURL)).flatMap { try? JSONDecoder().decode(Contents.self, from: $0) }
             ?? Contents(calendars: Self.defaultCalendars, events: [])
     }
@@ -190,7 +193,9 @@ final class LocalCalendarBackend: CalendarBackend {
     func delete(_ event: CalendarEvent) throws {
         contents.events.removeAll { $0.id == event.id }
         try write()
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [event.id])
+        if schedulesAlerts {
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [event.id])
+        }
     }
 
     private func write() throws {
@@ -200,6 +205,7 @@ final class LocalCalendarBackend: CalendarBackend {
 
     /// EventKit alerts fire on their own; local events need a notification of their own.
     private func scheduleAlert(for event: CalendarEvent) {
+        guard schedulesAlerts else { return }
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: [event.id])
         guard let minutes = event.alertMinutes else { return }

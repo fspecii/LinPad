@@ -351,3 +351,31 @@ extension ISHLinuxHost: FastModeDiagnosing {
         AppDelegate.fastModeHasGetTaskAllow()
     }
 }
+
+/// Settings › Maintenance › Reset to Factory: Roots replaces the default root before the
+/// next boot (AppDelegate.startBoot), so the app closes itself to get there.
+extension ISHLinuxHost: LinuxSystemResetting {
+    var scheduledFactoryReset: FactoryResetMode? {
+        Roots.instance().pendingFactoryReset.flatMap(FactoryResetMode.init(rawValue:))
+    }
+
+    func scheduleFactoryReset(_ mode: FactoryResetMode) {
+        Roots.instance().pendingFactoryReset = mode.rawValue
+        UserDefaults.standard.synchronize() // the app exits right after this
+    }
+
+    func cancelFactoryReset() {
+        Roots.instance().pendingFactoryReset = nil
+    }
+
+    /// Goes to the Home Screen and exits there. With scenes UIKit may not call the app
+    /// delegate's applicationDidEnterBackground (which ends an exitApp), hence the
+    /// notification and, should neither arrive, the deadline.
+    func quitToApplyFactoryReset() {
+        UserDefaults.standard.synchronize()
+        NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification,
+                                               object: nil, queue: .main) { _ in exit(0) }
+        (UIApplication.shared.delegate as? AppDelegate)?.exitApp()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { exit(0) }
+    }
+}

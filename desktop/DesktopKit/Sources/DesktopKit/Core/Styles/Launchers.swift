@@ -113,9 +113,19 @@ struct AppGridLauncher: View {
         LauncherSearch.results(in: controller.launcherApps, query: query)
     }
 
+    /// The grid sits on a darkened desktop in every appearance, so its labels are light;
+    /// a light theme's dark text read at under 3:1 there.
+    private var gridTheme: DesktopTheme {
+        var grid = theme
+        grid.primaryText = .white
+        grid.secondaryText = Color.white.opacity(0.75)
+        return grid
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             Rectangle().fill(.ultraThinMaterial)
+                .environment(\.colorScheme, .dark)
                 .overlay(Color.black.opacity(0.35))
                 .contentShape(Rectangle())
                 .onTapGesture { controller.isLauncherPresented = false }
@@ -124,7 +134,7 @@ struct AppGridLauncher: View {
                 Button(action: onExitFullScreen) {
                     Image(systemName: "arrow.down.right.and.arrow.up.left")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(theme.primaryText)
+                        .foregroundStyle(gridTheme.primaryText)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
@@ -157,12 +167,22 @@ struct AppGridLauncher: View {
                     .onAppear { columns = count }
                     .onChange(of: count) { _, value in columns = value }
                 }
-                if results.isEmpty {
-                    Text("No applications match “\(query)”")
-                        .foregroundStyle(theme.secondaryText)
+                .overlay(alignment: .top) {
+                    if results.isEmpty {
+                        VStack(spacing: 6) {
+                            Text("No applications match “\(query)”")
+                                .font(.system(size: 17, weight: .semibold))
+                            Text("Install more with Packages, or check the spelling.")
+                                .font(.system(size: 14))
+                                .foregroundStyle(gridTheme.secondaryText)
+                        }
+                        .padding(.top, 60)
+                    }
                 }
             }
         }
+        .environment(\.desktopTheme, gridTheme)
+        .foregroundStyle(Color.white)
         .onChange(of: query) { _, _ in highlighted = 0 }
         .onAppear {
             query = controller.launcherInitialQuery

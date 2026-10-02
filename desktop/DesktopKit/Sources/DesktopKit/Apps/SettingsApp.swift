@@ -60,6 +60,7 @@ enum SettingsApp {
     static let iconsPage = "icons"
     static let appsPage = "apps"
     static let updatesPage = "updates"
+    static let maintenancePage = "maintenance"
 
     static func descriptor() -> DesktopAppDescriptor {
         DesktopAppDescriptor(
@@ -144,6 +145,7 @@ struct SettingsAppView: View {
     @Environment(\.desktopWallpapers) private var wallpapers
     @Environment(\.desktopIcons) private var icons
     @Environment(\.desktopColorThemes) private var colorThemes
+    @Environment(\.desktopController) private var desktopController
     private let fastMode: FastModeModel?
     private let window: any WindowHandle
     private let desktop: any DesktopActions
@@ -180,6 +182,8 @@ struct SettingsAppView: View {
                     shortcutsSection
                     UpdatesSettingsSection(service: UpdateService.shared(for: host))
                         .id(SettingsApp.updatesPage)
+                    MaintenanceSettingsSection(service: SystemMaintenanceService.shared(for: host))
+                        .id(SettingsApp.maintenancePage)
                     aboutSection
                 }
                 .padding(20)
@@ -499,6 +503,15 @@ struct SettingsAppView: View {
                     }
                 } else {
                     Text(placeholder).foregroundStyle(theme.secondaryText)
+                }
+            }
+            if let desktopController {
+                ThemedSeparator()
+                SettingsRow(title: "Welcome") {
+                    ToolbarTextButton(title: "Replay Welcome", symbol: "sparkles") {
+                        desktopController.presentOnboarding()
+                    }
+                    .accessibilityIdentifier("settings.replayWelcome")
                 }
             }
         }

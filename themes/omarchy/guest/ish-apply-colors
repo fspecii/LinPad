@@ -155,6 +155,37 @@ install_kvantum() {
     note qt
 }
 
+# A theme with widgets=style in theme.conf (the desktop themes' palettes) leaves the
+# style's own GTK and Kvantum themes alone: their bevels and gradients are the look.
+# Only our recolouring files go; the style's Kvantum choice and libadwaita links return.
+keep_style_widgets() {
+    for v in 3.0 4.0; do
+        f=$CONFIG/gtk-$v/gtk.css
+        [ -f "$f" ] && [ ! -L "$f" ] && head -n2 "$f" | grep -q "$MARKER" && rm -f "$f"
+    done
+    rm -rf "$CONFIG/Kvantum/LinPad"
+    style=$(cat /usr/share/ish/current-style 2>/dev/null || echo ish)
+    variant=$(sed -n 's/^ISH_STYLE_VARIANT=//p' /usr/share/ish/current-style.env 2>/dev/null)
+    conf=/usr/share/ish/themes/styles/$style.conf
+    if [ -f "$conf" ]; then
+        # shellcheck disable=SC1090
+        kv=$(. "$conf"; eval "printf '%s' \"\$KVANTUM_THEME_${variant:-$DEFAULT_VARIANT}\"")
+        if [ -n "$kv" ]; then
+            mkdir -p "$CONFIG/Kvantum"
+            printf '[General]\ntheme=%s\n' "$kv" > "$CONFIG/Kvantum/kvantum.kvconfig"
+        fi
+    fi
+    gtk=$(gtk_theme)
+    src=/usr/share/themes/$gtk/gtk-4.0
+    if [ -n "$gtk" ] && [ "$gtk" != Adwaita ] && [ -f "$src/gtk.css" ]; then
+        mkdir -p "$CONFIG/gtk-4.0"
+        for f in gtk.css gtk-dark.css assets; do
+            [ -e "$src/$f" ] && [ ! -e "$CONFIG/gtk-4.0/$f" ] && ln -s "$src/$f" "$CONFIG/gtk-4.0/$f"
+        done
+    fi
+    note gtk-style
+}
+
 install_btop() {
     mkdir -p "$CONFIG/btop/themes"
     cp "$STATE/current/btop.theme" "$CONFIG/btop/themes/linpad.theme"
@@ -393,8 +424,12 @@ apply_theme() { # id
     # Icons first: --icons rewrites the GTK/Qt settings files this script then adjusts.
     install_icons "$icons" "$mode"
     install_foot
-    install_gtk "$mode"
-    install_kvantum "$mode"
+    if [ "$(conf_get widgets)" = style ]; then
+        keep_style_widgets
+    else
+        install_gtk "$mode"
+        install_kvantum "$mode"
+    fi
     install_btop
     install_vscode "$(conf_get vscode_name)" "$(conf_get vscode_extension)" "$mode"
     install_firefox "$mode"

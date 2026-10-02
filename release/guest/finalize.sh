@@ -31,6 +31,9 @@ MOTD
 
 echo "finalize: Firefox tuning"
 sh "$src/gecko-tune.sh"
+# This image already has everything the app's repair kit (linpad-repair) puts back, so
+# the app does not run its silent repair after the first launch.
+install -D -m 644 "$src/repair-kit-version" /usr/share/ish/repair-kit-version
 
 echo "finalize: first-run hooks"
 install -D -m 755 "$src/ish-firstrun" /usr/local/sbin/ish-firstrun

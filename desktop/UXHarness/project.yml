@@ -24,6 +24,7 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UIStatusBarHidden: YES
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "Save wallpapers you download to your photo library."
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "Record your voice with a screen recording."
         CODE_SIGNING_ALLOWED: NO
         SWIFT_VERSION: "5.0"
   DesktopUITests:

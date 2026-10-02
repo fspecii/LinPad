@@ -264,6 +264,7 @@ put 755 "$SRC/vlc/ish-vlc" /usr/local/bin/ish-vlc
 put 644 "$SRC/vlc/vlc.desktop" /usr/share/applications/vlc.desktop
 
 log "session hooks"
+put 644 "$SRC/session.d/05-bus-address.sh" /etc/ishwl/session.d/05-bus-address.sh
 put 644 "$SRC/session.d/10-style.sh" /etc/ishwl/session.d/10-style.sh
 put 644 "$SRC/session.d/20-audio.sh" /etc/ishwl/session.d/20-audio.sh
 # ishwl-session sources /etc/ishwl/session.d/*.sh (wl-bridge/ishwl-session). Older
@@ -276,6 +277,7 @@ fi
 log "styles"
 put 755 "$SRC/ish-apply-style" /usr/local/bin/ish-apply-style
 put 755 "$SRC/ish-icon-packs" /usr/local/bin/ish-icon-packs
+put 755 "$SRC/ish-style-packs" /usr/local/bin/ish-style-packs
 put 644 "$SRC/upstream-env.bash" "$SHARE/themes/upstream-env.bash"
 mkdir -p "$SHARE/themes/styles"
 cp "$SRC"/styles/*.conf "$SHARE/themes/styles/"
@@ -319,6 +321,10 @@ for p in $BASE_ICON_PACKS; do
         ish-icon-packs install "$p"
     fi
 done
+
+# The desktop themes' GTK themes (ish-style-packs) download on first use; a fuller image
+# can carry them: ISH_STYLE_PACKS="luna aero aeronight classic platinum aqua".
+for p in ${ISH_STYLE_PACKS:-}; do ish-style-packs install "$p"; done
 
 rm -rf "$WORK" /var/cache/apk/*
 ish-apply-style "$DEFAULT_STYLE"

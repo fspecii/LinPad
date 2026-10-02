@@ -32,6 +32,7 @@ final class DesktopIconStore {
     /// Icon themes name some apps differently; each list is tried in order.
     static let aliases: [String: [String]] = {
         var table: [String: [String]] = [
+            "code": ["vscode", "com.visualstudio.code", "visual-studio-code", "code-oss", "com.visualstudio.code.oss"],
             "code-oss": ["com.visualstudio.code.oss", "vscode", "code", "com.visualstudio.code", "visual-studio-code"],
             "firefox-esr": ["firefox", "org.mozilla.firefox"],
             "thunar": ["org.xfce.thunar", "system-file-manager"],
@@ -55,29 +56,70 @@ final class DesktopIconStore {
     @ObservationIgnored private let guestRoot: URL?
     @ObservationIgnored private var images: [String: UIImage] = [:]
     @ObservationIgnored private var missing: Set<String> = []
+    @ObservationIgnored private var icons: [String: ThemeIconImage] = [:]
+    @ObservationIgnored private var missingIcons: Set<String> = []
+    /// First match per candidate list, so a list view asks the disk once per file type.
+    @ObservationIgnored private var resolved: [[String]: ThemeIconImage?] = [:]
+    @ObservationIgnored private var cacheIndex: IconCacheIndex??
+    @ObservationIgnored private var resolvedDirectory: URL??
+    /// Image files read since the last reload (tests check scrolling does not read).
+    @ObservationIgnored private(set) var fileReads = 0
 
     init(guestRoot: URL?, style: DesktopStyle) {
-        self.guestRoot = guestRoot
+        self.guestRoot = guestRoot ?? Self.debugGuestRoot
         self.style = style
     }
 
     func image(named name: String?) -> UIImage? {
-        _ = generation
         // `Icon=` may be a path or carry an extension; the cache is keyed by the bare name.
-        guard let raw = name, case let name = LinuxIconCache.iconName(raw), !name.isEmpty,
-              let directory else { return nil }
-        if let image = images[name] { return image }
-        guard !missing.contains(name) else { return nil }
-        let names = [name] + (Self.aliases[name] ?? [])
-        let urls = names.flatMap { [directory.appendingPathComponent("\($0)@2x.png"), directory.appendingPathComponent("\($0).png")] }
-        for url in urls {
-            if let image = UIImage(contentsOfFile: url.path) {
-                images[name] = image
-                return image
+        guard let raw = name, case let name = LinuxIconCache.iconName(raw), !name.isEmpty else {
+            _ = generation
+            return nil
+        }
+        return icon([name] + (Self.aliases[name] ?? []))?.image
+    }
+
+    /// The first of `names` the icon pack has: a decoded image, and whether it is a
+    /// symbolic (one-colour) icon the caller should tint. Names are freedesktop icon names
+    /// in fallback order; nil when the pack has none of them.
+    func icon(_ names: [String]) -> ThemeIconImage? {
+        _ = generation
+        if let hit = resolved[names] { return hit }
+        let icon = names.lazy.compactMap { self.load($0) }.first
+        resolved[names] = .some(icon)
+        return icon
+    }
+
+    private func load(_ name: String) -> ThemeIconImage? {
+        if let icon = icons[name] { return icon }
+        guard !missingIcons.contains(name), let directory else { return nil }
+        var files = ["\(name)@2x.png", "\(name).png"]
+        var symbolic = false
+        if let index = loadIndex(in: directory) {
+            guard let entry = index.entry(for: name) else {
+                missingIcons.insert(name)
+                return nil
+            }
+            files = [entry.file2x, entry.file1x]
+            symbolic = entry.isSymbolic
+        }
+        for file in files {
+            fileReads += 1
+            if let image = UIImage(contentsOfFile: directory.appendingPathComponent(file).path) {
+                let icon = ThemeIconImage(image: image.preparingForDisplay() ?? image, isSymbolic: symbolic)
+                icons[name] = icon
+                return icon
             }
         }
-        missing.insert(name)
+        missingIcons.insert(name)
         return nil
+    }
+
+    private func loadIndex(in directory: URL) -> IconCacheIndex? {
+        if let cacheIndex { return cacheIndex }
+        let index = IconCacheIndex(contentsOf: directory.appendingPathComponent("index.json"))
+        cacheIndex = .some(index)
+        return index
     }
 
     /// Whether the guest's themes differ from what the desktop wants; checked against
@@ -131,12 +173,80 @@ final class DesktopIconStore {
     private func reload() {
         images.removeAll()
         missing.removeAll()
+        icons.removeAll()
+        missingIcons.removeAll()
+        resolved.removeAll()
+        cacheIndex = nil
+        resolvedDirectory = nil
+        fileReads = 0
         generation += 1
     }
 
+    /// The style's cache; until the guest has rendered that one (a style it does not know
+    /// yet, or a switch in progress), the cache of the style the guest last applied.
     private var directory: URL? {
-        guestRoot?.appendingPathComponent(Self.cacheDirectory, isDirectory: true)
-            .appendingPathComponent(style.rawValue, isDirectory: true)
+        if let resolvedDirectory { return resolvedDirectory }
+        let directory = guestRoot.flatMap { root -> URL? in
+            let caches = root.appendingPathComponent(Self.cacheDirectory, isDirectory: true)
+            let own = caches.appendingPathComponent(style.rawValue, isDirectory: true)
+            if FileManager.default.fileExists(atPath: own.path) { return own }
+            guard let current = LinuxIconCache(guestRoot: root).currentStyle else { return nil }
+            let fallback = caches.appendingPathComponent(current, isDirectory: true)
+            return FileManager.default.fileExists(atPath: fallback.path) ? fallback : nil
+        }
+        resolvedDirectory = .some(directory)
+        return directory
+    }
+
+    /// `-desktop.iconCacheRoot PATH`: a directory laid out like the guest's "/" whose icon
+    /// cache hosts without a guest filesystem (the UX harness) draw from.
+    private static var debugGuestRoot: URL? {
+        #if DEBUG || DESKTOP_AUTOMATION
+        UserDefaults.standard.string(forKey: "desktop.iconCacheRoot").map { URL(fileURLWithPath: $0, isDirectory: true) }
+        #else
+        nil
+        #endif
+    }
+}
+
+/// An icon from the pack: the decoded image, and whether it is a symbolic icon (a
+/// one-colour mask drawn in the surrounding text colour).
+struct ThemeIconImage {
+    let image: UIImage
+    let isSymbolic: Bool
+}
+
+/// The cache's index.json (themes/CONTRACT.md): which names the pack resolved and their files.
+struct IconCacheIndex {
+    struct Entry: Equatable {
+        let file1x: String
+        let file2x: String
+        let isSymbolic: Bool
+    }
+
+    private let entries: [String: Entry]
+    /// Entries by file stem: an `Icon=/path/app.png` key is looked up as "app".
+    private let byStem: [String: Entry]
+
+    init?(contentsOf url: URL) {
+        guard let data = FileManager.default.contents(atPath: url.path),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let icons = json["icons"] as? [String: [String: Any]] else { return nil }
+        var entries: [String: Entry] = [:]
+        var byStem: [String: Entry] = [:]
+        for (name, fields) in icons {
+            guard let file1x = fields["1x"] as? String else { continue }
+            let entry = Entry(file1x: file1x, file2x: fields["2x"] as? String ?? file1x,
+                              isSymbolic: fields["symbolic"] as? Bool ?? false)
+            entries[name] = entry
+            if name.hasPrefix("/") { byStem[String(file1x.dropLast(".png".count))] = entry }
+        }
+        self.entries = entries
+        self.byStem = byStem
+    }
+
+    func entry(for name: String) -> Entry? {
+        entries[name] ?? byStem[name]
     }
 }
 

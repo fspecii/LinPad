@@ -1,0 +1,312 @@
+#!/bin/sh
+# Settings › Maintenance › Repair System: puts back the system configuration that ships
+# inside the app (the repair kit, release/build-repair-kit.sh), so a fix reaches existing
+# installs with an app update alone. Run inside the guest, as root, from the unpacked kit:
+#   sh <kit>/guest/linpad-repair [--quick] [--offline]
+#     --quick    the silent run after an app update: caches are left alone (Firefox may
+#                be running); the icon cache is still rebuilt if it is missing or stale
+#     --offline  do not try to reinstall missing packages
+# Idempotent: a file is only replaced when its content or mode differs, so a second run
+# changes nothing. Never touches user files: in /root only Firefox's pref overrides of
+# the media processes and caches (Firefox, fontconfig, icons) are removed.
+# Output for the app: "@@step NAME", "@@note TEXT", "@@fail TEXT",
+# "@@skipped-packages-offline PKG...", "@@installed-packages PKG...", and last
+# "@@result ok|failed changed=N". Exit status 0 unless a step failed.
+set -u
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
+G=$(cd "$(dirname "$0")" && pwd)
+KIT=$(dirname "$G")
+QUICK=0
+OFFLINE=0
+for arg in "$@"; do
+    case $arg in
+    --quick) QUICK=1 ;;
+    --offline) OFFLINE=1 ;;
+    *) echo "usage: linpad-repair [--quick] [--offline]" >&2; exit 2 ;;
+    esac
+done
+
+version=$(cat "$G/repair-kit-version" 2>/dev/null || echo 0)
+changed=0
+failed=0
+styles_changed=0
+step() { echo "@@step $*"; }
+note() { echo "@@note $*"; }
+fail() { echo "@@fail $*"; failed=1; }
+changed() { changed=$((changed + 1)); echo "  updated $1"; }
+
+# put MODE SRC DEST: replaces DEST only when it differs, through a temporary name so an
+# interrupted run never leaves half a file.
+put() {
+    [ -f "$2" ] || { fail "missing in the repair kit: $2"; return 1; }
+    if [ -f "$3" ] && [ ! -L "$3" ] && cmp -s "$2" "$3" && [ "$(stat -c %a "$3")" = "$1" ]; then
+        return 1
+    fi
+    mkdir -p "$(dirname "$3")"
+    if cp "$2" "$3.linpad-new" && chmod "$1" "$3.linpad-new" && mv -f "$3.linpad-new" "$3"; then
+        changed "$3"
+        return 0
+    fi
+    rm -f "$3.linpad-new"
+    fail "could not write $3"
+    return 1
+}
+
+# put_tree SRC DEST: replaces the directory DEST with SRC when their contents differ.
+tree_sum() { [ -d "$1" ] && (cd "$1" && find . -type f | LC_ALL=C sort | xargs md5sum 2>/dev/null) | md5sum; }
+put_tree() {
+    [ -d "$1" ] || { fail "missing in the repair kit: $1"; return 1; }
+    [ "$(tree_sum "$1")" = "$(tree_sum "$2")" ] && return 1
+    rm -rf "$2.linpad-new"
+    mkdir -p "$(dirname "$2")"
+    if cp -R "$1" "$2.linpad-new" && chmod 755 "$2.linpad-new"; then
+        rm -rf "$2"
+        mv "$2.linpad-new" "$2"
+        changed "$2"
+        return 0
+    fi
+    fail "could not write $2"
+    return 1
+}
+
+ensure_mode() { # MODE DIR
+    [ -d "$2" ] || { mkdir -p "$2" && changed "$2"; }
+    if [ "$(stat -c %a "$2")" != "$1" ]; then
+        chmod "$1" "$2" && changed "$2 (mode $1)"
+    fi
+}
+
+echo "linpad-repair: repair kit $version"
+
+# --- 1. Base directories and permissions -----------------------------------------------
+step "Permissions"
+for d in /dev /proc /sys /run /home /mnt /media /srv /var/lib/ish /usr/share/ish /etc/ish; do
+    [ -d "$d" ] || { mkdir -p "$d" && changed "$d"; }
+done
+ensure_mode 1777 /tmp
+ensure_mode 1777 /var/tmp
+ensure_mode 700 /root
+ensure_mode 755 /
+[ "$(stat -c %u:%g /root)" = 0:0 ] || { chown 0:0 /root && changed "/root (owner)"; }
+for f in /etc/passwd /etc/group; do
+    [ -f "$f" ] && [ "$(stat -c %a "$f")" != 644 ] && chmod 644 "$f" && changed "$f (mode 644)"
+done
+for f in /etc/shadow /etc/gshadow; do
+    [ -f "$f" ] && [ "$(stat -c %a "$f")" != 640 ] && [ "$(stat -c %a "$f")" != 600 ] && chmod 640 "$f" && changed "$f (mode 640)"
+done
+
+# --- 2. Firefox ------------------------------------------------------------------------
+# Media decoding needs the RDD and utility processes; images before repair kit 1 turned
+# them off in ish-tune.js, so YouTube said "Your browser can't play this video".
+step "Firefox"
+prefs=/usr/lib/firefox-esr/defaults/pref
+bad_prefs='pref\("media\.(rdd|utility)-process\.enabled", *false\)'
+if [ -d "$prefs" ]; then
+    tmp=$(mktemp -d)
+    mkdir -p "$tmp/usr/lib/firefox-esr/defaults/pref"
+    # gecko-tune.sh writes into $dir; run it against a scratch copy and install the result.
+    sed "s|^dir=/usr/lib/firefox-esr/defaults/pref|dir=$tmp/usr/lib/firefox-esr/defaults/pref|" \
+        "$G/gecko-tune.sh" > "$tmp/gecko-tune.sh"
+    if sh "$tmp/gecko-tune.sh" >/dev/null && [ -s "$tmp$prefs/ish-tune.js" ]; then
+        put 644 "$tmp$prefs/ish-tune.js" "$prefs/ish-tune.js"
+    else
+        fail "gecko-tune.sh did not produce ish-tune.js"
+    fi
+    rm -rf "$tmp"
+    [ -f "$KIT/wl-bridge/firefox-prefs.js" ] && put 644 "$KIT/wl-bridge/firefox-prefs.js" "$prefs/ishwl.js"
+    for js in "$prefs"/*.js; do
+        [ -f "$js" ] || continue
+        if grep -Eq "$bad_prefs" "$js"; then
+            sed -i -E "/$bad_prefs/d" "$js" && changed "$js (media processes enabled)"
+        fi
+    done
+    for js in /root/.mozilla/firefox/*/prefs.js /root/.mozilla/firefox/*/user.js; do
+        [ -f "$js" ] || continue
+        if grep -Eq "user_$bad_prefs" "$js"; then
+            sed -i -E "/user_$bad_prefs/d" "$js" && changed "$js (media processes enabled)"
+        fi
+    done
+    if grep -Eqs "$bad_prefs" "$prefs"/*.js; then
+        fail "Firefox prefs still disable the media processes"
+    fi
+else
+    note "Firefox is not installed"
+fi
+
+# --- 3. LinPad scripts, catalog and session hooks --------------------------------------
+step "System files"
+put 755 "$G/ish-firstrun" /usr/local/sbin/ish-firstrun
+put 755 "$G/ish-install-vscode" /usr/local/bin/ish-install-vscode
+put 755 "$G/ish-preview" /usr/local/bin/ish-preview
+put 644 "$G/90-firstrun.sh" /etc/ishwl/session.d/90-firstrun.sh
+put 644 "$G/ish-code.svg" /usr/share/icons/hicolor/scalable/apps/ish-code.svg
+put 644 "$G/linpad/catalog.json" /usr/share/linpad/catalog.json
+put 755 "$G/linpad/linpad-apps" /usr/local/bin/linpad-apps
+put 644 "$G/linpad/sample.pdf" /usr/local/share/linpad/sample.pdf
+put 644 "$G/ish-install-vscode.desktop" /usr/local/share/linpad/ish-install-vscode.desktop
+for f in "$G"/linpad/packs/*.sh; do
+    put 755 "$f" "/usr/local/share/linpad/packs/${f##*/}"
+done
+for f in "$G"/linpad/packs/vlc/*.sh; do
+    put 755 "$f" "/usr/local/share/linpad/packs/vlc/${f##*/}"
+done
+if [ -x /usr/local/bin/code ]; then
+    [ -e /usr/share/applications/ish-install-vscode.desktop ] &&
+        rm -f /usr/share/applications/ish-install-vscode.desktop && changed "ish-install-vscode.desktop (VS Code is installed)"
+else
+    put 644 "$G/ish-install-vscode.desktop" /usr/share/applications/ish-install-vscode.desktop
+fi
+if [ -f "$KIT/wl-bridge/os-release.sh" ]; then
+    before=$(md5sum "$(readlink -f /etc/os-release)" 2>/dev/null)
+    sh "$KIT/wl-bridge/os-release.sh" /etc/os-release
+    [ "$before" = "$(md5sum "$(readlink -f /etc/os-release)" 2>/dev/null)" ] || changed /etc/os-release
+fi
+if [ -d "$KIT/wl-bridge" ]; then
+    for f in "$KIT"/wl-bridge/foot/*.ini; do
+        [ -f "$f" ] && put 644 "$f" "/etc/ish/foot/${f##*/}"
+    done
+    [ -f "$KIT/wl-bridge/fastfetch/config.jsonc" ] && put 644 "$KIT/wl-bridge/fastfetch/config.jsonc" /etc/xdg/fastfetch/config.jsonc
+    [ -f "$KIT/wl-bridge/fastfetch/logo.txt" ] && put 644 "$KIT/wl-bridge/fastfetch/logo.txt" /usr/share/ish/logo.txt
+fi
+
+# --- 4. Desktop styles, colour themes, audio -------------------------------------------
+step "Styles and audio"
+T=$KIT/themes
+if [ -d "$T" ]; then
+    put 755 "$T/ish-apply-style" /usr/local/bin/ish-apply-style && styles_changed=1
+    put 755 "$T/ish-icon-packs" /usr/local/bin/ish-icon-packs
+    put 644 "$T/upstream-env.bash" /usr/share/ish/themes/upstream-env.bash
+    put 644 "$T/MANIFEST.md" /usr/share/ish/themes/MANIFEST.md
+    for f in "$T"/styles/*.conf; do
+        put 644 "$f" "/usr/share/ish/themes/styles/${f##*/}" && styles_changed=1
+    done
+    for f in "$T"/session.d/*.sh; do
+        put 644 "$f" "/etc/ishwl/session.d/${f##*/}"
+    done
+    put 755 "$T/audio/ishaudio-session" /usr/local/bin/ishaudio-session
+    put 644 "$T/audio/ishaudio.pa" /etc/ishaudio/ishaudio.pa
+    put 644 "$T/audio/daemon.conf" /etc/pulse/daemon.conf.d/50-ishaudio.conf
+    put 644 "$T/audio/client.conf" /etc/pulse/client.conf.d/50-ishaudio.conf
+    put 644 "$T/audio/asound.conf" /etc/asound.conf
+    # ishwl-session sources /etc/ishwl/session.d/*.sh; images older than that hook get it
+    # in front of the final exec (as themes/guest/install.sh does).
+    if [ -f /usr/local/bin/ishwl-session ] && ! grep -q 'session.d' /usr/local/bin/ishwl-session; then
+        sed -i 's|^exec ishwl "\$@"$|for f in /etc/ishwl/session.d/*.sh; do [ -r "$f" ] \&\& . "$f"; done\n\nexec ishwl "$@"|' \
+            /usr/local/bin/ishwl-session && changed "/usr/local/bin/ishwl-session (session hooks)"
+    fi
+fi
+O=$KIT/omarchy
+if [ -d "$O/colors" ]; then
+    if command -v jq >/dev/null 2>&1; then
+        tmp=$(mktemp -d)
+        cp -R "$O/colors/." "$tmp/"
+        cp -R "$O/templates" "$tmp/templates"
+        cp "$O/LICENSE.omarchy" "$O/ATTRIBUTION" "$tmp/"
+        put_tree "$tmp" /usr/share/linpad/colors
+        rm -rf "$tmp"
+        put 755 "$O/ish-colors" /usr/local/bin/ish-colors
+        put 755 "$O/ish-apply-colors" /usr/local/bin/ish-apply-colors
+        [ -s /usr/share/ish/current-colors ] || { echo none > /usr/share/ish/current-colors && changed /usr/share/ish/current-colors; }
+        if [ -f /usr/local/bin/ish-terminal ] && ! grep -q linpad.ini /usr/local/bin/ish-terminal; then
+            sed -i 's|^exec foot |[ -r "${HOME:-/root}/.config/foot/linpad.ini" ] \&\& config=${HOME:-/root}/.config/foot/linpad.ini\nexec foot |' \
+                /usr/local/bin/ish-terminal && changed "/usr/local/bin/ish-terminal (colour theme hook)"
+        fi
+    else
+        note "colour themes need jq (reinstalled with the packages below)"
+    fi
+fi
+
+# --- 5. Packages -----------------------------------------------------------------------
+# The base set of release/build-rootfs.sh (stage 1) and themes/guest/install.sh that
+# the desktop needs at run time. Only missing ones are installed; nothing is upgraded.
+step "Packages"
+required="adwaita-icon-theme bash curl dbus fastfetch firefox-esr font-dejavu font-jetbrains-mono
+    font-noto font-noto-cjk font-noto-emoji foot git libxkbcommon mousepad nodejs npm playerctl
+    thunar wayland-libs-server xkeyboard-config zlib ffmpeg-libavcodec
+    papirus-icon-theme hicolor-icon-theme gdk-pixbuf font-inter font-ubuntu font-cantarell
+    kvantum kvantum-qt5 pulseaudio pulseaudio-utils alsa-plugins-pulse jq"
+missing=
+for p in $required; do
+    apk info -e "$p" >/dev/null 2>&1 || missing="$missing $p"
+done
+missing=${missing# }
+thunar_broken=0
+[ -e /usr/bin/thunar ] && ! head -c 4 /usr/bin/thunar 2>/dev/null | grep -q ELF && thunar_broken=1
+mesa_broken=0
+if [ -e /usr/lib/libgallium-26.2.3.so ] && ldd /usr/lib/libEGL.so.1 2>&1 | grep -q "Error relocating"; then
+    mesa_broken=1
+fi
+
+online() {
+    [ "$OFFLINE" = 1 ] && return 1
+    repo=$(grep -m1 '^http' /etc/apk/repositories 2>/dev/null)
+    [ -n "$repo" ] || return 1
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsI -m 10 "$repo/aarch64/APKINDEX.tar.gz" >/dev/null 2>&1
+    else
+        wget -q -T 10 --spider "$repo/aarch64/APKINDEX.tar.gz" >/dev/null 2>&1
+    fi
+}
+
+if [ -z "$missing" ] && [ $thunar_broken = 0 ] && [ $mesa_broken = 0 ]; then
+    echo "  all base packages are installed"
+elif ! online; then
+    todo=$missing
+    [ $thunar_broken = 1 ] && todo="$todo thunar"
+    [ $mesa_broken = 1 ] && todo="$todo libdrm libxcb wayland-libs-client"
+    echo "@@skipped-packages-offline ${todo# }"
+else
+    if ! apk update -q; then
+        fail "apk update failed"
+    else
+        if [ -n "$missing" ]; then
+            # One by one, so a package that no longer exists does not block the others.
+            installed=
+            for p in $missing; do
+                if apk add -q "$p"; then installed="$installed $p"; else fail "could not install $p"; fi
+            done
+            [ -n "$installed" ] && echo "@@installed-packages ${installed# }" && changed=$((changed + 1))
+        fi
+        if [ $thunar_broken = 1 ]; then
+            sh "$G/fix-thunar.sh" && changed /usr/bin/thunar || fail "could not restore Thunar"
+        fi
+        if [ $mesa_broken = 1 ]; then
+            apk add -q --upgrade --repository https://dl-cdn.alpinelinux.org/alpine/edge/main \
+                libdrm libxcb wayland-libs-client && changed "Mesa libraries" || fail "could not re-pin Mesa's libraries"
+        fi
+        rm -rf /var/cache/apk/*
+    fi
+fi
+
+# --- 6. Caches -------------------------------------------------------------------------
+step "Caches"
+# Not in the silent run after an app update: Firefox may already be running then.
+[ $QUICK = 1 ] || for c in /root/.cache/mozilla /root/.cache/fontconfig /root/.cache/icon-cache.kcache \
+        /root/.mozilla/firefox/*/startupCache /root/.mozilla/firefox/*/cache2; do
+    [ -e "$c" ] || continue
+    rm -rf "$c" && echo "  cleared $c"
+done
+if command -v ish-apply-style >/dev/null 2>&1; then
+    current=$(ish-apply-style --current 2>/dev/null || echo ish)
+    index=/usr/share/ish/icon-cache/$current/index.json
+    if [ $styles_changed = 1 ] || [ ! -s "$index" ]; then
+        echo "  rebuilding the icon cache ($current)"
+        if ish-apply-style "$current" >/dev/null 2>&1; then
+            changed "icon cache ($current)"
+        else
+            fail "ish-apply-style $current failed"
+        fi
+    fi
+fi
+
+# --- Done ------------------------------------------------------------------------------
+if [ $failed = 0 ]; then
+    current_kit=$(cat /usr/share/ish/repair-kit-version 2>/dev/null || echo)
+    if [ "$current_kit" != "$version" ]; then
+        printf '%s\n' "$version" > /usr/share/ish/repair-kit-version
+    fi
+    echo "@@result ok changed=$changed"
+    exit 0
+fi
+echo "@@result failed changed=$changed"
+exit 1

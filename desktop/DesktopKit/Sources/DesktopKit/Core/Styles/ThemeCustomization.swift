@@ -93,8 +93,8 @@ struct DesktopStyling: Codable, Equatable, Sendable {
         case .none: theme.showsFocusRing = false
         }
         if let panelOpacity { theme.panelBackground = theme.panelBackground.opacity(panelOpacity / max(theme.panelBackground.opacityComponent, 0.01)) }
-        theme.showsWindowShadows = windowShadows
-        theme.panelBlur = panelBlur
+        theme.showsWindowShadows = theme.showsWindowShadows && windowShadows
+        theme.panelBlur = theme.panelBlur && panelBlur
         if let monoFontSize { theme.monospacedFontSize = monoFontSize * fontScale }
         return theme
     }
@@ -184,6 +184,8 @@ enum ThemePairing {
         "flexoki-light": "matte-black",
         "lupine": "tokyo-night",
         "white": "vantablack",
+        "aero": "aero-night",
+        "dot-matrix": "dot-matrix-dark",
     ]
 
     /// light id → dark id for every light theme, user overrides first.

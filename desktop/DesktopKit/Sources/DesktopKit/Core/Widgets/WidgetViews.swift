@@ -260,6 +260,7 @@ struct SystemMonitorWidget: View {
     let controller: DesktopController
     @Environment(\.desktopTheme) private var theme
     @Environment(\.widgetsAreLive) private var isLive
+    @Environment(\.desktopStyle) private var style
 
     private var monitor: PanelSystemMonitor { controller.systemMonitor }
     private var disk: DiskUsageMonitor { controller.widgets.disk }
@@ -282,6 +283,12 @@ struct SystemMonitorWidget: View {
         .task(id: isLive) {
             guard isLive else { return }
             await disk.poll(controller.host)
+        }
+        .task(id: isLive && style != .ish) {
+            // Only the iSH panel (PanelView) feeds the CPU and memory meters; elsewhere the
+            // widget has to.
+            guard isLive, style != .ish else { return }
+            await monitor.poll(controller.host)
         }
     }
 

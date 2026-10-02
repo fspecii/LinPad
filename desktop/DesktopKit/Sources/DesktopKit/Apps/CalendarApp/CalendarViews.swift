@@ -58,6 +58,7 @@ struct MonthGridView: View {
                 }
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("calendar.month")
     }
 
@@ -101,16 +102,23 @@ struct MonthGridView: View {
 
     private func chip(_ event: CalendarEvent) -> some View {
         let color = store.color(of: event)
+        let title = Text(event.title.isEmpty ? "New Event" : event.title)
         return HStack(spacing: 4) {
             if event.isAllDay {
-                Text(event.title.isEmpty ? "New Event" : event.title)
-                    .foregroundStyle(color.readableLabel)
+                title.foregroundStyle(color.readableLabel)
             } else {
                 Circle().fill(color).frame(width: 6, height: 6)
-                Text(event.title.isEmpty ? "New Event" : event.title)
-                Spacer(minLength: 2)
-                Text(event.start.formatted(date: .omitted, time: .shortened))
-                    .foregroundStyle(theme.secondaryText)
+                // The time goes first when the column is too narrow for both.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 4) {
+                        title.fixedSize()
+                        Spacer(minLength: 2)
+                        Text(event.start.formatted(date: .omitted, time: .shortened))
+                            .foregroundStyle(theme.secondaryText)
+                            .fixedSize()
+                    }
+                    title
+                }
             }
         }
         .font(.system(size: 11))
@@ -160,6 +168,7 @@ struct TimeGridView: View {
                 .onAppear { reader.scrollTo(7, anchor: .top) }
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier(days.count == 1 ? "calendar.day" : "calendar.week")
     }
 

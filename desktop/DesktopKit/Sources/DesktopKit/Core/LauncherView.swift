@@ -305,7 +305,7 @@ struct DesktopAppTile: View {
             .overlay {
                 Image(systemName: symbol)
                     .font(.system(size: size * 0.48, weight: .medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme.accent.readableLabel)
             }
             .frame(width: size, height: size)
             .accessibilityHidden(true)

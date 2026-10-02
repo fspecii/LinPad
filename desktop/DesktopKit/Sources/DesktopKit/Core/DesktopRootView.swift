@@ -48,11 +48,8 @@ public struct DesktopRootView: View {
             shell
                 .overlay {
                     if controller.isOnboardingPresented {
-                        ZStack {
-                            Color.black.opacity(0.45).ignoresSafeArea()
-                            OnboardingView(controller: controller)
-                        }
-                        .transition(.opacity)
+                        OnboardingView(controller: controller)
+                            .transition(.opacity.combined(with: .scale(scale: 1.02)))
                     }
                 }
                 .overlay {
@@ -61,7 +58,8 @@ public struct DesktopRootView: View {
                     }
                 }
                 .overlay {
-                    if !controller.boot.isFinished {
+                    // Onboarding shows Linux's progress itself while it unpacks.
+                    if !controller.boot.isFinished && !controller.isOnboardingPresented {
                         BootSplash(controller: controller).transition(.opacity)
                     }
                 }
@@ -108,13 +106,14 @@ public struct DesktopRootView: View {
         }
         .task {
             openStartupWindows()
+            if !UserDefaults.standard.bool(forKey: OnboardingFlow.completedKey) {
+                controller.presentOnboarding()
+            }
             await controller.boot.run(host: controller.host, linux: controller.linux)
             controller.offerSystemUpdateIfAvailable()
             controller.startUpdateChecks()
+            controller.startMaintenance()
             controller.offerFastModeRetryIfFailed()
-            if !UserDefaults.standard.bool(forKey: OnboardingView.completedKey) {
-                withAnimation(DesktopMotion.standard) { controller.isOnboardingPresented = true }
-            }
         }
         .animation(DesktopMotion.standard, value: controller.boot.isFinished)
         .linPadLinks(controller: controller)
@@ -195,9 +194,10 @@ public struct DesktopRootView: View {
         let spec = style.spec
         VStack(spacing: 0) {
             switch spec.shell {
+            case .panel where style == .tiler: TilerBar(controller: controller).zIndex(1)
             case .panel: PanelView(controller: controller).zIndex(1)
-            case .menuBarAndDock: MenuBar(controller: controller).zIndex(1)
-            case .topBarAndDock: TopBar(controller: controller).zIndex(1)
+            case .menuBarAndDock: StyleMenuBar(controller: controller).zIndex(1)
+            case .topBarAndDock: StyleTopBar(controller: controller).zIndex(1)
             case .taskbar, .kylinPanel: EmptyView()
             }
             HStack(spacing: 0) {
@@ -213,11 +213,11 @@ public struct DesktopRootView: View {
                     }
             }
             if spec.dockEdge == .bottom && !dockAutoHides {
-                Dock(controller: controller, axis: .horizontal).zIndex(2)
+                StyleDock(controller: controller, axis: .horizontal).zIndex(2)
                     .padding(.bottom, bottomInset)
             }
             if spec.shell == .taskbar {
-                WindowsTaskbar(controller: controller).zIndex(1)
+                StyleTaskbar(controller: controller).zIndex(1)
                     .padding(.bottom, bottomInset)
                     .background(alignment: .bottom) { bottomInsetFill }
             }
@@ -238,7 +238,7 @@ public struct DesktopRootView: View {
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
                 .onHover { if $0 { isDockRevealed = true } }
-            Dock(controller: controller, axis: .horizontal)
+            StyleDock(controller: controller, axis: .horizontal)
                 .onHover { isDockRevealed = $0 }
                 .offset(y: isShown ? -bottomInset : DesktopStyleSpec.macos.dockThickness + 8)
                 .animation(DesktopMotion.standard, value: isShown)
@@ -388,6 +388,24 @@ public struct DesktopRootView: View {
                     .transition(.opacity)
             }
         }
+        .overlay {
+            if controller.commandMenu != nil {
+                CommandMenuView(controller: controller)
+                    .transition(.opacity)
+            }
+            if controller.isShortcutSheetPresented {
+                ShortcutSheetView(controller: controller)
+                    .transition(.opacity)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let osd = controller.osd {
+                OSDView(state: osd)
+                    .padding(.bottom, 90)
+                    .allowsHitTesting(false)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            }
+        }
         .animation(.snappy(duration: 0.2), value: controller.isLauncherPresented)
         .animation(.snappy(duration: 0.2), value: controller.isRunDialogPresented)
         .animation(.snappy(duration: 0.2), value: controller.themePicker != nil)
@@ -402,6 +420,7 @@ public struct DesktopRootView: View {
         case .startMenu: taskbarCentered ? .bottom : .bottomLeading
         case .fullScreenGrid: .center
         case .kylinMenu: kylinMenuFullScreen ? .center : .bottomLeading
+        case .eraMenu: style.spec.skin?.launcherAlignment ?? .bottomLeading
         }
     }
 
@@ -436,6 +455,11 @@ public struct DesktopRootView: View {
                     .padding(.bottom, controller.windowManager.keyboardOverlap)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+        case .eraMenu:
+            dismissalScrim { controller.isLauncherPresented = false }
+            EraLauncher(controller: controller, skin: style.spec.skin ?? .luna)
+                .padding(.bottom, controller.windowManager.keyboardOverlap)
+                .transition(.opacity)
         }
     }
 

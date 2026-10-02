@@ -1,0 +1,124 @@
+#!/bin/sh
+# GTK themes for the desktop themes (Luna, Aero, Classic 98, Platinum, Aqua), installed on
+# first use so the default image stays lean. ish-apply-style calls `ensure` itself.
+#   ish-style-packs list                id \t name \t installed(0|1) \t approx MB \t GTK themes \t licence
+#   ish-style-packs install <id>...     download (pinned, sha256-checked) and install; needs network
+#   ish-style-packs ensure <style>      install the packs a style's conf names in STYLE_PACKS
+#   ish-style-packs remove <id>...
+# Upstream directory names carry vendor trademarks, so every theme is installed under a
+# LinPad name and its index.theme rewritten. Only GTK 3/4 is kept (DesktopKit draws the
+# window chrome); icon packs and cursors from these projects are not installed.
+# Sources and licences: /usr/share/ish/themes/MANIFEST.md.
+set -eu
+
+THEMES=/usr/share/themes
+STYLES=/usr/share/ish/themes/styles
+WORK=${TMPDIR:-/tmp}/ish-style-packs
+
+# id|display name|github repo|ref|sha256 of the codeload tarball|src-dir=dest[,src-dir=dest]|approx MB (download)|licence
+catalogue() {
+    cat <<'CAT'
+luna|Luna GTK theme (B00merang Windows-XP, Luna variant)|B00merang-Project/Windows-XP|7637830906823af40a3cd7e7079be753d8b7d679|d1b23679eb66ac6cc8278736ed87b7dbf2be17d23fe11c6dc63b5cc0336ebb31|Windows XP Luna=LinPad-Luna|13|GPL-3.0
+aero|Aero GTK theme (B00merang Windows-7)|B00merang-Project/Windows-7|943b5307b349d3526068be0fa32f7549ee37ab45|c1aafb19489bf9becbb7b4f541883eee79a0eccb90e62ab0bcc4b356664b3225|.=LinPad-Aero|2|GPL-3.0
+aeronight|Aero Night GTK theme (B00merang Windows-Vista)|B00merang-Project/Windows-Vista|719b12bdb6f6dd352f7ca26ac2fd78ddc10efb8c|6b08f59b9d3910f803c09e7dd4dc2856d1c03e8a4cffe8598e34032c411c4551|.=LinPad-AeroNight|2|GPL-3.0
+classic|Classic 98 GTK theme (Chicago95)|grassmunk/Chicago95|5da19b8b1e2a886ebf6628403023d5fac3acc3ee|08712ab1e8220723ca8b64cff0d944652e3d782283cc24056f7a98ab5287ae23|Theme/Chicago95=LinPad-Classic|28|GPL-3.0+ / MIT
+platinum|Platinum GTK theme (B00merang Mac-OS-9)|B00merang-Project/Mac-OS-9|ca8a5d2a3fb1976cf904133574a3d0022ac2cf71|ea8b5f6c171a70ad87cb6df8adb3ed891dd662c453d9925ac0ddc2d355a48aab|.=LinPad-Platinum|1|GPL-3.0
+aqua|Aqua GTK theme (B00merang Mac-OS-X-Cheetah)|B00merang-Project/Mac-OS-X-Cheetah|f0bf2e2e66e45cab6890fb05bd0cbb0633baf22a|42f6569b2243248d2e9b744f748726229abfb9014acbffd81aebd581a32417ba|.=LinPad-Aqua|2|GPL-3.0
+CAT
+}
+
+die() { echo "ish-style-packs: $*" >&2; exit 1; }
+field() { printf '%s\n' "$1" | cut -d'|' -f"$2"; }
+entry() { catalogue | grep "^$1|" || die "unknown pack '$1' (try: ish-style-packs list)"; }
+dests() { field "$1" 6 | tr ',' '\n' | sed -n 's/.*=//p'; }
+
+is_installed() { # entry
+    for d in $(dests "$1"); do [ -f "$THEMES/$d/gtk-3.0/gtk.css" ] || return 1; done
+}
+
+list() {
+    catalogue | while IFS= read -r e; do
+        inst=0; is_installed "$e" && inst=1
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(field "$e" 1)" "$(field "$e" 2)" "$inst" "$(field "$e" 7)" \
+            "$(dests "$e" | tr '\n' ' ' | sed 's/ $//')" "$(field "$e" 8)"
+    done
+}
+
+# GTK 3/4 only: shells, window-manager and GTK 2 parts are never read under ishwl.
+# Branding images (vendor logos in Chicago95's panel CSS) go too.
+prune() { # dir
+    for d in gnome-shell cinnamon metacity-1 xfwm4 xfwm4_hidpi openbox-3 xfce-notify-4.0 plank gtk-2.0 unity misc; do
+        rm -rf "${1:?}/$d"
+    done
+    find "$1" -iname 'branding*' -exec rm -f {} + 2>/dev/null || true
+}
+
+install_one() { # id
+    e=$(entry "$1")
+    if is_installed "$e"; then echo "progress: installed $1"; return 0; fi
+    echo "progress: installing $1"
+    repo=$(field "$e" 3) ref=$(field "$e" 4) sum=$(field "$e" 5)
+    mkdir -p "$WORK"
+    tarball=$WORK/$1.tar.gz
+    curl -fsSL --retry 3 -o "$tarball.part" "https://codeload.github.com/$repo/tar.gz/$ref" || die "download failed: $repo"
+    echo "$sum  $tarball.part" | sha256sum -c -s || { rm -f "$tarball.part"; die "checksum mismatch for $repo@$ref"; }
+    mv "$tarball.part" "$tarball"
+    src=$WORK/$1.src
+    rm -rf "$src" 2>/dev/null || true
+    mkdir -p "$src"
+    # GTK 2 (Chicago95 has range/ and Range/, one directory on case-insensitive APFS), icons,
+    # cursors and extras are never used; leaving them out keeps the unpack fast. tar's
+    # complaints about the colliding directories are kept in a log: only a missing GTK 3
+    # theme (checked below) is an error.
+    # shellcheck disable=SC2046
+    tar -xzf "$tarball" -C "$src" --strip-components 1 \
+        $(for d in gtk-2.0 Icons Cursors Extras Plus sounds Screenshots Plymouth Lightdm KDE Fonts; do
+            printf " --exclude=*/%s --exclude=*/%s/*" "$d" "$d"; done) 2>"$WORK/$1.tar.log" || true
+    rm -f "$tarball"
+    field "$e" 6 | tr ',' '\n' | sed 's/\(.*\)=\(.*\)/\1|\2/' | while IFS='|' read -r from to; do
+        [ -n "$to" ] || continue
+        if [ ! -f "$src/$from/gtk-3.0/gtk.css" ]; then
+            cat "$WORK/$1.tar.log" >&2
+            die "$repo has no GTK 3 theme in '$from'"
+        fi
+        rm -rf "${THEMES:?}/$to.tmp"
+        mkdir -p "$THEMES/$to.tmp"
+        cp -R "$src/$from/." "$THEMES/$to.tmp/"
+        rm -rf "$THEMES/$to.tmp/.git" "$THEMES/$to.tmp/.github"
+        prune "$THEMES/$to.tmp"
+        name=$(printf '%s' "$to" | sed 's/^LinPad-//; s/\([a-z]\)\([A-Z]\)/\1 \2/g')
+        cat > "$THEMES/$to.tmp/index.theme" <<IDX
+[Desktop Entry]
+Type=X-GNOME-Metatheme
+Name=LinPad $name
+Comment=GTK theme from $repo ($(field "$e" 8)), installed by ish-style-packs
+Encoding=UTF-8
+
+[X-GNOME-Metatheme]
+GtkTheme=$to
+IDX
+        rm -rf "${THEMES:?}/$to"
+        mv "$THEMES/$to.tmp" "$THEMES/$to"
+    done
+    rm -rf "$src" 2>/dev/null || true
+    is_installed "$e" || die "$1 did not install"
+    echo "progress: installed $1"
+}
+
+remove_one() { # id
+    e=$(entry "$1")
+    for d in $(dests "$e"); do rm -rf "${THEMES:?}/$d"; done
+    echo "removed: $1"
+}
+
+case ${1:-} in
+list) list ;;
+install) shift; [ $# -gt 0 ] || die "install needs a pack id"; for p in "$@"; do install_one "$p"; done ;;
+remove) shift; for p in "$@"; do remove_one "$p"; done ;;
+ensure)
+    [ -n "${2:-}" ] || die "ensure needs a style id"
+    [ -f "$STYLES/$2.conf" ] || die "unknown style '$2'"
+    packs=$(STYLE_PACKS=; . "$STYLES/$2.conf"; printf '%s' "${STYLE_PACKS:-}")
+    for p in $packs; do install_one "$p"; done ;;
+*) echo "usage: ish-style-packs list | install <id>... | ensure <style> | remove <id>..." >&2; exit 2 ;;
+esac

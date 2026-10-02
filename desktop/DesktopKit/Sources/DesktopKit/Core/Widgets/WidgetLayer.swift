@@ -358,7 +358,7 @@ enum WidgetKey: String, CaseIterable {
             }
         }()
         return inputs.map { input, flags in
-            let command = UIKeyCommand(title: "", action: #selector(WidgetKeyView.perform(_:)), input: input,
+            let command = UIKeyCommand(title: "", action: #selector(WidgetKeyView.performWidgetKey(_:)), input: input,
                                        modifierFlags: flags, propertyList: rawValue)
             command.wantsPriorityOverSystemBehavior = true
             return command
@@ -374,7 +374,7 @@ final class WidgetKeyView: UIView {
     override var canBecomeFirstResponder: Bool { true }
     override var keyCommands: [UIKeyCommand]? { WidgetKey.allCommands }
 
-    @objc func perform(_ sender: UIKeyCommand) {
+    @objc func performWidgetKey(_ sender: UIKeyCommand) {
         guard let raw = sender.propertyList as? String, let key = WidgetKey(rawValue: raw) else { return }
         onKey?(key)
     }

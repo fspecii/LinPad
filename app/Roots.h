@@ -65,6 +65,20 @@ NS_ASSUME_NONNULL_BEGIN
 /// to reinstall. The previous root is kept (renamed) until the user deletes it.
 - (BOOL)updateDefaultRootWithProgress:(id<ProgressReporter> _Nullable)progress error:(NSError **)error;
 
+/// Set by Settings › Maintenance › Reset to Factory (or the Settings app): RootsFactoryResetKeepFiles
+/// or RootsFactoryResetErase. The reset runs before the next boot.
+@property (nullable) NSString *pendingFactoryReset;
+/// Replaces the default root with a fresh copy of updateRootArchive (the newest system the
+/// app has). With keepFiles, /root, /home and the iPad folder mount points are carried
+/// over and the iPad folder list is kept; without, the iPad folder list is forgotten too
+/// (the folders' files stay on the iPad). Safe to interrupt: the new root is imported into
+/// staging, and the old one is only moved aside (and deleted) once the new one is complete;
+/// a launch after an interruption between the two moves puts the old root back.
+- (BOOL)resetDefaultRootKeepingFiles:(BOOL)keepFiles progress:(id<ProgressReporter> _Nullable)progress error:(NSError **)error;
+
 @end
+
+extern NSString *const RootsFactoryResetKeepFiles; ///< @"keep-files"
+extern NSString *const RootsFactoryResetErase;     ///< @"erase"
 
 NS_ASSUME_NONNULL_END

@@ -15,6 +15,26 @@ public enum DesktopStyle: String, CaseIterable, Identifiable, Sendable {
     /// UKUI (openKylin): light-first, bottom panel, three-column start menu
     /// (themes/kylin/DESIGN-SPEC.md).
     case kylin
+    /// Tiling-first and minimal: a thin top bar (workspaces, clock, status), square corners,
+    /// no shadows or blur, a coloured focus ring; auto-tiling on, Tokyo Night by default.
+    case tiler
+    // Desktop themes (EraStyles.swift): era looks drawn from data, each with its own chrome.
+    /// Blue taskbar, green start button, rounded blue title bars (XP era).
+    case luna
+    /// Glass title bars and a light glass taskbar with an orb (7 era).
+    case aero
+    /// Glass title bars over a black glass taskbar (Vista era).
+    case aeronight
+    /// Grey bevelled 3D chrome and navy gradient titles (98 era).
+    case classic
+    /// Striped grey title bars, close box left, menu bar on top (classic Mac era).
+    case platinum
+    /// Pinstripes, gel lights, a white Dock (early OS X era).
+    case aqua
+    /// Dark chrome bezels and blue focus (handheld era).
+    case berry
+    /// Monochrome, a red accent, dot-matrix type and widgets.
+    case dotmatrix
 
     public static let storageKey = "desktop.style"
     public static let defaultStyle = DesktopStyle.ish
@@ -28,6 +48,15 @@ public enum DesktopStyle: String, CaseIterable, Identifiable, Sendable {
         case .macos: "macOS"
         case .ubuntu: "Ubuntu"
         case .kylin: "Kylin"
+        case .tiler: "Tiler"
+        case .luna: "Luna"
+        case .aero: "Aero"
+        case .aeronight: "Aero Night"
+        case .classic: "Classic 98"
+        case .platinum: "Platinum"
+        case .aqua: "Aqua"
+        case .berry: "Berry"
+        case .dotmatrix: "Dot Matrix"
         }
     }
 
@@ -38,6 +67,8 @@ public enum DesktopStyle: String, CaseIterable, Identifiable, Sendable {
         case .macos: .macos
         case .ubuntu: .ubuntu
         case .kylin: .kylin
+        case .tiler: .tiler
+        case .luna, .aero, .aeronight, .classic, .platinum, .aqua, .berry, .dotmatrix: .era(self)
         }
     }
 
@@ -70,6 +101,8 @@ struct DesktopStyleSpec {
     enum ButtonPlacement {
         case leading
         case trailing
+        /// Close on the left, the rest on the right (Platinum).
+        case split
     }
 
     enum ButtonShape {
@@ -83,6 +116,8 @@ struct DesktopStyleSpec {
         case round
         /// 30 pt line glyphs on a radius-6 hover tile; close turns #E7202B (UKUI).
         case kylin
+        /// Drawn by the style's `EraSkin` (EraWindowButtons.swift).
+        case era
     }
 
     enum Launcher {
@@ -94,6 +129,8 @@ struct DesktopStyleSpec {
         case fullScreenGrid
         /// UKUI's window-mode menu: app list, favorites and a sidebar.
         case kylinMenu
+        /// The era start menus and Platinum's system menu (EraLaunchers.swift).
+        case eraMenu
     }
 
     /// Colors for one appearance.
@@ -128,6 +165,16 @@ struct DesktopStyleSpec {
     var topBarHeight: CGFloat
     var bottomBarHeight: CGFloat
     var dockThickness: CGFloat
+    /// Tiler: windows without shadows, flat panels, the focus ring always on.
+    var windowShadows = true
+    var panelBlur = true
+    var alwaysShowsFocusRing = false
+    /// Turns auto-tiling on for every workspace when the style is chosen.
+    var tilesByDefault = false
+    /// The colour theme applied when the style is chosen and none is active.
+    var defaultColorTheme: String?
+    /// Era chrome: title bars, frames, buttons and panels drawn from data (EraStyles.swift).
+    var skin: EraSkin?
 
     static let ish = DesktopStyleSpec(
         shell: .panel, dockEdge: nil, buttonPlacement: .trailing, buttonShape: .glyph, centersTitle: false,
@@ -137,6 +184,23 @@ struct DesktopStyleSpec {
                       primaryText: Color(white: 0.94), secondaryText: Color(white: 0.62), separator: Color(white: 0.26)),
         light: .neutralLight,
         topBarHeight: PanelView.height, bottomBarHeight: 0, dockThickness: 0)
+
+    static let tiler: DesktopStyleSpec = {
+        var spec = DesktopStyleSpec(
+            shell: .panel, dockEdge: nil, buttonPlacement: .trailing, buttonShape: .glyph, centersTitle: false,
+            launcher: .menu, overviewSearches: false, cornerRadius: 0, accent: nil,
+            dark: Palette(titleBarActive: Color(white: 0.12), titleBarInactive: Color(white: 0.09),
+                          panelBackground: Color(white: 0.06), windowBackground: Color(white: 0.09),
+                          primaryText: Color(white: 0.92), secondaryText: Color(white: 0.58), separator: Color(white: 0.2)),
+            light: .neutralLight,
+            topBarHeight: TilerBar.height, bottomBarHeight: 0, dockThickness: 0)
+        spec.windowShadows = false
+        spec.panelBlur = false
+        spec.alwaysShowsFocusRing = true
+        spec.tilesByDefault = true
+        spec.defaultColorTheme = "tokyo-night"
+        return spec
+    }()
 
     static let windows = DesktopStyleSpec(
         shell: .taskbar, dockEdge: nil, buttonPlacement: .trailing, buttonShape: .caption, centersTitle: false,
@@ -208,6 +272,9 @@ struct DesktopStyleSpec {
         theme.primaryText = palette.primaryText
         theme.secondaryText = palette.secondaryText
         theme.separator = palette.separator
+        if !windowShadows { theme.showsWindowShadows = false }
+        if !panelBlur { theme.panelBlur = false }
+        if alwaysShowsFocusRing, theme.borderWidth == 0 { theme.borderWidth = 2 }
         return theme
     }
 }

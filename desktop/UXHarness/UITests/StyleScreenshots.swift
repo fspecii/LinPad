@@ -82,6 +82,32 @@ final class StyleScreenshots: XCTestCase {
         app.terminate()
     }
 
+    /// The Tiler style with two tiled windows, and its region picker.
+    func testCaptureTiler() throws {
+        let directory = ProcessInfo.processInfo.environment["DESKTOP_SCREENSHOT_DIR"]
+        try XCTSkipIf(directory == nil, "DESKTOP_SCREENSHOT_DIR not set")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication()
+        app.launchArguments = ["-desktop.resetSession", "YES", "-desktop.autostart", "files,terminal", "-desktop.style", "tiler",
+                               "-desktop.onboarded", "YES", "-desktop.tiling", "", "-desktop.colorTheme", "tokyo-night"]
+        app.launch()
+        XCTAssertTrue(app.buttons["desktop.panel.applications"].waitForExistence(timeout: 10))
+        sleep(2)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
+        app.typeKey("t", modifierFlags: [.control, .option, .shift])
+        sleep(2)
+        save(app, to: directory!, name: "tiler-desktop")
+        app.typeKey("s", modifierFlags: [.control, .option, .shift])
+        sleep(1)
+        save(app, to: directory!, name: "tiler-region")
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.25))
+        start.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.6)),
+                    withVelocity: .slow, thenHoldForDuration: 0.6)
+        sleep(2)
+        save(app, to: directory!, name: "tiler-after-capture")
+        app.terminate()
+    }
+
     private func save(_ app: XCUIApplication, to directory: String, name: String) {
         let url = URL(fileURLWithPath: directory).appendingPathComponent("\(name).png")
         // Redraw so the device orientation is baked into the pixels; the raw PNG is portrait.
