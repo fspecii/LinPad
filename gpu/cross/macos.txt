@@ -1,0 +1,23 @@
+[binaries]
+c = ['xcrun', '--sdk', 'macosx', 'clang']
+objc = ['xcrun', '--sdk', 'macosx', 'clang']
+ar = 'ar'
+strip = 'strip'
+pkg-config = 'pkg-config'
+
+[built-in options]
+c_args = ['-target', 'arm64-apple-macos13.0', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk']
+objc_args = ['-target', 'arm64-apple-macos13.0', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk']
+c_link_args = ['-target', 'arm64-apple-macos13.0', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk']
+objc_link_args = ['-target', 'arm64-apple-macos13.0', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk']
+
+[properties]
+needs_exe_wrapper = true
+pkg_config_libdir = '/Volumes/ExternalHD/Dev/ish-arm64/gpu/prefix-macos/lib/pkgconfig'
+
+[host_machine]
+system = 'darwin'
+
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'

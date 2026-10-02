@@ -1,0 +1,11 @@
+// GPU acceleration for Linux apps: emulated virtio-gpu render node backed by
+// virglrenderer (Venus) and MoltenVK. See gpu/DESIGN.md.
+// Build the libraries once with gpu/build-third-party.sh.
+// Build without it: ISH_VIRTGPU = disabled (here or on the xcodebuild command line).
+ISH_VIRTGPU = enabled
+
+ISH_VIRTGPU_PREFIX[sdk=iphoneos*] = $(SRCROOT)/gpu/prefix-ios
+ISH_VIRTGPU_PREFIX[sdk=iphonesimulator*] = $(SRCROOT)/gpu/prefix-iossim
+ISH_VIRTGPU_LDFLAGS_enabled = $(ISH_VIRTGPU_PREFIX)/lib/libvirglrenderer.a $(ISH_VIRTGPU_PREFIX)/lib/libMoltenVK.a -lc++ -framework Metal -framework IOSurface -framework QuartzCore
+ISH_VIRTGPU_LDFLAGS_disabled =
+ISH_VIRTGPU_LDFLAGS = $(ISH_VIRTGPU_LDFLAGS_$(ISH_VIRTGPU))

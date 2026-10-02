@@ -1,0 +1,152 @@
+diff --git a/src/mesa/util/anon_file.c b/src/mesa/util/anon_file.c
+index 1c22514f..1dd18996 100644
+--- a/src/mesa/util/anon_file.c
++++ b/src/mesa/util/anon_file.c
+@@ -28,6 +28,10 @@
+  */
+ 
+ #include "anon_file.h"
++#ifdef __APPLE__
++#include <TargetConditionals.h>
++#include <limits.h>
++#endif
+ 
+ #include <errno.h>
+ #include <fcntl.h>
+@@ -147,6 +151,20 @@ os_create_anonymous_file(off_t size, const char *debug_name)
+      if (errno != EEXIST)
+        break;
+    }
++#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
++   /* The iOS sandbox may refuse POSIX shm; an unlinked file in the app's
++    * temporary directory is mappable and shareable the same way. */
++   if (fd < 0) {
++      const char *dir = getenv("TMPDIR");
++      char path[PATH_MAX];
++      snprintf(path, sizeof(path), "%s/%s-XXXXXX", dir && dir[0] ? dir : "/tmp", tag);
++      fd = mkstemp(path);
++      if (fd >= 0) {
++         fcntl(fd, F_SETFD, FD_CLOEXEC);
++         unlink(path);
++      }
++   }
++#endif
+ #elif defined(__OpenBSD__)
+    char template[] = "/tmp/mesa-XXXXXXXXXX";
+    fd = shm_mkstemp(template);
+diff --git a/src/venus/vkr_common.h b/src/venus/vkr_common.h
+index 00a42529..e70723bb 100644
+--- a/src/venus/vkr_common.h
++++ b/src/venus/vkr_common.h
+@@ -369,4 +369,18 @@ vkr_seqno_ge(uint32_t a, uint32_t b)
+    return (a - b) <= INT32_MAX;
+ }
+ 
++#ifdef __APPLE__
++/* Opt-in (VKR_ZINK_COMPAT=1) workarounds that let guest zink run on
++ * MoltenVK: advertise robustness2.nullDescriptor and
++ * VK_EXT_external_memory_dma_buf to the guest, and strip both again before
++ * they reach MoltenVK.
++ */
++static inline bool
++vkr_zink_compat(void)
++{
++   const char *env = getenv("VKR_ZINK_COMPAT");
++   return env && env[0] == '1';
++}
++#endif
++
+ #endif /* VKR_COMMON_H */
+diff --git a/src/venus/vkr_device.c b/src/venus/vkr_device.c
+index 603f45b8..c928d6fe 100644
+--- a/src/venus/vkr_device.c
++++ b/src/venus/vkr_device.c
+@@ -128,6 +128,15 @@ vkr_dispatch_vkCreateDevice(struct vn_dispatch_context *dispatch,
+          return;
+    }
+ 
++#ifdef __APPLE__
++   if (vkr_zink_compat()) {
++      VkPhysicalDeviceRobustness2FeaturesEXT *robustness2 = (void *)vkr_find_struct(
++         args->pCreateInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT);
++      if (robustness2)
++         robustness2->nullDescriptor = VK_FALSE;
++   }
++#endif
++
+    /* append extensions for our own use */
+    const char **exts = NULL;
+    uint32_t ext_count = args->pCreateInfo->enabledExtensionCount;
+@@ -145,8 +154,19 @@ vkr_dispatch_vkCreateDevice(struct vn_dispatch_context *dispatch,
+       }
+ 
+       ext_count = 0;
+-      for (uint32_t i = 0; i < args->pCreateInfo->enabledExtensionCount; i++)
+-         exts[ext_count++] = args->pCreateInfo->ppEnabledExtensionNames[i];
++      for (uint32_t i = 0; i < args->pCreateInfo->enabledExtensionCount; i++) {
++         const char *name = args->pCreateInfo->ppEnabledExtensionNames[i];
++#ifdef __APPLE__
++         /* only ever advertised to the guest, never supported by the host */
++         if (!physical_dev->KHR_external_memory_fd &&
++             !strcmp(name, VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME))
++            continue;
++         if (!physical_dev->EXT_external_memory_dma_buf &&
++             !strcmp(name, VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME))
++            continue;
++#endif
++         exts[ext_count++] = name;
++      }
+ 
+       if (physical_dev->EXT_external_memory_metal)
+          exts[ext_count++] = "VK_EXT_external_memory_metal";
+diff --git a/src/venus/vkr_physical_device.c b/src/venus/vkr_physical_device.c
+index bc387548..038de23b 100644
+--- a/src/venus/vkr_physical_device.c
++++ b/src/venus/vkr_physical_device.c
+@@ -340,6 +340,26 @@ vkr_physical_device_init_extensions(struct vkr_physical_device *physical_dev)
+       }
+    }
+ 
++#ifdef __APPLE__
++   /* Guest zink only accepts a DRM screen when venus exposes
++    * VK_KHR_external_memory_fd, which venus derives from the renderer's
++    * VK_EXT_external_memory_dma_buf. Nothing is exported as a dma-buf on
++    * this platform; host-visible blobs stay shm-backed.
++    */
++   if (vkr_zink_compat() && physical_dev->EXT_external_memory_metal &&
++       !physical_dev->EXT_external_memory_dma_buf) {
++      VkExtensionProperties *new_exts =
++         realloc(exts, sizeof(*exts) * (advertised_count + 1));
++      if (new_exts) {
++         exts = new_exts;
++         strcpy(new_exts[advertised_count].extensionName,
++                VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME);
++         new_exts[advertised_count].specVersion = 1;
++         advertised_count++;
++      }
++   }
++#endif
++
+    physical_dev->extensions = realloc(exts, sizeof(*exts) * advertised_count);
+    physical_dev->extension_count = advertised_count;
+ }
+@@ -677,6 +697,19 @@ vkr_dispatch_vkGetPhysicalDeviceFeatures2(
+ 
+    vn_replace_vkGetPhysicalDeviceFeatures2_args_handle(args);
+    vk->GetPhysicalDeviceFeatures2(args->physicalDevice, args->pFeatures);
++
++#ifdef __APPLE__
++   /* MoltenVK lacks robustness2.nullDescriptor (MoltenVK issue 2650) but zink
++    * hard-requires it. Metal accepts nil buffer/texture bindings, so the
++    * embedder may opt in to advertising it; vkCreateDevice strips the request.
++    */
++   if (vkr_zink_compat()) {
++      VkPhysicalDeviceRobustness2FeaturesEXT *robustness2 = (void *)vkr_find_struct(
++         args->pFeatures, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT);
++      if (robustness2)
++         robustness2->nullDescriptor = VK_TRUE;
++   }
++#endif
+ }
+ 
+ static void

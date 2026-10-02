@@ -1,0 +1,23 @@
+[binaries]
+c = ['xcrun', '--sdk', 'iphonesimulator', 'clang']
+objc = ['xcrun', '--sdk', 'iphonesimulator', 'clang']
+ar = 'ar'
+strip = 'strip'
+pkg-config = 'pkg-config'
+
+[built-in options]
+c_args = ['-target', 'arm64-apple-ios17.0-simulator', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk']
+objc_args = ['-target', 'arm64-apple-ios17.0-simulator', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk']
+c_link_args = ['-target', 'arm64-apple-ios17.0-simulator', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk']
+objc_link_args = ['-target', 'arm64-apple-ios17.0-simulator', '-isysroot', '/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk']
+
+[properties]
+needs_exe_wrapper = true
+pkg_config_libdir = '/Volumes/ExternalHD/Dev/ish-arm64/gpu/prefix-iossim/lib/pkgconfig'
+
+[host_machine]
+system = 'darwin'
+subsystem = 'ios'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
