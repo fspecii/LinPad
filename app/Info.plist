@@ -20,9 +20,23 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).links</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>linpad</string>
+			</array>
+		</dict>
+	</array>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>stikdebug</string>
+		<string>sidestore</string>
+		<string>altstore</string>
+		<string>localdevvpn</string>
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>

@@ -31,7 +31,15 @@ user-trash multimedia-video-player
 folder-open folder-documents folder-download folder-music folder-pictures folder-videos
 folder-desktop folder-publicshare folder-templates folder-remote user-desktop
 user-trash-full user-bookmarks network-workgroup network-server drive-harddisk
-drive-removable-media drive-optical media-removable computer start-here"
+drive-removable-media drive-optical media-removable computer start-here
+preferences-desktop-theme preferences-desktop-color preferences-desktop-appearance
+applications-graphics preferences-desktop-wallpaper preferences-desktop-background
+preferences-desktop system-software-update software-store org.gnome.Software
+org.gnome.Terminal org.gnome.Nautilus org.gnome.TextEditor text-editor
+org.gnome.SystemMonitor org.gnome.Settings internet-web-browser
+firefox firefox-esr org.mozilla.firefox vscode com.visualstudio.code code
+visual-studio-code code-oss foot falkon org.kde.falkon vlc org.videolan.VLC
+thunderbird mail-client multimedia-video-player"
 
 die() { echo "ish-apply-style: $*" >&2; exit 1; }
 

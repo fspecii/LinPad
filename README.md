@@ -292,6 +292,8 @@ I bought an iPad Air M3, attached a Logitech keyboard with a trackpad, and reali
 
 LinPad is licensed under the **GPLv3**, like iSH — see [LICENSE.md](LICENSE.md). The original iSH README is kept at [docs/README-iSH.md](docs/README-iSH.md).
 
+**Source code for releases.** Each [release](https://github.com/fspecii/LinPad/releases) attaches `linpad-source-<version>.tar.gz` (this repository at the release tag) and `SOURCES.md` / `sources-manifest.json`, which list every package in the bundled Linux system with the exact source it was built from: the Alpine aports commit of each package, the Debian and Ubuntu theme source packages, and the pinned theme and icon repositories. `SOURCES.md` also carries the written offer of source for the GPL and LGPL components.
+
 ---
 
 <p align="center">

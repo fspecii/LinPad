@@ -174,18 +174,28 @@ private struct KylinTaskButton: View {
 /// `HH:mm Weekday` over `yyyy/MM/dd`.
 private struct KylinClock: View {
     @Environment(\.desktopTheme) private var theme
+    @Environment(\.desktopController) private var controller
+    @State private var isShowingCalendar = false
 
     var body: some View {
         TimelineView(.everyMinute) { context in
-            VStack(spacing: 1) {
-                Text(context.date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute().weekday(.abbreviated)))
-                Text(context.date.formatted(.iso8601.year().month().day().dateSeparator(.dash)))
-                    .foregroundStyle(theme.secondaryText)
+            Button { isShowingCalendar.toggle() } label: {
+                VStack(spacing: 1) {
+                    Text(context.date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute().weekday(.abbreviated)))
+                    Text(context.date.formatted(.iso8601.year().month().day().dateSeparator(.dash)))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .font(.system(size: 11, weight: .regular).monospacedDigit())
+                .padding(.horizontal, 4)
+                .contentShape(Rectangle())
             }
-            .font(.system(size: 11, weight: .regular).monospacedDigit())
-            .padding(.horizontal, 4)
+            .buttonStyle(.plain)
+            .hoverEffect(.highlight)
+            .calendarPopover(isPresented: $isShowingCalendar, controller: controller)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(context.date.formatted(date: .complete, time: .shortened))
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("desktop.panel.clock")
         }
     }
 }

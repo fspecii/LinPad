@@ -17,8 +17,18 @@ final class HardwareKeyboardMonitor {
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
     /// Search fields focus themselves only with a hardware keyboard: on touch alone, opening
-    /// a menu must not throw the on-screen keyboard over the panel.
-    static var isAttached: Bool { GCKeyboard.coalesced != nil }
+    /// a menu must not throw the on-screen keyboard over the panel. Some Bluetooth keyboards
+    /// reach GameController only after their first key, so a recent hardware key press counts.
+    static var isAttached: Bool {
+        GCKeyboard.coalesced != nil || lastHardwareKeyPress.map { Date().timeIntervalSince($0) < 600 } ?? false
+    }
+
+    private static var lastHardwareKeyPress: Date?
+
+    /// Called for presses that carry a key (on-screen keyboard taps arrive as text instead).
+    static func noteHardwareKeyPress() {
+        lastHardwareKeyPress = Date()
+    }
 
     /// Without GameController keyboard events the switcher stays open until Return or a click.
     var canObserveModifiers: Bool { GCKeyboard.coalesced?.keyboardInput != nil }
@@ -59,6 +69,7 @@ final class DesktopInputCoordinator: NSObject, UIGestureRecognizerDelegate {
     private weak var installedWindow: UIWindow?
     private var recognizers: [UIGestureRecognizer] = []
     private var keyboardObserver: NSObjectProtocol?
+    private var hideObservers: [NSObjectProtocol] = []
     private var keyboardFrame: CGRect = .null
     private var pendingInterfaceStyle: UIUserInterfaceStyle?
 
@@ -87,11 +98,18 @@ final class DesktopInputCoordinator: NSObject, UIGestureRecognizerDelegate {
             DesktopKeyCommands.active = controller.keyCommands
         }
         DispatchQueue.main.async { [weak self] in self?.ensureKeyCommandsReachable() }
-        keyboardObserver = keyboardObserver ?? NotificationCenter.default.addObserver(
-            forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main
-        ) { [weak self] note in
+        guard keyboardObserver == nil else { return }
+        let center = NotificationCenter.default
+        keyboardObserver = center.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil,
+                                              queue: .main) { [weak self] note in
             let frame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
             MainActor.assumeIsolated { self?.keyboardFrameChanged(frame ?? .null) }
+        }
+        for name in [UIResponder.keyboardWillHideNotification, UIResponder.keyboardDidHideNotification,
+                     UIApplication.didEnterBackgroundNotification] {
+            hideObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.keyboardHidden() }
+            })
         }
     }
 
@@ -145,10 +163,13 @@ final class DesktopInputCoordinator: NSObject, UIGestureRecognizerDelegate {
     private func keyboardFrameChanged(_ screenFrame: CGRect) {
         keyboardFrame = screenFrame
         guard let referenceView, let window = referenceView.window else { return }
-        let local = screenFrame.isNull ? CGRect.null : referenceView.convert(screenFrame, from: window.screen.coordinateSpace)
-        let overlap = local.isNull ? 0 : max(0, referenceView.bounds.maxY - local.minY)
-        // A hardware keyboard leaves only the shortcuts bar on screen; that is not worth moving windows for.
-        controller?.windowManager.updateKeyboardOverlap(overlap > 80 ? min(overlap, referenceView.bounds.height) : 0)
+        let local = screenFrame.isNull ? nil : referenceView.convert(screenFrame, from: window.screen.coordinateSpace)
+        controller?.windowManager.updateKeyboard(local, hardwareKeyboard: HardwareKeyboardMonitor.isAttached)
+    }
+
+    private func keyboardHidden() {
+        keyboardFrame = .null
+        controller?.windowManager.resetKeyboard()
     }
 
     // MARK: Gestures

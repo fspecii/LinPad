@@ -267,8 +267,7 @@ struct ThemeEditorView: View {
                 Spacer()
                 if isSaving { ProgressView().controlSize(.small) }
                 Button("Save & Apply") { save() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(theme.accent)
+                    .buttonStyle(.primary)
                     .disabled(!draft.isValid || isSaving)
                     .accessibilityIdentifier("themes.editor.save")
             }
@@ -277,7 +276,7 @@ struct ThemeEditorView: View {
                 Text(status).font(.caption).foregroundStyle(theme.secondaryText)
                     .accessibilityIdentifier("themes.editor.status")
             }
-            Text("Saved to ~/.config/linpad/colors/\(draft.id)/colors.toml (Omarchy's format).")
+            Text("Saved to ~/.config/linpad/colors/\(draft.id)/colors.toml.")
                 .font(.caption).foregroundStyle(theme.secondaryText)
         }
     }

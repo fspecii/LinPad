@@ -35,6 +35,7 @@ sh "$src/gecko-tune.sh"
 echo "finalize: first-run hooks"
 install -D -m 755 "$src/ish-firstrun" /usr/local/sbin/ish-firstrun
 install -D -m 755 "$src/ish-install-vscode" /usr/local/bin/ish-install-vscode
+install -D -m 755 "$src/ish-preview" /usr/local/bin/ish-preview
 install -D -m 644 "$src/90-firstrun.sh" /etc/ishwl/session.d/90-firstrun.sh
 install -D -m 644 "$src/ish-code.svg" /usr/share/icons/hicolor/scalable/apps/ish-code.svg
 
@@ -181,6 +182,13 @@ for lib in /usr/lib/libgallium-26.2.3.so /usr/lib/libEGL.so.1 /usr/lib/vlc/plugi
         exit 1
     fi
 done
+# Firefox plays video and audio through the system FFmpeg libraries (dependencies of
+# firefox-esr; only the ffmpeg command left with VLC) and needs its media processes.
+ls /usr/lib/libavcodec.so.* >/dev/null 2>&1 || { echo "finalize: libavcodec missing (Firefox video)" >&2; exit 1; }
+if grep -qs 'media.rdd-process.enabled", false\|media.utility-process.enabled", false' /usr/lib/firefox-esr/defaults/pref/*.js; then
+    echo "finalize: Firefox prefs disable the media processes (no video/audio decoders)" >&2
+    exit 1
+fi
 grep -q '^ID=linuxforipad' "$(readlink -f /etc/os-release)" || { echo "finalize: os-release not branded" >&2; exit 1; }
 if command -v claude >/dev/null; then echo "finalize: claude $(timeout 120 claude --version 2>&1 | head -n1)"; fi
 echo "finalize: ok ($(cat /etc/alpine-release), $(du -sh / 2>/dev/null | cut -f1) apparent)"

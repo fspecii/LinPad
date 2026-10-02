@@ -21,7 +21,9 @@
 #   --from REF         release notes from REF (default: the previous v* tag)
 #
 # Output: release/out/VERSION/ (git-ignored): LinPad-VERSION.ipa,
-# linpad-rootfs-VERSION.tar.gz(.sha256), rootfs-manifest.json, RELEASE-NOTES.md, source.json.
+# linpad-rootfs-VERSION.tar.gz(.sha256), rootfs-manifest.json, RELEASE-NOTES.md, source.json,
+# and the GPL corresponding source: SOURCES.md, sources-manifest.json (release/gpl-sources.py)
+# and linpad-source-VERSION.tar.gz.
 # Env: OUT_DIR, BUILD_DIR (default build-ios-publish), REMOTE (git remote of the public repo,
 # default linpad). The steps are in release/RELEASING.md.
 set -euo pipefail
@@ -242,6 +244,46 @@ open(sys.argv[1], "a").write("\n")
 PY
 note "minAppVersion $MIN_APP"
 
+# GPL: corresponding source -------------------------------------------------------------
+say "4b/7 corresponding source (SOURCES.md, sources-manifest.json, LinPad source tarball)"
+SOURCE_TARBALL=linpad-source-$VERSION.tar.gz
+INDEXES=$OUT_DIR/apkindex
+mkdir -p "$INDEXES"
+for branch in v3.21 edge; do
+    for repo in main community; do
+        # Read-only: Alpine's package indexes tell main from community for the aports links.
+        [ -s "$INDEXES/$branch-$repo.tar.gz" ] ||
+            curl -fsSL --retry 2 -o "$INDEXES/$branch-$repo.tar.gz" \
+                "https://dl-cdn.alpinelinux.org/alpine/$branch/$repo/aarch64/APKINDEX.tar.gz" ||
+            { rm -f "$INDEXES/$branch-$repo.tar.gz"; note "warning: no APKINDEX for $branch/$repo"; }
+    done
+done
+if [ -f "$SRC_ROOTFS" ]; then
+    python3 "$HERE/gpl-sources.py" --rootfs "$SRC_ROOTFS" --release "$VERSION" --out "$OUT_DIR" \
+        --apkindex "$INDEXES" --repo "$REPO" --source-tarball "$SOURCE_TARBALL"
+else
+    note "(dry run: no rootfs, so no package list yet)"
+fi
+# Submodules are not in `git archive`; name the exact commits the app was built from.
+if [ -f "$SRC_ROOTFS" ] && [ -f "$OUT_DIR/SOURCES.md" ]; then
+    {
+        printf '\n## Git submodules (not in the source tarball)\n\n'
+        git config -f .gitmodules --get-regexp '^submodule\..*\.path$' | while read -r key path; do
+            name=${key#submodule.}; name=${name%.path}
+            url=$(git config -f .gitmodules --get "submodule.$name.url")
+            commit=$(git ls-tree HEAD "$path" | awk '{ print $3 }')
+            [ -n "$commit" ] && printf -- '- `%s`: %s/tree/%s\n' "$path" "${url%.git}" "$commit"
+        done
+    } >> "$OUT_DIR/SOURCES.md"
+fi
+# Everything LinPad builds itself (ishwl, the audio and VLC shims, the vlc-qt patch, the
+# theme and release scripts, the app): the tree at the release commit.
+if [ -n "$DRY" ]; then
+    printf '    [dry-run] git archive --prefix=LinPad-%s/ -o %s HEAD\n' "$VERSION" "$OUT_DIR/$SOURCE_TARBALL"
+else
+    git archive --format=tar.gz --prefix="LinPad-$VERSION/" -o "$OUT_DIR/$SOURCE_TARBALL" "$HEAD_SHA"
+fi
+
 # 5. Release notes ----------------------------------------------------------------------
 say "5/7 release notes"
 if [ -z "$FROM" ]; then
@@ -268,6 +310,13 @@ NOTES=$OUT_DIR/RELEASE-NOTES.md
     echo "### Changes${FROM:+ since $FROM}"
     echo
     git log ${LIMIT[@]+"${LIMIT[@]}"} --no-merges --format='- %s (%h)' "$RANGE"
+    echo
+    echo "### Source code (GPL)"
+    echo
+    echo "LinPad is GPLv3. \`$SOURCE_TARBALL\` is the source of this release (also at tag \`$TAG\`)."
+    echo "\`SOURCES.md\` and \`sources-manifest.json\` list every package in the Linux system with the exact"
+    echo "source it was built from (Alpine aports commits, Debian/Ubuntu source packages, pinned theme and icon"
+    echo "repositories), and carry the written offer of source."
     echo
     echo "### Checksums (SHA-256)"
     echo
@@ -360,7 +409,13 @@ note "$SOURCE_OUT ($(python3 -c "import json,sys; print(len(json.load(open(sys.a
 
 # 7. Publish ----------------------------------------------------------------------------
 say "7/7 GitHub release"
-ASSETS=("$DEST_IPA" "$OUT_DIR/$IPA_NAME.sha256" "$DEST_ROOTFS" "$OUT_DIR/$ROOTFS_NAME.sha256" "$OUT_DIR/rootfs-manifest.json")
+ASSETS=("$DEST_IPA" "$OUT_DIR/$IPA_NAME.sha256" "$DEST_ROOTFS" "$OUT_DIR/$ROOTFS_NAME.sha256" "$OUT_DIR/rootfs-manifest.json"
+        "$OUT_DIR/SOURCES.md" "$OUT_DIR/sources-manifest.json" "$OUT_DIR/$SOURCE_TARBALL")
+if [ -z "$DRY" ]; then
+    for asset in "${ASSETS[@]}"; do
+        [ -s "$asset" ] || { echo "missing release asset $asset" >&2; exit 1; }
+    done
+fi
 run gh release create "$TAG" --repo "$REPO" --target "$HEAD_SHA" --title "LinPad $VERSION" \
     --notes-file "$NOTES" ${PRERELEASE:+--prerelease} ${PRERELEASE:+--latest=false} "${ASSETS[@]}"
 if [ -n "$PRERELEASE" ]; then

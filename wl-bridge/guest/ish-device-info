@@ -1,26 +1,46 @@
 #!/bin/sh
-# Facts about the iPad that the iOS app publishes as UserDefaults, which iSH exposes
-# as JSON values under /proc/ish/.defaults. Used by fastfetch.
+# Facts about the iPad and the desktop that the iOS app publishes as UserDefaults, which
+# iSH exposes as JSON values under /proc/ish/.defaults. Used by fastfetch (linpad-fetch).
 default() {
     value=$(cat "/proc/ish/.defaults/$1" 2>/dev/null) || return 1
     value=${value#\"}
     value=${value%\"}
     [ -n "$value" ] && printf '%s\n' "$value"
 }
+chip() { default linux.chipName || echo "Apple silicon"; }
 case $1 in
     host) default linux.hostModel || echo iPad ;;
+    chip) chip ;;
     cpu)
         # /proc/cpuinfo has no model name under iSH.
-        chip=$(default linux.chipName || echo ARM64)
-        echo "$chip ($(nproc) cores, emulated by iSH)"
+        echo "$(chip) ($(nproc) cores, emulated by iSH)"
+        ;;
+    jit)
+        case $(default linux.cpuEngine) in
+            native) echo "native ARM64 JIT ✓" ;;
+            compatibility) echo "compatibility (threaded code; fast mode is off)" ;;
+            *) echo "unknown" ;;
+        esac
         ;;
     gpu)
-        name=$(default linux.gpuName || echo "Apple GPU")
+        name=$(default linux.gpuName || echo "$(chip) GPU")
         if [ -e /dev/dri/renderD128 ]; then
-            echo "$name (Venus, Vulkan)"
+            echo "$name via Metal (Venus)"
         else
             echo "$name (not used: software rendering)"
         fi
         ;;
-    *) echo "usage: ish-device-info host|cpu|gpu" >&2; exit 2 ;;
+    theme) default linux.colorThemeName || echo "Style colors" ;;
+    style)
+        case $(default desktop.style) in
+            ''|ish) echo LinPad ;;
+            windows) echo Windows ;;
+            macos) echo macOS ;;
+            ubuntu) echo Ubuntu ;;
+            kylin) echo Kylin ;;
+            *) default desktop.style ;;
+        esac
+        ;;
+    app) version=$(default linux.appVersion) && echo "LinPad $version" || echo LinPad ;;
+    *) echo "usage: ish-device-info host|chip|cpu|jit|gpu|theme|style|app" >&2; exit 2 ;;
 esac

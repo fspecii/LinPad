@@ -38,8 +38,12 @@ final class OnScreenKeyboard {
     /// Stands in for the system keyboard; with zero height nothing shows, and hardware keys
     /// still arrive as presses.
     @ObservationIgnored private lazy var placeholder: UIView = {
-        let view = UIView(frame: .zero)
-        view.autoresizingMask = []
+        // Without an explicit zero height UIKit gives a custom input view the keyboard's
+        // default height, an empty keyboard-sized block that pushes windows up.
+        let view = UIInputView(frame: .zero, inputViewStyle: .default)
+        view.allowsSelfSizing = true
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.heightAnchor.constraint(equalToConstant: 0).isActive = true
         return view
     }()
 
@@ -130,7 +134,8 @@ extension DesktopController {
     /// The panel shows a keyboard button while a Linux window has focus and only the
     /// on-screen keyboard can type into it.
     var showsKeyboardButton: Bool {
-        guard !keyboard.isConnected, let window = windowManager.focusedWindow else { return false }
+        guard !keyboard.isConnected, !HardwareKeyboardMonitor.isAttached,
+              let window = windowManager.focusedWindow else { return false }
         return window.appID.hasPrefix(LinuxAppID.prefix)
     }
 }

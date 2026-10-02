@@ -600,6 +600,10 @@ void SyncHostname(void) {
     });
 }
 
++ (BOOL)fastModeHasGetTaskAllow {
+    return HasGetTaskAllow();
+}
+
 + (void)observeFastMode:(void (^)(void))observer {
     if (fastModeObservers == nil)
         fastModeObservers = [NSMutableArray new];

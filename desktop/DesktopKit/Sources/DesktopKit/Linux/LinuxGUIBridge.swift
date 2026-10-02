@@ -54,6 +54,8 @@ protocol LinuxGUIBridgeDelegate: AnyObject {
     func linuxBridgeSessionEnded(_ bridge: LinuxGUIBridge)
     /// A guest program asked for an http(s) URL to be shown (ish-open).
     func linuxBridge(_ bridge: LinuxGUIBridge, didRequestOpen url: URL)
+    /// ish-preview: show the URL in Quick Preview regardless of the URL handler setting.
+    func linuxBridge(_ bridge: LinuxGUIBridge, didRequestPreview url: URL)
 }
 
 /// The host half of the display bridge (wl-bridge/DESIGN.md).
@@ -491,12 +493,17 @@ final class LinuxGUIBridge {
             surface.view?.textInputDidChange(activationChanged: false)
         case "caret":
             surfaces[uint(1)]?.textInput?.caret = CGRect(x: int(2), y: int(3), width: int(4), height: int(5))
-        case "open":
-            // Written by ish-open, not ishwl: any guest program can send it, so only
-            // web URLs are honoured.
+        case "open", "preview":
+            // Written by ish-open / ish-preview, not ishwl: any guest program can send
+            // them, so only web URLs are honoured. "preview" always opens Quick Preview
+            // (WebKit, hardware video decoding), whatever the URL handler setting says.
             if fields.count > 1, let url = URL(string: Self.unescape(fields[1])),
                let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" {
-                delegate?.linuxBridge(self, didRequestOpen: url)
+                if fields[0] == "preview" {
+                    delegate?.linuxBridge(self, didRequestPreview: url)
+                } else {
+                    delegate?.linuxBridge(self, didRequestOpen: url)
+                }
             }
         case "hello":
             break

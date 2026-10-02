@@ -1,0 +1,4 @@
+#!/bin/sh
+# LinPad's system summary: fastfetch with the LinPad logo and the iPad's chip, JIT, GPU,
+# style and colour theme (see /etc/xdg/fastfetch/config.jsonc and ish-device-info).
+exec fastfetch "$@"

@@ -60,3 +60,21 @@ final class NotificationCenterTests: XCTestCase {
         XCTAssertTrue(model.notices.isEmpty)
     }
 }
+
+final class AppIconNameTests: XCTestCase {
+    @MainActor
+    func testEveryBuiltinAndFeaturedAppHasIconNames() {
+        for app in BuiltinApps.all() {
+            let names = DesktopIconStore.builtinIconCandidates[app.id] ?? []
+            XCTAssertFalse(names.isEmpty, "\(app.id) has icon names")
+            XCTAssertEqual(DesktopIconStore.builtinIconNames[app.id], names.first, "\(app.id) asks for its first name")
+            XCTAssertEqual(DesktopIconStore.aliases[names[0]] ?? [], Array(names.dropFirst()), "\(app.id) falls back in order")
+        }
+        for app in LinuxFeaturedApp.all {
+            XCTAssertFalse(app.iconNames.isEmpty, "\(app.id) has icon names")
+            XCTAssertNotNil(DesktopIconStore.aliases[app.iconNames[0]], app.id)
+        }
+        XCTAssertEqual(DesktopIconStore.aliases["firefox"]?.first, "firefox-esr")
+        XCTAssertEqual(DesktopIconStore.builtinIconNames[ThemesApp.id], "preferences-desktop-theme")
+    }
+}

@@ -287,6 +287,7 @@ private struct Meter: View {
 
 struct PanelClock: View {
     @Environment(\.desktopTheme) private var theme
+    @Environment(\.desktopController) private var controller
     @State private var isShowingDate = false
 
     private static let timeFormatter: DateFormatter = {
@@ -311,19 +312,9 @@ struct PanelClock: View {
             }
             .buttonStyle(.plain)
             .hoverEffect(.highlight)
-            .popover(isPresented: $isShowingDate, arrowEdge: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(context.date.formatted(.dateTime.weekday(.wide)))
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(theme.accent)
-                    Text(context.date.formatted(.dateTime.day().month(.wide).year()))
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(theme.primaryText)
-                }
-                .padding(16)
-                .presentationCompactAdaptation(.popover)
-            }
+            .calendarPopover(isPresented: $isShowingDate, controller: controller)
             .accessibilityLabel(context.date.formatted(date: .complete, time: .shortened))
+            .accessibilityIdentifier("desktop.panel.clock")
         }
     }
 }

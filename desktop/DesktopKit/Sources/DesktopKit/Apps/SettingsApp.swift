@@ -277,7 +277,7 @@ struct SettingsAppView: View {
                     if isSelected {
                         Image(systemName: "checkmark")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(Color.white)
+                            .foregroundStyle(preset.color.readableLabel)
                     }
                 }
                 .padding(3)
@@ -533,6 +533,7 @@ private struct FastModeSettingsSection: View {
     @Bindable var fastMode: FastModeModel
     @Environment(\.desktopTheme) private var theme
     @State private var showsHelp = false
+    @State private var showsSetup = false
 
     var body: some View {
         SettingsSection(title: "Fast Mode", symbol: "bolt") {
@@ -568,7 +569,10 @@ private struct FastModeSettingsSection: View {
                     .accessibilityIdentifier("settings.fastModeRetry")
                 Spacer()
                 Button(showsHelp ? "Hide setup" : "How to set up") { showsHelp.toggle() }
+                Button("Set Up…") { showsSetup = true }
+                    .accessibilityIdentifier("settings.fastModeSetup")
             }
+            .sheet(isPresented: $showsSetup) { FastModeSetupSheet(fastMode: fastMode) }
             .buttonStyle(.bordered)
             .tint(theme.accent)
             .controlSize(.small)

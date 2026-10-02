@@ -765,7 +765,7 @@ struct DesktopFolderSurface: View {
     private func icon(for item: DesktopItem, at origin: CGPoint, cellSize: CGSize) -> some View {
         let isDragging = model.dragKeys.contains(item.id)
         let offset = isDragging ? model.dragTranslation : .zero
-        return DesktopItemIcon(item: item, iconName: iconName(for: item), iconSize: model.layout.iconSize.iconSize,
+        return DesktopItemIcon(item: item, iconName: iconName(for: item), iconURL: iconURL(for: item), iconSize: model.layout.iconSize.iconSize,
                                isSelected: model.selection.contains(item.id),
                                isDropTarget: model.dropTarget != nil && model.dropTarget == dropPath(for: item),
                                isCut: item.entry.map { FileClipboard.shared.isCut($0.path) } ?? false)
@@ -824,6 +824,11 @@ struct DesktopFolderSurface: View {
 
     private func globalPoint(_ local: CGPoint) -> CGPoint {
         CGPoint(x: local.x + surfaceOrigin.x, y: local.y + surfaceOrigin.y)
+    }
+
+    private func iconURL(for item: DesktopItem) -> URL? {
+        if case .app(let id, _, _) = item { return controller.iconURL(forAppID: id) }
+        return nil
     }
 
     private func iconName(for item: DesktopItem) -> String? {
@@ -1045,6 +1050,7 @@ private struct DesktopDropDelegate: DropDelegate {
 private struct DesktopItemIcon: View {
     let item: DesktopItem
     let iconName: String?
+    var iconURL: URL? = nil
     var iconSize: CGFloat = 52
     let isSelected: Bool
     let isDropTarget: Bool
@@ -1056,7 +1062,7 @@ private struct DesktopItemIcon: View {
             Group {
                 switch item {
                 case .app(_, _, let symbol):
-                    AppIcon(iconName: iconName, symbol: symbol, size: iconSize)
+                    AppIcon(iconName: iconName, url: iconURL, symbol: symbol, size: iconSize)
                 case .trash:
                     AppIcon(iconName: iconName, symbol: "trash", size: iconSize)
                 case .file(let entry):

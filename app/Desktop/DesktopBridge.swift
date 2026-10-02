@@ -13,6 +13,12 @@ final class DesktopBridge: NSObject {
         UserDefaults.standard.object(forKey: enabledDefaultsKey) as? Bool ?? true
     }
 
+    /// linpad:// links (SceneDelegate); the desktop asks before acting on them.
+    @MainActor
+    @objc static func openURL(_ url: URL) -> Bool {
+        LinPadLinkInbox.shared.receive(url)
+    }
+
     @MainActor
     @objc static func makeRootViewController() -> UIViewController {
         // White terminals clash with the dark desktop; only overrides the untouched default.

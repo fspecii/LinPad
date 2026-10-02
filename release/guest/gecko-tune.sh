@@ -20,16 +20,23 @@ pref("dom.ipc.processCount.webIsolated", 1);
 pref("fission.autostart", false);
 pref("dom.ipc.processPrelaunch.enabled", false);
 pref("dom.ipc.keepProcessesAlive.web", 1);
-// No extension, privileged-content, socket, media-decoder or utility processes: their
-// work runs in the main or the content process. With these, 6 Firefox processes
-// became 4, and code-cache churn over a session dropped about threefold.
+// No extension, privileged-content or socket processes: their work runs in the main or
+// the content process, which cuts the number of Firefox processes and code-cache churn.
+// The media-decoder (RDD) and utility processes must stay: with
+// media.rdd-process.enabled and media.utility-process.enabled false, Firefox 128 has no
+// video or audio decoder at all (canPlayType "" for H.264, VP9, AV1, AAC and Opus,
+// "Failed to init decoder"), and YouTube says "Your browser can't play this video".
 pref("extensions.webextensions.remote", false);
 pref("browser.tabs.remote.separatePrivilegedContentProcess", false);
 pref("browser.tabs.remote.separatePrivilegedMozillaWebContentProcess", false);
 pref("browser.tabs.remote.separateFileUriProcess", false);
 pref("network.process.enabled", false);
-pref("media.rdd-process.enabled", false);
-pref("media.utility-process.enabled", false);
+// Video under emulation (CLI, native JIT, software decoding through system FFmpeg):
+// H.264 854x480 26.6 fps shown, VP9 854x480 21.7 fps, H.264 1920x1080 14.7 fps.
+// H.264 is the cheapest, so sites that offer a choice (YouTube) get H.264: no WebM or
+// AV1 through Media Source Extensions (plain <video> WebM still plays).
+pref("media.mediasource.webm.enabled", false);
+pref("media.av1.enabled", false);
 // Background work that competes with the page for the CPU.
 pref("browser.newtabpage.activity-stream.feeds.topsites", false);
 pref("browser.newtabpage.activity-stream.feeds.section.topstories", false);
@@ -50,8 +57,46 @@ pref("browser.sessionstore.interval", 60000);
 // Fewer frames for decoration: animations cost a full software repaint each.
 pref("toolkit.cosmeticAnimations.enabled", false);
 pref("ui.prefersReducedMotion", 1);
+// "Open in Quick Preview" (bookmarks toolbar): javascript:location.href='ishpreview:'+...
+// hands the page to /usr/local/bin/ish-preview, which shows it in the iPad's Quick
+// Preview (Safari's engine, hardware video) for videos too heavy to decode here.
+pref("network.protocol-handler.external.ishpreview", true);
+pref("network.protocol-handler.expose.ishpreview", false);
+pref("network.protocol-handler.warn-external.ishpreview", false);
+pref("network.protocol-handler.app.ishpreview", "/usr/local/bin/ish-preview");
 EOF
 echo "gecko-tune: wrote $dir/ish-tune.js"
+
+# Firefox on Linux finds external protocol handlers through the desktop database.
+cat > /usr/share/applications/ish-preview.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Open in Quick Preview
+Exec=ish-preview %u
+NoDisplay=true
+MimeType=x-scheme-handler/ishpreview;
+EOF
+command -v update-desktop-database >/dev/null && update-desktop-database -q /usr/share/applications
+
+# The bookmarklet, on the bookmarks toolbar (enterprise policy; users can remove it).
+# Alpine's Firefox reads /etc/firefox/policies; the distribution directory is upstream's.
+mkdir -p /usr/lib/firefox-esr/distribution /etc/firefox/policies
+cat > /usr/lib/firefox-esr/distribution/policies.json <<'EOF'
+{
+  "policies": {
+    "DisplayBookmarksToolbar": "always",
+    "Bookmarks": [
+      {
+        "Title": "Open in Quick Preview",
+        "URL": "javascript:void(location.href='ishpreview:'+location.href)",
+        "Placement": "toolbar"
+      }
+    ]
+  }
+}
+EOF
+cp /usr/lib/firefox-esr/distribution/policies.json /etc/firefox/policies/policies.json
+echo "gecko-tune: wrote the Firefox policies (Open in Quick Preview bookmark)"
 
 if [ "${ISH_FIREFOX_SCALE:-}" = 1 ]; then
     mkdir -p /etc/ishwl

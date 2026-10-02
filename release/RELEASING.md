@@ -9,6 +9,8 @@ A release is a GitHub release `v<version>` on [fspecii/LinPad](https://github.co
 | `linpad-rootfs-<version>.tar.gz` | The Linux system alone, for updates from Settings › Updates without reinstalling the app |
 | `linpad-rootfs-<version>.tar.gz.sha256` | Its checksum |
 | `rootfs-manifest.json` | `version` (the system's stamp), `release`, `file`, `size`, `sha256`, `minAppVersion` |
+| `linpad-source-<version>.tar.gz` | This repository at the release commit (`git archive`): the GPLv3 source of the app, the emulator, ishwl and the scripts |
+| `SOURCES.md`, `sources-manifest.json` | GPL corresponding source for the rootfs (`release/gpl-sources.py`), with the written offer |
 
 `release/source.json` (on `main`) is the SideStore/AltStore source. Users add
 `https://raw.githubusercontent.com/fspecii/LinPad/main/release/source.json`, and their sideloader
@@ -53,6 +55,27 @@ release if any of these is in the image:
 
 The theme and icon licenses that `themes/` installs stay in the image. Builds for your own iPad
 (`release/build-rootfs.sh` without `PUBLIC=1`) still include Claude Code.
+
+## GPL: corresponding source
+
+LinPad is GPLv3, and the rootfs redistributes GPL and LGPL packages. `release/gpl-sources.py` reads the
+image's apk database and `themes/guest/versions.sh`, then lists each component with the exact source:
+
+- Alpine packages, grouped by source package. Each links the aports commit that built it (`c:` in the apk
+  database) and the APKBUILD directory, with main or community resolved from Alpine's APKINDEX files.
+  The APKBUILD names the upstream tarballs and checksums.
+- `ukui-themes` on snapshot.debian.org and `yaru-theme` on Launchpad, at the pinned versions.
+- The GitHub themes and icon packs at their pinned refs, and VLC at `VLC_REF`. LinPad builds VLC's
+  Wayland plugin from that source.
+- LinPad itself: the attached `git archive` tarball and the tag. `SOURCES.md` also lists the submodule
+  commits.
+
+Tests: `python3 -m unittest discover -s release/tests`.
+
+Alpine keeps aports history forever, but its distfile mirrors drop old upstream tarballs. The written
+offer in `SOURCES.md` covers that gap: keep the release's `release/out/<version>/` directory, or fetch the
+distfiles while they are still online, if you want to answer a source request without depending on
+upstream.
 
 ## Steps
 

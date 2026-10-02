@@ -128,11 +128,27 @@ enum WindowGeometry {
     }
 
     /// Lifts (and if need be shortens) a frame so it ends above the on-screen keyboard.
+    /// The smallest height a window is squeezed to above the keyboard; below that it keeps
+    /// this height and its bottom goes under the keyboard instead.
+    static let keyboardMinimumHeight: CGFloat = 260
+
+    /// Moves the window up so it ends above the keyboard; it shrinks only when it is taller
+    /// than the space left, and never below `keyboardMinimumHeight` (or its own height).
     static func avoidingKeyboard(_ frame: CGRect, availableHeight: CGFloat, minimumHeight: CGFloat) -> CGRect {
         guard availableHeight > 0, frame.maxY > availableHeight else { return frame }
         var result = frame
-        result.size.height = max(min(frame.height, availableHeight), min(minimumHeight, availableHeight))
+        let floor = min(frame.height, max(minimumHeight, keyboardMinimumHeight))
+        result.size.height = max(min(frame.height, availableHeight), floor)
         result.origin.y = max(0, availableHeight - result.height)
+        return result
+    }
+
+    /// After the desktop changes size (rotation, Stage Manager), a window that fits is moved
+    /// back fully on screen instead of staying partly off an edge.
+    static func keptOnScreen(_ frame: CGRect, in bounds: CGSize) -> CGRect {
+        var result = frame
+        if frame.width <= bounds.width { result.origin.x = min(max(frame.minX, 0), bounds.width - frame.width) }
+        if frame.height <= bounds.height { result.origin.y = min(max(frame.minY, 0), bounds.height - frame.height) }
         return result
     }
 

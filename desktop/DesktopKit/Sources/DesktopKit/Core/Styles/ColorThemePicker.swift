@@ -60,7 +60,7 @@ struct ColorThemePickerView: View {
             Button("Cancel", role: .cancel) {}
             Button("Install") { install() }
         } message: {
-            Text("Only colours, icons choice and images are taken from the repository.")
+            Text("Compatible with Omarchy community themes (credit: omacom/omarchy, MIT). Only colours, the icon choice and images are taken from the repository.")
         }
     }
 
@@ -90,8 +90,7 @@ struct ColorThemePickerView: View {
                 .accessibilityIdentifier("themePicker.install")
             }
             Button("Apply") { controller.commitThemePicker() }
-                .buttonStyle(.borderedProminent)
-                .tint(theme.accent)
+                .buttonStyle(.primary)
                 .accessibilityIdentifier("themePicker.apply")
         }
         .font(.system(size: 13))

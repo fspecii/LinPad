@@ -167,7 +167,9 @@ static int iosfs_mount(struct mount *mount) {
     NSURL *url = nil;
     if (pending_mount_url != nil) {
         url = pending_mount_url;
-        if (![url startAccessingSecurityScopedResource])
+        // Picker URLs are security scoped; a plain URL (tests) only has to be readable.
+        if (![url startAccessingSecurityScopedResource] &&
+            ![NSFileManager.defaultManager isReadableFileAtPath:url.path])
             return _EPERM;
     } else if (mount_from_bookmarks) {
         NSString *bookmarkName = [NSString stringWithCString:mount->source encoding:BOOKMARK_PATH_ENCODING];

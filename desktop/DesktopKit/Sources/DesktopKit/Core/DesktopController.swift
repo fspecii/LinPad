@@ -79,6 +79,9 @@ final class DesktopController {
     @ObservationIgnored let input = DesktopInputCoordinator()
     @ObservationIgnored private(set) lazy var keyCommands = DesktopKeyCommands(controller: self)
     @ObservationIgnored private(set) lazy var session = DesktopSessionStore(controller: self)
+    @ObservationIgnored private(set) lazy var nowPlaying = NowPlayingCenter(host: host)
+    @ObservationIgnored private(set) lazy var calendarStore = CalendarStore()
+    @ObservationIgnored private(set) lazy var widgets = DesktopWidgetStore()
 
     /// True while a shell overlay owns the keyboard and pointer, so windows must not react.
     var isOverlayPresented: Bool {

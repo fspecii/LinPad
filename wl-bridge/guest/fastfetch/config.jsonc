@@ -1,25 +1,34 @@
-// System-wide fastfetch config (XDG_CONFIG_DIRS), installed with ishwl.
+// System-wide fastfetch config (XDG_CONFIG_DIRS), installed with ishwl; `linpad-fetch`
+// runs it. Colours are ANSI palette names, so every colour theme recolours it.
 {
     "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
     "logo": {
         "type": "file",
         "source": "/usr/share/ish/logo.txt",
-        "color": { "1": "cyan", "2": "blue" }
+        "color": { "1": "blue", "2": "cyan", "3": "magenta" },
+        "padding": { "top": 1, "right": 3 }
+    },
+    "display": {
+        "separator": "  ",
+        "color": { "keys": "blue", "title": "magenta" },
+        "key": { "width": 9 }
     },
     "modules": [
         "title",
         "separator",
-        "os",
-        { "type": "command", "key": "Host", "text": "ish-device-info host" },
-        "kernel",
-        "uptime",
-        "packages",
-        "shell",
-        "terminal",
-        { "type": "command", "key": "CPU", "text": "ish-device-info cpu" },
+        { "type": "command", "key": "LinPad", "text": "ish-device-info app" },
+        { "type": "os", "key": "OS" },
+        { "type": "command", "key": "iPad", "text": "ish-device-info host" },
+        { "type": "command", "key": "Chip", "text": "ish-device-info cpu" },
+        { "type": "command", "key": "JIT", "text": "ish-device-info jit" },
         { "type": "command", "key": "GPU", "text": "ish-device-info gpu" },
-        "memory",
-        "disk",
+        { "type": "kernel", "key": "Kernel" },
+        { "type": "uptime", "key": "Uptime" },
+        { "type": "packages", "key": "Packages" },
+        { "type": "shell", "key": "Shell" },
+        { "type": "command", "key": "Style", "text": "ish-device-info style" },
+        { "type": "command", "key": "Theme", "text": "ish-device-info theme" },
+        { "type": "memory", "key": "Memory" },
         "break",
         "colors"
     ]

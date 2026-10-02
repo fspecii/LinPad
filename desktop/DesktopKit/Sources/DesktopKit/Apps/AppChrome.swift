@@ -121,11 +121,12 @@ struct ToolbarTextButton: View {
                 }
                 Text(title).font(.system(size: 13, weight: .medium))
             }
-            .foregroundStyle(prominent ? Color.white : theme.primaryText)
+            .foregroundStyle(prominent && isEnabled ? theme.accent.readableLabel : theme.primaryText)
             .padding(.horizontal, 10)
             .frame(height: 26)
             .background(
-                Capsule().fill(prominent ? theme.accent : theme.primaryText.opacity(0.08)))
+                Capsule().fill(prominent && isEnabled ? theme.accent : theme.primaryText.opacity(prominent ? 0 : 0.08)))
+            .overlay(Capsule().strokeBorder(prominent && !isEnabled ? theme.separator : Color.clear, lineWidth: 1))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

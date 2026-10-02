@@ -81,6 +81,7 @@ install: all
 	install -Dm755 guest/ish-open $(DESTDIR)$(PREFIX)/bin/ish-open
 	install -Dm755 guest/ish-device-info $(DESTDIR)$(PREFIX)/bin/ish-device-info
 	install -Dm755 guest/neofetch $(DESTDIR)$(PREFIX)/bin/neofetch
+	install -Dm755 guest/linpad-fetch $(DESTDIR)$(PREFIX)/bin/linpad-fetch
 	for f in guest/foot/*.ini; do install -Dm644 $$f $(DESTDIR)/etc/ish/foot/$${f##*/}; done
 	install -Dm644 guest/fastfetch/config.jsonc $(DESTDIR)/etc/xdg/fastfetch/config.jsonc
 	install -Dm644 guest/fastfetch/logo.txt $(DESTDIR)/usr/share/ish/logo.txt

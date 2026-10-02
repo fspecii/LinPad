@@ -239,8 +239,7 @@ struct OnboardingView: View {
             HStack {
                 Spacer()
                 Button("Start Using the Desktop") { finish() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(theme.accent)
+                    .buttonStyle(.primary)
                     .keyboardShortcut(.defaultAction)
                     .accessibilityIdentifier("onboarding.done")
             }

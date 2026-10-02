@@ -121,6 +121,10 @@ final class DebugAutomation {
                 controller.windowManager.focus(window.id)
             } else if fields.count >= 6, let x = Double(fields[2]), let y = Double(fields[3]),
                       let w = Double(fields[4]), let h = Double(fields[5]) {
+                // A snapped, maximized or tiled window ignores its own frame.
+                if controller.windowManager.isTiledByLayout(window) { controller.windowManager.toggleFloating(window.id) }
+                window.snap = nil
+                window.isMaximized = false
                 window.frame = CGRect(x: x, y: y, width: w, height: h)
             }
             log("ok")

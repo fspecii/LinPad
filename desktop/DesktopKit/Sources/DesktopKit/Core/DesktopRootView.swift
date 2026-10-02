@@ -117,6 +117,7 @@ public struct DesktopRootView: View {
             }
         }
         .animation(DesktopMotion.standard, value: controller.boot.isFinished)
+        .linPadLinks(controller: controller)
         .sheet(isPresented: Binding(get: { controller.isFastModeHelpPresented },
                                     set: { controller.isFastModeHelpPresented = $0 })) {
             FastModeHelpSheet()

@@ -194,6 +194,21 @@ final class DesktopStylingTests: XCTestCase {
         DesktopLook.saveUserLooks([look], to: defaults)
         XCTAssertEqual(DesktopLook.loadUserLooks(from: defaults), [look])
         XCTAssertEqual(DesktopLook.builtIn.first?.colorThemeID, "tokyo-night")
-        XCTAssertEqual(DesktopLook.builtIn.first?.styling.cornerRadius, 0, "Omarchy Tokyo Night has square corners")
+        XCTAssertEqual(DesktopLook.builtIn.first?.styling.cornerRadius, 0, "Tiler Tokyo Night has square corners")
+    }
+}
+
+final class PrimaryButtonContrastTests: XCTestCase {
+    func testLabelColourKeepsWCAGContrastOnEveryAccent() throws {
+        for theme in ColorTheme.builtIn {
+            let fill = theme.accentRGB
+            let dark = Color.prefersDarkLabel(on: fill)
+            let label = dark ? RGB(red: 0, green: 0, blue: 0) : RGB(red: 1, green: 1, blue: 1)
+            let other = dark ? RGB(red: 1, green: 1, blue: 1) : RGB(red: 0, green: 0, blue: 0)
+            XCTAssertGreaterThanOrEqual(ColorContrast.ratio(fill, label), ColorContrast.ratio(fill, other), theme.id)
+            XCTAssertGreaterThanOrEqual(ColorContrast.ratio(fill, label), 4.5, "\(theme.id) accent \(theme.accent)")
+        }
+        XCTAssertTrue(Color.prefersDarkLabel(on: RGB(hex: "#7aa2f7")!), "Tokyo Night's light blue takes dark text")
+        XCTAssertFalse(Color.prefersDarkLabel(on: RGB(hex: "#1e66f5")!), "Catppuccin Latte's deep blue takes white")
     }
 }

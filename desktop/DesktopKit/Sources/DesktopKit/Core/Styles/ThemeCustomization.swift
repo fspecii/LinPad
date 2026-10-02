@@ -251,7 +251,7 @@ enum ColorsToml {
                            "bright_cyan", "bright_foreground"]
 
     static func write(_ theme: ColorTheme) -> String {
-        var lines = ["# Written by the LinPad Themes app (Omarchy colors.toml schema).",
+        var lines = ["# Written by the LinPad Themes app (colors.toml, as used by Omarchy community themes).",
                      "mode = \"\(theme.isDark ? "dark" : "light")\"", ""]
         func line(_ key: String, _ value: String?) {
             guard let value, RGB(hex: value) != nil else { return }
@@ -410,7 +410,7 @@ struct DesktopLook: Codable, Identifiable, Equatable, Sendable {
         ubuntu.linuxMonoFont = "Ubuntu Mono"
 
         return [
-            DesktopLook(id: "omarchy-tokyo-night", name: "Omarchy Tokyo Night", styleID: "ish", colorThemeID: "tokyo-night",
+            DesktopLook(id: "tiler-tokyo-night", name: "Tiler Tokyo Night", styleID: "ish", colorThemeID: "tokyo-night",
                         styling: omarchy, wallpaperQuery: "city night", isBuiltIn: true),
             DesktopLook(id: "mac-rose-pine", name: "Mac Rosé Pine", styleID: "macos", colorThemeID: "rose-pine",
                         styling: mac, wallpaperQuery: "minimalist", isBuiltIn: true),

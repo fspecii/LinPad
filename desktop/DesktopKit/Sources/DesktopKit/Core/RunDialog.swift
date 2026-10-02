@@ -42,8 +42,7 @@ struct RunDialog: View {
                     .buttonStyle(.bordered)
                 Button("Run", action: run)
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-                    .tint(theme.accent)
+                    .buttonStyle(.primary)
                     .disabled(!canRun)
             }
         }

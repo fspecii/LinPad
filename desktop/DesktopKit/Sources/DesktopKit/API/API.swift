@@ -146,6 +146,7 @@ public final class LinuxSystemPreparation {
     public func setEngine(_ engine: CPUEngine, jitCompiledIn: Bool) {
         self.engine = engine
         self.jitCompiledIn = jitCompiledIn
+        UserDefaults.standard.set(engine == .nativeJIT ? "native" : "compatibility", forKey: LinuxDeviceInfo.cpuEngineKey)
     }
 
     public func update(phase: Phase, fraction: Double? = nil, title: String? = nil, detail: String? = nil) {

@@ -54,6 +54,11 @@ final class ColorThemeStore {
         guard id != currentID else { return }
         currentID = id
         defaults.set(id, forKey: Self.storageKey)
+        if id.isEmpty {
+            defaults.removeObject(forKey: LinuxDeviceInfo.colorThemeNameKey)
+        } else {
+            defaults.set(theme(id)?.name ?? id, forKey: LinuxDeviceInfo.colorThemeNameKey)
+        }
     }
 
     /// A theme saved or imported by the Themes app shows at once, before the guest's list

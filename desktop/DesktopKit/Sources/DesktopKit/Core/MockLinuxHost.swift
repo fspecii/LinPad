@@ -47,6 +47,9 @@ public final class MockLinuxHost: LinuxHost {
             break
         }
 
+        if let reply = MockMediaPlayer.shared.reply(to: trimmed) {
+            return reply
+        }
         if trimmed.hasPrefix("mkdir -p -- ") {
             let quoted = trimmed.dropFirst("mkdir -p -- ".count)
             guard quoted.hasPrefix("'"), let end = quoted.dropFirst().firstIndex(of: "'") else {

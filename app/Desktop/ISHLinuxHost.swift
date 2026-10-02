@@ -345,3 +345,9 @@ extension ISHLinuxHost: LinuxSystemUpdating {
         AppDelegate.finishBackgroundURLSessionEvents()
     }
 }
+
+extension ISHLinuxHost: FastModeDiagnosing {
+    var hasGetTaskAllow: Bool {
+        AppDelegate.fastModeHasGetTaskAllow()
+    }
+}

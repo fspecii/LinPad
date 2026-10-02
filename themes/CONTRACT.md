@@ -135,7 +135,8 @@ utilities-system-monitor system-software-install preferences-system folder user-
 text-x-generic image-x-generic video-x-generic audio-x-generic application-x-executable
 user-trash multimedia-video-player`
 
-and the places set: `folder-open folder-documents folder-download folder-music
+the app icons the shell asks for (`preferences-desktop-theme`, `preferences-desktop-wallpaper`,
+`firefox`, `vscode`, `foot`, … — the full list is `NATIVE_ICONS` in `ish-apply-style`), and the places set: `folder-open folder-documents folder-download folder-music
 folder-pictures folder-videos folder-desktop folder-publicshare folder-templates
 folder-remote user-desktop user-trash-full user-bookmarks network-workgroup
 network-server drive-harddisk drive-removable-media drive-optical media-removable

@@ -38,6 +38,12 @@ class DesktopUITests: XCTestCase {
         app.descendants(matching: .any)["desktop.surface"].firstMatch.frame
     }
 
+    /// A screenshot for diagnosing a failure, when DESKTOP_SCREENSHOT_DIR is set.
+    private func debugShot(_ name: String) {
+        guard let directory = ProcessInfo.processInfo.environment["DESKTOP_SCREENSHOT_DIR"] else { return }
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: directory).appendingPathComponent("debug-\(name).png"))
+    }
+
     private func openFromLauncher(_ appID: String, search: String) {
         let field = app.textFields["desktop.launcher.search"]
         waitFor("the previous launcher has closed") { !field.exists }
@@ -166,14 +172,43 @@ class DesktopUITests: XCTestCase {
         waitFor("back to the style's colours") { !title.exists }
     }
 
+    /// The user's bug: after the on-screen keyboard, the focused window stayed squashed.
+    /// With a software keyboard: it lifts, and comes back to its exact frame when the
+    /// keyboard hides. With a hardware keyboard: it never moves.
+    func testWindowFrameIsRestoredAfterTheKeyboardHides() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        openFromLauncher("themes", search: "Them")
+        let themes = window("themes")
+        XCTAssertTrue(themes.waitForExistence(timeout: 5))
+        app.buttons["themes.section.editor"].tap()
+        let name = app.textFields["themes.editor.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        let original = themes.frame
+        name.tap()
+        let keyboard = app.keyboards.firstMatch
+        if keyboard.waitForExistence(timeout: 3) {
+            waitFor("lifted for the keyboard: window \(themes.frame), was \(original)") { themes.frame != original }
+            let hide = keyboard.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'keyboard' OR label CONTAINS[c] 'dismiss'")).firstMatch
+            if hide.exists { hide.tap() } else { app.buttons["themes.section.gallery"].tap() }
+            waitFor("keyboard gone") { !keyboard.exists }
+        } else {
+            name.typeText("x")
+        }
+        waitFor("exact frame back: \(themes.frame) vs \(original)", timeout: 5) { themes.frame == original }
+    }
+
     // MARK: Themes app
 
     private func openThemes() -> XCUIElement {
         openFromLauncher("themes", search: "Them")
         let themes = window("themes")
         XCTAssertTrue(themes.waitForExistence(timeout: 5))
+        // Landscape and maximized where the key gets through, so the sidebar stays on screen.
+        waitFor("focused") { value(of: themes).contains("focused") }
+        XCUIDevice.shared.orientation = .landscapeLeft
         app.typeKey(XCUIKeyboardKey.upArrow.rawValue, modifierFlags: windowKeys)
-        waitFor("maximized") { value(of: themes).contains("maximized") }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
         return themes
     }
 
@@ -202,7 +237,8 @@ class DesktopUITests: XCTestCase {
         XCUIDevice.shared.orientation = .landscapeLeft
         app.buttons["themes.editor.save"].tap()
         let status = app.staticTexts["themes.editor.status"]
-        XCTAssertTrue(status.waitForExistence(timeout: 10))
+        if !status.waitForExistence(timeout: 10) { debugShot("editor-save") }
+        XCTAssertTrue(status.exists)
         waitFor("saved: \(status.label)", timeout: 10) { status.label.hasPrefix("Saved UI Test Theme") }
         app.buttons["themes.section.gallery"].tap()
         let search = app.textFields["themes.search"]

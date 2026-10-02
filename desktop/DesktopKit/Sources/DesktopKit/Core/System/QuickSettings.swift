@@ -132,6 +132,16 @@ struct QuickSettingsPanel: View {
                 tile(appearanceTitle, symbol: "circle.lefthalf.filled", isOn: appearanceID != DesktopAppearance.styleDefault.rawValue) {
                     cycleAppearance()
                 }
+                tile("Dark Mode", symbol: controller.isDarkAppearance ? "moon.stars.fill" : "sun.max.fill",
+                     isOn: controller.isDarkAppearance) {
+                    controller.setDarkMode(!controller.isDarkAppearance)
+                }
+                .contextMenu {
+                    Button("Light & Dark Settings…", systemImage: "circle.lefthalf.filled") {
+                        controller.openLightAndDarkSettings()
+                    }
+                }
+                .accessibilityIdentifier("quickSettings.darkMode")
                 tile("Performance", symbol: "speedometer", isOn: showsPerformance) { showsPerformance.toggle() }
                 tile(status.network.title, symbol: status.network.symbol, isOn: status.network != .offline) {}
                     .allowsHitTesting(false)
@@ -139,6 +149,10 @@ struct QuickSettingsPanel: View {
                     tile("Lock", symbol: "lock.fill", isOn: false) { controller.lockScreen() }
                 }
             }
+            NowPlayingCard(center: controller.nowPlaying)
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: tileRadius, style: .continuous)
+                    .fill(theme.primaryText.opacity(0.08)))
             if controller.systemControls?.volume != nil {
                 sliderRow(symbol: "speaker.wave.2.fill", label: "Volume", value: Binding(
                     get: { Double(volume) },

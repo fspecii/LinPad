@@ -8,6 +8,11 @@ enum LinuxDeviceInfo {
     static let hostModelKey = "linux.hostModel"
     static let chipNameKey = "linux.chipName"
     static let gpuNameKey = "linux.gpuName"
+    static let appVersionKey = "linux.appVersion"
+    /// "native" or "compatibility" once the kernel runs (fastfetch's JIT line).
+    static let cpuEngineKey = "linux.cpuEngine"
+    /// The colour theme's display name, or absent for the style's own colours.
+    static let colorThemeNameKey = "linux.colorThemeName"
 
     static func publish(to defaults: UserDefaults = .standard) {
         let identifier = modelIdentifier
@@ -18,6 +23,9 @@ enum LinuxDeviceInfo {
         }
         if let gpu = MTLCreateSystemDefaultDevice()?.name {
             defaults.set(gpu, forKey: gpuNameKey)
+        }
+        if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
+            defaults.set(version, forKey: appVersionKey)
         }
     }
 

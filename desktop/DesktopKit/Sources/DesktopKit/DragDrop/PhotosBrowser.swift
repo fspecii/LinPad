@@ -198,7 +198,7 @@ struct PhotosBrowserView: View {
                 Text("Browse your photo library here and open photos in Linux apps.")
                     .foregroundStyle(theme.secondaryText)
                 Button("Allow Access to Photos") { Task { await model.requestAccess() } }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.primary)
                     .accessibilityIdentifier("photos.allow")
             } else {
                 Text("Access to Photos is off. Turn it on in Settings › iSH › Photos.")

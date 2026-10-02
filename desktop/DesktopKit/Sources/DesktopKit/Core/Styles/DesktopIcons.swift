@@ -11,26 +11,40 @@ final class DesktopIconStore {
     static let cacheDirectory = "usr/share/ish/icon-cache"
 
     /// Freedesktop names for the built-in apps.
-    static let builtinIconNames: [String: String] = [
-        AppID.terminal: "utilities-terminal",
-        AppID.files: "system-file-manager",
-        AppID.editor: "accessories-text-editor",
-        AppID.browser: "web-browser",
-        AppID.taskManager: "utilities-system-monitor",
-        AppID.packages: "system-software-install",
-        AppID.settings: "preferences-system",
-        WallpapersApp.id: "preferences-desktop-wallpaper",
-        ThemesApp.id: "preferences-desktop-theme",
+    static let builtinIconNames: [String: String] = builtinIconCandidates.compactMapValues(\.first)
+
+    /// Icon names tried, in order, for each built-in app; the first is what the app is
+    /// asked for, the rest are other packs' spellings.
+    static let builtinIconCandidates: [String: [String]] = [
+        AppID.terminal: ["utilities-terminal", "org.gnome.Terminal", "terminal"],
+        AppID.files: ["system-file-manager", "org.gnome.Nautilus", "file-manager", "folder"],
+        AppID.editor: ["accessories-text-editor", "org.gnome.TextEditor", "text-editor", "gedit"],
+        AppID.browser: ["web-browser", "firefox", "internet-web-browser"],
+        AppID.taskManager: ["utilities-system-monitor", "org.gnome.SystemMonitor", "gnome-system-monitor"],
+        AppID.packages: ["system-software-install", "org.gnome.Software", "software-store", "system-software-update"],
+        AppID.settings: ["preferences-system", "org.gnome.Settings", "gnome-control-center", "preferences-desktop"],
+        WallpapersApp.id: ["preferences-desktop-wallpaper", "wallpaper", "preferences-desktop-background"],
+        ThemesApp.id: ["preferences-desktop-theme", "preferences-desktop-color", "applications-graphics",
+                       "preferences-desktop-appearance"],
+        CalendarApp.id: ["office-calendar", "x-office-calendar", "calendar"],
     ]
 
     /// Icon themes name some apps differently; each list is tried in order.
-    static let aliases: [String: [String]] = [
-        "code": ["vscode", "com.visualstudio.code", "visual-studio-code", "code-oss", "com.visualstudio.code.oss"],
-        "code-oss": ["com.visualstudio.code.oss", "vscode", "code", "com.visualstudio.code", "visual-studio-code"],
-        "firefox-esr": ["firefox", "org.mozilla.firefox"],
-        "thunar": ["org.xfce.thunar", "system-file-manager"],
-        "preferences-desktop-theme": ["applications-graphics", "preferences-desktop-color", "preferences-desktop"],
-    ]
+    static let aliases: [String: [String]] = {
+        var table: [String: [String]] = [
+            "code-oss": ["com.visualstudio.code.oss", "vscode", "code", "com.visualstudio.code", "visual-studio-code"],
+            "firefox-esr": ["firefox", "org.mozilla.firefox"],
+            "thunar": ["org.xfce.thunar", "system-file-manager"],
+            "vlc": ["org.videolan.VLC", "multimedia-video-player"],
+            "thunderbird": ["org.mozilla.Thunderbird", "mail-client"],
+        ]
+        let lists = Array(builtinIconCandidates.values) + LinuxFeaturedApp.all.map(\.iconNames)
+        for list in lists {
+            guard let first = list.first else { continue }
+            table[first] = Array(list.dropFirst()) + (table[first] ?? []).filter { !list.contains($0) }
+        }
+        return table
+    }()
 
     private(set) var style: DesktopStyle
     private(set) var isDark = true
@@ -149,6 +163,7 @@ extension DesktopController {
         if let name = DesktopIconStore.builtinIconNames[appID] { return name }
         guard appID.hasPrefix(LinuxAppID.prefix) else { return nil }
         let id = String(appID.dropFirst(LinuxAppID.prefix.count))
+        if let featured = LinuxFeaturedApp.all.first(where: { $0.id == id }) { return featured.iconNames.first }
         return linux?.applications.first { $0.id == id }?.icon ?? id
     }
 }

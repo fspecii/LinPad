@@ -23,6 +23,8 @@ static NSString *const TerminalUUID = @"TerminalUUID";
 @protocol ISHDesktopBridge
 + (BOOL)isEnabled;
 + (UIViewController *)makeRootViewController;
+@optional
++ (BOOL)openURL:(NSURL *)url;
 @end
 
 static Class<ISHDesktopBridge> DesktopBridgeIfEnabled(void) {
@@ -47,6 +49,7 @@ static Class<ISHDesktopBridge> DesktopBridgeIfEnabled(void) {
     Class<ISHDesktopBridge> desktop = DesktopBridgeIfEnabled();
     if (desktop != nil) {
         self.window.rootViewController = [desktop makeRootViewController];
+        [self openURLContexts:connectionOptions.URLContexts];
         return;
     }
 
@@ -61,6 +64,19 @@ static Class<ISHDesktopBridge> DesktopBridgeIfEnabled(void) {
         [vc reconnectSessionFromTerminalUUID:
          [[NSUUID alloc] initWithUUIDString:self.terminalUUID]];
     }
+}
+
+/// linpad:// links go to the desktop, which asks before acting on them.
+- (void)openURLContexts:(NSSet<UIOpenURLContext *> *)contexts {
+    Class<ISHDesktopBridge> desktop = DesktopBridgeIfEnabled();
+    if (desktop == nil || ![(Class) desktop respondsToSelector:@selector(openURL:)])
+        return;
+    for (UIOpenURLContext *context in contexts)
+        [desktop openURL:context.URL];
+}
+
+- (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)URLContexts {
+    [self openURLContexts:URLContexts];
 }
 
 - (NSUserActivity *)stateRestorationActivityForScene:(UIScene *)scene {

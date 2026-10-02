@@ -13,6 +13,7 @@ public enum BuiltinApps {
             SettingsApp.descriptor(),
             WallpapersApp.descriptor(),
             ThemesApp.descriptor(),
+            CalendarApp.descriptor(),
         ]
     }
 }

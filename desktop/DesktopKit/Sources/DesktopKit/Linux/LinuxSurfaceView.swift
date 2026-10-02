@@ -297,6 +297,7 @@ final class LinuxSurfaceView: UIView {
     override var canBecomeFirstResponder: Bool { isToplevel }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if presses.contains(where: { $0.key != nil }) { HardwareKeyboardMonitor.noteHardwareKeyPress() }
         let toText = presses.filter(routesToTextSystem)
         textSystemPresses.formUnion(toText.map(ObjectIdentifier.init))
         let unhandled = forward(presses.subtracting(toText), pressed: true).union(toText)

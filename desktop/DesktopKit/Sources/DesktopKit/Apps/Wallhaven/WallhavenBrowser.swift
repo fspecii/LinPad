@@ -347,7 +347,7 @@ struct WallpapersAppView: View {
             } description: {
                 Text(error.localizedDescription)
             } actions: {
-                Button("Try Again") { model.reload() }.buttonStyle(.borderedProminent).tint(theme.accent)
+                Button("Try Again") { model.reload() }.buttonStyle(.primary)
             }
             .frame(maxHeight: .infinity)
         } else if model.items.isEmpty && !model.isLoading {
@@ -517,7 +517,7 @@ struct WallhavenDetailView: View {
                     Label("Set as Wallpaper", systemImage: "photo.on.rectangle")
                         .frame(maxWidth: .infinity).frame(height: 36)
                         .background(theme.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.accent.readableLabel)
                 }
                 .accessibilityIdentifier("wallhaven.setWallpaper")
                 actionButton("Download to Pictures", symbol: "arrow.down.circle") {

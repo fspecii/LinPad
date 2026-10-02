@@ -112,7 +112,9 @@ final class WindowManager {
     private static let floatingBoost = 500_000
 
     private(set) var windows: [DesktopWindow] = []
-    private(set) var focusedWindowID: UUID?
+    private(set) var focusedWindowID: UUID? {
+        didSet { if focusedWindowID != oldValue { keyboard.focusChanged(to: focusedWindowID) } }
+    }
     private(set) var currentWorkspace = 0
     /// Optional names, one per workspace ("" shows the number).
     private(set) var workspaceNames = Array(repeating: "", count: WindowManager.defaultWorkspaceCount)
@@ -120,8 +122,10 @@ final class WindowManager {
     private(set) var snapPreview: SnapPreview?
     /// The area windows live in: the screen below the panel.
     private(set) var desktopSize: CGSize = .zero
+    /// The on-screen keyboard and the window it lifts (see KeyboardAvoidance).
+    private(set) var keyboard = KeyboardAvoidance()
     /// How far the on-screen keyboard reaches up into the desktop.
-    private(set) var keyboardOverlap: CGFloat = 0
+    var keyboardOverlap: CGFloat { keyboard.overlap }
     /// Per-workspace auto-tiling.
     private(set) var tiling = Array(repeating: TilingState(), count: WindowManager.defaultWorkspaceCount)
     /// Where each tiled window sits; windows absent here float.
@@ -215,7 +219,7 @@ final class WindowManager {
     /// when it is the focused window.
     func displayFrame(for window: DesktopWindow) -> CGRect {
         let frame = tiledOrFloatingFrame(for: window)
-        guard keyboardOverlap > 0, window.id == focusedWindowID else { return frame }
+        guard keyboard.lifts(window.id), window.id == focusedWindowID else { return frame }
         return WindowGeometry.avoidingKeyboard(frame, availableHeight: desktopSize.height - keyboardOverlap,
                                                minimumHeight: Self.minimumSize.height)
     }
@@ -528,15 +532,31 @@ final class WindowManager {
         guard size != desktopSize, size.width > 0, size.height > 0 else { return }
         desktopSize = size
         for window in windows {
-            window.frame = clamped(window.frame)
+            window.frame = WindowGeometry.keptOnScreen(clamped(window.frame), in: size)
         }
         retileAll()
     }
 
+    /// The keyboard's end frame in desktop coordinates (nil when it went away).
+    func updateKeyboard(_ frame: CGRect?, hardwareKeyboard: Bool) {
+        var next = keyboard
+        next.keyboardChanged(to: frame.map { $0.integral }, desktop: CGRect(origin: .zero, size: desktopSize),
+                             hardwareKeyboard: hardwareKeyboard, focusedWindow: focusedWindowID)
+        guard next != keyboard else { return }
+        withAnimation(DesktopMotion.standard) { keyboard = next }
+    }
+
+    /// A docked keyboard `overlap` points tall (0: none).
     func updateKeyboardOverlap(_ overlap: CGFloat) {
-        let value = max(0, overlap.rounded())
-        guard value != keyboardOverlap else { return }
-        withAnimation(DesktopMotion.standard) { keyboardOverlap = value }
+        guard overlap > 0 else { return resetKeyboard() }
+        updateKeyboard(CGRect(x: 0, y: desktopSize.height - overlap, width: desktopSize.width, height: overlap),
+                       hardwareKeyboard: false)
+    }
+
+    /// Keyboard hidden, app in the background: every window back to its own frame.
+    func resetKeyboard() {
+        guard keyboard != KeyboardAvoidance() else { return }
+        withAnimation(DesktopMotion.standard) { keyboard.reset() }
     }
 
     /// Returns the frame the drag should be measured from. A maximized or snapped window

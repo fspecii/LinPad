@@ -76,6 +76,16 @@ final class DragDropUITests: XCTestCase {
         return output
     }
 
+    /// Places a window, retrying until the automation hook finds it (Linux windows can take
+    /// a while to be titled under load).
+    private func placeWindow(_ match: String, _ frame: String) {
+        let deadline = Date().addingTimeInterval(60)
+        while Date() < deadline {
+            if automate("frame|\(match)|\(frame)", wait: 2).contains("ok") { sleep(2); return }
+        }
+        XCTFail("could not place \(match)")
+    }
+
     /// Repeats a guest command until its output contains `needle`.
     private func waitForGuest(_ command: String, contains needle: String, timeout: TimeInterval = 30) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
@@ -228,8 +238,8 @@ final class DragDropUITests: XCTestCase {
         let thunar = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'window:linux:'")).firstMatch
         XCTAssertTrue(thunar.waitForExistence(timeout: 120), "Thunar opened")
         sleep(4)
-        automate("frame|app:files|20|40|600|460", wait: 1)
-        automate("frame|Thunar|660|40|640|460", wait: 3)
+        placeWindow("app:files", "20|40|600|460")
+        placeWindow("Thunar", "660|40|640|460")
         XCTAssertTrue(entry(name).waitForExistence(timeout: 20))
         save("dnd-thunar-before")
 
@@ -259,8 +269,8 @@ final class DragDropUITests: XCTestCase {
         let linux = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'window:linux:'"))
         XCTAssertTrue(linux.firstMatch.waitForExistence(timeout: 120), "Thunar opened")
         sleep(4)
-        automate("frame|app:files|20|40|600|460", wait: 1)
-        automate("frame|Thunar|660|40|640|460", wait: 4)
+        placeWindow("app:files", "20|40|600|460")
+        placeWindow("Thunar", "660|40|640|460")
         save("dnd-thunar-source")
 
         // The first icon sits at (224, 150) in Thunar's content.
@@ -281,7 +291,7 @@ final class DragDropUITests: XCTestCase {
         automate("open|linux:mousepad", wait: 1)
         let deadline = Date().addingTimeInterval(120)
         while Date() < deadline && !automate("state", wait: 2).contains("Mousepad") {}
-        automate("frame|Mousepad|20|40|600|460", wait: 4)
+        placeWindow("Mousepad", "20|40|600|460")
         automate("key|Thunar|63", wait: 4)
         let toMousepad = automate("drag|Thunar|224|150|Mousepad|300|250", until: ["dnd_end", "did not start"])
         XCTAssertTrue(toMousepad.contains("dnd_end dropped"), toMousepad)
@@ -393,6 +403,16 @@ final class DragDropUITests: XCTestCase {
         requireWindow("files")
         automate("frame|app:files|20|40|900|600", wait: 2)
         element("files.place.Photos").tap()
+        // First use: the app's button, then iOS's permission alert.
+        if app.buttons["photos.allow"].waitForExistence(timeout: 5) {
+            app.buttons["photos.allow"].tap()
+            let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            let full = springboard.alerts.buttons["Allow Full Access"]
+            if full.waitForExistence(timeout: 15) {
+                save("dnd-photos-permission")
+                full.tap()
+            }
+        }
         let asset = app.descendants(matching: .any)["photos.asset"].firstMatch
         XCTAssertTrue(asset.waitForExistence(timeout: 20), "the library shows photos")
         save("dnd-photos-grid")
@@ -411,8 +431,8 @@ final class DragDropUITests: XCTestCase {
         let mousepad = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'window:linux:'")).firstMatch
         XCTAssertTrue(mousepad.waitForExistence(timeout: 120), "Mousepad opened")
         sleep(3)
-        automate("frame|app:editor|20|40|600|460", wait: 1)
-        automate("frame|Mousepad|660|40|640|460", wait: 3)
+        placeWindow("app:editor", "20|40|600|460")
+        placeWindow("Mousepad", "660|40|640|460")
         let text = element("window:editor").textViews.firstMatch
         XCTAssertTrue(text.waitForExistence(timeout: 10))
         text.tap()

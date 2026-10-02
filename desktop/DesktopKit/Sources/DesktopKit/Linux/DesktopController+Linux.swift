@@ -37,6 +37,8 @@ struct LinuxFeaturedApp {
     let symbol: String
     let category: AppCategory
     let showsOnDesktop: Bool
+    /// Freedesktop icon names, best first; icon packs name the same app differently.
+    let iconNames: [String]
     let command: String
     /// The .desktop file this replaces in the Linux category.
     let desktopID: String
@@ -45,15 +47,21 @@ struct LinuxFeaturedApp {
 
     static let all = [
         LinuxFeaturedApp(id: "firefox", name: "Firefox", symbol: "globe", category: .internet,
-                         showsOnDesktop: true, command: "firefox-esr", desktopID: "firefox-esr"),
+                         showsOnDesktop: true, iconNames: ["firefox", "firefox-esr", "org.mozilla.firefox", "web-browser"],
+                         command: "firefox-esr", desktopID: "firefox-esr"),
         // Lighter alternative; `apk add falkon qt6-qtwayland` if the rootfs lacks it.
         LinuxFeaturedApp(id: "falkon", name: "Browser (Falkon)", symbol: "globe", category: .internet,
-                         showsOnDesktop: false, command: "falkon", desktopID: "org.kde.falkon"),
+                         showsOnDesktop: false, iconNames: ["falkon", "org.kde.falkon", "web-browser"],
+                         command: "falkon", desktopID: "org.kde.falkon"),
         LinuxFeaturedApp(id: "foot", name: "Terminal (foot)", symbol: "apple.terminal", category: .system,
-                         showsOnDesktop: false, command: LinuxTerminal.footCommand(workingDirectory: nil),
+                         showsOnDesktop: false, iconNames: ["foot", "utilities-terminal"],
+                         command: LinuxTerminal.footCommand(workingDirectory: nil),
                          desktopID: "foot", alsoHides: ["footclient", "foot-server"]),
         LinuxFeaturedApp(id: "code", name: "Visual Studio Code", symbol: "chevron.left.forwardslash.chevron.right",
-                         category: .development, showsOnDesktop: true, command: "code", desktopID: "code",
+                         category: .development, showsOnDesktop: true,
+                         iconNames: ["vscode", "com.visualstudio.code", "code", "visual-studio-code", "code-oss",
+                                     "accessories-text-editor"],
+                         command: "code", desktopID: "code",
                          alsoHides: ["code-url-handler"]),
     ]
 
@@ -114,6 +122,10 @@ extension DesktopController: LinuxGUIBridgeDelegate {
         } else {
             open(appID: AppID.terminal, arguments: directory.map { [AppArgument.cwd: $0] } ?? [:])
         }
+    }
+
+    func linuxBridge(_ bridge: LinuxGUIBridge, didRequestPreview url: URL) {
+        open(appID: AppID.browser, arguments: [AppArgument.url: url.absoluteString])
     }
 
     func linuxBridge(_ bridge: LinuxGUIBridge, didRequestOpen url: URL) {

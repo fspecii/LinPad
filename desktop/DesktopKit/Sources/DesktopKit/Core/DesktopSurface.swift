@@ -14,7 +14,10 @@ struct DesktopSurface: View {
 
     var body: some View {
         // ~/Desktop as icons, drag and drop, and the full desktop menu: Desktop/ (DnD agent).
-        DesktopFolderSurface(controller: controller, shellItems: menuItems)
+        ZStack(alignment: .topLeading) {
+            DesktopFolderSurface(controller: controller, shellItems: menuItems)
+            WidgetLayer(controller: controller)
+        }
     }
 
     private var menuItems: [DesktopMenuItem] {
@@ -27,6 +30,9 @@ struct DesktopSurface: View {
             },
             DesktopMenuItem(title: "Overview", symbol: "rectangle.3.group") {
                 controller.setOverviewPresented(true)
+            },
+            DesktopMenuItem(title: "Edit Widgets…", symbol: "square.grid.3x3") {
+                controller.widgets.isEditing = true
             },
             DesktopMenuItem(title: "Change Wallpaper…", symbol: "photo.on.rectangle") {
                 controller.openWallpaperSettings()

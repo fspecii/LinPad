@@ -152,6 +152,7 @@ struct ThemeGalleryView: View {
     @State private var isInstallPromptPresented = false
     @State private var message: String?
     @State private var pendingRemoval: ColorTheme?
+    @State private var sharing: ColorTheme?
 
     private var store: ColorThemeStore { controller.colorThemes }
     private var favorites: Set<String> { Set(favoritesText.split(separator: ",").map(String.init)) }
@@ -189,8 +190,9 @@ struct ThemeGalleryView: View {
             Button("Cancel", role: .cancel) {}
             Button("Install") { install() }
         } message: {
-            Text("Only colors.toml, icons.theme, light.mode and background images are taken from the repository.")
+            Text("Compatible with Omarchy community themes (credit: omacom/omarchy, MIT). Only colors.toml, icons.theme, light.mode and background images are taken from the repository.")
         }
+        .sheet(item: $sharing) { ShareThemeSheet(theme: $0) }
         .confirmationDialog("Remove \(pendingRemoval?.name ?? "")?", isPresented: Binding(
             get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }), titleVisibility: .visible) {
             Button("Remove Theme", role: .destructive) { if let pendingRemoval { remove(pendingRemoval) } }
@@ -250,6 +252,7 @@ struct ThemeGalleryView: View {
                     .accessibilityIdentifier("themes.favorite.\(candidate.id)")
                     Menu {
                         Button("Find Wallpapers", systemImage: "photo.on.rectangle") { controller.findWallpapers(for: candidate) }
+                        Button("Share Theme…", systemImage: "square.and.arrow.up") { sharing = candidate }
                         Button("Duplicate & Edit", systemImage: "square.on.square") {
                             ThemeEditorView.pendingDuplicate = candidate
                             onEdit(candidate)
@@ -268,8 +271,7 @@ struct ThemeGalleryView: View {
                 .buttonStyle(.bordered)
                 .accessibilityIdentifier("themes.preview.\(id.isEmpty ? "none" : id)")
                 Button(isCurrent ? "Applied" : "Apply") { apply(id) }
-                    .buttonStyle(.borderedProminent)
-                    .tint(theme.accent)
+                    .buttonStyle(.primary)
                     .disabled(isCurrent && store.previewID == nil)
                     .accessibilityIdentifier("themes.apply.\(id.isEmpty ? "none" : id)")
             }
@@ -672,8 +674,7 @@ struct ThemeLooksView: View {
                     .buttonStyle(.bordered)
                 }
                 Button("Apply") { controller.applyLook(look) }
-                    .buttonStyle(.borderedProminent)
-                    .tint(theme.accent)
+                    .buttonStyle(.primary)
                     .accessibilityIdentifier("themes.looks.apply.\(look.id)")
             }
             .font(.system(size: 13))

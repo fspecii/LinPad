@@ -44,11 +44,22 @@ NS_ASSUME_NONNULL_BEGIN
 /// directories are removed at the next launch.
 - (BOOL)importBundledRootWithProgress:(id<ProgressReporter> _Nullable)progress error:(NSError **)error;
 
-/// A bundled rootfs newer than the default root's, or nil.
+/// A Linux system downloaded from a GitHub release (Settings › Updates), kept until it is
+/// installed or the app bundles one at least as new.
+@property (readonly, nullable) NSURL *downloadedRootArchive;
+@property (readonly, nullable) NSString *downloadedRootVersion;
+/// Moves a verified rootfs tarball in as the downloaded system, replacing an earlier one.
+- (BOOL)storeDownloadedRootArchive:(NSURL *)archive version:(NSString *)version error:(NSError **)error;
+/// What an update installs: the downloaded system when it is newer than the bundled one,
+/// else the bundled one.
+@property (readonly, nullable) NSURL *updateRootArchive;
+@property (readonly, nullable) NSString *updateRootVersion;
+
+/// An update source (updateRootVersion) newer than the default root's, or nil.
 @property (readonly, nullable) NSString *availableUpdate;
 /// Set by "Update Linux system": the update is installed before the next boot.
 @property (nullable) NSString *pendingUpdate;
-/// Replaces the default root's system with the bundled rootfs, keeping user data: /root,
+/// Replaces the default root's system with updateRootArchive, keeping user data: /root,
 /// /home, /opt, /srv, the account files in /etc and the onboarding choices are carried
 /// over; packages the user added are listed in /etc/ish/reinstall-packages for the guest
 /// to reinstall. The previous root is kept (renamed) until the user deletes it.

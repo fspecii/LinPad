@@ -50,6 +50,8 @@ extern NSString *const ISHFastModeSettingKey; ///< NSUserDefaults: @"automatic" 
 /// nil if fast mode can be requested; otherwise why not (no JIT in this build, no
 /// get-task-allow, StikDebug not installed).
 + (NSString *)fastModeUnavailableReason;
+/// Whether this installation's signature has get-task-allow, so a debugger can attach.
++ (BOOL)fastModeHasGetTaskAllow;
 /// Asks StikDebug again. After boot, only programs started afterwards use the JIT.
 + (void)retryFastMode;
 /// Called on the main queue now and on every fast mode change.
@@ -57,6 +59,9 @@ extern NSString *const ISHFastModeSettingKey; ///< NSUserDefaults: @"automatic" 
 #endif
 
 + (void)maybePresentStartupMessageOnViewController:(UIViewController *)vc;
+/// Calls the completion handler iOS passed when it relaunched the app for a background
+/// download (the Linux system update), once the session has delivered every event.
++ (void)finishBackgroundURLSessionEvents;
 
 @end
 
