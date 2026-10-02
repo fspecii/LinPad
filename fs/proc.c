@@ -3,6 +3,7 @@
 #include "kernel/calls.h"
 #include "kernel/fs.h"
 #include "fs/proc.h"
+#include "fs/poll.h"
 #include "fs/path.h"
 
 static int proc_lookup(const char *path, struct proc_entry *entry) {
@@ -219,7 +220,15 @@ static int proc_close(struct fd *fd) {
     return 0;
 }
 
+// Regular files are always ready, as on Linux. Without this, poll() never
+// reported them readable: busybox sh's `read` builtin polls before reading
+// and hung forever on `read l < /proc/1/stat`.
+static int proc_poll(struct fd *UNUSED(fd)) {
+    return POLL_READ | POLL_WRITE;
+}
+
 const struct fd_ops procfs_fdops = {
+    .poll = proc_poll,
     .pread = proc_pread,
     .pwrite = proc_pwrite,
     .lseek = proc_seek,

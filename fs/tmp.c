@@ -4,6 +4,7 @@
 #include "kernel/errno.h"
 #include "kernel/fs.h"
 #include "fs/path.h"
+#include "fs/poll.h"
 #include "util/refcount.h"
 #include "debug.h"
 
@@ -505,7 +506,15 @@ const struct fs_ops tmpfs = {
     .mkdir = tmpfs_mkdir,
 };
 
+// Regular files are always ready, as on Linux. Without this, poll() never
+// reported them readable: busybox sh's `read` builtin polls before reading
+// and hung forever on `read l < /proc/1/stat`.
+static int tmpfs_poll(struct fd *UNUSED(fd)) {
+    return POLL_READ | POLL_WRITE;
+}
+
 const struct fd_ops tmpfs_fdops = {
+    .poll = tmpfs_poll,
     .read = tmpfs_read,
     .write = tmpfs_write,
     .lseek = tmpfs_lseek,
