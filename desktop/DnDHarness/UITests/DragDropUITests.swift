@@ -274,6 +274,9 @@ final class DragDropUITests: XCTestCase {
         save("dnd-thunar-source")
 
         // The first icon sits at (224, 150) in Thunar's content.
+        // Files on top, so the drop point is Files whatever the window layout; the synthetic
+        // press goes straight to Thunar's surface either way.
+        automate("focus|app:files", wait: 2)
         let toFiles = automate("drag|Thunar|224|150|app:files|300|300", until: ["dnd_end", "did not start"])
         XCTAssertTrue(toFiles.contains("dnd_end host"), toFiles)
         XCTAssertTrue(waitForGuest("ls \(filesDir)", contains: "a-files.txt"), "Thunar → Files moved the file into Files' folder")
@@ -283,7 +286,8 @@ final class DragDropUITests: XCTestCase {
         // The desktop shows through between the two windows.
         // Reload Thunar (F5) so the next file is first, whether or not it noticed the move.
         automate("key|Thunar|63", wait: 4)
-        let toDesktop = automate("drag|Thunar|224|150|desktop|640|560", until: ["dnd_end", "did not start"])
+        automate("minimize|app:files", wait: 2)
+        let toDesktop = automate("drag|Thunar|224|150|desktop|40|930", until: ["dnd_end", "did not start"])
         XCTAssertTrue(toDesktop.contains("dnd_end host"), toDesktop)
         XCTAssertTrue(waitForGuest("ls /root/Desktop", contains: "b-desktop.txt"), "Thunar → desktop moved it into ~/Desktop")
         XCTAssertTrue(element("desktop.icon.b-desktop.txt").waitForExistence(timeout: 20), "the desktop shows it")
