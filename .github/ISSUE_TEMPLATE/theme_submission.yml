@@ -1,0 +1,61 @@
+name: Theme or icon pack submission
+description: Propose a colour theme, wallpaper set or icon pack for LinPad's built-in list.
+labels: ["theme"]
+title: "[Theme] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Anyone can already install a colour theme from a git URL (Themes app › Install from URL…). This form is for adding one to the list LinPad ships or suggests.
+        Every file must be under a free licence that allows redistribution and modification (for example GPL, MIT, CC0, CC BY, CC BY-SA). "Free for personal use", "non-commercial" or unknown licences cannot be accepted, and that includes every wallpaper.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - Colour theme (Omarchy-compatible repository)
+        - Icon pack
+        - Wallpapers
+        - Desktop style or GTK theme
+    validations:
+      required: true
+  - type: input
+    id: name
+    attributes:
+      label: Name
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Repository or download URL
+      description: A git URL that Themes › Install from URL… accepts, or the upstream project page.
+      placeholder: https://github.com/<you>/<theme>
+    validations:
+      required: true
+  - type: input
+    id: license
+    attributes:
+      label: Licence
+      description: SPDX identifier, plus a link to the licence file. Name the licence of every wallpaper or image separately if it differs.
+      placeholder: "MIT (https://github.com/<you>/<theme>/blob/main/LICENSE); wallpapers CC0"
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: LinPad with the theme applied, light and dark if it has both.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I made this theme or have the right to submit it, and its licence allows redistribution and modification.
+          required: true
+        - label: It does not copy a company's logos or trademarks.
+          required: true
+        - label: I tested it on LinPad (installed from the URL above and switched to it).
+          required: false

@@ -1,7 +1,46 @@
-# iSH is not a security boundary!
+# Security policy
 
-The goal of this project is to support a Linux shell on iOS. As such, its security model assumes that the app is running in another sandbox and is used by a single user. The project is focused on compatibility, and very little thought has been put into internal security. Permissions are only loosely checked. Memory corruption in edge cases is common. Please do not use iSH for any sort of secure containerization or production use case.
+## Reporting a vulnerability
 
-As such, most types of bugs that are security issues in most projects are not security issues in iSH. Insufficient permission checks, memory corruption, and thread safety issues are generally considered correctness bugs and would be best filed as GitHub issues. We will prioritize bugs encountered by real programs in typical use.
+Please report security problems privately through GitHub:
+**[Report a vulnerability](https://github.com/fspecii/LinPad/security/advisories/new)**
+(the repository's Security tab › "Report a vulnerability").
 
-In our security model, we expect real security bugs to be very rare. It's not completely impossible, e.g. a bug allowing remote code execution without user consent would be a security bug. If you think you found one, you can send it to security@ish.app. We'll work with you to resolve it appropriately.
+Do not open a public issue for a security problem. Include the LinPad version, the iPadOS
+version, what an attacker can do, and the steps to reproduce. You should get a first reply
+within 7 days. Once a fix ships, the advisory is published with credit to you unless you
+ask otherwise.
+
+## Supported versions
+
+Only the latest release on [GitHub Releases](https://github.com/fspecii/LinPad/releases)
+gets security fixes. The bundled Linux system is updated through Settings › Updates.
+
+## Security model
+
+LinPad runs a Linux userland inside a single iPadOS app, on the
+[iSH](https://github.com/ish-app/ish) emulator. The iPadOS app sandbox is the security
+boundary. The Linux layer inside it is not: there is one user, root, and it can read
+everything the app can read. Do not use LinPad to isolate untrusted code from your other
+data inside the app.
+
+**In scope** (please report privately):
+
+- A web page, file, theme or `linpad://` link that runs code or changes settings in LinPad
+  without the user agreeing to it.
+- Anything that lets code inside LinPad escape the iPadOS app sandbox, or reach iPad
+  folders the user did not mount.
+- Update, repair-kit or theme downloads that can be tampered with in transit (a missing or
+  bypassable checksum or signature check).
+- Leaks of data from LinPad to a third party that the app does not disclose.
+
+**Usually not security bugs** (please file a normal issue): missing permission checks or
+memory-safety bugs between Linux processes inside the guest, crashes caused by a program
+you chose to run, and problems in Alpine packages themselves (report those to
+[Alpine](https://security.alpinelinux.org/)).
+
+## Third-party software
+
+LinPad bundles Alpine Linux packages and downloads some apps on request (for example
+Visual Studio Code, Wine). Security problems in those projects belong upstream; tell us
+too if LinPad needs an update to pick up their fix.

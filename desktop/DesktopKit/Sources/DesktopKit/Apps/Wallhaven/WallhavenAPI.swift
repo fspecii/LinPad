@@ -221,7 +221,10 @@ actor RateLimiter {
 
 /// Talks to the API: rate-limited, backs off exponentially on 429, identifies itself.
 final class WallhavenClient: Sendable {
-    static let userAgent = "iSH-Desktop/1.0 (Wallpapers app; iPadOS; +https://ish.app)"
+    static let userAgent: String = {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        return "LinPad/\(version) (+https://github.com/fspecii/LinPad)"
+    }()
 
     let session: URLSession
     let limiter: RateLimiter

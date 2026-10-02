@@ -1,0 +1,42 @@
+name: Feature request
+description: Suggest an app, a desktop feature or a workflow LinPad should support.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search [existing issues](https://github.com/fspecii/LinPad/issues) and the [roadmap](https://github.com/fspecii/LinPad#-roadmap) first.
+        LinPad keeps its base system lean: new apps usually arrive as optional catalog packs, not preinstalled.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The task or workflow, and where LinPad gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: How it could work. Mockups and links to other projects (Omarchy, a Linux desktop, an iPad app) help.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Desktop and window management
+        - Keyboard, trackpad or Pencil
+        - Linux apps and packages (catalog)
+        - Files and iPad integration
+        - Themes, styles and icons
+        - Performance and fast mode
+        - Install and updates
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Workarounds you have tried

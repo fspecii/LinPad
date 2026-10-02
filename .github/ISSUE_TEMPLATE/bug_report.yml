@@ -1,0 +1,84 @@
+name: Bug report
+description: Something in LinPad is broken, crashes or behaves wrongly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Search [existing issues](https://github.com/fspecii/LinPad/issues) first.
+        Security problems go to [private vulnerability reporting](https://github.com/fspecii/LinPad/security/advisories/new), not here.
+  - type: input
+    id: version
+    attributes:
+      label: LinPad version
+      description: Settings › Updates shows the app and system versions.
+      placeholder: "1.0.0 (system 2026100304)"
+    validations:
+      required: true
+  - type: input
+    id: ipados
+    attributes:
+      label: iPadOS version
+      placeholder: "26.5"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: iPad model
+      placeholder: "iPad Air 11-inch (M3), 8 GB"
+    validations:
+      required: true
+  - type: dropdown
+    id: fast-mode
+    attributes:
+      label: Fast mode (JIT)
+      description: Quick Settings shows "Native JIT" when fast mode is on, "Compatibility mode" when it is off.
+      options:
+        - "On (Native JIT)"
+        - "Off (Compatibility mode)"
+        - "Not sure"
+    validations:
+      required: true
+  - type: input
+    id: style
+    attributes:
+      label: Desktop style and theme
+      description: As shown in the Themes app. Include the icon pack if the bug is visual.
+      placeholder: "Tiler, Tokyo Night, light, Papirus icons"
+  - type: dropdown
+    id: install
+    attributes:
+      label: How LinPad was installed
+      options:
+        - SideStore
+        - AltStore
+        - iloader
+        - Sideloadly
+        - Built from source with Xcode
+        - Other
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Terminal
+        2. Run `apk add ...`
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        Drag the Diagnostics zip here if your version has Settings › Maintenance › Export Diagnostics; otherwise screenshots or a screen recording.
+        For a "Bad system call", "Illegal instruction" or "Segmentation fault", paste the relevant `dmesg` output too.
+        Check the files for anything private before attaching them.
+      placeholder: Drop files here.

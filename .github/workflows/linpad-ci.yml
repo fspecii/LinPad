@@ -1,0 +1,214 @@
+name: LinPad CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+  HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+
+jobs:
+  # Repository checks: cheap, so they run on Linux.
+  checks:
+    name: Repository checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Commit range
+        id: range
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          case $EVENT in
+            pull_request) range="$PR_BASE..$PR_HEAD" ;;
+            push) case $PUSH_BEFORE in ''|0000000000000000000000000000000000000000) range= ;; *) range="$PUSH_BEFORE..$GITHUB_SHA" ;; esac ;;
+            *) range= ;;
+          esac
+          # A force-push can leave the old tip unreachable.
+          if [ -n "$range" ] && ! git cat-file -e "${range%%..*}^{commit}" 2>/dev/null; then range=; fi
+          echo "range=$range" >> "$GITHUB_OUTPUT"
+          echo "commit range: ${range:-none}"
+
+      - name: No team IDs, device UDIDs or AI co-author trailers
+        env:
+          RANGE: ${{ steps.range.outputs.range }}
+        run: .github/scripts/check-identifiers.sh ${RANGE:+"$RANGE"}
+
+      - name: Repair kit version bumped with guest changes
+        if: steps.range.outputs.range != ''
+        env:
+          RANGE: ${{ steps.range.outputs.range }}
+        run: .github/scripts/check-repair-kit-version.sh "$RANGE"
+
+      - name: shellcheck guest scripts
+        run: |
+          shellcheck --version | head -2
+          git ls-files release/guest themes/guest | while read -r f; do
+            case $f in
+              *.sh|*.bash) echo "$f" ;;
+              *) if head -n1 "$f" | grep -qE '^#!.*[/ ](ba|da|a)?sh( |$)'; then echo "$f"; fi ;;
+            esac
+          done > "$RUNNER_TEMP/scripts.txt"
+          echo "$(wc -l < "$RUNNER_TEMP/scripts.txt") scripts"
+          xargs shellcheck --severity=warning --format=gcc < "$RUNNER_TEMP/scripts.txt"
+
+      - name: Validate catalog.json and themes.json
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+
+          def load(path):
+              with open(path, encoding="utf-8") as f:
+                  return json.load(f)
+
+          errors = []
+          def check(path, entries, required):
+              ids = [e.get("id") for e in entries]
+              for e in entries:
+                  missing = sorted(required - e.keys())
+                  if missing:
+                      errors.append(f"{path}: {e.get('id', '?')} is missing {', '.join(missing)}")
+              dupes = sorted({i for i in ids if ids.count(i) > 1})
+              if dupes:
+                  errors.append(f"{path}: duplicate ids {', '.join(map(str, dupes))}")
+              print(f"{path}: {len(entries)} entries")
+
+          catalog = "release/guest/linpad/catalog.json"
+          check(catalog, load(catalog)["packs"],
+                {"id", "name", "description", "category", "sizeMB", "launch", "recommended"})
+          themes = "desktop/DesktopKit/Sources/DesktopKit/Resources/ColorThemes/themes.json"
+          check(themes, load(themes),
+                {"id", "name", "appearance", "background", "foreground", "accent", "ansi"})
+          load("release/source.json")
+          if errors:
+              print("\n".join(errors))
+              sys.exit(1)
+          EOF
+
+      - name: Release tooling tests
+        run: python3 -m unittest discover -s release/tests -v
+
+  desktopkit:
+    name: DesktopKit unit tests (iPad Simulator)
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Pick an iPad simulator
+        id: sim
+        run: |
+          xcodebuild -version
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, re, sys
+          devices = json.load(sys.stdin)["devices"]
+          def version(runtime):
+              return [int(n) for n in re.findall(r"\d+", runtime.rsplit("iOS", 1)[-1])]
+          ipads = [(version(rt), d["udid"], d["name"]) for rt, ds in devices.items() if ".iOS-" in rt
+                   for d in ds if d["name"].startswith("iPad")]
+          if not ipads:
+              sys.exit("no iPad simulator on this runner")
+          ipads.sort()
+          print(ipads[-1][1])
+          print(ipads[-1], file=sys.stderr)
+          ')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      - name: xcodebuild test
+        working-directory: desktop/DesktopKit
+        env:
+          SIM: ${{ steps.sim.outputs.udid }}
+        run: |
+          xcodebuild test -scheme DesktopKit -destination "id=$SIM" \
+            -derivedDataPath "$RUNNER_TEMP/dd" -resultBundlePath "$RUNNER_TEMP/DesktopKit.xcresult" \
+            CODE_SIGNING_ALLOWED=NO -quiet
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: DesktopKit.xcresult
+          path: ${{ runner.temp }}/DesktopKit.xcresult
+          retention-days: 7
+
+  emulator:
+    name: Emulator build and ARM64 CPU tests
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      ALPINE_VERSION: "3.21.0"
+      ALPINE_SHA256: f31202c4070c4ef7de9e157e1bd01cb4da3a2150035d74ea5372c5e86f1efac1
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install build tools
+        run: |
+          brew install llvm lld meson libarchive
+          echo "$(brew --prefix lld)/bin" >> "$GITHUB_PATH"
+
+      - name: Configure and build (arm64 guest, JIT enabled)
+        run: |
+          meson setup build -Dguest_arch=arm64 -Djit=enabled --buildtype=release
+          ninja -C build ish tools/fakefsify
+
+      - name: Restore guest fakefs
+        id: fakefs-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/fakefs
+          key: fakefs-alpine-${{ env.ALPINE_VERSION }}-gcc-${{ hashFiles('fs/fake*.c', 'fs/fake*.h', 'tools/fakefs*.c', 'tools/fakefsify.c') }}-v1
+
+      - name: Prepare guest fakefs (Alpine minirootfs + gcc)
+        if: steps.fakefs-cache.outputs.cache-hit != 'true'
+        run: |
+          tarball="$RUNNER_TEMP/alpine-minirootfs.tar.gz"
+          curl -fsSL -o "$tarball" \
+            "https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/releases/aarch64/alpine-minirootfs-$ALPINE_VERSION-aarch64.tar.gz"
+          echo "$ALPINE_SHA256  $tarball" | shasum -a 256 -c -
+          build/tools/fakefsify "$tarball" "$RUNNER_TEMP/fakefs"
+          ISH_JIT=1 build/ish -f "$RUNNER_TEMP/fakefs" /bin/sh -c \
+            'echo nameserver 1.1.1.1 > /etc/resolv.conf && apk update -q && apk add -q gcc musl-dev && gcc --version | head -n1'
+
+      - name: Save guest fakefs
+        if: steps.fakefs-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/fakefs
+          key: ${{ steps.fakefs-cache.outputs.cache-primary-key }}
+
+      - name: Guest boots
+        run: |
+          out=$(ISH_JIT=1 build/ish -f "$RUNNER_TEMP/fakefs" /bin/sh -c 'uname -m; cat /etc/alpine-release')
+          echo "$out"
+          [ "$(echo "$out" | head -n1)" = aarch64 ]
+
+      - name: ARM64 CPU smoke (conformance diffs, SMC, difffuzz; JIT and interpreter)
+        env:
+          ISH: ${{ github.workspace }}/build/ish
+          FAKEFS: ${{ runner.temp }}/fakefs
+          OUT: ${{ runner.temp }}/arm64-insn
+        run: tests/arm64-insn/smoke.sh
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: arm64-insn-output
+          path: ${{ runner.temp }}/arm64-insn
+          retention-days: 7

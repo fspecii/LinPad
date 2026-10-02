@@ -1,0 +1,14 @@
+# Guest scripts (release/guest, themes/guest) run under BusyBox ash inside Alpine. Files
+# without a shebang (session.d/*, versions.sh, 90-firstrun.sh) name their shell with a
+# "# shellcheck shell=sh" directive: a shell= here would override every shebang.
+source-path=SCRIPTDIR
+
+# Sourced paths are guest-absolute (/usr/share/ish/..., /etc/profile.d/...) or built at
+# run time; they do not exist in the repository.
+disable=SC1090,SC1091
+
+# `A= B=` resets before sourcing a style .conf are intentional, not typos.
+disable=SC1007
+
+# Style variables are assigned with eval ("GTK_THEME_$VARIANT"), which shellcheck cannot see.
+disable=SC2154
