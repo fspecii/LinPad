@@ -33,9 +33,9 @@
  * Returns (in x0):
  *   Interrupt number (reason for returning to caller)
  */
-.global NAME(fiber_enter)
-.type_compat fiber_enter,function
-NAME(fiber_enter):
+.global NAME(fiber_enter_raw)
+.type_compat fiber_enter_raw,function
+NAME(fiber_enter_raw):
     // Save callee-saved registers
     stp x18, x19, [sp, #-0x80]!      // 0x80 to make room for original _cpu
     stp x20, x21, [sp, #0x10]
@@ -46,10 +46,26 @@ NAME(fiber_enter):
     str lr, [sp, #0x60]
     str x1, [sp, #0x70]              // Save original _cpu for verification
 
+    // Guest FP ops run as host FP instructions, so the host FPCR carries the
+    // guest's AHP/DN/FZ/RMode/FZ16 while in the fiber; the host's is restored on exit.
+    mrs x8, fpcr
+    str x8, [sp, #0x68]
+    ldr w9, [x1, #CPU_fpcr]
+    movz w10, #FPCR_GUEST_MASK_HI, lsl #16
+    and w9, w9, w10
+    cmp x8, x9
+    b.eq 1f
+    msr fpcr, x9
+1:
+
     // Save SP for crash recovery: signal handler restores SP to this value
     // so fiber_exit can correctly pop the callee-saved register frame.
     mov x8, sp
     str x8, [x1, #LOCAL_jit_exit_sp]
+
+    // x29 is not used by any gadget (and C callees preserve it): it counts
+    // chained block transitions down to the next periodic INT_TIMER.
+    mov x29, #(TIMER_PERIOD_MASK + 1)
 
     // Setup gadget instruction pointer from block
     add _pc, x0, #FIBER_BLOCK_code
@@ -146,6 +162,12 @@ fiber_ret:
  */
 .global fiber_exit
 fiber_exit:
+    ldr x8, [sp, #0x68]
+    mrs x9, fpcr
+    cmp x8, x9
+    b.eq 1f
+    msr fpcr, x8
+1:
     // Restore callee-saved registers
     ldr lr, [sp, #0x60]
     ldp x28, x29, [sp, #0x50]

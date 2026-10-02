@@ -22,8 +22,7 @@
 // The width varies: imm9 for pre/post-indexed, larger for LDP/STP
 // Using 16-bit signed extraction to handle all cases (max ±32K)
 .gadget calc_addr_imm
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rn
     // Extract offset from bits 8+ (arithmetic shift right preserves sign for negative offsets,
@@ -53,8 +52,7 @@
 // guest address preserved across read_prep (i.e., no pre-indexed LDP/STP).
 // Param: rn<<0 | offset<<8 (signed, 56 bits)
 .gadget calc_addr_imm_fast
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f          // rn (caller guarantees != 31)
     asr x10, x8, #8            // signed offset
     add x11, _cpu, #CPU_x0
@@ -66,8 +64,7 @@
 // LDR Xt, [Xn, Xm{, LSL #shift}] — fast path: rn != 31, rm != 31, rt != 31.
 // Param: rt | rn<<8 | rm<<16 | shift<<24 (shift in 0..3 bytes; we don't fold size)
 .gadget load64_reg_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     ubfx x10, x22, #16, #5
     ubfx x12, x22, #24, #3
@@ -86,8 +83,7 @@
     read_bullshit 64, load64_reg_fast_1
 
 .gadget load32_reg_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     ubfx x10, x22, #16, #5
     ubfx x12, x22, #24, #3
@@ -109,8 +105,7 @@
 // Condition: rn != 31, rt != 31.
 // Param: rt<<0 | rn<<8 | offset<<16 (signed, 48 bits)
 .gadget load8_imm_signed_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     asr x10, x22, #16          // signed offset (sign-extended)
     add x11, _cpu, #CPU_x0
@@ -126,8 +121,7 @@
     read_bullshit 8, load8_imm_signed_fast_1
 
 .gadget load16_imm_signed_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     asr x10, x22, #16
     add x11, _cpu, #CPU_x0
@@ -143,8 +137,7 @@
     read_bullshit 16, load16_imm_signed_fast_1
 
 .gadget load32_imm_signed_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     asr x10, x22, #16
     add x11, _cpu, #CPU_x0
@@ -160,8 +153,7 @@
     read_bullshit 32, load32_imm_signed_fast_1
 
 .gadget load64_imm_signed_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     asr x10, x22, #16
     add x11, _cpu, #CPU_x0
@@ -178,8 +170,7 @@
 
 // STUR variants
 .gadget store8_imm_signed_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     add x11, _cpu, #CPU_x0
     ldr x23, [x11, x8, lsl #3]
@@ -197,8 +188,7 @@
     write_bullshit 8, store8_imm_signed_fast_1
 
 .gadget store16_imm_signed_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     add x11, _cpu, #CPU_x0
     ldr x23, [x11, x8, lsl #3]
@@ -216,8 +206,7 @@
     write_bullshit 16, store16_imm_signed_fast_1
 
 .gadget store32_imm_signed_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     add x11, _cpu, #CPU_x0
     ldr x23, [x11, x8, lsl #3]
@@ -235,8 +224,7 @@
     write_bullshit 32, store32_imm_signed_fast_1
 
 .gadget store64_imm_signed_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     add x11, _cpu, #CPU_x0
     ldr x23, [x11, x8, lsl #3]
@@ -264,8 +252,7 @@
 // Calculate address from base register + register offset
 // Code stream: [gadget addr][rn | rm<<8 | extend<<16 | shift<<24]
 .gadget calc_addr_reg
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rn
     ubfx x10, x8, #8, #5    // rm
@@ -486,8 +473,7 @@
 
 // LDR Xd, [Xn, #imm] - fused 64-bit load with unsigned offset
 .gadget load64_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5       // rn
     lsr x10, x22, #16           // offset (unsigned)
     add x11, _cpu, #CPU_x0
@@ -512,8 +498,7 @@
 
 // LDR Wd, [Xn, #imm] - fused 32-bit load with unsigned offset
 .gadget load32_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     lsr x10, x22, #16
     add x11, _cpu, #CPU_x0
@@ -538,8 +523,7 @@
 
 // LDRH Wd, [Xn, #imm] - fused 16-bit load with unsigned offset
 .gadget load16_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     lsr x10, x22, #16
     add x11, _cpu, #CPU_x0
@@ -564,8 +548,7 @@
 
 // LDRB Wd, [Xn, #imm] - fused 8-bit load with unsigned offset
 .gadget load8_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     lsr x10, x22, #16
     add x11, _cpu, #CPU_x0
@@ -590,8 +573,7 @@
 
 // LDRSW Xd, [Xn, #imm] - fused 32-bit sign-extending load with unsigned offset
 .gadget load32_sx_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     lsr x10, x22, #16
     add x11, _cpu, #CPU_x0
@@ -616,8 +598,7 @@
 
 // STR Xt, [Xn, #imm] - fused 64-bit store with unsigned offset
 .gadget store64_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f          // rt (source register)
     add x11, _cpu, #CPU_x0
     cmp x8, #31
@@ -644,8 +625,7 @@
 
 // STR Wt, [Xn, #imm] - fused 32-bit store with unsigned offset
 .gadget store32_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     add x11, _cpu, #CPU_x0
     cmp x8, #31
@@ -672,8 +652,7 @@
 
 // STRH Wt, [Xn, #imm] - fused 16-bit store with unsigned offset
 .gadget store16_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     add x11, _cpu, #CPU_x0
     cmp x8, #31
@@ -700,8 +679,7 @@
 
 // STRB Wt, [Xn, #imm] - fused 8-bit store with unsigned offset
 .gadget store8_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     add x11, _cpu, #CPU_x0
     cmp x8, #31
@@ -736,8 +714,7 @@
 
 // LDR Xd, [Xn, #imm] - fast path (rn!=31, rd!=31)
 .gadget load64_imm_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5       // rn (guaranteed != 31)
     lsr x10, x22, #16           // offset (unsigned)
     add x11, _cpu, #CPU_x0
@@ -754,8 +731,7 @@
 
 // LDR Wd, [Xn, #imm] - fast path (rn!=31, rd!=31)
 .gadget load32_imm_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     lsr x10, x22, #16
     add x11, _cpu, #CPU_x0
@@ -772,8 +748,7 @@
 
 // STR Xt, [Xn, #imm] - fast path (rn!=31, rt!=31)
 .gadget store64_imm_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f          // rt (guaranteed != 31)
     add x11, _cpu, #CPU_x0
     ldr x23, [x11, x8, lsl #3]  // load value (no XZR check)
@@ -791,8 +766,7 @@
 
 // STR Wt, [Xn, #imm] - fast path (rn!=31, rt!=31)
 .gadget store32_imm_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f          // rt (guaranteed != 31)
     add x11, _cpu, #CPU_x0
     ldr x23, [x11, x8, lsl #3]
@@ -810,8 +784,7 @@
 
 // LDRH Wd, [Xn, #imm] - fast path (rn!=31, rd!=31)
 .gadget load16_imm_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5       // rn (guaranteed != 31)
     lsr x10, x22, #16           // offset (unsigned)
     add x11, _cpu, #CPU_x0
@@ -828,8 +801,7 @@
 
 // LDRB Wd, [Xn, #imm] - fast path (rn!=31, rd!=31)
 .gadget load8_imm_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     lsr x10, x22, #16
     add x11, _cpu, #CPU_x0
@@ -846,8 +818,7 @@
 
 // STRH Wt, [Xn, #imm] - fast path (rn!=31, rt!=31)
 .gadget store16_imm_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f          // rt (guaranteed != 31)
     add x11, _cpu, #CPU_x0
     ldr x23, [x11, x8, lsl #3]  // load value (no XZR check)
@@ -865,8 +836,7 @@
 
 // STRB Wt, [Xn, #imm] - fast path (rn!=31, rt!=31)
 .gadget store8_imm_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     add x11, _cpu, #CPU_x0
     ldr x23, [x11, x8, lsl #3]
@@ -893,8 +863,7 @@
 
 // LDR Xd, [SP, #imm] - SP-relative 64-bit load (rd!=31)
 .gadget load64_sp_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     lsr x10, x22, #16           // offset (unsigned)
     ldr x12, [_cpu, #CPU_sp]    // direct SP load
     add _addr, x12, x10
@@ -910,8 +879,7 @@
 
 // LDR Wd, [SP, #imm] - SP-relative 32-bit load (rd!=31)
 .gadget load32_sp_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     lsr x10, x22, #16
     ldr x12, [_cpu, #CPU_sp]
     add _addr, x12, x10
@@ -927,8 +895,7 @@
 
 // STR Xt, [SP, #imm] - SP-relative 64-bit store (rt!=31)
 .gadget store64_sp_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f          // rt (guaranteed != 31)
     add x11, _cpu, #CPU_x0
     ldr x23, [x11, x8, lsl #3]  // load value (no XZR check)
@@ -945,8 +912,7 @@
 
 // STR Wt, [SP, #imm] - SP-relative 32-bit store (rt!=31)
 .gadget store32_sp_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     add x11, _cpu, #CPU_x0
     ldr x23, [x11, x8, lsl #3]
@@ -983,8 +949,7 @@
 
 // LDRSW Xd, [Xn, Xm{, LSL #shift}] - fused sign-extending 32-bit load, register offset
 .gadget load32_sx_reg
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5        // rn
     ubfx x10, x22, #16, #5      // rm
     ubfx x12, x22, #24, #3      // shift
@@ -1018,8 +983,7 @@
 
 // LDR Xd, [Xn, Xm{, LSL #shift}] - fused 64-bit load, register offset
 .gadget load64_reg
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     ubfx x10, x22, #16, #5
     ubfx x12, x22, #24, #3
@@ -1051,8 +1015,7 @@
 
 // LDR Wd, [Xn, Xm{, LSL #shift}] - fused 32-bit load, register offset
 .gadget load32_reg
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     ubfx x10, x22, #16, #5
     ubfx x12, x22, #24, #3
@@ -1084,8 +1047,7 @@
 
 // LDRH Wd, [Xn, Xm{, LSL #shift}] - fused 16-bit load, register offset
 .gadget load16_reg
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     ubfx x10, x22, #16, #5
     ubfx x12, x22, #24, #3
@@ -1117,8 +1079,7 @@
 
 // LDRB Wd, [Xn, Xm{, LSL #shift}] - fused 8-bit load, register offset
 .gadget load8_reg
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     ubfx x10, x22, #16, #5
     ubfx x12, x22, #24, #3
@@ -1150,8 +1111,7 @@
 
 // STR Xt, [Xn, Xm{, LSL #shift}] - fused 64-bit store, register offset
 .gadget store64_reg
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f          // rt (source register)
     add x11, _cpu, #CPU_x0
     cmp x8, #31
@@ -1185,8 +1145,7 @@
 
 // STR Wt, [Xn, Xm{, LSL #shift}] - fused 32-bit store, register offset
 .gadget store32_reg
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     add x11, _cpu, #CPU_x0
     cmp x8, #31
@@ -1220,8 +1179,7 @@
 
 // STRH Wt, [Xn, Xm{, LSL #shift}] - fused 16-bit store, register offset
 .gadget store16_reg
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     add x11, _cpu, #CPU_x0
     cmp x8, #31
@@ -1255,8 +1213,7 @@
 
 // STRB Wt, [Xn, Xm{, LSL #shift}] - fused 8-bit store, register offset
 .gadget store8_reg
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     add x11, _cpu, #CPU_x0
     cmp x8, #31
@@ -1303,8 +1260,7 @@
 
 .gadget atomic_rmw
     mov x23, _addr              // save address
-    ldr x22, [_pc]              // load params
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8              // load params
 
     and x9, x22, #0x1f          // rs
     ubfx x10, x22, #8, #2       // size
@@ -1347,8 +1303,7 @@ atomic_rmw_segfault:
 
 .gadget atomic_cas
     mov x23, _addr              // save address
-    ldr x22, [_pc]              // load params
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8              // load params
 
     and x9, x22, #0x1f          // rs (expected/result)
     ubfx x10, x22, #8, #5       // rt (new value)
@@ -1413,8 +1368,7 @@ atomic_cas_segfault:
  * Using 16-bit signed extraction to handle all cases
  */
 .gadget update_base
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rn
     asr x10, x8, #8         // offset (sign-extended from gen.c packing)
@@ -1443,8 +1397,7 @@ atomic_cas_segfault:
  * NOT _addr which has been transformed to a host pointer by read_prep.
  */
 .gadget writeback_addr
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rn
     ldr x10, [_cpu, #LOCAL_value_addr]  // guest address from calc_addr_imm
@@ -1464,8 +1417,7 @@ atomic_cas_segfault:
  * Code stream: [gadget addr][rn]
  */
 .gadget calc_addr_base
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rn
 
@@ -1487,8 +1439,7 @@ atomic_cas_segfault:
 
 // LDP Xn, Xm, [addr] - 64-bit load pair (inline TLB)
 .gadget ldp64
-    ldr x22, [_pc]              // rt | rt2<<8
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8              // rt | rt2<<8
     mov x24, _addr
     read_prep 128, ldp64_1      // 16 bytes: cross-page if offset > 0xff0
     ldr x23, [_addr]            // val1
@@ -1508,8 +1459,7 @@ atomic_cas_segfault:
 
 // LDP Wn, Wm, [addr] - 32-bit load pair (inline TLB)
 .gadget ldp32
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     mov x24, _addr
     read_prep 64, ldp32_1       // 8 bytes total (2x4): cross-page if offset > 0xff8
     ldr w23, [_addr]            // val1 (32-bit, zero-extended to x23)
@@ -1529,8 +1479,7 @@ atomic_cas_segfault:
 
 // STP Xn, Xm, [addr] - 64-bit store pair (inline TLB)
 .gadget stp64
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     // Load register values before write_prep (which clobbers x8-x10)
     and x8, x22, #0x1f          // rt
     ubfx x9, x22, #8, #5        // rt2
@@ -1554,8 +1503,7 @@ atomic_cas_segfault:
 
 // STP Wn, Wm, [addr] - 32-bit store pair (inline TLB)
 .gadget stp32
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f          // rt
     ubfx x9, x22, #8, #5        // rt2
     add x10, _cpu, #CPU_x0
@@ -1597,8 +1545,7 @@ atomic_cas_segfault:
 
 // Fast-path LDP Xt, Xt2, [Xn, #imm] (rn!=31, rt!=31, rt2!=31)
 .gadget ldp64_imm_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #16, #5          // rn
     sbfx x10, x22, #24, #16        // signed offset
     add x11, _cpu, #CPU_x0
@@ -1618,8 +1565,7 @@ atomic_cas_segfault:
 
 // Fast-path STP Xt, Xt2, [Xn, #imm] (rn!=31, rt!=31, rt2!=31)
 .gadget stp64_imm_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f              // rt
     ubfx x9, x22, #8, #5            // rt2
     add x10, _cpu, #CPU_x0
@@ -1678,8 +1624,7 @@ atomic_cas_segfault:
 
 // LDR Xt, [Xn, #imm]! — pre-indexed
 .gadget ldr64_imm_preidx_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5            // rn
     sbfx x10, x22, #16, #32         // signed offset
     add x11, _cpu, #CPU_x0
@@ -1700,8 +1645,7 @@ atomic_cas_segfault:
 
 // LDR Xt, [Xn], #imm — post-indexed
 .gadget ldr64_imm_postidx_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     sbfx x10, x22, #16, #32
     add x11, _cpu, #CPU_x0
@@ -1722,8 +1666,7 @@ atomic_cas_segfault:
 
 // LDR Wt, [Xn, #imm]! — pre-indexed, 32-bit
 .gadget ldr32_imm_preidx_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     sbfx x10, x22, #16, #32
     add x11, _cpu, #CPU_x0
@@ -1743,8 +1686,7 @@ atomic_cas_segfault:
     read_bullshit 32, ldr32_imm_preidx_fast_1
 
 .gadget ldr32_imm_postidx_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     sbfx x10, x22, #16, #32
     add x11, _cpu, #CPU_x0
@@ -1765,8 +1707,7 @@ atomic_cas_segfault:
 
 // STR Xt, [Xn, #imm]! — pre-indexed
 .gadget str64_imm_preidx_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f              // rt
     add x11, _cpu, #CPU_x0
     ldr x23, [x11, x8, lsl #3]      // val
@@ -1787,8 +1728,7 @@ atomic_cas_segfault:
     write_bullshit 64, str64_imm_preidx_fast_1
 
 .gadget str64_imm_postidx_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     add x11, _cpu, #CPU_x0
     ldr x23, [x11, x8, lsl #3]
@@ -1809,8 +1749,7 @@ atomic_cas_segfault:
     write_bullshit 64, str64_imm_postidx_fast_1
 
 .gadget str32_imm_preidx_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     add x11, _cpu, #CPU_x0
     ldr x23, [x11, x8, lsl #3]
@@ -1831,8 +1770,7 @@ atomic_cas_segfault:
     write_bullshit 32, str32_imm_preidx_fast_1
 
 .gadget str32_imm_postidx_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     add x11, _cpu, #CPU_x0
     ldr x23, [x11, x8, lsl #3]
@@ -1859,8 +1797,7 @@ atomic_cas_segfault:
  */
 
 .gadget str64_xzr_imm_preidx_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     sbfx x10, x22, #16, #32
     add x11, _cpu, #CPU_x0
@@ -1879,8 +1816,7 @@ atomic_cas_segfault:
     write_bullshit 64, str64_xzr_imm_preidx_fast_1
 
 .gadget str64_xzr_imm_postidx_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     sbfx x10, x22, #16, #32
     add x11, _cpu, #CPU_x0
@@ -1899,8 +1835,7 @@ atomic_cas_segfault:
     write_bullshit 64, str64_xzr_imm_postidx_fast_1
 
 .gadget str32_xzr_imm_preidx_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     sbfx x10, x22, #16, #32
     add x11, _cpu, #CPU_x0
@@ -1919,8 +1854,7 @@ atomic_cas_segfault:
     write_bullshit 32, str32_xzr_imm_preidx_fast_1
 
 .gadget str32_xzr_imm_postidx_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #8, #5
     sbfx x10, x22, #16, #32
     add x11, _cpu, #CPU_x0
@@ -1946,8 +1880,7 @@ atomic_cas_segfault:
 
 // LDP Xt, Xt2, [SP, #imm]! — pre-indexed, SP base
 .gadget ldp64_imm_preidx_sp
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     sbfx x10, x22, #16, #32         // signed offset
     ldr x12, [_cpu, #CPU_sp]        // base = SP
     add x26, x12, x10               // new SP = SP + offset
@@ -1968,8 +1901,7 @@ atomic_cas_segfault:
 
 // LDP Xt, Xt2, [SP], #imm — post-indexed, SP base
 .gadget ldp64_imm_postidx_sp
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     sbfx x10, x22, #16, #32
     ldr x12, [_cpu, #CPU_sp]        // base = SP
     and _addr, x12, #0xffffffffffff
@@ -1991,8 +1923,7 @@ atomic_cas_segfault:
 // STP Xt, Xt2, [SP, #imm]! — pre-indexed, SP base.
 // rt, rt2 may be 31 (XZR) — must zero-store in that case.
 .gadget stp64_imm_preidx_sp
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     add x11, _cpu, #CPU_x0
     and x8, x22, #0x1f              // rt
     cmp x8, #31
@@ -2022,8 +1953,7 @@ atomic_cas_segfault:
 
 // STP Xt, Xt2, [SP], #imm — post-indexed, SP base.
 .gadget stp64_imm_postidx_sp
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     add x11, _cpu, #CPU_x0
     and x8, x22, #0x1f
     cmp x8, #31
@@ -2053,8 +1983,7 @@ atomic_cas_segfault:
 
 // LDP Xt, Xt2, [Xn, #imm]! — pre-indexed
 .gadget ldp64_imm_preidx_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #16, #5           // rn
     sbfx x10, x22, #24, #16         // signed offset
     add x11, _cpu, #CPU_x0
@@ -2078,8 +2007,7 @@ atomic_cas_segfault:
 
 // LDP Xt, Xt2, [Xn], #imm — post-indexed
 .gadget ldp64_imm_postidx_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #16, #5
     sbfx x10, x22, #24, #16
     add x11, _cpu, #CPU_x0
@@ -2103,8 +2031,7 @@ atomic_cas_segfault:
 
 // STP Xt, Xt2, [Xn, #imm]! — pre-indexed
 .gadget stp64_imm_preidx_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f              // rt
     add x11, _cpu, #CPU_x0
     ldr x23, [x11, x8, lsl #3]      // val1
@@ -2129,8 +2056,7 @@ atomic_cas_segfault:
 
 // STP Xt, Xt2, [Xn], #imm — post-indexed
 .gadget stp64_imm_postidx_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     add x11, _cpu, #CPU_x0
     ldr x23, [x11, x8, lsl #3]
@@ -2155,8 +2081,7 @@ atomic_cas_segfault:
 
 // Fast-path LDP Wt, Wt2, [Xn, #imm] (rn!=31, rt!=31, rt2!=31)
 .gadget ldp32_imm_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #16, #5          // rn
     sbfx x10, x22, #24, #16        // signed offset
     add x11, _cpu, #CPU_x0
@@ -2176,8 +2101,7 @@ atomic_cas_segfault:
 
 // Fast-path STP Wt, Wt2, [Xn, #imm] (rn!=31, rt!=31, rt2!=31)
 .gadget stp32_imm_fast
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f              // rt
     ubfx x9, x22, #8, #5            // rt2
     add x10, _cpu, #CPU_x0
@@ -2199,8 +2123,7 @@ atomic_cas_segfault:
 
 // Fused LDP Xt, Xt2, [Xn, #imm] - 64-bit load pair with signed offset
 .gadget ldp64_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     // Unpack parameters
     ubfx x9, x22, #16, #5          // rn
     sbfx x10, x22, #24, #16        // signed offset in bytes
@@ -2232,8 +2155,7 @@ atomic_cas_segfault:
 
 // Fused LDP Wt, Wt2, [Xn, #imm] - 32-bit load pair with signed offset
 .gadget ldp32_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     ubfx x9, x22, #16, #5
     sbfx x10, x22, #24, #16
     add x11, _cpu, #CPU_x0
@@ -2263,8 +2185,7 @@ atomic_cas_segfault:
 
 // Fused STP Xt, Xt2, [Xn, #imm] - 64-bit store pair with signed offset
 .gadget stp64_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     // Load register values before write_prep (which clobbers x8-x10)
     and x8, x22, #0x1f              // rt
     ubfx x9, x22, #8, #5            // rt2
@@ -2299,8 +2220,7 @@ atomic_cas_segfault:
 
 // Fused STP Wt, Wt2, [Xn, #imm] - 32-bit store pair with signed offset
 .gadget stp32_imm
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x8, x22, #0x1f
     ubfx x9, x22, #8, #5
     add x10, _cpu, #CPU_x0
@@ -2395,8 +2315,7 @@ atomic_cas_segfault:
  */
 
 .gadget simd_load_interleaved
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     mov x23, _addr              // save address
 
     save_c
@@ -2422,8 +2341,7 @@ simd_interleaved_read_segfault:
     b fiber_exit
 
 .gadget simd_store_interleaved
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     mov x23, _addr              // save address
 
     save_c
@@ -2456,16 +2374,14 @@ simd_interleaved_write_segfault:
 // Advance _addr by immediate value
 // Code stream: [gadget addr][imm]
 .gadget advance_addr
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     add _addr, _addr, x8
     gret
 
 // Update base register from another register (for post-indexed addressing)
 // Code stream: [gadget addr][rn | rm<<8]
 .gadget update_base_reg
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rn (base register to update)
     ubfx x10, x8, #8, #5    // rm (offset register)
@@ -2499,8 +2415,7 @@ simd_interleaved_write_segfault:
  * Used between multi-element single-structure load/stores (LD2/ST2/LD3/ST3/LD4/ST4)
  */
 .gadget addr_add_imm
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     add _addr, _addr, x8
     and _addr, _addr, #0xffffffffffff
     gret
@@ -2522,8 +2437,7 @@ simd_interleaved_write_segfault:
  * LD1 {Vt.B}[lane], [Xn] - Load single byte to vector lane
  */
 .gadget ld1_single_b
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x23, x22, #0x1f         // rt (vector reg index)
     ubfx x25, x22, #8, #8       // lane_offset (byte offset)
 
@@ -2545,8 +2459,7 @@ simd_interleaved_write_segfault:
  * LD1 {Vt.H}[lane], [Xn] - Load single halfword to vector lane
  */
 .gadget ld1_single_h
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x23, x22, #0x1f
     ubfx x25, x22, #8, #8
 
@@ -2567,8 +2480,7 @@ simd_interleaved_write_segfault:
  * LD1 {Vt.S}[lane], [Xn] - Load single word to vector lane
  */
 .gadget ld1_single_s
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x23, x22, #0x1f
     ubfx x25, x22, #8, #8
 
@@ -2589,8 +2501,7 @@ simd_interleaved_write_segfault:
  * LD1 {Vt.D}[lane], [Xn] - Load single doubleword to vector lane
  */
 .gadget ld1_single_d
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x23, x22, #0x1f
     ubfx x25, x22, #8, #8
 
@@ -2618,8 +2529,7 @@ simd_interleaved_write_segfault:
  * Address should already be in _addr (x7) from calc_addr_imm
  */
 .gadget ld1r_vec
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x23, x22, #0x1f         // rt (vector reg index)
     ubfx x25, x22, #8, #8       // size (0=B, 1=H, 2=S, 3=D)
     ubfx x26, x22, #16, #8      // Q
@@ -2693,8 +2603,7 @@ ld1r_store_64:
  * Reads 2 consecutive elements, replicates each to Vt and V(t+1) mod 32
  */
 .gadget ld2r_vec
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x23, x22, #0x1f         // rt
     ubfx x25, x22, #8, #8       // size
     ubfx x26, x22, #16, #8      // Q
@@ -2773,8 +2682,7 @@ ld2r_store_64:
  * LD3R {Vt.T, Vt2.T, Vt3.T}, [Xn] - Load 3 elements and replicate
  */
 .gadget ld3r_vec
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x23, x22, #0x1f         // rt
     ubfx x25, x22, #8, #8       // size
     ubfx x26, x22, #16, #8      // Q
@@ -2871,8 +2779,7 @@ ld3r_store_64:
  * LD4R {Vt.T, Vt2.T, Vt3.T, Vt4.T}, [Xn] - Load 4 elements and replicate
  */
 .gadget ld4r_vec
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x23, x22, #0x1f         // rt
     ubfx x25, x22, #8, #8       // size
     ubfx x26, x22, #16, #8      // Q
@@ -2985,8 +2892,7 @@ ld4r_store_64:
  * ST1 {Vt.B}[lane], [Xn] - Store single byte from vector lane
  */
 .gadget st1_single_b
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x23, x22, #0x1f         // rt
     ubfx x25, x22, #8, #8       // lane_offset
 
@@ -3009,8 +2915,7 @@ ld4r_store_64:
  * ST1 {Vt.H}[lane], [Xn] - Store single halfword from vector lane
  */
 .gadget st1_single_h
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x23, x22, #0x1f
     ubfx x25, x22, #8, #8
 
@@ -3032,8 +2937,7 @@ ld4r_store_64:
  * ST1 {Vt.S}[lane], [Xn] - Store single word from vector lane
  */
 .gadget st1_single_s
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x23, x22, #0x1f
     ubfx x25, x22, #8, #8
 
@@ -3055,8 +2959,7 @@ ld4r_store_64:
  * ST1 {Vt.D}[lane], [Xn] - Store single doubleword from vector lane
  */
 .gadget st1_single_d
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
     and x23, x22, #0x1f
     ubfx x25, x22, #8, #8
 
@@ -3081,8 +2984,7 @@ ld4r_store_64:
  * Loads value, saves addr+value to cpu excl_addr/excl_val, stores to Rt
  */
 .gadget ldxr
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
 
     and x23, x22, #0x1f        // rt
     ubfx x11, x22, #8, #2      // size (0=8b, 1=16b, 2=32b, 3=64b)
@@ -3133,8 +3035,7 @@ ldxr_done:
  * Checks excl_addr match, does atomic CAS, stores result to Rs
  */
 .gadget stxr
-    ldr x22, [_pc]
-    add _pc, _pc, #8
+    ldr x22, [_pc], #8
 
     and x23, x22, #0x1f         // rt (new value register)
     ubfx x25, x22, #8, #5       // rs (status result register)
@@ -3208,55 +3109,58 @@ stxr_segfault:
     b fiber_exit
 
 /*
- * LDXP via C helper — avoids assembly TLB for pair exclusive loads.
- * Code stream: [gadget addr][rt | (rt2 << 8) | (size << 16)]
- * Expects _addr = guest address (from calc_addr_imm)
+ * Exclusive pair (LDXP/STXP) and CASP via C helpers in crypto_helpers.c.
+ * Code stream: [gadget addr][param], _addr = guest address.
+ * helper(tlb, cpu, addr, param) returns 0, or -1 on a fault.
  */
-.gadget ldxp_c
-    ldr x22, [_pc]
-    add _pc, _pc, #8
-    and x23, x22, #0x1f         // rt
-    ubfx x25, x22, #8, #5       // rt2
-    ubfx x26, x22, #16, #2      // size
-    mov x24, _addr               // save guest address
-
+.macro pair_atomic_gadget name, helper, was_write
+.gadget \name
+    ldr x22, [_pc], #8
+    mov x24, _addr
     save_c
-    sub sp, sp, #16              // allocate stack space for outputs
-    sub x0, _tlb, #TLB_entries   // tlb struct pointer
-    mov x1, x24                  // guest address
-    mov x2, sp                   // val1 output
-    add x3, sp, #8               // val2 output
-    cmp x26, #3
-    b.eq ldxp_c_64
-    bl NAME(c_ldp32)
-    b ldxp_c_done
-ldxp_c_64:
-    bl NAME(c_ldp64)
-ldxp_c_done:
-    mov w19, w0                  // save result
-    ldr x20, [sp]               // val1
-    ldr x21, [sp, #8]           // val2
-    add sp, sp, #16
+    sub x0, _tlb, #TLB_entries
+    mov x2, x24
+    mov x3, x22
+    bl NAME(\helper)
+    mov w19, w0
     restore_c
-    mov _addr, x24               // restore _addr
-
-    // Check for segfault
-    cmn w19, #1
-    b.eq ldxp_c_segfault
-
-    // Store to Rt
-    add x9, _cpu, #CPU_x0
-    cmp x23, #31
-    b.eq 1f
-    str x20, [x9, x23, lsl #3]
-1:  cmp x25, #31
-    b.eq 2f
-    str x21, [x9, x25, lsl #3]
-2:  gret
-
-ldxp_c_segfault:
-    str x24, [_cpu, #CPU_segfault_addr]
-    strb wzr, [_cpu, #CPU_segfault_was_write]
+    mov _addr, x24
+    cbnz w19, 1f
+    gret
+1:  str x24, [_cpu, #CPU_segfault_addr]
+    mov w8, #\was_write
+    strb w8, [_cpu, #CPU_segfault_was_write]
     mov w0, #INT_GPF
+    b fiber_exit
+.endm
+
+pair_atomic_gadget ldxp, c_ldxp, 0
+pair_atomic_gadget stxp, c_stxp, 1
+pair_atomic_gadget casp, c_casp, 1
+
+/*
+ * IC IVAU, Xt. Code stream: [gadget addr][rt][next guest pc]
+ * If translated code was dropped, exit to the main loop at the next instruction
+ * so stale block/return caches are flushed before the new code runs.
+ */
+.gadget ic_ivau
+    ldp x8, x22, [_pc]
+    add _pc, _pc, #16
+    and x8, x8, #0x1f
+    mov x9, #0
+    cmp x8, #31
+    b.eq 1f
+    add x9, _cpu, #CPU_x0
+    ldr x9, [x9, x8, lsl #3]
+1:  save_c
+    sub x0, _tlb, #TLB_entries
+    mov x1, x9
+    bl NAME(c_ic_ivau)
+    mov w19, w0
+    restore_c
+    cbnz w19, 2f
+    gret
+2:  str x22, [_cpu, #CPU_pc]
+    mvn w0, wzr
     b fiber_exit
 

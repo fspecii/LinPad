@@ -8,6 +8,9 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include "emu/cpu.h"
+#include "emu/tlb.h"
+#include "asbestos/asbestos.h"
 
 /* AES S-box */
 static const uint8_t aes_sbox[256] = {
@@ -1292,4 +1295,127 @@ void zip2_helper(uint8_t *rd, uint8_t *rn, uint8_t *rm, int size, int Q) {
     if (!Q) {
         for (int i = 8; i < 16; i++) rd[i] = 0;
     }
+}
+
+/*
+ * Exclusive-pair and CASP helpers, called from memory.S.
+ * param packing: rt | rt2<<8 | sz<<16 (sz: 0 = W pair, 1 = X pair); for CASP rs replaces rt2.
+ * Return 0 on success, -1 on fault.
+ *
+ * STXP is a CAS against the values LDXP observed (same model as STXR). For an X pair
+ * that is a 128-bit CAS, so the monitor needs the second word; cpu_state only has
+ * excl_val, and each guest thread runs on its own host thread, so it lives in TLS.
+ */
+static __thread uint64_t excl_val_hi;
+
+static inline uint64_t pair_reg(struct cpu_state *cpu, unsigned r) {
+    return r == 31 ? 0 : cpu->regs[r];
+}
+
+static inline void pair_set_reg(struct cpu_state *cpu, unsigned r, uint64_t v) {
+    if (r != 31)
+        cpu->regs[r] = v;
+}
+
+// Architecturally these accesses must be naturally aligned (else alignment fault);
+// the host CAS would SIGBUS on misalignment, so report it as a guest fault instead.
+static inline bool pair_aligned(addr_t addr, bool x) {
+    return (addr & (x ? 15 : 7)) == 0;
+}
+
+__no_instrument int c_ldxp(struct tlb *tlb, struct cpu_state *cpu, addr_t addr, uint64_t param) {
+    unsigned rt = param & 0x1f, rt2 = (param >> 8) & 0x1f;
+    bool x = (param >> 16) & 1;
+    if (!pair_aligned(addr, x))
+        return -1;
+    void *p = __tlb_read_ptr(tlb, addr);
+    if (p == NULL)
+        return -1;
+    uint64_t v1, v2;
+    if (x) {
+        v1 = __atomic_load_n((uint64_t *) p, __ATOMIC_RELAXED);
+        v2 = __atomic_load_n((uint64_t *) p + 1, __ATOMIC_RELAXED);
+        cpu->excl_val = v1;
+        excl_val_hi = v2;
+    } else {
+        uint64_t both = __atomic_load_n((uint64_t *) p, __ATOMIC_RELAXED);
+        v1 = (uint32_t) both;
+        v2 = both >> 32;
+        cpu->excl_val = both;
+    }
+    cpu->excl_addr = addr;
+    pair_set_reg(cpu, rt, v1);
+    pair_set_reg(cpu, rt2, v2);
+    return 0;
+}
+
+// param: rt | rt2<<8 | sz<<16 | rs<<24
+__no_instrument int c_stxp(struct tlb *tlb, struct cpu_state *cpu, addr_t addr, uint64_t param) {
+    unsigned rt = param & 0x1f, rt2 = (param >> 8) & 0x1f, rs = (param >> 24) & 0x1f;
+    bool x = (param >> 16) & 1;
+    uint64_t status = 1;
+    if (cpu->excl_addr == addr) {
+        if (!pair_aligned(addr, x))
+            return -1;
+        void *p = __tlb_write_ptr(tlb, addr);
+        if (p == NULL)
+            return -1;
+        bool ok;
+        if (x) {
+            __uint128_t expected = ((__uint128_t) excl_val_hi << 64) | cpu->excl_val;
+            __uint128_t desired = ((__uint128_t) pair_reg(cpu, rt2) << 64) | pair_reg(cpu, rt);
+            ok = __atomic_compare_exchange_n((__uint128_t *) p, &expected, desired,
+                                             false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+        } else {
+            uint64_t expected = cpu->excl_val;
+            uint64_t desired = (pair_reg(cpu, rt2) << 32) | (uint32_t) pair_reg(cpu, rt);
+            ok = __atomic_compare_exchange_n((uint64_t *) p, &expected, desired,
+                                             false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+        }
+        status = ok ? 0 : 1;
+    }
+    cpu->excl_addr = ~0ULL;
+    pair_set_reg(cpu, rs, status);
+    return 0;
+}
+
+// param: rt | rs<<8 | sz<<16. Rs:Rs+1 hold the expected pair and receive the old value.
+__no_instrument int c_casp(struct tlb *tlb, struct cpu_state *cpu, addr_t addr, uint64_t param) {
+    unsigned rt = param & 0x1f, rs = (param >> 8) & 0x1f;
+    bool x = (param >> 16) & 1;
+    if (!pair_aligned(addr, x))
+        return -1;
+    void *p = __tlb_write_ptr(tlb, addr);
+    if (p == NULL)
+        return -1;
+    if (x) {
+        __uint128_t expected = ((__uint128_t) pair_reg(cpu, rs + 1) << 64) | pair_reg(cpu, rs);
+        __uint128_t desired = ((__uint128_t) pair_reg(cpu, rt + 1) << 64) | pair_reg(cpu, rt);
+        __atomic_compare_exchange_n((__uint128_t *) p, &expected, desired,
+                                    false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+        pair_set_reg(cpu, rs, (uint64_t) expected);
+        pair_set_reg(cpu, rs + 1, (uint64_t) (expected >> 64));
+    } else {
+        uint64_t expected = (pair_reg(cpu, rs + 1) << 32) | (uint32_t) pair_reg(cpu, rs);
+        uint64_t desired = (pair_reg(cpu, rt + 1) << 32) | (uint32_t) pair_reg(cpu, rt);
+        __atomic_compare_exchange_n((uint64_t *) p, &expected, desired,
+                                    false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+        pair_set_reg(cpu, rs, (uint32_t) expected);
+        pair_set_reg(cpu, rs + 1, expected >> 32);
+    }
+    return 0;
+}
+
+/*
+ * IC IVAU: drop translated blocks for the page holding addr. Guest JITs that
+ * keep code in RWX memory (sljit/PCRE2, ...) rewrite it with plain stores, which
+ * the TLB-miss-based invalidation does not see once the page is cached writable.
+ * Returns nonzero if any block was dropped, so the gadget can leave the fiber and
+ * the main loop can flush its block/return caches.
+ */
+__no_instrument int c_ic_ivau(struct tlb *tlb, addr_t addr) {
+    struct asbestos *asbestos = tlb->mmu->asbestos;
+    unsigned gen = __atomic_load_n(&asbestos->invalidate_gen, __ATOMIC_RELAXED);
+    asbestos_invalidate_page(asbestos, PAGE(addr));
+    return __atomic_load_n(&asbestos->invalidate_gen, __ATOMIC_RELAXED) != gen;
 }

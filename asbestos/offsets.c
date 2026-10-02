@@ -120,6 +120,14 @@ void cpu() {
     OFFSET(FIBER_BLOCK, fiber_block, code);
 
     OFFSET(TLB, tlb, entries);
+    OFFSET(TLB, tlb, mmu);
+    OFFSET(TLB, tlb, mem_changes);
+    OFFSET(TLB, tlb, block_cache);
+    OFFSET(TLB, tlb, block_cache_gen);
+    OFFSET(MMU, mmu, asbestos);
+    OFFSET(MMU, mmu, changes);
+    OFFSET(ASBESTOS, asbestos, invalidate_gen);
+    MACRO(FIBER_CACHE_SIZE);
     OFFSET(TLB, tlb, dirty_page);
     OFFSET(TLB, tlb, segfault_addr);
     OFFSET(TLB_ENTRY, tlb_entry, page);

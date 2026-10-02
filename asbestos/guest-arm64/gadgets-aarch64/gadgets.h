@@ -289,6 +289,17 @@ back_write_done_\id :
     str w17, [_cpu, #CPU_nzcv]
 .endm
 
+// Every TIMER_PERIOD_MASK+1 chained block transitions within one fiber_enter (and
+// every 2^13 main-loop dispatches, see asbestos.c) the thread returns INT_TIMER
+// and leaves cpu_run_to_interrupt. That releases mem->lock
+// (held for reading while guest code runs) so mmap/munmap in other threads can
+// proceed, and runs signal/stop checks. Must match asbestos.c.
+#define TIMER_PERIOD_MASK 0x1fff
+
+// FPCR bits a guest may control: AHP(26) DN(25) FZ(24) RMode(23:22) FZ16(19).
+// Trap enables and Len/Stride are not honored. Value is bits 31:16 for movz.
+#define FPCR_GUEST_MASK_HI 0x07c8
+
 /*
  * Context save/restore for calling C functions
  * Must save all caller-saved registers (x0-x18) + LR

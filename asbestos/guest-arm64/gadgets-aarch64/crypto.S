@@ -18,8 +18,7 @@
  * Native AESE does XOR(Vd,Vn) then SubBytes+ShiftRows in one instruction
  */
 .gadget aese
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -43,8 +42,7 @@
  * Code stream: [gadget addr][rd | rn<<8]
  */
 .gadget aesd
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -67,8 +65,7 @@
  * Code stream: [gadget addr][rd | rn<<8]
  */
 .gadget aesmc
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -90,8 +87,7 @@
  * Code stream: [gadget addr][rd | rn<<8]
  */
 .gadget aesimc
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -115,8 +111,7 @@
 // SHA1H Sd, Sn - SHA1 fixed rotate
 // Code stream: [gadget addr][rd | rn<<8]
 .gadget sha1h
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -142,8 +137,7 @@
 // SHA1C Qd, Sn, Vm.4S - SHA1 hash update (Choose)
 // Code stream: [gadget addr][rd | rn<<8 | rm<<16]
 .gadget sha1c
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -165,8 +159,7 @@
 
 // SHA1M Qd, Sn, Vm.4S - SHA1 hash update (Majority)
 .gadget sha1m
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -188,8 +181,7 @@
 
 // SHA1P Qd, Sn, Vm.4S - SHA1 hash update (Parity)
 .gadget sha1p
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -211,8 +203,7 @@
 
 // SHA1SU0 Vd.4S, Vn.4S, Vm.4S - SHA1 schedule update 0
 .gadget sha1su0
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -234,8 +225,7 @@
 
 // SHA1SU1 Vd.4S, Vn.4S - SHA1 schedule update 1
 .gadget sha1su1
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -258,8 +248,7 @@
 
 // SHA256H Qd, Qn, Vm.4S
 .gadget sha256h
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -281,8 +270,7 @@
 
 // SHA256H2 Qd, Qn, Vm.4S
 .gadget sha256h2
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -304,8 +292,7 @@
 
 // SHA256SU0 Vd.4S, Vn.4S
 .gadget sha256su0
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -324,8 +311,7 @@
 
 // SHA256SU1 Vd.4S, Vn.4S, Vm.4S
 .gadget sha256su1
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -350,8 +336,7 @@
  * Code stream: [gadget addr][rd | rn<<8]
  */
 .gadget sha512su0
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -378,8 +363,7 @@
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
  */
 .gadget sha512su1
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -409,8 +393,7 @@
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
  */
 .gadget sha512h
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -440,8 +423,7 @@
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
  */
 .gadget sha512h2
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -471,8 +453,7 @@
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | ra<<24]
  */
 .gadget eor3
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -514,8 +495,7 @@
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
  */
 .gadget sm3partw1
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -554,8 +534,7 @@
  * Code stream: [gadget addr][rd | rn<<8]
  */
 .gadget sm4e
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -591,8 +570,7 @@
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
  */
 .gadget sve_eor_d
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -631,8 +609,7 @@
  * Code stream: [gadget addr][rd | rn<<8 | imm<<16]
  */
 .gadget sve_xar_d
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -672,8 +649,7 @@
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | Q<<24 | size<<26]
  */
 .gadget pmull
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -722,8 +698,7 @@
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | len<<24 | Q<<28]
  */
 .gadget tbl
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn (first table register)
@@ -779,8 +754,7 @@
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | len<<24 | Q<<28]
  */
 .gadget tbx
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn (first table register)

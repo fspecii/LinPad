@@ -7,7 +7,6 @@
 
 #define FIBER_INITIAL_HASH_SIZE (1 << 10)
 #define FIBER_CACHE_SIZE (1 << 12)  // 4096 entries
-#define FIBER_PAGE_HASH_SIZE (1 << 10)
 
 struct asbestos {
     // there is one asbestos per address space
@@ -22,10 +21,9 @@ struct asbestos {
     // period, if we had such a thing)
     struct list jetsam;
 
-    // A way to look up blocks in a page
-    struct {
-        struct list blocks[2];
-    } *page_hash;
+    // Blocks by guest page (exact, open addressing; see asbestos.c). Read
+    // without the lock by the invalidation fast path.
+    struct page_table *pages;
 
     // Incremented on every block invalidation; used to invalidate persistent
     // per-thread block caches (which may hold pointers to jetsam'd blocks)
@@ -47,6 +45,9 @@ struct asbestos {
 
     lock_t lock;
     wrlock_t jetsam_lock;
+#ifdef ISH_JIT
+    struct jit_mm *jit;  // native JIT state (jit/), NULL when the JIT is off
+#endif
 };
 
 // this is roughly the average number of instructions in a basic block according to anonymous sources

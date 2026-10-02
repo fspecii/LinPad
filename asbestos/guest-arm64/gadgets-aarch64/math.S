@@ -17,8 +17,7 @@
 // Load a guest register into _tmp (x0)
 // Code stream: [gadget addr][reg_index]
 .gadget load_reg
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x8, x8, #0x1f
     add x9, _cpu, #CPU_x0
     cmp x8, #31
@@ -63,8 +62,7 @@
 
 // MOVZ - Move wide with zeros
 .gadget movz
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #2    // hw
@@ -89,8 +87,7 @@
 
 // MOVK - Move wide with keep
 .gadget movk
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #2    // hw
@@ -131,8 +128,7 @@
 
 // MOVN - Move wide with NOT
 .gadget movn
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #2    // hw
@@ -159,8 +155,7 @@
  * Target is a 48-bit guest address packed in bits 8-55.
  */
 .gadget adr
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f          // rd
     ubfx x10, x8, #8, #48      // target (48-bit)
     add x11, _cpu, #CPU_x0
@@ -175,8 +170,7 @@
  * Code stream: [gadget addr][rd | rn<<8 | imm12<<16 | sf<<28 | S<<29]
  */
 .gadget add_imm
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -236,8 +230,7 @@ add_imm_store_result:
     gret
 
 .gadget sub_imm
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -302,8 +295,7 @@ sub_imm_store_result:
 // ADD (register, with optional shift)
 // Code stream: [gadget addr][rd | rn<<8 | rm<<16 | sf<<24 | S<<25 | shift_type<<26 | imm6<<32]
 .gadget add_reg
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -386,8 +378,7 @@ add_shift_asr32:
 // SUB (register, with optional shift)
 // Code stream: [gadget addr][rd | rn<<8 | rm<<16 | sf<<24 | S<<25 | shift_type<<26 | imm6<<32]
 .gadget sub_reg
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -473,8 +464,7 @@ sub_shift_asr32:
  * Used for: ADDS, CMN (when rd=XZR)
  */
 .gadget adds_reg
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -559,8 +549,7 @@ adds_store_flags:
  * Used for: SUBS, CMP (when rd=XZR)
  */
 .gadget subs_reg
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -644,8 +633,7 @@ subs_store_flags:
  * Used for: ADC, ADCS
  */
 .gadget adc_reg
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -706,8 +694,7 @@ adc_done:
  * Used for: SBC, SBCS
  */
 .gadget sbc_reg
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -767,8 +754,7 @@ sbc_done:
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | sf<<24 | S<<25]
  */
 .gadget and_reg
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -1113,8 +1099,7 @@ eor_shifted_store:
 
 // Legacy unshifted ORR
 .gadget orr_reg
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -1155,8 +1140,7 @@ orr_reg_no_invert:
 // gen.c guarantees rd!=31 and rm!=31, so no SP/XZR checks needed
 // Code stream: [gadget addr][rd | rm<<16]
 .gadget mov_reg
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f          // rd
     ubfx x11, x8, #16, #5     // rm
     add x14, _cpu, #CPU_x0
@@ -1167,8 +1151,7 @@ orr_reg_no_invert:
 // MOV Wd, Wm (32-bit) — fast path for ORR Wd, WZR, Wm
 // Code stream: [gadget addr][rd | rm<<16]
 .gadget mov_reg32
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f          // rd
     ubfx x11, x8, #16, #5     // rm
     add x14, _cpu, #CPU_x0
@@ -1178,8 +1161,7 @@ orr_reg_no_invert:
     gret
 
 .gadget eor_reg
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -1227,10 +1209,8 @@ eor_reg_no_invert:
  *   V = 0
  */
 .gadget and_imm
-    ldr x8, [_pc]
-    add _pc, _pc, #8
-    ldr x9, [_pc]           // imm64
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
+    ldr x9, [_pc], #8           // imm64
 
     and x10, x8, #0x1f      // rd
     ubfx x11, x8, #8, #5    // rn
@@ -1287,10 +1267,8 @@ and_imm_store_result:
 5:  gret
 
 .gadget orr_imm
-    ldr x8, [_pc]
-    add _pc, _pc, #8
-    ldr x9, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
+    ldr x9, [_pc], #8
 
     and x10, x8, #0x1f
     ubfx x11, x8, #8, #5
@@ -1316,10 +1294,8 @@ and_imm_store_result:
 5:  gret
 
 .gadget eor_imm
-    ldr x8, [_pc]
-    add _pc, _pc, #8
-    ldr x9, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
+    ldr x9, [_pc], #8
 
     and x10, x8, #0x1f
     ubfx x11, x8, #8, #5
@@ -1349,8 +1325,7 @@ and_imm_store_result:
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | imm<<24 | sf<<30]
  */
 .gadget extr
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -1424,8 +1399,7 @@ and_imm_store_result:
 // SXTH: Sign-extend halfword (16-bit) to 32 or 64-bit
 // Code stream: [gadget addr][sf] (0=32-bit dest, 1=64-bit dest)
 .gadget sxth
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     cbz x8, 1f
     sxth _tmp, w0       // 64-bit
     gret
@@ -1435,8 +1409,7 @@ and_imm_store_result:
 // SXTB: Sign-extend byte (8-bit) to 32 or 64-bit
 // Code stream: [gadget addr][sf]
 .gadget sxtb
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     cbz x8, 1f
     sxtb _tmp, w0       // 64-bit
     gret
@@ -1452,8 +1425,7 @@ and_imm_store_result:
 // UXTH: Zero-extend halfword (16-bit)
 // Code stream: [gadget addr][sf]
 .gadget uxth
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     cbz x8, 1f
     uxth _tmp, w0       // to 64-bit (x0)
     gret
@@ -1463,8 +1435,7 @@ and_imm_store_result:
 // UXTB: Zero-extend byte (8-bit)
 // Code stream: [gadget addr][sf]
 .gadget uxtb
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     cbz x8, 1f
     uxtb _tmp, w0       // to 64-bit
     gret
@@ -1481,8 +1452,7 @@ and_imm_store_result:
 
 // CCMP: Conditional Compare (subtracts rm from rn)
 .gadget ccmp_reg
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rn
     ubfx x10, x8, #8, #5    // rm
@@ -1592,8 +1562,7 @@ ccmp_set_nzcv:
  * If condition is false: sets flags to the immediate nzcv value
  */
 .gadget ccmp_imm
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rn
     ubfx x10, x8, #8, #5    // imm5
@@ -1673,8 +1642,7 @@ ccmpi_set_nzcv:
 
 // CCMN: Conditional Compare Negative (adds rm to rn)
 .gadget ccmn_reg
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rn
     ubfx x10, x8, #8, #5    // rm
@@ -1770,8 +1738,7 @@ ccmn_set_nzcv:
  * If condition is false: sets flags to the immediate nzcv value
  */
 .gadget ccmn_imm
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rn
     ubfx x10, x8, #8, #5    // imm5
@@ -1856,8 +1823,7 @@ ccmni_set_nzcv:
 
 // LSLV 64-bit fast path
 .gadget lslv_64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -1871,8 +1837,7 @@ ccmni_set_nzcv:
 
 // LSRV 64-bit fast path
 .gadget lsrv_64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -1886,8 +1851,7 @@ ccmni_set_nzcv:
 
 // ASRV 64-bit fast path
 .gadget asrv_64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -1906,8 +1870,7 @@ ccmni_set_nzcv:
 
 // LSLV: Logical Shift Left Variable
 .gadget lslv
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -1947,8 +1910,7 @@ lslv_store:
 
 // LSRV: Logical Shift Right Variable
 .gadget lsrv
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -1984,8 +1946,7 @@ lsrv_store:
 
 // ASRV: Arithmetic Shift Right Variable
 .gadget asrv
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -2020,8 +1981,7 @@ asrv_store:
 
 // RORV: Rotate Right Variable
 .gadget rorv
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -2056,8 +2016,7 @@ rorv_store:
 
 // UDIV: Unsigned Divide
 .gadget udiv
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -2090,8 +2049,7 @@ udiv_store:
 
 // SDIV: Signed Divide
 .gadget sdiv
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -2134,8 +2092,7 @@ sdiv_store:
 
 // CRC32B
 .gadget crc32b
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -2156,8 +2113,7 @@ sdiv_store:
 
 // CRC32H
 .gadget crc32h
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -2178,8 +2134,7 @@ sdiv_store:
 
 // CRC32W
 .gadget crc32w
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -2200,8 +2155,7 @@ sdiv_store:
 
 // CRC32X (64-bit source, sf=1 only)
 .gadget crc32x
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -2222,8 +2176,7 @@ sdiv_store:
 
 // CRC32CB
 .gadget crc32cb
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -2244,8 +2197,7 @@ sdiv_store:
 
 // CRC32CH
 .gadget crc32ch
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -2266,8 +2218,7 @@ sdiv_store:
 
 // CRC32CW
 .gadget crc32cw
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -2288,8 +2239,7 @@ sdiv_store:
 
 // CRC32CX (64-bit source, sf=1 only)
 .gadget crc32cx
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -2321,8 +2271,7 @@ sdiv_store:
  * This handles LSL, LSR, UBFX, UBFIZ aliases
  */
 .gadget ubfm
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x3f       // immr
     ubfx x10, x8, #8, #6    // imms
@@ -2419,8 +2368,7 @@ ubfm_32_insert:
  * gen.c emits this when rn!=31 and rd!=31.
  */
 .gadget ubfm_fused
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x3f       // immr
     ubfx x10, x8, #8, #6    // imms
     ubfx x11, x8, #16, #1   // sf
@@ -2485,8 +2433,7 @@ ubfm_f_store:
  * Code stream: [gadget addr][immr(0:5) | imms(8:13) | sf(16) | rn(20:24) | rd(28:32)]
  */
 .gadget sbfm_fused
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x3f       // immr
     ubfx x10, x8, #8, #6    // imms
     ubfx x11, x8, #16, #1   // sf
@@ -2550,8 +2497,7 @@ sbfm_f_store:
  * Handles ASR, SBFX, SBFIZ aliases
  */
 .gadget sbfm
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x3f       // immr
     ubfx x10, x8, #8, #6    // imms
@@ -2644,8 +2590,7 @@ sbfm_32_insert:
  *                          (wrap around behavior)
  */
 .gadget bfm
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x3f       // immr
     ubfx x10, x8, #8, #6    // imms
@@ -2785,8 +2730,7 @@ bfm_32_wrap:
  *   111 = SXTX  (sign-extend doubleword)
  */
 .gadget add_ext
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -2865,8 +2809,7 @@ add_ext_store_sp:
     gret
 
 .gadget sub_ext
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -2947,8 +2890,7 @@ sub_ext_store_sp:
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | option<<24 | imm3<<27 | sf<<30]
  */
 .gadget subs_ext
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -3030,8 +2972,7 @@ subs_ext_done:
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | option<<24 | imm3<<27 | sf<<30]
  */
 .gadget adds_ext
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -3115,8 +3056,7 @@ adds_ext_done:
 // MADD: Xd = Xa + (Xn * Xm)
 // MUL is MADD with Ra=XZR (31)
 .gadget madd
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -3164,8 +3104,7 @@ madd_store:
 // MSUB: Xd = Xa - (Xn * Xm)
 // MNEG is MSUB with Ra=XZR (31)
 .gadget msub
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -3209,8 +3148,7 @@ msub_store:
 // SMADDL: Xd = Xa + (sign_extend(Wn) * sign_extend(Wm))
 // SMULL is SMADDL with Ra=XZR (31)
 .gadget smaddl
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -3248,8 +3186,7 @@ msub_store:
 // SMSUBL: Xd = Xa - (sign_extend(Wn) * sign_extend(Wm))
 // SMNEGL is SMSUBL with Ra=XZR (31)
 .gadget smsubl
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -3283,8 +3220,7 @@ msub_store:
 // UMADDL: Xd = Xa + (zero_extend(Wn) * zero_extend(Wm))
 // UMULL is UMADDL with Ra=XZR (31)
 .gadget umaddl
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -3318,8 +3254,7 @@ msub_store:
 // UMSUBL: Xd = Xa - (zero_extend(Wn) * zero_extend(Wm))
 // UMNEGL is UMSUBL with Ra=XZR (31)
 .gadget umsubl
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -3358,8 +3293,7 @@ msub_store:
 
 // REV - Reverse bytes (64-bit or 32-bit)
 .gadget rev
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -3386,8 +3320,7 @@ msub_store:
 
 // REV16 - Reverse bytes in each 16-bit halfword
 .gadget rev16
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -3413,8 +3346,7 @@ msub_store:
 
 // REV32 - Reverse bytes in each 32-bit word (64-bit only)
 .gadget rev32
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -3434,8 +3366,7 @@ msub_store:
 
 // CLZ - Count Leading Zeros
 .gadget clz
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -3461,8 +3392,7 @@ msub_store:
 
 // CLS - Count Leading Sign bits
 .gadget cls
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -3488,8 +3418,7 @@ msub_store:
 
 // RBIT - Reverse Bits
 .gadget rbit
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -3520,8 +3449,7 @@ msub_store:
 // MSR TPIDR_EL0, Xt - write TLS pointer
 // Code stream: [gadget addr][rt]
 .gadget msr_tpidr
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x8, x8, #0x1f       // rt
 
@@ -3538,8 +3466,7 @@ msub_store:
 // MRS Xt, TPIDR_EL0 - read TLS pointer
 // Code stream: [gadget addr][rt]
 .gadget mrs_tpidr
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x8, x8, #0x1f       // rt
 
@@ -3555,8 +3482,7 @@ msub_store:
 // Code stream: [gadget addr][rt]
 // NZCV value is in bits [31:28] of the word
 .gadget mrs_nzcv
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x8, x8, #0x1f       // rt
 
     ldr w10, [_cpu, #CPU_nzcv]
@@ -3572,8 +3498,7 @@ msub_store:
 // MSR NZCV, Xt - write condition flags register
 // Code stream: [gadget addr][rt]
 .gadget msr_nzcv
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x8, x8, #0x1f       // rt
 
     add x9, _cpu, #CPU_x0
@@ -3589,8 +3514,7 @@ msub_store:
 // MSR FPCR, Xt - write floating-point control register
 // Code stream: [gadget addr][rt]
 .gadget msr_fpcr
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x8, x8, #0x1f       // rt
 
     add x9, _cpu, #CPU_x0
@@ -3601,13 +3525,15 @@ msub_store:
 1:  mov x10, #0
 2:
     str w10, [_cpu, #CPU_fpcr]
+    movz w11, #FPCR_GUEST_MASK_HI, lsl #16
+    and w10, w10, w11
+    msr fpcr, x10
     gret
 
 // MSR FPSR, Xt - write floating-point status register
 // Code stream: [gadget addr][rt]
 .gadget msr_fpsr
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x8, x8, #0x1f       // rt
 
     add x9, _cpu, #CPU_x0
@@ -3624,8 +3550,7 @@ msub_store:
 // Go runtime uses this for async preemption control.
 // Code stream: [gadget addr][rt]
 .gadget msr_daif
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     // NOP — we don't emulate interrupt masking
     gret
 
@@ -3786,8 +3711,7 @@ msub_store:
  * This duplicates the low 8 bits of GPR Rn to all 16 bytes of vector Vd.
  */
 .gadget dup_gpr_to_v16b
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     
     and x9, x8, #0x1f       // rd (vector)
     ubfx x10, x8, #8, #5    // rn (gpr)
@@ -3818,8 +3742,7 @@ msub_store:
  * Q: 0=64-bit vector (lower half only), 1=128-bit vector
  */
 .gadget dup_gpr_to_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (vector)
     ubfx x10, x8, #8, #5    // rn (gpr)
@@ -3898,8 +3821,7 @@ msub_store:
  * Q: 0=64-bit vector (lower half only), 1=128-bit vector
  */
 .gadget dup_elem_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (vector)
     ubfx x10, x8, #8, #5    // rn (vector)
@@ -4021,8 +3943,7 @@ msub_store:
  * Result is stored in a scalar register (B/H/S/D) with upper bits cleared
  */
 .gadget dup_elem_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (scalar dest)
     ubfx x10, x8, #8, #5    // rn (vector source)
@@ -4126,8 +4047,7 @@ msub_store:
  * elem_size: 0=B, 1=H, 2=S, 3=D
  */
 .gadget ins_elem_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (vector)
     ubfx x10, x8, #8, #5    // rn (vector)
@@ -4311,8 +4231,7 @@ msub_store:
  * Code stream: [gadget addr][rd | rn<<8]
  */
 .gadget mov_v_to_gpr
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (gpr)
     ubfx x10, x8, #8, #5    // rn (vector)
@@ -4337,8 +4256,7 @@ msub_store:
  * index: element index within 128-bit vector
  */
 .gadget umov_vec_to_gpr
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -4412,6 +4330,17 @@ msub_store:
     mov x3, x15
 
 .Lumov_store:
+    // SMOV: bit 24 = sign-extend element, bit 25 = 64-bit destination (Xd)
+    tbz x8, #24, .Lumov_write
+    mov x17, #8
+    lsl x17, x17, x11
+    mov x13, #64
+    sub x17, x13, x17
+    lsl x3, x3, x17
+    asr x3, x3, x17
+    tbnz x8, #25, .Lumov_write
+    mov w3, w3
+.Lumov_write:
     add x14, _cpu, #CPU_x0
     cmp x9, #31
     b.eq .Lumov_done
@@ -4428,8 +4357,7 @@ msub_store:
  * index: S element index (0..3)
  */
 .gadget ins_gpr_to_vec_s
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (vector)
     ubfx x10, x8, #8, #5    // rn (gpr)
@@ -4462,8 +4390,7 @@ msub_store:
  * index: D element index (0..1)
  */
 .gadget ins_gpr_to_vec_d
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (vector)
     ubfx x10, x8, #8, #5    // rn (gpr)
@@ -4492,8 +4419,7 @@ msub_store:
  * Code stream: [gadget addr][rd | rn<<8 | index<<16]
  */
 .gadget ins_gpr_to_vec_h
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (vector)
     ubfx x10, x8, #8, #5    // rn (gpr)
@@ -4519,8 +4445,7 @@ msub_store:
  * Code stream: [gadget addr][rd | rn<<8 | index<<16]
  */
 .gadget ins_gpr_to_vec_b
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (vector)
     ubfx x10, x8, #8, #5    // rn (gpr)
@@ -4547,8 +4472,7 @@ msub_store:
  * Extends 8 bytes to 8 halfwords (sign-extend), then shift left
  */
 .gadget sshll_vec_b_to_h
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -4605,8 +4529,7 @@ msub_store:
  * Code stream: [gadget addr][rd | rn<<8 | shift<<16]
  */
 .gadget ushll_vec_b_to_h
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -4655,8 +4578,7 @@ msub_store:
  * Extends 4 halfwords to 4 words (sign-extend), then shift left
  */
 .gadget sshll_vec_h_to_s
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -4692,8 +4614,7 @@ msub_store:
  * Code stream: [gadget addr][rd | rn<<8 | shift<<16]
  */
 .gadget ushll_vec_h_to_s
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -4730,8 +4651,7 @@ msub_store:
  * Reads bytes 8..15, sign-extends to 8 halfwords
  */
 .gadget sshll2_vec_b_to_h
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -4773,8 +4693,7 @@ msub_store:
     gret
 
 .gadget ushll2_vec_b_to_h
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -4816,8 +4735,7 @@ msub_store:
     gret
 
 .gadget sshll2_vec_h_to_s
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -4847,8 +4765,7 @@ msub_store:
     gret
 
 .gadget ushll2_vec_h_to_s
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -4878,8 +4795,7 @@ msub_store:
     gret
 
 .gadget sshll2_vec_s_to_d
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -4904,8 +4820,7 @@ msub_store:
     gret
 
 .gadget ushll2_vec_s_to_d
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -4938,8 +4853,7 @@ msub_store:
  * shift: immediate shift (0..31)
  */
 .gadget sshll_vec_s_to_d
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -4976,8 +4890,7 @@ msub_store:
  * shift: immediate shift (0..31)
  */
 .gadget ushll_vec_s_to_d
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -5013,8 +4926,7 @@ msub_store:
 
 // SHLL B->H: each byte << 8, result is halfword
 .gadget shll_vec_b_to_h
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     add x12, _cpu, #CPU_fp
@@ -5052,8 +4964,7 @@ msub_store:
 
 // SHLL2 B->H: upper 8 bytes << 8
 .gadget shll2_vec_b_to_h
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     add x12, _cpu, #CPU_fp
@@ -5091,8 +5002,7 @@ msub_store:
 
 // SHLL H->S: each halfword << 16
 .gadget shll_vec_h_to_s
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     add x12, _cpu, #CPU_fp
@@ -5118,8 +5028,7 @@ msub_store:
 
 // SHLL2 H->S: upper 4 halfwords << 16
 .gadget shll2_vec_h_to_s
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     add x12, _cpu, #CPU_fp
@@ -5145,8 +5054,7 @@ msub_store:
 
 // SHLL S->D: each word << 32
 .gadget shll_vec_s_to_d
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     add x12, _cpu, #CPU_fp
@@ -5166,8 +5074,7 @@ msub_store:
 
 // SHLL2 S->D: upper 2 words << 32
 .gadget shll2_vec_s_to_d
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     add x12, _cpu, #CPU_fp
@@ -5193,8 +5100,7 @@ msub_store:
  * hi: 0=XTN (write low half, clear high), 1=XTN2 (write high half)
  */
 .gadget xtn_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -5263,8 +5169,7 @@ msub_store:
  * Q: 0=64-bit vector, 1=128-bit vector
  */
 .gadget uzp1_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -5341,8 +5246,7 @@ msub_store:
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
  */
 .gadget uzp2_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -5417,8 +5321,7 @@ msub_store:
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
  */
 .gadget trn1_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -5493,8 +5396,7 @@ msub_store:
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
  */
 .gadget trn2_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -5569,8 +5471,7 @@ msub_store:
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
  */
 .gadget zip1_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -5645,8 +5546,7 @@ msub_store:
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
  */
 .gadget zip2_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -5724,8 +5624,7 @@ msub_store:
  * Q: 0=64-bit vector, 1=128-bit vector
  */
 .gadget rev32_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -5781,8 +5680,7 @@ msub_store:
  * Q: 0=64-bit vector, 1=128-bit vector
  */
 .gadget rev64_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -5845,8 +5743,7 @@ msub_store:
  * Q: 0=8-byte (.8B), 1=16-byte (.16B)
  */
 .gadget rbit_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -5883,8 +5780,7 @@ msub_store:
  */
 .macro make_fp_vec_two_reg_misc name, insn
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #1   // sz (0=single, 1=double)
@@ -5942,8 +5838,7 @@ make_fp_vec_two_reg_misc frinti_vec, frinti
  */
 .macro make_fp_vec_cmp_zero name, insn
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #1   // sz (0=single, 1=double)
@@ -5985,8 +5880,7 @@ make_fp_vec_cmp_zero fcmlt_zero, fcmlt
  */
 .macro make_fp_vec_unary name, insn
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #1   // sz (0=single, 1=double)
@@ -6028,8 +5922,7 @@ make_fp_vec_unary frsqrte_vec, frsqrte
  */
 .macro make_int_vec_cmp_zero name, insn
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #2   // size
@@ -6099,8 +5992,7 @@ make_int_vec_cmp_zero cmeq_zero, cmeq
  * Only valid for .8B (Q=0) and .16B (Q=1)
  */
 .gadget cnt_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -6135,8 +6027,7 @@ make_int_vec_cmp_zero cmeq_zero, cmeq
  * Result is scalar: Vd.element = sum of all Vn elements
  */
 .gadget addv_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -6199,8 +6090,7 @@ make_int_vec_cmp_zero cmeq_zero, cmeq
  */
 .macro make_across_addlv name, insn_b_16, insn_b_8, insn_h_8, insn_h_4, insn_s_4
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -6263,8 +6153,7 @@ make_across_addlv uaddlv, "uaddlv h1, v0.16b", "uaddlv h1, v0.8b", "uaddlv s1, v
  */
 .macro make_across_minmax name, insn_b_16, insn_b_8, insn_h_8, insn_h_4, insn_s_4, insn_s_2
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x12, x8, #16, #2   // size
@@ -6323,8 +6212,7 @@ make_across_minmax sminv, "sminv b1, v0.16b", "sminv b1, v0.8b", "sminv h1, v0.8
  */
 .macro make_fp_across name, op
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     add x13, _cpu, #CPU_fp
@@ -6352,8 +6240,7 @@ make_fp_across fminnmv, fminnmv
  * Q: 0=64-bit vector, 1=128-bit vector
  */
 .gadget add_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -6430,8 +6317,7 @@ make_fp_across fminnmv, fminnmv
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
  */
 .gadget sub_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -6508,8 +6394,7 @@ make_fp_across fminnmv, fminnmv
  * result = (Vn + Vm) >> 1 (signed, no overflow)
  */
 .gadget shadd_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -6579,8 +6464,7 @@ make_fp_across fminnmv, fminnmv
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
  */
 .gadget uhadd_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -6650,8 +6534,7 @@ make_fp_across fminnmv, fminnmv
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
  */
 .gadget srhadd_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -6721,8 +6604,7 @@ make_fp_across fminnmv, fminnmv
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16 | size<<24 | Q<<26]
  */
 .gadget urhadd_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -6794,8 +6676,7 @@ make_fp_across fminnmv, fminnmv
  * Note: Address must already be computed in _addr by calc_addr_imm
  */
 .gadget str_q
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     
     and x9, x8, #0x1f       // rt (vector register index)
     
@@ -6833,8 +6714,7 @@ make_fp_across fminnmv, fminnmv
  * Code stream: [gadget addr][rt | rt2<<8]
  */
 .gadget stp_q
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     
     and x9, x8, #0x1f       // rt (first vector)
     ubfx x10, x8, #8, #5    // rt2 (second vector)
@@ -6885,8 +6765,7 @@ make_fp_across fminnmv, fminnmv
  * Stores low 8 bits of Vt
  */
 .gadget str_simd_b
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x8, x8, #0x1f       // rt (vector reg index)
 
     // Get low 64 bits of vector register
@@ -6908,8 +6787,7 @@ make_fp_across fminnmv, fminnmv
  * Stores low 16 bits of Vt
  */
 .gadget str_simd_h
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x8, x8, #0x1f
 
     add x9, _cpu, #CPU_fp
@@ -6929,8 +6807,7 @@ make_fp_across fminnmv, fminnmv
  * STR St, [Xn, #imm] - Store single (32-bit) from SIMD register
  */
 .gadget str_simd_s
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x8, x8, #0x1f
 
     add x9, _cpu, #CPU_fp
@@ -6949,8 +6826,7 @@ make_fp_across fminnmv, fminnmv
  * STR Dt, [Xn, #imm] - Store double (64-bit) from SIMD register
  */
 .gadget str_simd_d
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x8, x8, #0x1f
 
     add x9, _cpu, #CPU_fp
@@ -6969,8 +6845,7 @@ make_fp_across fminnmv, fminnmv
  * STR Qt, [Xn, #imm] - Store quad (128-bit) from SIMD register
  */
 .gadget str_simd_q
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x8, x8, #0x1f
 
     add x9, _cpu, #CPU_fp
@@ -6995,8 +6870,7 @@ make_fp_across fminnmv, fminnmv
  * Note: read_prep destroys x8-x10, so save rt to x23 (callee-saved)
  */
 .gadget ldr_simd_b
-    ldr x23, [_pc]
-    add _pc, _pc, #8
+    ldr x23, [_pc], #8
     and x23, x23, #0x1f       // rt saved in x23
 
     mov x24, _addr              // Save guest address for writeback
@@ -7017,8 +6891,7 @@ make_fp_across fminnmv, fminnmv
  * LDR Ht, [Xn, #imm] - Load halfword into SIMD register
  */
 .gadget ldr_simd_h
-    ldr x23, [_pc]
-    add _pc, _pc, #8
+    ldr x23, [_pc], #8
     and x23, x23, #0x1f
 
     mov x24, _addr              // Save guest address for writeback
@@ -7038,8 +6911,7 @@ make_fp_across fminnmv, fminnmv
  * LDR St, [Xn, #imm] - Load single into SIMD register
  */
 .gadget ldr_simd_s
-    ldr x23, [_pc]
-    add _pc, _pc, #8
+    ldr x23, [_pc], #8
     and x23, x23, #0x1f
 
     mov x24, _addr              // Save guest address for writeback
@@ -7059,8 +6931,7 @@ make_fp_across fminnmv, fminnmv
  * LDR Dt, [Xn, #imm] - Load double into SIMD register
  */
 .gadget ldr_simd_d
-    ldr x23, [_pc]
-    add _pc, _pc, #8
+    ldr x23, [_pc], #8
     and x23, x23, #0x1f
 
     mov x24, _addr              // Save guest address for writeback
@@ -7080,8 +6951,7 @@ make_fp_across fminnmv, fminnmv
  * LDR Qt, [Xn, #imm] - Load quad into SIMD register
  */
 .gadget ldr_simd_q
-    ldr x23, [_pc]
-    add _pc, _pc, #8
+    ldr x23, [_pc], #8
     and x23, x23, #0x1f
 
     mov x24, _addr              // Save guest address for writeback
@@ -7140,8 +7010,7 @@ make_fp_across fminnmv, fminnmv
  * STP St, St2, [addr] - Store pair of 32-bit SIMD registers
  */
 .gadget stp_simd_s
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x23, x8, #0x1f       // rt
     ubfx x24, x8, #8, #5     // rt2
 
@@ -7169,8 +7038,7 @@ make_fp_across fminnmv, fminnmv
  * STP Dt, Dt2, [addr] - Store pair of 64-bit SIMD registers
  */
 .gadget stp_simd_d
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x23, x8, #0x1f
     ubfx x24, x8, #8, #5
 
@@ -7198,8 +7066,7 @@ make_fp_across fminnmv, fminnmv
  * Each Q register is 16 bytes, so total is 32 bytes
  */
 .gadget stp_simd_q
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x23, x8, #0x1f       // rt
     ubfx x24, x8, #8, #5     // rt2
 
@@ -7235,8 +7102,7 @@ make_fp_across fminnmv, fminnmv
  * LDP St, St2, [addr] - Load pair of 32-bit SIMD registers
  */
 .gadget ldp_simd_s
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x23, x8, #0x1f       // rt
     ubfx x24, x8, #8, #5     // rt2
 
@@ -7263,8 +7129,7 @@ make_fp_across fminnmv, fminnmv
  * LDP Dt, Dt2, [addr] - Load pair of 64-bit SIMD registers
  */
 .gadget ldp_simd_d
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x23, x8, #0x1f
     ubfx x24, x8, #8, #5
 
@@ -7289,8 +7154,7 @@ make_fp_across fminnmv, fminnmv
  * LDP Qt, Qt2, [addr] - Load pair of 128-bit SIMD registers
  */
 .gadget ldp_simd_q
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x23, x8, #0x1f
     ubfx x24, x8, #8, #5
 
@@ -7322,8 +7186,7 @@ make_fp_across fminnmv, fminnmv
  * - imm8=0, cmode=0, op=1 -> MVNI Vd, #0 (all ones)
  */
 .gadget movi_v
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #1    // Q
@@ -7371,14 +7234,11 @@ movi_really_zero:
  * Code stream: [gadget][rd][imm_lo][imm_hi]
  */
 .gadget set_vec_imm
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
-    ldr x10, [_pc]          // imm_lo
-    add _pc, _pc, #8
-    ldr x11, [_pc]          // imm_hi
-    add _pc, _pc, #8
+    ldr x10, [_pc], #8          // imm_lo
+    ldr x11, [_pc], #8          // imm_hi
 
     add x12, _cpu, #CPU_fp
     lsl x13, x9, #4
@@ -7421,15 +7281,12 @@ movi_really_zero:
  * Code stream: [gadget][rd | Q<<8][imm_lo][imm_hi]
  */
 .gadget orr_imm_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x17, x8, #8, #1    // Q
-    ldr x10, [_pc]          // imm_lo
-    add _pc, _pc, #8
-    ldr x11, [_pc]          // imm_hi
-    add _pc, _pc, #8
+    ldr x10, [_pc], #8          // imm_lo
+    ldr x11, [_pc], #8          // imm_hi
 
     add x12, _cpu, #CPU_fp
     lsl x13, x9, #4
@@ -7455,15 +7312,12 @@ movi_really_zero:
  * Code stream: [gadget][rd | Q<<8][imm_lo][imm_hi]
  */
 .gadget bic_imm_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x17, x8, #8, #1    // Q
-    ldr x10, [_pc]          // imm_lo
-    add _pc, _pc, #8
-    ldr x11, [_pc]          // imm_hi
-    add _pc, _pc, #8
+    ldr x10, [_pc], #8          // imm_lo
+    ldr x11, [_pc], #8          // imm_hi
 
     add x12, _cpu, #CPU_fp
     lsl x13, x9, #4
@@ -7494,8 +7348,7 @@ movi_really_zero:
  * For simplicity, we implement element-by-element operations.
  */
 .gadget ushl_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (vector dest)
     ubfx x10, x8, #8, #5    // rn (vector src1)
@@ -7753,8 +7606,7 @@ movi_really_zero:
  */
 .macro make_vec_shift_three_same name, insn
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -7836,8 +7688,7 @@ make_vec_shift_three_same uqsub, uqsub
 // Use a dedicated macro that omits the .2d path
 .macro make_vec_three_same_noD name, insn
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #5   // rm
@@ -7902,8 +7753,7 @@ make_vec_shift_three_same cmge_reg, cmge
  */
 .macro make_fp_vec_three_same name, insn
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -7960,8 +7810,7 @@ make_fp_vec_three_same fp_fmulx, fmulx
  */
 .macro make_fp_vec_three_same_accum name, insn
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -8030,8 +7879,7 @@ make_fp_vec_three_same fp_fabd, fabd
  * For each element: Vd[i] = (Vn[i] > Vm[i]) ? -1 : 0
  */
 .gadget cmhi_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -8226,8 +8074,7 @@ make_fp_vec_three_same fp_fabd, fabd
  * For each element: Vd[i] = (Vn[i] >= Vm[i]) ? -1 : 0
  */
 .gadget cmhs_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -8423,8 +8270,7 @@ make_fp_vec_three_same fp_fabd, fabd
  * For each element: Vd[i] = (Vn[i] == Vm[i]) ? -1 : 0
  */
 .gadget cmeq_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -8618,8 +8464,7 @@ make_fp_vec_three_same fp_fabd, fabd
  */
 .macro make_narrow_vec name, insn_b_lo, insn_b_hi, insn_h_lo, insn_h_hi, insn_s_lo, insn_s_hi
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x12, x8, #16, #2   // size
@@ -8672,8 +8517,7 @@ make_fp_vec_three_same fp_fabd, fabd
  */
 .macro make_pairwise_addl name, insn_b_8, insn_b_16, insn_h_4, insn_h_8, insn_s_2, insn_s_4
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x12, x8, #16, #2   // size
@@ -8729,8 +8573,7 @@ make_fp_vec_three_same fp_fabd, fabd
  */
 .macro make_shrn_vec name, sh8h, sh4s, sh2d
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #8   // shift amount
@@ -8797,8 +8640,7 @@ make_pairwise_addl saddlp, "saddlp v1.4h, v0.8b", "saddlp v1.8h, v0.16b", "saddl
 // For accumulate variants, load dest into v1 first (native insn accumulates into v1)
 .macro make_pairwise_accl name, insn_b_8, insn_b_16, insn_h_4, insn_h_8, insn_s_2, insn_s_4
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x12, x8, #16, #2   // size
@@ -8865,8 +8707,7 @@ make_narrow_vec uqxtn, "uqxtn v1.8b, v0.8h", "uqxtn2 v1.16b, v0.8h", "uqxtn v1.4
  * AND - Bitwise AND vector
  */
 .gadget and_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -8904,8 +8745,7 @@ make_narrow_vec uqxtn, "uqxtn v1.8b, v0.8h", "uqxtn2 v1.16b, v0.8h", "uqxtn v1.4
  * ORR - Bitwise OR vector
  */
 .gadget orr_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -8941,8 +8781,7 @@ make_narrow_vec uqxtn, "uqxtn v1.8b, v0.8h", "uqxtn2 v1.16b, v0.8h", "uqxtn v1.4
  * EOR - Bitwise exclusive OR vector
  */
 .gadget eor_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -8979,8 +8818,7 @@ make_narrow_vec uqxtn, "uqxtn v1.8b, v0.8h", "uqxtn2 v1.16b, v0.8h", "uqxtn v1.4
  * Vd = (Vn & Vd) | (Vm & ~Vd)
  */
 .gadget bsl_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -9027,8 +8865,7 @@ make_narrow_vec uqxtn, "uqxtn v1.8b, v0.8h", "uqxtn2 v1.16b, v0.8h", "uqxtn v1.4
  * Vd = (Vn & Vm) | (Vd & ~Vm)
  */
 .gadget bit_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -9075,8 +8912,7 @@ make_narrow_vec uqxtn, "uqxtn v1.8b, v0.8h", "uqxtn2 v1.16b, v0.8h", "uqxtn v1.4
  * Vd = (Vn & ~Vm) | (Vd & Vm)
  */
 .gadget bif_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -9122,8 +8958,7 @@ make_narrow_vec uqxtn, "uqxtn v1.8b, v0.8h", "uqxtn2 v1.16b, v0.8h", "uqxtn v1.4
  * BIC - Bit clear (Vn AND NOT Vm)
  */
 .gadget bic_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -9157,8 +8992,7 @@ make_narrow_vec uqxtn, "uqxtn v1.8b, v0.8h", "uqxtn2 v1.16b, v0.8h", "uqxtn v1.4
 
 // ORN - Bitwise OR NOT (Vd = Vn OR NOT Vm)
 .gadget orn_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -9194,8 +9028,7 @@ make_narrow_vec uqxtn, "uqxtn v1.8b, v0.8h", "uqxtn2 v1.16b, v0.8h", "uqxtn v1.4
 // Vd = Vd + |Vn - Vm|  (accumulate into Vd, so must read Vd first)
 .macro make_vec_aba name, insn
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -9266,8 +9099,7 @@ make_vec_aba uaba, uaba
  * For Q=0 (64-bit):  result[i] = concat[imm4+i] for i=0..7, imm4 must be 0-7
  */
 .gadget ext_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -9371,8 +9203,7 @@ make_vec_aba uaba, uaba
  * Each element is shifted left by the immediate value.
  */
 .gadget shl_imm_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -9537,8 +9368,7 @@ make_vec_aba uaba, uaba
  * Code stream: [gadget addr][rd | rn<<8 | shift<<16 | esize<<24 | Q<<28]
  */
 .gadget ushr_imm_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -9587,8 +9417,7 @@ make_vec_aba uaba, uaba
  * Code stream: [gadget addr][rd | rn<<8 | shift<<16 | esize<<24 | Q<<28]
  */
 .gadget sshr_imm_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -9642,8 +9471,7 @@ make_vec_aba uaba, uaba
  */
 .macro make_rounding_shift name, insn_b_8, insn_b_16, insn_h_4, insn_h_8, insn_s_2, insn_s_4, insn_d_2, accumulate=0
 .gadget \name\()_imm_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #8   // shift amount
@@ -9726,8 +9554,7 @@ make_rounding_shift urshr, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v
  */
 .macro make_rounding_sra name, shift_insn_b_8, shift_insn_b_16, shift_insn_h_4, shift_insn_h_8, shift_insn_s_2, shift_insn_s_4, shift_insn_d_2
 .gadget \name\()_imm_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #8   // shift amount
@@ -9805,8 +9632,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Result is stored in scalar register with upper bits cleared.
  */
 .gadget shl_imm_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -9835,8 +9661,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Code stream: [gadget addr][rd | rn<<8 | shift<<16 | esize<<24]
  */
 .gadget ushr_imm_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -9859,8 +9684,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Code stream: [gadget addr][rd | rn<<8 | shift<<16 | esize<<24]
  */
 .gadget sshr_imm_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -9884,8 +9708,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * rd = rd + (rn >> shift) (unsigned)
  */
 .gadget usra_imm_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -9935,8 +9758,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * rd = rd + (rn >> shift) (signed)
  */
 .gadget ssra_imm_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -9986,8 +9808,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * rd = rd + (rn >> shift)
  */
 .gadget usra_imm_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -10013,8 +9834,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * rd = rd + (rn >> shift) (signed)
  */
 .gadget ssra_imm_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -10038,8 +9858,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
  */
 .gadget add_scalar_i64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -10061,8 +9880,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
  */
 .gadget sub_scalar_i64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -10084,8 +9902,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
  */
 .gadget ushl_scalar_i64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -10105,8 +9922,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
  */
 .gadget sshl_scalar_i64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -10126,8 +9942,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
  */
 .gadget cmhi_scalar_i64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -10147,8 +9962,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
  */
 .gadget cmhs_scalar_i64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -10168,8 +9982,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
  */
 .gadget cmgt_scalar_i64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -10189,8 +10002,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
  */
 .gadget cmge_scalar_i64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -10210,8 +10022,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16]
  */
 .gadget cmeq_scalar_i64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -10232,8 +10043,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Converts signed int in Dn/Sn to FP in Dd/Sd, dividing by 2^fbits
  */
 .gadget scvtf_fixpt_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -10281,8 +10091,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Code stream: [gadget addr][rd | rn<<8 | fbits<<16 | esize<<24]
  */
 .gadget ucvtf_fixpt_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -10326,8 +10135,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Multiplies FP value by 2^fbits, then converts to signed int (round toward zero)
  */
 .gadget fcvtzs_fixpt_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -10370,8 +10178,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Code stream: [gadget addr][rd | rn<<8 | fbits<<16 | esize<<24]
  */
 .gadget fcvtzu_fixpt_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -10415,8 +10222,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * For each element: rd = (rd & highmask) | (rn >> shift)
  */
 .gadget sri_imm_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -10465,8 +10271,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * For each element: rd = (rd & lowmask) | (rn << shift)
  */
 .gadget sli_imm_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -10518,8 +10323,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Result[i] = Vm[2i] + Vm[2i+1]  for second half
  */
 .gadget addp_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -10913,8 +10717,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Result[i] = MAX(A[2i], A[2i+1]) where A is concatenation of Vn and Vm
  */
 .gadget umaxp_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -11307,8 +11110,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * Result[i] = MIN(A[2i], A[2i+1]) where A is concatenation of Vn and Vm
  */
 .gadget uminp_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -11710,8 +11512,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * UCVTF Sd, Wn / UCVTF Dd, Xn
  */
 .gadget ucvtf_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (fp reg)
     ubfx x10, x8, #8, #5    // rn (gpr)
@@ -11762,8 +11563,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * SCVTF - Signed integer to floating-point
  */
 .gadget scvtf_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (fp reg)
     ubfx x10, x8, #8, #5    // rn (gpr)
@@ -11807,8 +11607,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
  * FCVTZU - Floating-point to unsigned integer (round toward zero)
  */
 .gadget fcvtzu_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (gpr)
     ubfx x10, x8, #8, #5    // rn (fp reg)
@@ -11830,13 +11629,12 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
     fcvt d0, s0             // convert to double for uniform handling
 
 .Lfcvtzu_convert:
-    fcvtzu x14, d0          // convert to unsigned 64-bit
-
     cbz x12, .Lfcvtzu_32bit
+    fcvtzu x14, d0          // convert to unsigned 64-bit
     b .Lfcvtzu_store
 
 .Lfcvtzu_32bit:
-    and x14, x14, #0xffffffff
+    fcvtzu w14, d0          // saturates to 32 bits, zero-extends
 
 .Lfcvtzu_store:
     cmp x9, #31
@@ -11850,8 +11648,7 @@ make_rounding_sra ursra, "urshl v3.8b, v0.8b, v1.8b", "urshl v3.16b, v0.16b, v1.
 // \name: gadget name suffix, \cvt_x_d: 64-bit convert insn, \cvt_w_d: 32-bit convert insn
 .macro make_fcvt_to_int name, cvt_x_d, cvt_w_d, cvt_x_s, cvt_w_s
 .gadget \name\()_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd (gpr)
     ubfx x10, x8, #8, #5    // rn (fp reg)
     ubfx x11, x8, #16, #2   // type
@@ -11904,8 +11701,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * (kept for backward compatibility — same as make_fcvt_to_int but uses fcvtzs)
  */
 .gadget fcvtzs_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (gpr)
     ubfx x10, x8, #8, #5    // rn (fp reg)
@@ -11925,14 +11721,12 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
     fcvt d0, s0
 
 .Lfcvtzs_convert:
-    fcvtzs x14, d0
-
     cbz x12, .Lfcvtzs_32bit
+    fcvtzs x14, d0
     b .Lfcvtzs_store
 
 .Lfcvtzs_32bit:
-    // Truncate to 32-bit signed
-    sxtw x14, w14
+    fcvtzs w14, d0          // saturates to 32 bits, zero-extends
 
 .Lfcvtzs_store:
     cmp x9, #31
@@ -11948,8 +11742,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * Computes: Rd = (int)(Fn * 2^fbits) truncated toward zero
  */
 .gadget fcvtzs_fixpt_gpr
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (gpr)
     ubfx x10, x8, #8, #5    // rn (fp reg)
@@ -11986,7 +11779,6 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
     b .Lfcvtzs_fg_store
 .Lfcvtzs_fg_32bit:
     fcvtzs w14, d0
-    sxtw x14, w14
 
 .Lfcvtzs_fg_store:
     cmp x9, #31
@@ -12002,8 +11794,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * Computes: Rd = (uint)(Fn * 2^fbits) truncated toward zero
  */
 .gadget fcvtzu_fixpt_gpr
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (gpr)
     ubfx x10, x8, #8, #5    // rn (fp reg)
@@ -12049,8 +11840,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * Computes: Fd = (double)Rn / 2^fbits
  */
 .gadget scvtf_fixpt_gpr
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (fp reg)
     ubfx x10, x8, #8, #5    // rn (gpr)
@@ -12104,8 +11894,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * Computes: Fd = (double)(uint)Rn / 2^fbits
  */
 .gadget ucvtf_fixpt_gpr
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (fp reg)
     ubfx x10, x8, #8, #5    // rn (gpr)
@@ -12156,8 +11945,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * Code stream: [gadget addr][rd | rn<<8 | sz<<16]
  */
 .gadget fcvtzs_simd_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (fp reg)
     ubfx x10, x8, #8, #5    // rn (fp reg)
@@ -12205,8 +11993,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * Code stream: [gadget addr][rd | rn<<8 | sz<<16]
  */
 .gadget fcvtzu_simd_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (fp reg)
     ubfx x10, x8, #8, #5    // rn (fp reg)
@@ -12253,8 +12040,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * Code stream: [gadget addr][rd | rn<<8 | sz<<16]
  */
 .gadget ucvtf_simd_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (fp reg)
     ubfx x10, x8, #8, #5    // rn (fp reg)
@@ -12301,8 +12087,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * Code stream: [gadget addr][rd | rn<<8 | sz<<16]
  */
 .gadget scvtf_simd_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (fp reg)
     ubfx x10, x8, #8, #5    // rn (fp reg)
@@ -12348,8 +12133,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * Code stream: [gadget addr][rd | rn<<8 | type<<16 | sf<<18]
  */
 .gadget fmov_gpr_to_fp
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (fp reg)
     ubfx x10, x8, #8, #5    // rn (gpr)
@@ -12414,8 +12198,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * Only X registers and Vd.D[1] supported here.
  */
 .gadget fmov_gpr_to_fp_hi
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (fp reg)
     ubfx x10, x8, #8, #5    // rn (gpr)
@@ -12440,8 +12223,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * Code stream: [gadget addr][rd | rn<<8 | type<<16 | sf<<18]
  */
 .gadget fmov_fp_to_gpr
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (gpr)
     ubfx x10, x8, #8, #5    // rn (fp reg)
@@ -12478,8 +12260,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * Only X registers and Vn.D[1] supported here.
  */
 .gadget fmov_fp_to_gpr_hi
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (gpr)
     ubfx x10, x8, #8, #5    // rn (fp reg)
@@ -12503,8 +12284,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * type: 0=single, 1=double
  */
 .gadget fmov_fp_to_fp
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (fp reg)
     ubfx x10, x8, #8, #5    // rn (fp reg)
@@ -12543,15 +12323,13 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * ftype: 0=single, 1=double
  */
 .gadget fmov_fp_imm
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x11, x8, #8, #2    // ftype
 
     // Load the 64-bit immediate from code stream
-    ldr x16, [_pc]
-    add _pc, _pc, #8
+    ldr x16, [_pc], #8
 
     // Store to destination FP register
     add x14, _cpu, #CPU_fp
@@ -12577,8 +12355,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * type: 0=single (32-bit), 1=double (64-bit)
  */
 .gadget fcmp_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rn (fp reg)
     ubfx x10, x8, #8, #5    // rm (fp reg)
@@ -12626,8 +12403,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * type: 0=single (32-bit), 1=double (64-bit)
  */
 .gadget fcmp_zero_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rn (fp reg)
     ubfx x11, x8, #16, #2   // type
@@ -12656,8 +12432,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * type: 0=single (32-bit), 1=double (64-bit)
  */
 .gadget fmul_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd (fp reg)
     ubfx x10, x8, #8, #5    // rn (fp reg)
@@ -12699,8 +12474,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
     gret
 
 .gadget fdiv_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -12741,8 +12515,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
     gret
 
 .gadget fadd_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -12856,16 +12629,14 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * Computes: Fd = Fn * Fm + Fa
  */
 .gadget fmadd_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #5   // rm
     ubfx x12, x8, #24, #5   // ra
 
-    ldr x13, [_pc]          // ftype
-    add _pc, _pc, #8
+    ldr x13, [_pc], #8          // ftype
 
     // Load operands
     add x14, _cpu, #CPU_fp
@@ -12913,16 +12684,14 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * Computes: Fd = Fn * Fm - Fa
  */
 .gadget fmsub_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #5   // rm
     ubfx x12, x8, #24, #5   // ra
 
-    ldr x13, [_pc]          // ftype
-    add _pc, _pc, #8
+    ldr x13, [_pc], #8          // ftype
 
     // Load operands
     add x14, _cpu, #CPU_fp
@@ -12970,16 +12739,14 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * Computes: Fd = -(Fn * Fm) - Fa = -(Fn * Fm + Fa)
  */
 .gadget fnmadd_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #5   // rm
     ubfx x12, x8, #24, #5   // ra
 
-    ldr x13, [_pc]          // ftype
-    add _pc, _pc, #8
+    ldr x13, [_pc], #8          // ftype
 
     // Load operands
     add x14, _cpu, #CPU_fp
@@ -13027,16 +12794,14 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * Computes: Fd = -(Fn * Fm) + Fa = Fa - Fn * Fm
  */
 .gadget fnmsub_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #5   // rm
     ubfx x12, x8, #24, #5   // ra
 
-    ldr x13, [_pc]          // ftype
-    add _pc, _pc, #8
+    ldr x13, [_pc], #8          // ftype
 
     // Load operands
     add x14, _cpu, #CPU_fp
@@ -13079,8 +12844,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
     gret
 
 .gadget fsub_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -13126,8 +12890,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  * If cond is false: set NZCV to immediate nzcv value
  */
 .gadget fccmp_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rn
     ubfx x10, x8, #8, #5    // rm
     ubfx x12, x8, #16, #4   // ftype
@@ -13420,8 +13183,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
  *         8=FRINTN, 9=FRINTP, 10=FRINTM, 11=FRINTZ, 12=FRINTA, 14=FRINTX, 15=FRINTI
  */
 .gadget fp_dp1
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x12, x8, #16, #4   // ftype
@@ -13561,8 +13323,7 @@ make_fcvt_to_int fcvtau, fcvtau, fcvtau, fcvtau, fcvtau
 // All have same structure: load Vn and Vm, do op, store to Vd
 .macro make_fp2_scalar name, op_d, op_s
 .gadget \name\()_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #5   // rm
@@ -13605,8 +13366,7 @@ make_fp2_scalar fabd, fabd, fabd
  * sz=1: FADDP Dd, Vn.2D  (add two double-precision elements)
  */
 .gadget faddp_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x12, x8, #16, #2   // sz (0=single, 1=double)
@@ -13637,8 +13397,7 @@ make_fp2_scalar fabd, fabd, fabd
  * sz=0: FMAXP Sd, Vn.2S, sz=1: FMAXP Dd, Vn.2D
  */
 .gadget fmaxp_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x12, x8, #16, #2   // sz
@@ -13667,8 +13426,7 @@ make_fp2_scalar fabd, fabd, fabd
  * sz=0: FMINP Sd, Vn.2S, sz=1: FMINP Dd, Vn.2D
  */
 .gadget fminp_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x12, x8, #16, #2   // sz
@@ -13696,8 +13454,7 @@ make_fp2_scalar fabd, fabd, fabd
  * Code stream: [gadget addr][rd | rn<<8 | sz<<16]
  */
 .gadget fmaxnmp_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x12, x8, #16, #2   // sz
@@ -13725,8 +13482,7 @@ make_fp2_scalar fabd, fabd, fabd
  * Code stream: [gadget addr][rd | rn<<8 | sz<<16]
  */
 .gadget fminnmp_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x12, x8, #16, #2   // sz
@@ -13753,8 +13509,7 @@ make_fp2_scalar fabd, fabd, fabd
 // ADDP Dd, Vn.2D: adds two 64-bit elements of Vn, stores in Dd
 // Code stream: [gadget addr][rd | rn<<8]
 .gadget addp_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     add x13, _cpu, #CPU_fp
@@ -13770,8 +13525,7 @@ make_fp2_scalar fabd, fabd, fabd
 
 // UMULH: Xd = (Xn * Xm) >> 64 (unsigned high multiply)
 .gadget umulh
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -13802,8 +13556,7 @@ make_fp2_scalar fabd, fabd, fabd
 
 // SMULH: Xd = (Xn * Xm) >> 64 (signed high multiply)
 .gadget smulh
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -13843,8 +13596,7 @@ make_fp2_scalar fabd, fabd, fabd
  * Q: 0=lower half (SADDW), 1=upper half (SADDW2)
  */
 .gadget saddw_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -13920,8 +13672,7 @@ make_fp2_scalar fabd, fabd, fabd
  * Q: 0=lower half (UADDW), 1=upper half (UADDW2)
  */
 .gadget uaddw_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -13998,8 +13749,7 @@ make_fp2_scalar fabd, fabd, fabd
  * Q: 0=lower half (SSUBW), 1=upper half (SSUBW2)
  */
 .gadget ssubw_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -14076,8 +13826,7 @@ make_fp2_scalar fabd, fabd, fabd
  * Q: 0=lower half (USUBW), 1=upper half (USUBW2)
  */
 .gadget usubw_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -14158,8 +13907,7 @@ make_fp2_scalar fabd, fabd, fabd
 // ADD (immediate, 64-bit, no flags, no SP, no LSL#12)
 // Condition: sf=1, S=0, sh=0, rd!=31, rn!=31
 .gadget add_imm_64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #12      // imm12
@@ -14172,8 +13920,7 @@ make_fp2_scalar fabd, fabd, fabd
 // SUB (immediate, 64-bit, no flags, no SP, no LSL#12)
 // Condition: sf=1, S=0, sh=0, rd!=31, rn!=31
 .gadget sub_imm_64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #12      // imm12
@@ -14187,8 +13934,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=1, S=0, sh=0, rn==31, rd!=31
 // Code stream: [gadget addr][rd | imm12<<16]
 .gadget add_imm_sp_src_64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x11, x8, #16, #12      // imm12
     ldr x15, [_cpu, #CPU_sp]     // load SP directly
@@ -14200,8 +13946,7 @@ make_fp2_scalar fabd, fabd, fabd
 // SUB (immediate, 64-bit, no flags, SP source, no LSL#12)
 // Condition: sf=1, S=0, sh=0, rn==31, rd!=31
 .gadget sub_imm_sp_src_64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x11, x8, #16, #12
     ldr x15, [_cpu, #CPU_sp]
@@ -14213,8 +13958,7 @@ make_fp2_scalar fabd, fabd, fabd
 // ADDS (immediate, 64-bit, flag-setting, no SP source, no LSL#12)
 // Condition: sf=1, S=1, sh=0, rn!=31 (rd=31 allowed for CMN)
 .gadget adds_imm_64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #12      // imm12
@@ -14230,8 +13974,7 @@ make_fp2_scalar fabd, fabd, fabd
 // SUBS (immediate, 64-bit, flag-setting, no SP source, no LSL#12)
 // Condition: sf=1, S=1, sh=0, rn!=31 (rd=31 allowed for CMP)
 .gadget subs_imm_64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #12      // imm12
@@ -14248,8 +13991,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=1, S=1, sh=1, rn!=31
 // Param: rd | rn<<8 | imm12<<16
 .gadget adds_imm_64_sh
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #12      // imm12
@@ -14267,8 +14009,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=1, S=1, sh=1, rn!=31
 // Param: rd | rn<<8 | imm12<<16
 .gadget subs_imm_64_sh
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #12      // imm12
@@ -14286,8 +14027,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=1, S=0, sh=1, rd!=31, rn!=31
 // Param: rd | rn<<8 | imm12<<16
 .gadget add_imm_64_sh
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #12      // imm12
@@ -14302,8 +14042,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=1, S=0, sh=1, rd!=31, rn!=31
 // Param: rd | rn<<8 | imm12<<16
 .gadget sub_imm_64_sh
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #12      // imm12
@@ -14322,8 +14061,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=0, S=0, sh=0, rd!=31, rn!=31
 // Param: rd | rn<<8 | imm12<<16
 .gadget add_imm_32
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #12      // imm12
@@ -14337,8 +14075,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=0, S=0, sh=0, rd!=31, rn!=31
 // Param: rd | rn<<8 | imm12<<16
 .gadget sub_imm_32
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #12      // imm12
@@ -14352,8 +14089,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=0, S=1, sh=0, rn!=31 (rd=31 allowed for CMN)
 // Param: rd | rn<<8 | imm12<<16
 .gadget adds_imm_32
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #12      // imm12
@@ -14370,8 +14106,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=0, S=1, sh=0, rn!=31 (rd=31 allowed for CMP)
 // Param: rd | rn<<8 | imm12<<16
 .gadget subs_imm_32
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #12      // imm12
@@ -14388,8 +14123,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=1, S=1, imm6=0, rn!=31, rm!=31
 // Param: rd | rn<<8 | rm<<16 (rd=31 allowed for CMN)
 .gadget adds_reg_64_nshift
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #5       // rm
@@ -14407,8 +14141,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=1, S=1, imm6=0, rn!=31, rm!=31
 // Param: rd | rn<<8 | rm<<16 (rd=31 allowed for CMP)
 .gadget subs_reg_64_nshift
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #5       // rm
@@ -14426,8 +14159,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=1, S=0, imm6=0, rn!=31, rm!=31, rd!=31
 // Param: rd | rn<<8 | rm<<16
 .gadget add_reg_64_nshift
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #5       // rm
@@ -14442,8 +14174,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=1, S=0, imm6=0, rn!=31, rm!=31, rd!=31
 // Param: rd | rn<<8 | rm<<16
 .gadget sub_reg_64_nshift
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #5       // rm
@@ -14458,8 +14189,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=1, S=0, imm6=0, shift=0, N=0, rn!=31, rm!=31, rd!=31
 // Param: rd | rn<<8 | rm<<16
 .gadget and_reg_64_nshift
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -14474,8 +14204,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=1, S=0, imm6=0, shift=0, N=0, rn!=31, rm!=31, rd!=31
 // Param: rd | rn<<8 | rm<<16
 .gadget orr_reg_64_nshift
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -14490,8 +14219,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=1, S=0, imm6=0, shift=0, N=0, rn!=31, rm!=31, rd!=31
 // Param: rd | rn<<8 | rm<<16
 .gadget eor_reg_64_nshift
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -14507,8 +14235,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Each gadget zero-extends the result before storing (w-reg ops do this for free).
 
 .gadget add_reg_32_nshift
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -14520,8 +14247,7 @@ make_fp2_scalar fabd, fabd, fabd
     gret
 
 .gadget sub_reg_32_nshift
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -14533,8 +14259,7 @@ make_fp2_scalar fabd, fabd, fabd
     gret
 
 .gadget and_reg_32_nshift
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -14546,8 +14271,7 @@ make_fp2_scalar fabd, fabd, fabd
     gret
 
 .gadget orr_reg_32_nshift
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -14559,8 +14283,7 @@ make_fp2_scalar fabd, fabd, fabd
     gret
 
 .gadget eor_reg_32_nshift
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -14577,8 +14300,7 @@ make_fp2_scalar fabd, fabd, fabd
  * Param: rd | rn<<8 | shift<<16  (shift in 0..63)
  */
 .gadget lsl_imm_32
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #6        // shift
@@ -14589,8 +14311,7 @@ make_fp2_scalar fabd, fabd, fabd
     gret
 
 .gadget lsl_imm_64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #6
@@ -14601,8 +14322,7 @@ make_fp2_scalar fabd, fabd, fabd
     gret
 
 .gadget lsr_imm_32
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #6
@@ -14613,8 +14333,7 @@ make_fp2_scalar fabd, fabd, fabd
     gret
 
 .gadget lsr_imm_64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #6
@@ -14625,8 +14344,7 @@ make_fp2_scalar fabd, fabd, fabd
     gret
 
 .gadget asr_imm_32
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #6
@@ -14637,8 +14355,7 @@ make_fp2_scalar fabd, fabd, fabd
     gret
 
 .gadget asr_imm_64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #6
@@ -14652,8 +14369,7 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=0, S=1, imm6=0, shift=0, rn!=31, rm!=31.
 // Param: rd | rn<<8 | rm<<16 (rd=31 allowed for CMN).
 .gadget adds_reg_32_nshift
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -14670,8 +14386,7 @@ make_fp2_scalar fabd, fabd, fabd
 // SUBS (register, 32-bit, flag-setting, no shift, no XZR/SP).
 // Same conditions as adds_reg_32_nshift.
 .gadget subs_reg_32_nshift
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x11, x8, #16, #5
@@ -14689,10 +14404,8 @@ make_fp2_scalar fabd, fabd, fabd
 // Condition: sf=1, S=0, rn!=31, rd!=31.
 // Param: rd | rn<<8.  Second slot: imm64.
 .gadget and_imm_64_simple
-    ldr x8, [_pc]
-    add _pc, _pc, #8
-    ldr x9, [_pc]               // imm64
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
+    ldr x9, [_pc], #8               // imm64
     and x10, x8, #0x1f          // rd
     ubfx x11, x8, #8, #5        // rn
     add x14, _cpu, #CPU_x0
@@ -14704,10 +14417,8 @@ make_fp2_scalar fabd, fabd, fabd
 // AND (immediate, 32-bit, no flags, no XZR/SP).
 // Condition: sf=0, S=0, rn!=31, rd!=31.
 .gadget and_imm_32_simple
-    ldr x8, [_pc]
-    add _pc, _pc, #8
-    ldr x9, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
+    ldr x9, [_pc], #8
     and x10, x8, #0x1f
     ubfx x11, x8, #8, #5
     add x14, _cpu, #CPU_x0
@@ -14719,10 +14430,8 @@ make_fp2_scalar fabd, fabd, fabd
 // ANDS immediate, 64-bit, flag-setting; rn != 31 (rd=31 = TST allowed).
 // Used heavily in CPython tag/flag tests like `if (PyObject_TypeCheck(...))`.
 .gadget ands_imm_64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
-    ldr x9, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
+    ldr x9, [_pc], #8
     and x10, x8, #0x1f          // rd
     ubfx x11, x8, #8, #5        // rn (caller guarantees != 31)
     add x14, _cpu, #CPU_x0
@@ -14736,10 +14445,8 @@ make_fp2_scalar fabd, fabd, fabd
 
 // ANDS immediate, 32-bit, flag-setting; rn != 31.
 .gadget ands_imm_32
-    ldr x8, [_pc]
-    add _pc, _pc, #8
-    ldr x9, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
+    ldr x9, [_pc], #8
     and x10, x8, #0x1f
     ubfx x11, x8, #8, #5
     add x14, _cpu, #CPU_x0
@@ -14764,8 +14471,7 @@ make_fp2_scalar fabd, fabd, fabd
  */
 .macro make_threesame_native name, op, has_d=0
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #5   // rm
@@ -14849,8 +14555,7 @@ make_fp2_scalar fabd, fabd, fabd
  */
 .macro make_threesame_accum name, op
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #5   // rm
@@ -14912,8 +14617,7 @@ make_threesame_native mul, mul, 0
 
 // Polynomial multiply (B only — special gadget, gen.c validates size=0)
 .gadget pmul_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #5   // rm
@@ -14957,8 +14661,7 @@ make_threesame_native sminp, sminp, 0
  */
 .macro make_threesame_native_hs name, op
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #5   // rm
@@ -15041,8 +14744,7 @@ make_threesame_accum mls, mls
  */
 .macro make_twomis_native name, op, has_d=1
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x12, x8, #16, #2   // size
@@ -15125,8 +14827,7 @@ make_twomis_native cls, cls, 0
  */
 .macro make_byte_vec_unary name, insn
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x17, x8, #16, #1   // Q
@@ -15163,8 +14864,7 @@ make_byte_vec_unary not, not
  */
 .macro make_widening_long name, op
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #5   // rm
@@ -15228,8 +14928,7 @@ make_byte_vec_unary not, not
  */
 .macro make_sat_shrn name, sop, n8b, n16b, n4h, n8h, n2s, n4s
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #8   // shift amount
@@ -15309,8 +15008,7 @@ make_sat_shrn sqrshrun, srshl, "sqxtun v2.8b, v0.8h", "sqxtun2 v2.16b, v0.8h", "
  */
 .macro elem_setup name
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #5       // rm
@@ -15535,8 +15233,7 @@ elem_fp_accum_op_store fmls_elem, fmls
  */
 .macro scalar_elem_setup name
 .gadget \name\()_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f           // rd
     ubfx x10, x8, #8, #5        // rn
     ubfx x11, x8, #16, #5       // rm
@@ -15772,8 +15469,7 @@ make_widening_long uabdl, uabdl
  */
 .macro make_narrowing_high name, op
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #5   // rm
@@ -15847,8 +15543,7 @@ make_narrowing_high rsubhn, rsubhn
  */
 .macro make_widening_accum name, op
 .gadget \name\()_vec
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x11, x8, #16, #5   // rm
@@ -15915,8 +15610,7 @@ make_widening_accum umlsl, umlsl
 
 // CMGT D, D, #0 — each element set to all-ones if > 0, else all-zeros
 .gadget cmgt_scalar_zero
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     add x13, _cpu, #CPU_fp
@@ -15932,8 +15626,7 @@ make_widening_accum umlsl, umlsl
 
 // CMGE D, D, #0
 .gadget cmge_scalar_zero
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     add x13, _cpu, #CPU_fp
@@ -15949,8 +15642,7 @@ make_widening_accum umlsl, umlsl
 
 // CMEQ D, D, #0
 .gadget cmeq_scalar_zero
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     add x13, _cpu, #CPU_fp
@@ -15966,8 +15658,7 @@ make_widening_accum umlsl, umlsl
 
 // CMLE D, D, #0
 .gadget cmle_scalar_zero
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     add x13, _cpu, #CPU_fp
@@ -15983,8 +15674,7 @@ make_widening_accum umlsl, umlsl
 
 // CMLT D, D, #0
 .gadget cmlt_scalar_zero
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     add x13, _cpu, #CPU_fp
@@ -16000,8 +15690,7 @@ make_widening_accum umlsl, umlsl
 
 // ABS D, D — absolute value
 .gadget abs_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     add x13, _cpu, #CPU_fp
@@ -16017,8 +15706,7 @@ make_widening_accum umlsl, umlsl
 
 // NEG D, D — negate
 .gadget neg_scalar
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     add x13, _cpu, #CPU_fp
@@ -16040,8 +15728,7 @@ make_widening_accum umlsl, umlsl
 
 // FCMGT S/D, S/D, #0.0
 .gadget fcmgt_scalar_zero
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
     ubfx x12, x8, #16, #1   // sz (0=single, 1=double)
@@ -16066,8 +15753,7 @@ make_widening_accum umlsl, umlsl
 
 // FCMGE S/D, S/D, #0.0
 .gadget fcmge_scalar_zero
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x12, x8, #16, #1
@@ -16092,8 +15778,7 @@ make_widening_accum umlsl, umlsl
 
 // FCMEQ S/D, S/D, #0.0
 .gadget fcmeq_scalar_zero
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x12, x8, #16, #1
@@ -16118,8 +15803,7 @@ make_widening_accum umlsl, umlsl
 
 // FCMLE S/D, S/D, #0.0
 .gadget fcmle_scalar_zero
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x12, x8, #16, #1
@@ -16144,8 +15828,7 @@ make_widening_accum umlsl, umlsl
 
 // FCMLT S/D, S/D, #0.0
 .gadget fcmlt_scalar_zero
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
     ubfx x12, x8, #16, #1
@@ -16166,4 +15849,157 @@ make_widening_accum umlsl, umlsl
     fcmlt d0, d0, #0.0
     str d0, [x14]
     str xzr, [x14, #8]
+    gret
+
+/*
+ * hostop - execute one register-only AdvSIMD/FP instruction natively.
+ * Code stream: [gadget addr][table entry addr][rd | rn<<8 | rm<<16 | ra<<24]
+ *
+ * Each table entry is the guest encoding re-targeted to Rd=v0, Rn=v1, Rm=v2, Ra=v3,
+ * followed by a branch back here, so results are bit-exact with hardware
+ * (NaN propagation, saturation, rounding, fixed-point scaling). Vd is loaded
+ * first because several of these ops read it (FCVTN2/FCVTXN2, USQADD, ...).
+ * gen.c only hands out entries for allocated encodings the host implements.
+ *
+ * The guest FPCR is already live in the host FPCR (see fiber_enter).
+ */
+.gadget hostop
+    ldp x9, x8, [_pc]
+    add _pc, _pc, #16
+    add x13, _cpu, #CPU_fp
+    and x10, x8, #0x1f
+    add x14, x13, x10, lsl #4
+    ubfx x10, x8, #8, #5
+    add x15, x13, x10, lsl #4
+    ubfx x10, x8, #16, #5
+    add x16, x13, x10, lsl #4
+    ubfx x10, x8, #24, #5
+    add x17, x13, x10, lsl #4
+    ldr q0, [x14]
+    ldr q1, [x15]
+    ldr q2, [x16]
+    ldr q3, [x17]
+    br x9
+.Lhostop_done:
+    str q0, [x14]
+    gret
+
+/*
+ * hostop_f2g / hostop_g2f - same idea for FP<->GPR forms (half precision).
+ * Code stream: [gadget addr][table entry addr][rd | rn<<8]
+ * f2g entries use Rd=x0, Rn=v1; g2f entries use Rd=v0, Rn=x0. Register 31 is ZR.
+ */
+.gadget hostop_f2g
+    ldp x9, x8, [_pc]
+    add _pc, _pc, #16
+    add x13, _cpu, #CPU_fp
+    ubfx x10, x8, #8, #5
+    add x15, x13, x10, lsl #4
+    ldr q1, [x15]
+    and x14, x8, #0x1f
+    br x9
+.Lhostop_f2g_done:
+    cmp x14, #31
+    b.eq 1f
+    add x15, _cpu, #CPU_x0
+    str x0, [x15, x14, lsl #3]
+1:  gret
+
+.gadget hostop_g2f
+    ldp x9, x8, [_pc]
+    add _pc, _pc, #16
+    ubfx x10, x8, #8, #5
+    mov x0, #0
+    cmp x10, #31
+    b.eq 1f
+    add x15, _cpu, #CPU_x0
+    ldr x0, [x15, x10, lsl #3]
+1:  and x14, x8, #0x1f
+    add x13, _cpu, #CPU_fp
+    add x14, x13, x14, lsl #4
+    br x9
+.Lhostop_g2f_done:
+    str q0, [x14]
+    gret
+
+.macro hostop_tab name, count, enc, done=.Lhostop_done
+    .p2align 3
+    .global NAME(\name)
+NAME(\name):
+    .set hix, 0
+    .rept \count
+    .inst \enc
+    b \done
+    .set hix, hix + 1
+    .endr
+.endm
+
+// AdvSIMD two-reg misc, vector: index = Q:U:size:opcode
+hostop_tab hostop_misc2_vec, 512, (0x0e200820|((hix>>8)<<30)|(((hix>>7)&1)<<29)|(((hix>>5)&3)<<22)|((hix&31)<<12))
+// AdvSIMD scalar two-reg misc: index = U:size:opcode
+hostop_tab hostop_misc2_scalar, 256, (0x5e200820|(((hix>>7)&1)<<29)|(((hix>>5)&3)<<22)|((hix&31)<<12))
+// AdvSIMD scalar three same: index = U:size:opcode
+hostop_tab hostop_same3_scalar, 256, (0x5e220420|(((hix>>7)&1)<<29)|(((hix>>5)&3)<<22)|((hix&31)<<11))
+// FP data-processing (1 source): index = ftype:opcode
+hostop_tab hostop_fp1, 256, (0x1e204020|((hix>>6)<<22)|((hix&63)<<15))
+// AdvSIMD shift by immediate, vector, one table per opcode: index = Q:U:immh:immb
+hostop_tab hostop_shimm_vec_sqshlu, 512, (0x0f006420|((hix>>8)<<30)|(((hix>>7)&1)<<29)|((hix&127)<<16))
+hostop_tab hostop_shimm_vec_qshl, 512, (0x0f007420|((hix>>8)<<30)|(((hix>>7)&1)<<29)|((hix&127)<<16))
+hostop_tab hostop_shimm_vec_cvtf, 512, (0x0f00e420|((hix>>8)<<30)|(((hix>>7)&1)<<29)|((hix&127)<<16))
+hostop_tab hostop_shimm_vec_fcvtz, 512, (0x0f00fc20|((hix>>8)<<30)|(((hix>>7)&1)<<29)|((hix&127)<<16))
+// AdvSIMD scalar shift by immediate, one table per opcode: index = U:immh:immb
+hostop_tab hostop_shimm_scalar_sqshlu, 256, (0x5f006420|(((hix>>7)&1)<<29)|((hix&127)<<16))
+hostop_tab hostop_shimm_scalar_qshl, 256, (0x5f007420|(((hix>>7)&1)<<29)|((hix&127)<<16))
+hostop_tab hostop_shimm_scalar_cvtf, 256, (0x5f00e420|(((hix>>7)&1)<<29)|((hix&127)<<16))
+hostop_tab hostop_shimm_scalar_fcvtz, 256, (0x5f00fc20|(((hix>>7)&1)<<29)|((hix&127)<<16))
+// FP<->integer conversion, half precision: index = sf:rmode:opcode
+hostop_tab hostop_cvt16_f2g, 64, (0x1ee00020|((hix>>5)<<31)|(((hix>>3)&3)<<19)|((hix&7)<<16)), .Lhostop_f2g_done
+hostop_tab hostop_cvt16_g2f, 64, (0x1ee00000|((hix>>5)<<31)|(((hix>>3)&3)<<19)|((hix&7)<<16)), .Lhostop_g2f_done
+// FP<->fixed-point conversion, half precision: index = sf:U:scale
+hostop_tab hostop_fix16_f2g, 256, (0x1ed80020|((hix>>7)<<31)|(((hix>>6)&1)<<16)|((hix&63)<<10)), .Lhostop_f2g_done
+hostop_tab hostop_fix16_g2f, 256, (0x1ec20000|((hix>>7)<<31)|(((hix>>6)&1)<<16)|((hix&63)<<10)), .Lhostop_g2f_done
+// AdvSIMD three same, vector: index = Q:U:size:opcode
+hostop_tab hostop_same3_vec, 512, (0x0e220420|((hix>>8)<<30)|(((hix>>7)&1)<<29)|(((hix>>5)&3)<<22)|((hix&31)<<11))
+// Shift by immediate, more opcodes: [SU]SRA, [SU]RSRA, SRI, SHL/SLI
+hostop_tab hostop_shimm_vec_sra, 512, (0x0f001420|((hix>>8)<<30)|(((hix>>7)&1)<<29)|((hix&127)<<16))
+hostop_tab hostop_shimm_vec_rsra, 512, (0x0f003420|((hix>>8)<<30)|(((hix>>7)&1)<<29)|((hix&127)<<16))
+hostop_tab hostop_shimm_vec_sri, 512, (0x0f004420|((hix>>8)<<30)|(((hix>>7)&1)<<29)|((hix&127)<<16))
+hostop_tab hostop_shimm_vec_shl, 512, (0x0f005420|((hix>>8)<<30)|(((hix>>7)&1)<<29)|((hix&127)<<16))
+hostop_tab hostop_shimm_scalar_sra, 256, (0x5f001420|(((hix>>7)&1)<<29)|((hix&127)<<16))
+hostop_tab hostop_shimm_scalar_rsra, 256, (0x5f003420|(((hix>>7)&1)<<29)|((hix&127)<<16))
+hostop_tab hostop_shimm_scalar_sri, 256, (0x5f004420|(((hix>>7)&1)<<29)|((hix&127)<<16))
+hostop_tab hostop_shimm_scalar_shl, 256, (0x5f005420|(((hix>>7)&1)<<29)|((hix&127)<<16))
+// PMULL/PMULL2: index = Q:size
+hostop_tab hostop_pmull, 8, (0x0e22e020|((hix>>2)<<30)|((hix&3)<<22))
+// FP data-processing (3 source) FMADD/FMSUB/FNMADD/FNMSUB: index = ftype:o1:o0
+hostop_tab hostop_fp3, 16, (0x1f020c20|((hix>>2)<<22)|(((hix>>1)&1)<<21)|((hix&1)<<15))
+// AdvSIMD (scalar) x indexed element, Rm field = 2 with M=0: index = [Q:]U:size:L:M:H:opcode
+hostop_tab hostop_elem_vec, 2048, (0x0f020020|((hix>>10)<<30)|(((hix>>9)&1)<<29)|(((hix>>7)&3)<<22)|(((hix>>6)&1)<<21)|(((hix>>5)&1)<<20)|(((hix>>4)&1)<<11)|((hix&15)<<12))
+hostop_tab hostop_elem_scalar, 1024, (0x5f020020|(((hix>>9)&1)<<29)|(((hix>>7)&3)<<22)|(((hix>>6)&1)<<21)|(((hix>>5)&1)<<20)|(((hix>>4)&1)<<11)|((hix&15)<<12))
+
+// Xd = constant (MOVZ/MOVN with following MOVKs folded by gen.c)
+// Code stream: [gadget addr][rd][value]
+.gadget set_reg_imm
+    ldp x8, x9, [_pc], #16
+    add x10, _cpu, #CPU_x0
+    str x9, [x10, x8, lsl #3]
+    gret
+
+// Two MOVs. Code stream: [gadget addr][rd1 | rm1<<8 | sf1<<16 | rd2<<24 | rm2<<32 | sf2<<40]
+// Executed in order, so the second sees the first's result.
+.gadget mov_reg_pair
+    ldr x8, [_pc], #8
+    add x14, _cpu, #CPU_x0
+    ubfx x9, x8, #8, #5
+    ldr x16, [x14, x9, lsl #3]
+    tbnz x8, #16, 1f
+    mov w16, w16
+1:  and x9, x8, #0x1f
+    str x16, [x14, x9, lsl #3]
+    ubfx x9, x8, #32, #5
+    ldr x16, [x14, x9, lsl #3]
+    tbnz x8, #40, 2f
+    mov w16, w16
+2:  ubfx x9, x8, #24, #5
+    str x16, [x14, x9, lsl #3]
     gret

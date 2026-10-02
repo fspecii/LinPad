@@ -40,12 +40,9 @@
     // Chained fast path — poke check + periodic timer
     ldr x11, [\reg, #(-FIBER_BLOCK_code + FIBER_BLOCK_addr)]
     str x11, [_cpu, #CPU_pc]
-    // Increment cycle counter; exit to main loop every 1024 cycles for timer check
-    ldr w8, [_cpu, #CPU_cycle]
-    add w8, w8, #1
-    str w8, [_cpu, #CPU_cycle]
-    tst w8, #0x3ff
-    b.eq 7778f
+    // Periodic INT_TIMER: x29 counts chained transitions down (set in fiber_enter)
+    subs x29, x29, #1
+    b.eq 7779f
     // Check poke flag
     ldr x8, [_cpu, #CPU_poked_ptr]
     ldrb w8, [x8]
@@ -54,9 +51,60 @@
     str x8, [_cpu, #LOCAL_last_block]
     mov _pc, \reg
     gret
-7778:   // poke or timer — exit to main loop
+7778:   // poke — exit to main loop
     mov _pc, \reg
     b fiber_ret
+7779:   // timer — leave cpu_run_to_interrupt (CPU_pc is the target)
+    mov w0, #INT_TIMER
+    b fiber_exit
+#endif
+.endm
+
+/*
+ * indirect_chain: continue at guest PC x10 (already in CPU_pc) without leaving
+ * the fiber, if this thread's block cache (tlb->block_cache, filled by the main
+ * loop) has a block for it. Falls back to fiber_ret (main-loop dispatch) when
+ * the cache is stale or misses, the page tables changed, a poke is pending, or
+ * the periodic timer exit is due -- the same conditions fiber_ret_chain uses.
+ * Clobbers x8, x9, x11-x13.
+ */
+.macro indirect_chain
+#ifdef DISABLE_BLOCK_CHAINING
+    b fiber_ret
+#else
+    sub x11, _tlb, #TLB_entries
+    movz x9, #(TLB_block_cache & 0xffff)
+    movk x9, #((TLB_block_cache >> 16) & 0xffff), lsl #16
+    add x9, x9, x11                     // &tlb->block_cache[0]
+    add x12, x9, #(TLB_block_cache_gen - TLB_block_cache)
+    ldr w12, [x12]
+    ldr x13, [x11, #TLB_mmu]
+    ldr x8, [x13, #MMU_asbestos]
+    ldr w8, [x8, #ASBESTOS_invalidate_gen]
+    cmp w12, w8
+    b.ne 9f
+    ldr w12, [x11, #TLB_mem_changes]
+    ldr x8, [x13, #MMU_changes]
+    cmp w12, w8
+    b.ne 9f
+    eor x12, x10, x10, lsr #12
+    and x12, x12, #(FIBER_CACHE_SIZE - 1)
+    ldr x13, [x9, x12, lsl #3]
+    cbz x13, 9f
+    ldr x12, [x13, #FIBER_BLOCK_addr]
+    cmp x12, x10
+    b.ne 9f
+    subs x29, x29, #1
+    b.eq 8f
+    ldr x8, [_cpu, #CPU_poked_ptr]
+    ldrb w8, [x8]
+    cbnz w8, 9f
+    str x13, [_cpu, #LOCAL_last_block]
+    add _pc, x13, #FIBER_BLOCK_code
+    gret
+8:  mov w0, #INT_TIMER
+    b fiber_exit
+9:  b fiber_ret
 #endif
 .endm
 
@@ -127,16 +175,14 @@
     // neither should land in cpu->pc uncleaned.
     and x10, x10, #0xffffffffffff
     str x10, [_cpu, #CPU_pc]
-    // Indirect branch: always return to main loop
-    b fiber_ret
+    indirect_chain
 
 /*
  * Branch to register with link (BLR)
  * Code stream: [gadget addr][rn (64-bit)][return addr (64-bit)]
  */
 .gadget branch_link_reg
-    ldr x8, [_pc]           // rn
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8           // rn
     ldr x11, [_pc]          // return address
 
     and x8, x8, #0x1f
@@ -149,8 +195,7 @@
     // Mask to 48-bit (see branch_reg for rationale)
     and x10, x10, #0xffffffffffff
     str x10, [_cpu, #CPU_pc]
-    // Indirect branch: always return to main loop
-    b fiber_ret
+    indirect_chain
 
 /*
  * Return (RET)
@@ -200,17 +245,15 @@ ret_unchained:
     b fiber_ret
 ret_no_cache:
 #endif
-    b fiber_ret
+    indirect_chain
 
 /*
  * Compare and branch if zero (CBZ)
  * Code stream: [gadget addr][rt | sf<<8 (64-bit)][fake_target (64-bit)][fake_fallthrough (64-bit)]
  */
 .gadget cbz
-    ldr x8, [_pc]           // rt | sf<<8
-    add _pc, _pc, #8
-    ldr x9, [_pc]           // target (fake_ip or chained)
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8           // rt | sf<<8
+    ldr x9, [_pc], #8           // target (fake_ip or chained)
     ldr x10, [_pc]          // fallthrough (fake_ip or chained)
 
     and x11, x8, #0x1f      // rt
@@ -252,10 +295,8 @@ cbz_t_unchained:
  * Code stream: [gadget addr][rt | sf<<8 (64-bit)][fake_target (64-bit)][fake_fallthrough (64-bit)]
  */
 .gadget cbnz
-    ldr x8, [_pc]
-    add _pc, _pc, #8
-    ldr x9, [_pc]           // target
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
+    ldr x9, [_pc], #8           // target
     ldr x10, [_pc]          // fallthrough
 
     and x11, x8, #0x1f
@@ -299,10 +340,8 @@ cbnz_t_unchained:
 
 // CBZ Xt, target (64-bit, rt!=31)
 .gadget cbz_64
-    ldr x8, [_pc]              // rt
-    add _pc, _pc, #8
-    ldr x9, [_pc]              // target
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8              // rt
+    ldr x9, [_pc], #8              // target
     ldr x10, [_pc]             // fallthrough
     add x13, _cpu, #CPU_x0
     ldr x14, [x13, x8, lsl #3] // load 64-bit register value
@@ -323,10 +362,8 @@ cbz_64_t_unchained:
 
 // CBZ Wt, target (32-bit, rt!=31)
 .gadget cbz_32
-    ldr x8, [_pc]
-    add _pc, _pc, #8
-    ldr x9, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
+    ldr x9, [_pc], #8
     ldr x10, [_pc]
     add x13, _cpu, #CPU_x0
     ldr x14, [x13, x8, lsl #3] // load 64-bit, check only low 32
@@ -347,10 +384,8 @@ cbz_32_t_unchained:
 
 // CBNZ Xt, target (64-bit, rt!=31)
 .gadget cbnz_64
-    ldr x8, [_pc]
-    add _pc, _pc, #8
-    ldr x9, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
+    ldr x9, [_pc], #8
     ldr x10, [_pc]
     add x13, _cpu, #CPU_x0
     ldr x14, [x13, x8, lsl #3]
@@ -371,10 +406,8 @@ cbnz_64_t_unchained:
 
 // CBNZ Wt, target (32-bit, rt!=31)
 .gadget cbnz_32
-    ldr x8, [_pc]
-    add _pc, _pc, #8
-    ldr x9, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
+    ldr x9, [_pc], #8
     ldr x10, [_pc]
     add x13, _cpu, #CPU_x0
     ldr x14, [x13, x8, lsl #3]
@@ -416,10 +449,8 @@ cbnz_32_t_unchained:
  *   1111 (15) NV - (reserved, treated as AL)
  */
 .gadget bcond
-    ldr x8, [_pc]           // cond
-    add _pc, _pc, #8
-    ldr x9, [_pc]           // target (fake_ip or chained)
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8           // cond
+    ldr x9, [_pc], #8           // target (fake_ip or chained)
     ldr x10, [_pc]          // fallthrough (fake_ip or chained)
 
     // Extract condition code BEFORE loading flags
@@ -536,8 +567,7 @@ bcond_not_taken_unchained:
  * If condition is false: Xd = Xm
  */
 .gadget csel
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -657,10 +687,8 @@ csel_store:
  * Otherwise: continue to next instruction
  */
 .gadget tbz
-    ldr x8, [_pc]           // rt | bit<<8
-    add _pc, _pc, #8
-    ldr x9, [_pc]           // target (fake_ip or chained)
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8           // rt | bit<<8
+    ldr x9, [_pc], #8           // target (fake_ip or chained)
     ldr x10, [_pc]          // fallthrough (fake_ip or chained)
 
     and x11, x8, #0x1f      // rt
@@ -707,10 +735,8 @@ tbz_nt_unchained:
  * Otherwise: continue to next instruction
  */
 .gadget tbnz
-    ldr x8, [_pc]           // rt | bit<<8
-    add _pc, _pc, #8
-    ldr x9, [_pc]           // target
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8           // rt | bit<<8
+    ldr x9, [_pc], #8           // target
     ldr x10, [_pc]          // fallthrough
 
     and x11, x8, #0x1f      // rt
@@ -758,8 +784,7 @@ tbnz_nt_unchained:
  *   CSET Xd, cond      -> CSINC Xd, XZR, XZR, invert(cond)
  */
 .gadget csinc
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f       // rd
     ubfx x10, x8, #8, #5    // rn
@@ -875,8 +900,7 @@ csinc_store:
  * If condition is false: Xd = NOT(Xm)
  */
 .gadget csinv
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -990,8 +1014,7 @@ csinv_store:
  * If condition is false: Xd = -Xm
  */
 .gadget csneg
-    ldr x8, [_pc]
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8
 
     and x9, x8, #0x1f
     ubfx x10, x8, #8, #5
@@ -1110,8 +1133,7 @@ csneg_store:
 
 .macro make_bcond name, cond
 .gadget bcond_\name
-    ldr x9, [_pc]               // target (fake_ip or chained)
-    add _pc, _pc, #8
+    ldr x9, [_pc], #8               // target (fake_ip or chained)
     ldr x10, [_pc]              // fallthrough (fake_ip or chained)
     load_flags
     b.\cond bcond_taken
@@ -1156,10 +1178,8 @@ make_bcond le, le
  */
 .macro make_fused_cmp_bcond name, cond
 .gadget fused_cmp_bcond_\name
-    ldr x8, [_pc]               // rn | imm12<<8
-    add _pc, _pc, #8
-    ldr x9, [_pc]               // target (fake_ip or chained)
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8               // rn | imm12<<8
+    ldr x9, [_pc], #8               // target (fake_ip or chained)
     ldr x10, [_pc]              // fallthrough (fake_ip or chained)
     and x11, x8, #0x1f          // rn
     ubfx x12, x8, #8, #12       // imm12
@@ -1198,10 +1218,8 @@ make_fused_cmp_bcond le, le
  */
 .macro make_fused_subs_bcond name, cond
 .gadget fused_subs_bcond_\name
-    ldr x8, [_pc]               // rd | rn<<8 | imm12<<16
-    add _pc, _pc, #8
-    ldr x9, [_pc]               // target
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8               // rd | rn<<8 | imm12<<16
+    ldr x9, [_pc], #8               // target
     ldr x10, [_pc]              // fallthrough
     and x11, x8, #0x1f          // rd
     ubfx x12, x8, #8, #5        // rn
@@ -1251,10 +1269,8 @@ make_fused_subs_bcond le, le
  */
 .macro make_fused_cmp32_bcond name, cond
 .gadget fused_cmp32_bcond_\name
-    ldr x8, [_pc]               // rn | imm12<<8
-    add _pc, _pc, #8
-    ldr x9, [_pc]               // target
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8               // rn | imm12<<8
+    ldr x9, [_pc], #8               // target
     ldr x10, [_pc]              // fallthrough
     and x11, x8, #0x1f          // rn
     ubfx x12, x8, #8, #12       // imm12
@@ -1289,10 +1305,8 @@ make_fused_cmp32_bcond le, le
  */
 .macro make_fused_subs32_bcond name, cond
 .gadget fused_subs32_bcond_\name
-    ldr x8, [_pc]               // rd | rn<<8 | imm12<<16
-    add _pc, _pc, #8
-    ldr x9, [_pc]               // target
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8               // rd | rn<<8 | imm12<<16
+    ldr x9, [_pc], #8               // target
     ldr x10, [_pc]              // fallthrough
     and x11, x8, #0x1f          // rd
     ubfx x12, x8, #8, #5        // rn
@@ -1383,10 +1397,8 @@ make_fused_and_cmp32_bcond le, le
  */
 .macro make_fused_cmp_reg_bcond name, cond
 .gadget fused_cmp_reg_bcond_\name
-    ldr x8, [_pc]               // rn | rm<<8
-    add _pc, _pc, #8
-    ldr x9, [_pc]               // target
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8               // rn | rm<<8
+    ldr x9, [_pc], #8               // target
     ldr x10, [_pc]              // fallthrough
     and x11, x8, #0x1f          // rn
     ubfx x12, x8, #8, #5        // rm
@@ -1416,15 +1428,82 @@ make_fused_cmp_reg_bcond gt, gt
 make_fused_cmp_reg_bcond le, le
 
 /*
+ * 32-bit variants: CMP Wn, Wm / SUBS Wd, Wn, Wm + B.cond (no shift, no WZR).
+ * Same code stream layouts as the 64-bit gadgets.
+ */
+.macro make_fused_cmp32_reg_bcond name, cond
+.gadget fused_cmp32_reg_bcond_\name
+    ldp x8, x9, [_pc]           // rn | rm<<8, target
+    ldr x10, [_pc, #16]         // fallthrough
+    add _pc, _pc, #16
+    and x11, x8, #0x1f
+    ubfx x12, x8, #8, #5
+    add x13, _cpu, #CPU_x0
+    ldr x14, [x13, x11, lsl #3]
+    ldr x15, [x13, x12, lsl #3]
+    subs wzr, w14, w15
+    mrs x16, nzcv
+    str w16, [_cpu, #CPU_nzcv]
+    b.\cond bcond_taken
+    b bcond_not_taken
+.endm
+
+.macro make_fused_subs32_reg_bcond name, cond
+.gadget fused_subs32_reg_bcond_\name
+    ldp x8, x9, [_pc]           // rd | rn<<8 | rm<<16, target
+    ldr x10, [_pc, #16]         // fallthrough
+    add _pc, _pc, #16
+    and x11, x8, #0x1f
+    ubfx x12, x8, #8, #5
+    ubfx x13, x8, #16, #5
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x12, lsl #3]
+    ldr x16, [x14, x13, lsl #3]
+    subs w15, w15, w16
+    str x15, [x14, x11, lsl #3]
+    mrs x15, nzcv
+    str w15, [_cpu, #CPU_nzcv]
+    b.\cond bcond_taken
+    b bcond_not_taken
+.endm
+
+make_fused_cmp32_reg_bcond eq, eq
+make_fused_cmp32_reg_bcond ne, ne
+make_fused_cmp32_reg_bcond cs, cs
+make_fused_cmp32_reg_bcond cc, cc
+make_fused_cmp32_reg_bcond mi, mi
+make_fused_cmp32_reg_bcond pl, pl
+make_fused_cmp32_reg_bcond vs, vs
+make_fused_cmp32_reg_bcond vc, vc
+make_fused_cmp32_reg_bcond hi, hi
+make_fused_cmp32_reg_bcond ls, ls
+make_fused_cmp32_reg_bcond ge, ge
+make_fused_cmp32_reg_bcond lt, lt
+make_fused_cmp32_reg_bcond gt, gt
+make_fused_cmp32_reg_bcond le, le
+make_fused_subs32_reg_bcond eq, eq
+make_fused_subs32_reg_bcond ne, ne
+make_fused_subs32_reg_bcond cs, cs
+make_fused_subs32_reg_bcond cc, cc
+make_fused_subs32_reg_bcond mi, mi
+make_fused_subs32_reg_bcond pl, pl
+make_fused_subs32_reg_bcond vs, vs
+make_fused_subs32_reg_bcond vc, vc
+make_fused_subs32_reg_bcond hi, hi
+make_fused_subs32_reg_bcond ls, ls
+make_fused_subs32_reg_bcond ge, ge
+make_fused_subs32_reg_bcond lt, lt
+make_fused_subs32_reg_bcond gt, gt
+make_fused_subs32_reg_bcond le, le
+
+/*
  * Fused SUBS Xd, Xn, Xm + B.cond (64-bit, rd!=31, result stored)
  * Code stream: [gadget addr][rd | rn<<8 | rm<<16][fake_target][fake_fallthrough]
  */
 .macro make_fused_subs_reg_bcond name, cond
 .gadget fused_subs_reg_bcond_\name
-    ldr x8, [_pc]               // rd | rn<<8 | rm<<16
-    add _pc, _pc, #8
-    ldr x9, [_pc]               // target
-    add _pc, _pc, #8
+    ldr x8, [_pc], #8               // rd | rn<<8 | rm<<16
+    ldr x9, [_pc], #8               // target
     ldr x10, [_pc]              // fallthrough
     and x11, x8, #0x1f          // rd
     ubfx x12, x8, #8, #5        // rn

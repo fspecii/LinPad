@@ -14,6 +14,9 @@
 #include "kernel/memory.h"
 #include "util/list.h"
 #include "util/signpost.h"
+#ifdef ISH_JIT
+#include "jit/jit.h"
+#endif
 
 // Thread-local recovery state for JIT crash handling.
 // When a host SIGSEGV occurs inside JIT code (due to a stale TLB pointer
@@ -129,6 +132,55 @@ volatile addr_t g_watch_page_val = 0;
 // 64K entries; reader (atexit handler) processes after run.
 __attribute__((aligned(64))) uint64_t g_profile_buf[65536] = {0};
 __attribute__((aligned(64))) uint64_t g_profile_idx = 0;
+
+// ISH_PAIR_PROFILE=<file>: a sampler thread snapshots the ring every 2 ms and
+// accumulates adjacent gadget pairs over the whole run (the atexit dump in
+// main.c only sees the last 64K dispatches). Written to <file> as
+// "count addr_a addr_b" lines (host addresses; symbolize with nm) at exit.
+#include <pthread.h>
+#include <unistd.h>
+#define PAIR_TBL (1 << 16)
+static struct { uint64_t a, b, n; } pair_tbl[PAIR_TBL];
+static const char *pair_out;
+static void pair_add(uint64_t a, uint64_t b) {
+    uint64_t h = ((a * 0x9e3779b97f4a7c15ull) ^ (b * 0xbf58476d1ce4e5b9ull)) >> 48;
+    for (unsigned i = 0; i < PAIR_TBL; i++) {
+        unsigned j = (h + i) & (PAIR_TBL - 1);
+        if (pair_tbl[j].n == 0) { pair_tbl[j].a = a; pair_tbl[j].b = b; }
+        if (pair_tbl[j].a == a && pair_tbl[j].b == b) { pair_tbl[j].n++; return; }
+    }
+}
+static void pair_dump(void);
+static void *pair_sampler(void *arg) {
+    (void) arg;
+    for (unsigned tick = 1;; tick++) {
+        usleep(2000);
+        if (tick % 500 == 0)
+            pair_dump();
+        uint64_t idx = __atomic_load_n(&g_profile_idx, __ATOMIC_RELAXED);
+        if (idx < 4096) continue;
+        for (uint64_t k = idx - 4096; k + 1 < idx - 64; k++) {
+            uint64_t a = g_profile_buf[k & 0xffff], b = g_profile_buf[(k + 1) & 0xffff];
+            if (a && b) pair_add(a, b);
+        }
+    }
+    return NULL;
+}
+static void pair_dump(void) {
+    FILE *f = fopen(pair_out, "w");
+    if (!f) return;
+    fprintf(f, "ANCHOR %#llx\n", (unsigned long long) (uintptr_t) pair_dump);
+    for (unsigned j = 0; j < PAIR_TBL; j++)
+        if (pair_tbl[j].n) fprintf(f, "%llu %#llx %#llx\n", (unsigned long long) pair_tbl[j].n,
+                                   (unsigned long long) pair_tbl[j].a, (unsigned long long) pair_tbl[j].b);
+    fclose(f);
+}
+__attribute__((constructor)) static void pair_profile_init(void) {
+    pair_out = getenv("ISH_PAIR_PROFILE");
+    if (!pair_out) return;
+    pthread_t t;
+    pthread_create(&t, NULL, pair_sampler, NULL);
+}
 #endif
 
 void jit_trace_regs(struct cpu_state *cpu) { (void)cpu; }
@@ -143,16 +195,138 @@ static void fiber_block_free(struct asbestos *asbestos, struct fiber_block *bloc
 static void fiber_free_jetsam(struct asbestos *asbestos);
 static void fiber_resize_hash(struct asbestos *asbestos, size_t new_size);
 
+// Generations are unique across all asbestos instances. A TLB keeps its block
+// cache and return cache across execve, and the new mm (and so the new asbestos)
+// is often malloc'd at the old address, so tlb_refresh cannot tell them apart.
+// If both started at generation 0 the TLB would keep pointers to the old
+// asbestos's freed blocks and jump into them.
+static unsigned asbestos_gen_counter;
+
+static unsigned asbestos_next_gen(void) {
+    unsigned gen;
+    do
+        gen = __atomic_add_fetch(&asbestos_gen_counter, 1, __ATOMIC_RELAXED);
+    while (gen == 0);  // 0 is what tlb_refresh resets block_cache_gen to
+    return gen;
+}
+
+// Exact page -> blocks index. Each guest page that ever held a block gets a
+// page_entry (never freed before asbestos_free; there are only as many as code
+// pages). The slot array is open-addressed and grows under asbestos->lock; old
+// arrays are kept on a retired chain so the lock-free reader in
+// asbestos_invalidate_page never touches freed memory.
+//
+// This replaced a 1024-bucket `page % N` table. Invalidating any page dropped
+// every block in its bucket, so a write to an unrelated data page threw away
+// code (retranslation showed up in every JIT-heavy workload). Making that table
+// page-precise but keeping buckets made huge munmaps (V8 reserves GBs) cost
+// pages x bucket-length, which is why the first attempt slowed node down 4x.
+struct page_entry {
+    page_t page;
+    struct list blocks[2];
+};
+struct page_table {
+    size_t size, used;
+    struct page_table *retired;
+    struct page_entry *slot[];
+};
+
+static inline size_t page_slot(page_t page, size_t size) {
+    return (size_t) (((uint64_t) page * 0x9e3779b97f4a7c15ull) >> 32) & (size - 1);
+}
+
+static struct page_table *page_table_new(size_t size) {
+    struct page_table *t = calloc(1, sizeof(*t) + size * sizeof(t->slot[0]));
+    t->size = size;
+    return t;
+}
+
+static void page_table_free(struct page_table *t) {
+    for (size_t i = 0; i < t->size; i++)
+        free(t->slot[i]);  // the newest table holds every entry
+    while (t != NULL) {
+        struct page_table *next = t->retired;
+        free(t);
+        t = next;
+    }
+}
+
+static struct page_entry *page_find(struct asbestos *asbestos, page_t page) {
+    struct page_table *t = __atomic_load_n(&asbestos->pages, __ATOMIC_ACQUIRE);
+    for (size_t i = page_slot(page, t->size);; i = (i + 1) & (t->size - 1)) {
+        struct page_entry *e = __atomic_load_n(&t->slot[i], __ATOMIC_ACQUIRE);
+        if (e == NULL || e->page == page)
+            return e;
+    }
+}
+
+// Caller holds asbestos->lock.
+static struct page_entry *page_get(struct asbestos *asbestos, page_t page) {
+    struct page_entry *e = page_find(asbestos, page);
+    if (e != NULL)
+        return e;
+    struct page_table *t = asbestos->pages;
+    if ((t->used + 1) * 2 > t->size) {
+        struct page_table *bigger = page_table_new(t->size * 2);
+        for (size_t i = 0; i < t->size; i++) {
+            struct page_entry *old = t->slot[i];
+            if (old == NULL)
+                continue;
+            size_t j = page_slot(old->page, bigger->size);
+            while (bigger->slot[j] != NULL)
+                j = (j + 1) & (bigger->size - 1);
+            bigger->slot[j] = old;
+        }
+        bigger->used = t->used;
+        bigger->retired = t;  // entries are shared; only the newest table owns them
+        __atomic_store_n(&asbestos->pages, bigger, __ATOMIC_RELEASE);
+        t = bigger;
+    }
+    e = calloc(1, sizeof(*e));
+    e->page = page;
+    list_init(&e->blocks[0]);
+    list_init(&e->blocks[1]);
+    size_t i = page_slot(page, t->size);
+    while (t->slot[i] != NULL)
+        i = (i + 1) & (t->size - 1);
+    t->used++;
+    __atomic_store_n(&t->slot[i], e, __ATOMIC_RELEASE);
+    return e;
+}
+
+static bool page_has_blocks(struct page_entry *e) {
+    return e != NULL && (!list_empty(&e->blocks[0]) || !list_empty(&e->blocks[1]));
+}
+
+// Caller holds asbestos->lock.
+static bool page_drop_blocks(struct asbestos *asbestos, struct page_entry *e) {
+    bool dropped = false;
+    struct fiber_block *block, *tmp;
+    for (int i = 0; i <= 1; i++) {
+        list_for_each_entry_safe(&e->blocks[i], block, tmp, page[i]) {
+            fiber_block_disconnect(asbestos, block);
+            block->is_jetsam = true;
+            list_add(&asbestos->jetsam, &block->jetsam);
+            dropped = true;
+        }
+    }
+    return dropped;
+}
+
 struct asbestos *asbestos_new(struct mmu *mmu) {
     struct asbestos *asbestos = calloc(1, sizeof(struct asbestos));
     asbestos->mmu = mmu;
+    asbestos->invalidate_gen = asbestos_next_gen();
     fiber_resize_hash(asbestos, FIBER_INITIAL_HASH_SIZE);
-    asbestos->page_hash = calloc(FIBER_PAGE_HASH_SIZE, sizeof(*asbestos->page_hash));
+    asbestos->pages = page_table_new(256);
     list_init(&asbestos->jetsam);
     lock_init(&asbestos->lock);
     wrlock_init(&asbestos->jetsam_lock);
     atomic_init(&asbestos->jit_active_threads, 0);
     atomic_init(&asbestos->jetsam_gen, 0);
+#ifdef ISH_JIT
+    asbestos->jit = jit_enabled() ? jit_mm_new(mmu) : NULL;
+#endif
     return asbestos;
 }
 
@@ -166,73 +340,80 @@ void asbestos_free(struct asbestos *asbestos) {
         }
     }
     fiber_free_jetsam(asbestos);
-    free(asbestos->page_hash);
+#ifdef ISH_JIT
+    jit_mm_free(asbestos->jit);
+#endif
+    page_table_free(asbestos->pages);
     free(asbestos->hash);
     free(asbestos);
 }
 
-static inline struct list *blocks_list(struct asbestos *asbestos, page_t page, int i) {
-    // TODO is this a good hash function?
-    return &asbestos->page_hash[page % FIBER_PAGE_HASH_SIZE].blocks[i];
-}
-
 void asbestos_invalidate_range(struct asbestos *absestos, page_t start, page_t end) {
+#ifdef ISH_JIT
+    jit_invalidate_range(absestos->jit, start, end);
+#endif
     lock(&absestos->lock);
     bool did_invalidate = false;
-    struct fiber_block *block, *tmp;
-    for (page_t page = start; page < end; page++) {
-        for (int i = 0; i <= 1; i++) {
-            struct list *blocks = blocks_list(absestos, page, i);
-            if (list_null(blocks))
-                continue;
-            list_for_each_entry_safe(blocks, block, tmp, page[i]) {
-                fiber_block_disconnect(absestos, block);
-                block->is_jetsam = true;
-                list_add(&absestos->jetsam, &block->jetsam);
-                did_invalidate = true;
-            }
+    struct page_table *t = absestos->pages;
+    if (end - start <= t->size) {
+        for (page_t page = start; page < end; page++) {
+            struct page_entry *e = page_find(absestos, page);
+            if (page_has_blocks(e))
+                did_invalidate |= page_drop_blocks(absestos, e);
+        }
+    } else {
+        // Large ranges (munmap of a multi-GB reservation): walk the table once.
+        for (size_t i = 0; i < t->size; i++) {
+            struct page_entry *e = t->slot[i];
+            if (e != NULL && e->page >= start && e->page < end && page_has_blocks(e))
+                did_invalidate |= page_drop_blocks(absestos, e);
         }
     }
     if (did_invalidate)
-        absestos->invalidate_gen++;
+        absestos->invalidate_gen = asbestos_next_gen();
     unlock(&absestos->lock);
 }
 
 void asbestos_invalidate_page(struct asbestos *asbestos, page_t page) {
-    // Fast path: skip lock if no blocks exist on this page.
-    // page_hash is only modified under asbestos->lock, and list_null is a
-    // single pointer read, so a racy false-negative just means we take
-    // the slow path unnecessarily (safe). A false-positive is impossible
-    // because blocks are always added before being linked into page_hash.
-    for (int i = 0; i <= 1; i++) {
-        struct list *blocks = blocks_list(asbestos, page, i);
-        if (!list_null(blocks))
-            goto slow_path;
-    }
-    return;
-slow_path:
-    asbestos_invalidate_range(asbestos, page, page + 1);
+    // Fast path without the lock. The racy read can only miss a block that is
+    // being translated concurrently with a write to its code: munmap/mprotect/
+    // CoW paths hold mem->lock for writing, which excludes running and
+    // translating guest code, and a guest that modifies code it is executing
+    // must issue IC IVAU anyway (handled by the ic_ivau gadget).
+#ifdef ISH_JIT
+    jit_invalidate_range(asbestos->jit, page, page + 1);
+#endif
+    if (!page_has_blocks(page_find(asbestos, page)))
+        return;
+    lock(&asbestos->lock);
+    struct page_entry *e = page_find(asbestos, page);
+    if (page_has_blocks(e) && page_drop_blocks(asbestos, e))
+        asbestos->invalidate_gen = asbestos_next_gen();
+    unlock(&asbestos->lock);
 }
+
 void asbestos_invalidate_all(struct asbestos *asbestos) {
+#ifdef ISH_JIT
+    jit_invalidate_all(asbestos->jit);
+#endif
     lock(&asbestos->lock);
     bool did_invalidate = false;
-    struct fiber_block *block, *tmp;
-    for (size_t bucket = 0; bucket < FIBER_PAGE_HASH_SIZE; bucket++) {
-        for (int i = 0; i <= 1; i++) {
-            struct list *blocks = &asbestos->page_hash[bucket].blocks[i];
-            if (list_null(blocks))
-                continue;
-            list_for_each_entry_safe(blocks, block, tmp, page[i]) {
-                fiber_block_disconnect(asbestos, block);
-                block->is_jetsam = true;
-                list_add(&asbestos->jetsam, &block->jetsam);
-                did_invalidate = true;
-            }
-        }
+    struct page_table *t = asbestos->pages;
+    for (size_t i = 0; i < t->size; i++) {
+        struct page_entry *e = t->slot[i];
+        if (page_has_blocks(e))
+            did_invalidate |= page_drop_blocks(asbestos, e);
     }
     if (did_invalidate)
-        asbestos->invalidate_gen++;
+        asbestos->invalidate_gen = asbestos_next_gen();
     unlock(&asbestos->lock);
+}
+
+// Block hash: guest code addresses are 4-byte aligned and clustered, so a plain
+// `addr % size` (size is a power of two) left 3/4 of the buckets empty and gave
+// long chains that dominated block lookups. Multiplicative hashing spreads them.
+static inline size_t fiber_hash(addr_t addr, size_t size) {
+    return (size_t) (((uint64_t) addr * 0x9e3779b97f4a7c15ull) >> 32) & (size - 1);
 }
 
 static void fiber_resize_hash(struct asbestos *asbestos, size_t new_size) {
@@ -244,7 +425,7 @@ static void fiber_resize_hash(struct asbestos *asbestos, size_t new_size) {
         struct fiber_block *block, *tmp;
         list_for_each_entry_safe(&asbestos->hash[i], block, tmp, chain) {
             list_remove(&block->chain);
-            list_init_add(&new_hash[block->addr % new_size], &block->chain);
+            list_init_add(&new_hash[fiber_hash(block->addr, new_size)], &block->chain);
         }
     }
     free(asbestos->hash);
@@ -256,17 +437,17 @@ static void fiber_insert(struct asbestos *asbestos, struct fiber_block *block) {
     asbestos->mem_used += block->used;
     asbestos->num_blocks++;
     // target an average hash chain length of 1-2
-    if (asbestos->num_blocks >= asbestos->hash_size * 2)
+    if (asbestos->num_blocks >= asbestos->hash_size)
         fiber_resize_hash(asbestos, asbestos->hash_size * 2);
 
-    list_init_add(&asbestos->hash[block->addr % asbestos->hash_size], &block->chain);
-    list_init_add(blocks_list(asbestos, PAGE(block->addr), 0), &block->page[0]);
+    list_init_add(&asbestos->hash[fiber_hash(block->addr, asbestos->hash_size)], &block->chain);
+    list_add(&page_get(asbestos, PAGE(block->addr))->blocks[0], &block->page[0]);
     if (PAGE(block->addr) != PAGE(block->end_addr))
-        list_init_add(blocks_list(asbestos, PAGE(block->end_addr), 1), &block->page[1]);
+        list_add(&page_get(asbestos, PAGE(block->end_addr))->blocks[1], &block->page[1]);
 }
 
 static struct fiber_block *fiber_lookup(struct asbestos *asbestos, addr_t addr) {
-    struct list *bucket = &asbestos->hash[addr % asbestos->hash_size];
+    struct list *bucket = &asbestos->hash[fiber_hash(addr, asbestos->hash_size)];
     if (list_null(bucket))
         return NULL;
     struct fiber_block *block;
@@ -336,11 +517,35 @@ static void fiber_free_jetsam(struct asbestos *asbestos) {
     }
 }
 
-int fiber_enter(struct fiber_block *block, struct fiber_frame *frame, struct tlb *tlb);
+int fiber_enter_raw(struct fiber_block *block, struct fiber_frame *frame, struct tlb *tlb);
+
+// Frame of the fiber this thread is running, for the host crash handler. It
+// used to take the frame from x1 (_cpu), but faults can also happen inside C
+// helpers called from gadgets (c_atomic_cas, crosspage copies, ...), where x1
+// is clobbered: the handler then read jit_exit_sp from a random address and
+// took the whole emulator down instead of returning INT_JIT_CRASH.
+__thread struct fiber_frame *volatile jit_saved_frame;
+
+int fiber_enter(struct fiber_block *block, struct fiber_frame *frame, struct tlb *tlb) {
+    struct fiber_frame *outer = jit_saved_frame;
+    jit_saved_frame = frame;
+    int interrupt = fiber_enter_raw(block, frame, tlb);
+    jit_saved_frame = outer;
+    return interrupt;
+}
 static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb);
 
 static inline size_t fiber_cache_hash(addr_t ip) {
     return (ip ^ (ip >> 12)) & (FIBER_CACHE_SIZE - 1);
+}
+
+// Copy the frame's CPU state back to the task, except _poked. The frame copy of
+// _poked is a snapshot from fiber entry; writing it back re-armed a poke that
+// the dispatch loop had already consumed (and could drop one that arrived
+// meanwhile), so after the first poke every block transition became an
+// INT_TIMER round trip through handle_interrupt. _poked is the last field.
+static inline void cpu_writeback(struct cpu_state *cpu, const struct cpu_state *frame_cpu) {
+    memcpy(cpu, frame_cpu, offsetof(struct cpu_state, _poked));
 }
 
 static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
@@ -407,7 +612,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         // tagged address (which reads unmapped memory forever).
         if (ip & 0xffff000000000000ULL) {
             read_wrunlock(&asbestos->jetsam_lock);
-            *cpu = frame->cpu;
+            cpu_writeback(cpu, &frame->cpu);
             cpu->segfault_addr = ip;
             cpu->segfault_was_write = 0;
             cpu->pc = ip & 0xffffffffffffULL;
@@ -425,7 +630,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             // Release asbestos jetsam_lock held by cpu_step_to_interrupt
             // before calling do_exit_group (which may synchronously reap).
             read_wrunlock(&asbestos->jetsam_lock);
-            *cpu = frame->cpu;
+            cpu_writeback(cpu, &frame->cpu);
             // Fall through to cpu_run_to_interrupt — return INT_GPF with
             // a canonical write=0 so handle_interrupt delivers SIGSEGV.
             cpu->segfault_addr = 0;
@@ -446,14 +651,32 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             if (block == NULL || block->addr != ip) {
                 lock(&asbestos->lock);
                 block = fiber_lookup(asbestos, ip);
+                unsigned gen = asbestos->invalidate_gen;
+                unlock(&asbestos->lock);
                 if (block == NULL) {
-                    block = fiber_block_compile(ip, tlb);
-                    fiber_insert(asbestos, block);
+                    // Translate without holding asbestos->lock: with many guest
+                    // threads (Firefox, node) the lock was mostly held by
+                    // translation and the other threads queued behind it.
+                    struct fiber_block *fresh = fiber_block_compile(ip, tlb);
+                    lock(&asbestos->lock);
+                    block = fiber_lookup(asbestos, ip);
+                    if (block == NULL) {
+                        if (asbestos->invalidate_gen != gen) {
+                            // Something was invalidated meanwhile; the bytes we
+                            // translated may be stale, so translate again here.
+                            free(fresh);
+                            fresh = fiber_block_compile(ip, tlb);
+                        }
+                        fiber_insert(asbestos, fresh);
+                        block = fresh;
+                        fresh = NULL;
+                    }
+                    unlock(&asbestos->lock);
+                    free(fresh);  // another thread inserted this ip first
                 } else {
                     TRACE("%d %08x --- missed cache\n", current_pid(), ip);
                 }
                 cache[cache_index] = block;
-                unlock(&asbestos->lock);
             }
         }
         struct fiber_block *last_block = frame->last_block;
@@ -466,8 +689,12 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                 // and is thus assumed to have no pointers left
                 if (!last_block->is_jetsam && !block->is_jetsam) {
                     for (int i = 0; i <= 1; i++) {
-                        if (last_block->jump_ip[i] != NULL &&
-                                (*last_block->jump_ip[i] & 0xffffffff) == block->addr) {
+                        // Unpatched slots hold the target as a fake_ip (bit 63 set,
+                        // 48-bit guest address). Comparing only the low 32 bits
+                        // never chained branches above 4 GB (JIT code heaps,
+                        // libpas) and could match an already-patched host pointer.
+                        unsigned long slot = last_block->jump_ip[i] != NULL ? *last_block->jump_ip[i] : 0;
+                        if ((slot >> 63) && (slot & 0xffffffffffffUL) == block->addr) {
                             *last_block->jump_ip[i] = (unsigned long) block->code;
                             list_add(&block->jumps_from[i], &last_block->jumps_from_links[i]);
                         }
@@ -541,7 +768,9 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
         if (interrupt == INT_NONE && __atomic_exchange_n(frame->cpu.poked_ptr, false, __ATOMIC_ACQUIRE))
             interrupt = INT_TIMER;
-        if (interrupt == INT_NONE && (++frame->cpu.cycle & ((1 << 10) - 1)) == 0)
+        // Same period as TIMER_PERIOD_MASK in the arm64 gadgets (chained transitions
+        // count too, so this fires about every 8K blocks however they are reached).
+        if (interrupt == INT_NONE && (++frame->cpu.cycle & ((1 << 13) - 1)) == 0)
             interrupt = INT_TIMER;
         // PC histogram: sample on every block exit (not just timer ticks).
         // Weight by guest insn count of the block just executed; this gives
@@ -561,7 +790,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                 atomic_fetch_add_explicit(&pc_hist[pc >> PC_HIST_SHIFT], weight, memory_order_relaxed);
         }
     }
-    *cpu = frame->cpu;
+    cpu_writeback(cpu, &frame->cpu);
 
     // Release jetsam_lock read. Jetsam cleanup can now proceed.
     read_wrunlock(&asbestos->jetsam_lock);
@@ -588,8 +817,10 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
 
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     ish_thread_marker = 1;
-    if (cpu->poked_ptr == NULL)
-        cpu->poked_ptr = &cpu->_poked;
+    // Always our own flag: fork/clone copy the whole parent task (task_create_
+    // does *task = *parent), so a child's poked_ptr starts out pointing into the
+    // parent's task struct.
+    cpu->poked_ptr = &cpu->_poked;
 #ifdef GUEST_ARM64
     // NOTE: Do NOT invalidate exclusive monitor here.
     // This function is called once, but the inner loop (cpu_step_to_interrupt)
@@ -602,7 +833,12 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     struct asbestos *asbestos = cpu->mmu->asbestos;
     __atomic_add_fetch(&asbestos->active_threads, 1, __ATOMIC_RELAXED);
     tlb_refresh(tlb, cpu->mmu);
+#ifdef ISH_JIT
+    int interrupt = asbestos->jit ? jit_run(cpu, tlb, asbestos->jit) :
+        (CPU_HAS_SINGLE_STEP ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb);
+#else
     int interrupt = (CPU_HAS_SINGLE_STEP ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb);
+#endif
     cpu->trapno = interrupt;
     __atomic_sub_fetch(&asbestos->active_threads, 1, __ATOMIC_RELAXED);
 
