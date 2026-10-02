@@ -51,3 +51,5 @@ themes/kylin/ref/
 /gpu/tests/mvk_import
 /gpu/tests/mvk_noimport
 .DS_Store
+gpu/sim-root.txt
+gpu/sim-udid.txt
