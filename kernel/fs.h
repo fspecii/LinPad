@@ -176,6 +176,8 @@ struct mount *find_mount_and_trim_path(char *path);
 
 // adhoc fs
 struct fd *adhoc_fd_create(const struct fd_ops *ops);
+// fills fd->stat from the host fd (real_fd)
+void adhoc_stat_from_host(struct fd *fd);
 // this is for the "wtf is apple smoking" section
 bool is_adhoc_fd(struct fd *fd);
 
