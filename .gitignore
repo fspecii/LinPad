@@ -53,3 +53,4 @@ themes/kylin/ref/
 .DS_Store
 gpu/sim-root.txt
 gpu/sim-udid.txt
+/site/dist/
