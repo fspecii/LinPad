@@ -31,6 +31,76 @@ trackpad, touch). Install steps are in `release/INSTALL-DEVICE.md`. Test evidenc
   `build-rootfs.sh` run picks it up, and roots already installed are re-branded by that
   rootfs's update.
 
+## Optional apps (LinPad keeps lean: nothing below is preinstalled)
+
+The catalog is `release/guest/linpad/catalog.json` → `/usr/share/linpad/catalog.json`.
+Each entry has an id, name, description, category, size estimate, its apk packages or
+installer script, a desktop entry, an icon, and "recommended" / "experimental" flags.
+
+**`linpad-apps`** (`/usr/local/bin`; `ish-firstrun` is a compatibility wrapper):
+- `list [--json]`, `install ID…`, `remove ID…`, `pending`, `firstrun`.
+- Idempotent. A pack counts as installed when its packages are in apk's world, or when
+  its check file exists.
+- After every change it re-pins edge's libdrm, libxcb and wayland-libs-client, so Mesa 26
+  keeps working, and refreshes the icon cache.
+- Remove keeps packages that another installed pack still uses.
+
+**VLC moved out of the base image.**
+- finalize.sh stashes LinPad's prebuilt VLC Wayland plugins, compat library, `ish-vlc` and
+  its desktop entry in `/usr/local/share/linpad/packs/vlc`, then runs
+  `apk del vlc vlc-qt ffmpeg`.
+- The Multimedia pack reinstalls VLC and puts the stashed files back, so nothing is
+  compiled on the iPad.
+
+**Native UI.**
+- Onboarding shows the catalog as a checkbox list, grouped by category with sizes. Nothing
+  is preselected.
+- Ticked apps install in the background after "Start Using the Desktop", and a toast
+  points to Settings › Apps.
+- Settings › Apps (`Apps/SettingsApp.swift`, opened directly with `page=apps`) has
+  Install and Remove buttons, per-app progress, installed state read from the guest, and
+  a live log.
+- Both use one `AppCatalogModel` per host (`Core/System/AppCatalog.swift`), which runs one
+  `linpad-apps` at a time because apk locks its database.
+- Linux systems without the catalog fall back to the old three-item list.
+
+**Verified on the CLI.** Release emulator, current lean rootfs, each pack installed with
+`linpad-apps install` and then launched under headless ishwl. The Mac's load average was
+around 700–900, so install times are inflated:
+
+| Pack | Install | Added | Launch | |
+|---|---|---|---|---|
+| Image viewer (Ristretto) | ok, 115 s | ~5 MB | **ok** | `release-shots/packs/image-viewer.png` |
+| Archive manager (Xarchiver) | ok, 124 s | 3 MB | **ok** | `packs/archives.png` |
+| PDF viewer (zathura + MuPDF) | ok, 487 s | 48 MB | **ok**: the sample PDF renders | `packs/pdf.png` |
+| Claws Mail (recommended mail) | ok, 94 s | 177 MB | **ok**: setup wizard | `packs/mail-light.png` |
+| Thunderbird | ok, 45 s | 214 MB | **ok**: account setup | `packs/mail.png` |
+| VLC (Multimedia) | ok, 70 s | 92 MB | **ok**: video frames through the stashed Wayland plugin | `packs/multimedia.png` |
+| GPU tools (mesa-utils) | ok, 65 s | ~0 | installs. The CLI emulator has no GPU node, so eglinfo can't initialise; check on the device | |
+| GIMP | ok, 46 s | 89 MB | GIMP 2.10 is X11 only. The pack now adds xwayland and a `gimp x11` launch rule. **ok** after the rule: full GIMP window (`packs/image-editor.png`) | |
+| Extra browsers (Falkon, Dillo) | ok, 130 s | 539 MB | Dillo needs its x11 rule (present); Falkon **did not start** (Qt 6 now offers only the "wayland-egl" buffer integration, and the session forces "none"). Pack marked **experimental** | |
+| LibreOffice | not run (time and machine load) | | marked **experimental** | |
+| Developer extras | not run | | marked **experimental** | |
+| Visual Studio Code | existing installer, verified by the VS Code agent | | | |
+
+**Verified in the simulator** (fresh iPad Air 11 M3; catalog injected into the current
+rootfs; `ReleaseHarness` `test5AppCatalog` passes; screenshots `release-shots/60–64-*.png`):
+- Onboarding lists the catalog, grouped by category with sizes and Recommended /
+  Experimental tags. Nothing is ticked.
+- Ticking Ristretto and starting the desktop installed it in the background.
+- Settings › Apps showed "Installing Image viewer (Ristretto)", then a Remove button.
+- `linpad-apps list` in the guest agreed. Remove brought the Install button back.
+
+Notes:
+- **Emulator bug: node output to a pipe can be lost in the app.** Under the app's process
+  launcher, `node -e 'console.log(1)'` printed nothing to the desktop, while
+  `fs.writeSync(1, …)` and stderr worked. `linpad-apps` therefore writes with
+  `fs.writeSync`. It works on the CLI when redirected to a file.
+- **Mail.** Geary needs WebKitGTK, which is blocked under the emulator, so Claws Mail is the
+  light mail option.
+- **PDF.** Papers/Evince were skipped in favour of zathura, which is smaller and works.
+  Quick Look in Files also previews PDFs natively.
+
 ## Features in this release
 
 **Desktop (DesktopKit, native SwiftUI)**

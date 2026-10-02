@@ -293,6 +293,39 @@ final class ReleaseUITests: XCTestCase {
         app.terminate()
     }
 
+    /// Optional apps: the catalog in onboarding (nothing preselected), the background install
+    /// of a ticked app, and Settings › Apps with its log, install and remove. The runner
+    /// injects the catalog into the guest first when the rootfs predates it (inject.cmd).
+    func test5AppCatalog() {
+        launch(["-desktop.onboarded", "NO", "-desktop.style", "ish", "-desktop.tiling", ""])
+        let onboarding = element("desktop.onboarding")
+        XCTAssertTrue(onboarding.waitForExistence(timeout: 180), "onboarding")
+        let toggle = element("apps.toggle.image-viewer")
+        XCTAssertTrue(toggle.waitForExistence(timeout: 60), "catalog in onboarding")
+        pause(2)
+        save("60-onboarding-catalog")
+        toggle.tap()
+        pause(1)
+        save("61-onboarding-ticked")
+        app.buttons["Start Using the Desktop"].firstMatch.tap()
+        pause(3)
+        automate("open|settings|page=apps", wait: 6)
+        save("62-settings-apps-installing")
+        let removeButton = element("apps.remove.image-viewer")
+        let deadline = Date().addingTimeInterval(900)
+        while !removeButton.exists && Date() < deadline { pause(5) }
+        XCTAssertTrue(removeButton.exists, "image viewer installed")
+        save("63-settings-apps-installed")
+        let state = automate("sh|linpad-apps list; ls /usr/share/applications | grep -i ristretto", wait: 6)
+        XCTAssertTrue(state.contains("[x] image-viewer"), "guest reports installed")
+        removeButton.tap()
+        let install = element("apps.install.image-viewer")
+        let removeDeadline = Date().addingTimeInterval(600)
+        while !install.exists && Date() < removeDeadline { pause(5) }
+        XCTAssertTrue(install.exists, "image viewer removed")
+        save("64-settings-apps-removed")
+    }
+
     /// The styles ask the guest to switch themes (ish-apply-style, 12-23 s); open Linux apps
     /// are restored by session restore.
     func test3Styles() {

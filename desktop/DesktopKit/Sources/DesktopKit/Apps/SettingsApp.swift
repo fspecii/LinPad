@@ -20,7 +20,7 @@ public enum DesktopSettings {
     public static let tilingKey = "desktop.tiling"
     /// Space between tiles and around them, in points.
     public static let tilingGapKey = "desktop.tilingGap"
-    public static let defaultTilingGap: Double = 8
+    public static let defaultTilingGap: Double = 5
     /// Window chrome metrics: "" follows the input devices, "touch" or "pointer" forces one.
     public static let windowMetricsKey = "desktop.windowMetrics"
     /// Kylin: the start menu opens full screen.
@@ -58,6 +58,7 @@ enum SettingsApp {
     static let pageArgument = "page"
     static let wallpaperPage = "wallpaper"
     static let iconsPage = "icons"
+    static let appsPage = "apps"
 
     static func descriptor() -> DesktopAppDescriptor {
         DesktopAppDescriptor(
@@ -141,6 +142,7 @@ struct SettingsAppView: View {
     @State private var about: SystemAboutModel
     @Environment(\.desktopWallpapers) private var wallpapers
     @Environment(\.desktopIcons) private var icons
+    @Environment(\.desktopColorThemes) private var colorThemes
     private let fastMode: FastModeModel?
     private let window: any WindowHandle
     private let desktop: any DesktopActions
@@ -162,6 +164,8 @@ struct SettingsAppView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     if let fastMode { FastModeSettingsSection(fastMode: fastMode) }
                     appearanceSection
+                    AppsSettingsSection(catalog: AppCatalogModel.shared(for: host))
+                        .id(SettingsApp.appsPage)
                     if let icons {
                         IconPackSettingsSection(store: icons.packs, icons: icons, host: host, desktop: desktop)
                             .id(SettingsApp.iconsPage)
@@ -200,6 +204,10 @@ struct SettingsAppView: View {
 
     private var appearanceSection: some View {
         SettingsSection(title: "Appearance", symbol: "paintpalette") {
+            if let colorThemes {
+                colorThemeRows(colorThemes)
+                ThemedSeparator()
+            }
             SettingsRow(title: "Accent color") {
                 HStack(spacing: 10) {
                     ForEach(DesktopSettings.accentPresets) { preset in
@@ -226,6 +234,30 @@ struct SettingsAppView: View {
                 .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.black.opacity(0.3)))
                 .accessibilityLabel("Font preview")
         }
+    }
+
+    @ViewBuilder
+    private func colorThemeRows(_ store: ColorThemeStore) -> some View {
+        SettingsRow(title: "Color theme") {
+            Picker("Color theme", selection: Binding(get: { store.currentID }, set: { store.onApplyRequest?($0) })) {
+                ForEach(store.orderedIDs, id: \.self) { id in Text(store.name(of: id)).tag(id) }
+            }
+            .labelsHidden()
+            .accessibilityIdentifier("settings.colorTheme")
+        }
+        HStack(spacing: 12) {
+            Button("Browse Themes…") { store.onPickerRequest?() }
+                .accessibilityIdentifier("settings.browseThemes")
+            if let current = store.current {
+                Button("Find Wallpapers for This Theme") { store.onFindWallpapersRequest?(current) }
+            }
+            Spacer()
+        }
+        .font(.callout)
+        Text("A color theme recolors every style and, in the background, Linux apps (terminal, GTK, Qt, VS Code). ⌃⌥⇧Space opens the picker, ⌃⌥⇧C goes to the next theme, ⌃⌥⇧B to the next wallpaper. Each theme remembers its wallpaper.")
+            .font(.caption)
+            .foregroundStyle(theme.secondaryText)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func accentSwatch(_ preset: DesktopSettings.AccentPreset) -> some View {

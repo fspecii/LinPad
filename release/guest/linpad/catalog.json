@@ -1,0 +1,200 @@
+{
+  "version": 1,
+  "packs": [
+    {
+      "id": "mail-light",
+      "name": "Claws Mail",
+      "description": "Fast, light email client (GTK). The recommended mail app on LinPad.",
+      "category": "Mail",
+      "sizeMB": 180,
+      "packages": [
+        "claws-mail"
+      ],
+      "desktop": "claws-mail.desktop",
+      "icon": "claws-mail",
+      "launch": "ishwl-launch 'claws-mail'",
+      "recommended": true
+    },
+    {
+      "id": "mail",
+      "name": "Thunderbird",
+      "description": "Mozilla's full email client. Gecko engine like Firefox: large, slow to start under emulation.",
+      "category": "Mail",
+      "sizeMB": 215,
+      "packages": [
+        "thunderbird"
+      ],
+      "desktop": "thunderbird.desktop",
+      "icon": "thunderbird",
+      "launch": "ishwl-launch 'thunderbird'",
+      "recommended": false
+    },
+    {
+      "id": "pdf",
+      "name": "PDF viewer (zathura)",
+      "description": "Keyboard-driven document viewer with the MuPDF backend. Files › Quick Look also previews PDFs natively.",
+      "category": "Office",
+      "sizeMB": 50,
+      "packages": [
+        "zathura",
+        "zathura-pdf-mupdf"
+      ],
+      "desktop": "org.pwmt.zathura.desktop",
+      "icon": "org.pwmt.zathura",
+      "launch": "ishwl-launch 'zathura /usr/local/share/linpad/sample.pdf'",
+      "recommended": true
+    },
+    {
+      "id": "office",
+      "name": "LibreOffice",
+      "description": "Writer, Calc and Impress. Very large; first start takes a while under emulation. Not yet verified under LinPad's emulator.",
+      "category": "Office",
+      "sizeMB": 600,
+      "packages": [
+        "libreoffice-writer",
+        "libreoffice-calc",
+        "libreoffice-impress",
+        "libreoffice-gtk3"
+      ],
+      "desktop": "libreoffice-writer.desktop",
+      "icon": "libreoffice-writer",
+      "launch": "ishwl-launch 'libreoffice --writer'",
+      "recommended": false,
+      "experimental": true
+    },
+    {
+      "id": "image-editor",
+      "name": "GIMP",
+      "description": "Raster image editor (GIMP 2.10, runs through its own Xwayland).",
+      "category": "Graphics",
+      "sizeMB": 90,
+      "packages": [
+        "gimp",
+        "xwayland"
+      ],
+      "desktop": "gimp.desktop",
+      "icon": "gimp",
+      "launch": "ishwl-launch 'gimp'",
+      "recommended": false,
+      "postinstall": "/usr/local/share/linpad/packs/x11-rule.sh gimp",
+      "postremove": "/usr/local/share/linpad/packs/x11-rule.sh --remove gimp"
+    },
+    {
+      "id": "image-viewer",
+      "name": "Image viewer (Ristretto)",
+      "description": "Light image viewer from Xfce, the same family as Thunar.",
+      "category": "Graphics",
+      "sizeMB": 5,
+      "packages": [
+        "ristretto"
+      ],
+      "desktop": "org.xfce.ristretto.desktop",
+      "icon": "org.xfce.ristretto",
+      "launch": "ishwl-launch 'ristretto /usr/share/ish/icon-cache/ish/folder@2x.png'",
+      "recommended": true
+    },
+    {
+      "id": "archives",
+      "name": "Archive manager (Xarchiver)",
+      "description": "Open and create zip, tar, 7z and other archives. Files can also compress and extract.",
+      "category": "Utilities",
+      "sizeMB": 5,
+      "packages": [
+        "xarchiver",
+        "zip",
+        "unzip",
+        "p7zip"
+      ],
+      "desktop": "xarchiver.desktop",
+      "icon": "xarchiver",
+      "launch": "ishwl-launch 'xarchiver'",
+      "recommended": true
+    },
+    {
+      "id": "vscode",
+      "name": "Visual Studio Code",
+      "description": "Microsoft's VS Code, downloaded from code.visualstudio.com on this iPad. Needs about 900 MB and 2–3 GB of memory while running.",
+      "category": "Development",
+      "sizeMB": 900,
+      "installer": "ish-install-vscode --no-wait",
+      "uninstaller": "/usr/local/share/linpad/packs/vscode-uninstall.sh",
+      "check": "/opt/vscode/code",
+      "desktop": "code.desktop",
+      "icon": "vscode",
+      "launch": "ishwl-launch 'code'",
+      "recommended": false
+    },
+    {
+      "id": "multimedia",
+      "name": "VLC media player",
+      "description": "Plays video and audio files, with LinPad's native video window and sound.",
+      "category": "Multimedia",
+      "sizeMB": 95,
+      "packages": [
+        "vlc",
+        "vlc-qt",
+        "qt5-qtwayland"
+      ],
+      "postinstall": "/usr/local/share/linpad/packs/vlc/postinstall.sh",
+      "postremove": "/usr/local/share/linpad/packs/vlc/postremove.sh",
+      "check": "/usr/local/bin/ish-vlc",
+      "desktop": "vlc.desktop",
+      "icon": "vlc",
+      "launch": "ishwl-launch 'ish-vlc /root/Videos/ish-test-720p.mp4'",
+      "recommended": false
+    },
+    {
+      "id": "browsers",
+      "name": "Extra browsers (Falkon, Dillo)",
+      "description": "Falkon (Qt WebEngine) and Dillo (tiny, X11). Falkon does not start yet in this build; Dillo works. Firefox stays the default browser.",
+      "category": "Internet",
+      "sizeMB": 540,
+      "packages": [
+        "falkon",
+        "qt6-qtwayland",
+        "dillo",
+        "xwayland"
+      ],
+      "desktop": "org.kde.falkon.desktop",
+      "icon": "falkon",
+      "launch": "ishwl-launch 'falkon https://example.com'",
+      "recommended": false,
+      "experimental": true
+    },
+    {
+      "id": "dev-extras",
+      "name": "Developer extras",
+      "description": "Python 3 with pip, C/C++ toolchain (build-base, cmake), Go and Rust. Command-line only.",
+      "category": "Development",
+      "sizeMB": 1100,
+      "packages": [
+        "python3",
+        "py3-pip",
+        "build-base",
+        "cmake",
+        "go",
+        "rust",
+        "cargo"
+      ],
+      "check": "/usr/bin/python3",
+      "launch": "python3 -c 'import sys; print(sys.version)'",
+      "cli": true,
+      "recommended": false,
+      "experimental": true
+    },
+    {
+      "id": "gpu",
+      "name": "GPU tools",
+      "description": "glxinfo, eglinfo and the Mesa demos for checking the Venus/zink GPU path (vulkaninfo and vkcube are already installed).",
+      "category": "Development",
+      "sizeMB": 5,
+      "packages": [
+        "mesa-utils"
+      ],
+      "check": "/usr/bin/glxinfo",
+      "launch": "command -v glxinfo && command -v eglinfo",
+      "cli": true,
+      "recommended": false
+    }
+  ]
+}

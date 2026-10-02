@@ -37,6 +37,29 @@ install -D -m 755 "$src/ish-firstrun" /usr/local/sbin/ish-firstrun
 install -D -m 755 "$src/ish-install-vscode" /usr/local/bin/ish-install-vscode
 install -D -m 644 "$src/90-firstrun.sh" /etc/ishwl/session.d/90-firstrun.sh
 install -D -m 644 "$src/ish-code.svg" /usr/share/icons/hicolor/scalable/apps/ish-code.svg
+
+# Optional apps (linpad/catalog.json): nothing in the catalog ships preinstalled. The
+# desktop's onboarding and Settings › Apps install packs with linpad-apps.
+echo "finalize: optional apps catalog"
+install -D -m 644 "$src/linpad/catalog.json" /usr/share/linpad/catalog.json
+install -D -m 755 "$src/linpad/linpad-apps" /usr/local/bin/linpad-apps
+mkdir -p /usr/local/share/linpad/packs/vlc
+install -m 644 "$src/linpad/sample.pdf" "$src/ish-install-vscode.desktop" /usr/local/share/linpad/
+install -m 755 "$src/linpad/packs/vscode-uninstall.sh" "$src/linpad/packs/x11-rule.sh" /usr/local/share/linpad/packs/
+install -m 755 "$src/linpad/packs/vlc/postinstall.sh" "$src/linpad/packs/vlc/postremove.sh" \
+    /usr/local/share/linpad/packs/vlc/
+# VLC came in with the themes stage, which also compiled LinPad's Wayland plugins for it.
+# Keep those (a few hundred KB) for the Multimedia pack and take VLC itself out.
+if apk info -e vlc >/dev/null 2>&1 && [ -f /usr/local/bin/ish-vlc ]; then
+    stash=/usr/local/share/linpad/packs/vlc
+    cp /usr/lib/vlc/plugins/video_output/libwl_shm_plugin.so /usr/lib/vlc/plugins/video_output/libishxdg_plugin.so \
+        /usr/local/lib/libish-vlc-compat.so /usr/local/bin/ish-vlc "$stash/"
+    cp /usr/share/applications/vlc.desktop "$stash/vlc.desktop"
+    rm -f /usr/local/bin/ish-vlc /usr/local/lib/libish-vlc-compat.so /usr/share/applications/vlc.desktop
+    apk del -q vlc vlc-qt ffmpeg 2>/dev/null || apk del -q vlc vlc-qt
+    rm -rf /usr/lib/vlc
+    echo "  VLC moved to the Multimedia pack"
+fi
 if [ -x /usr/local/bin/code ]; then
     rm -f /usr/share/applications/ish-install-vscode.desktop
 else
@@ -124,7 +147,7 @@ rm -rf /root/.cache /root/.npm/_cacache /root/.dbus /root/fixt /root/gt /root/t 
 echo "finalize: sanity"
 missing=
 for cmd in ishwl ishwl-session ish-terminal foot fastfetch firefox-esr thunar mousepad node npm \
-        claude git curl vlc ish-vlc ish-apply-style ishaudio-session vulkaninfo ish-firstrun \
+        claude git curl ish-apply-style ishaudio-session vulkaninfo ish-firstrun linpad-apps \
         ish-install-vscode; do
     command -v "$cmd" >/dev/null || missing="$missing $cmd"
 done

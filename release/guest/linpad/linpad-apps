@@ -1,0 +1,207 @@
+#!/usr/bin/env node
+// LinPad optional apps: installs and removes the packs in /usr/share/linpad/catalog.json.
+// Nothing in the catalog is preinstalled; the user ticks packs in onboarding or in
+// Settings › Apps, and the desktop runs this command in the guest.
+//
+//   linpad-apps list [--json]      catalog with installed state
+//   linpad-apps install ID...      install packs (idempotent)
+//   linpad-apps remove ID...       remove packs
+//   linpad-apps pending            packs chosen in onboarding (/etc/ish/firstrun.json)
+//                                  that are not installed yet, plus "reinstall" after
+//                                  a system update
+//   linpad-apps firstrun           install everything `pending` prints
+//
+// A pack counts as installed when its "check" file exists, else when all its packages are
+// in apk's world (explicitly added), so installing or removing by hand with apk is seen.
+// /var/lib/linpad/apps/<id>.installed records when the desktop installed it.
+// Output lines starting with "==>" are progress for the desktop; everything else is the
+// package manager's own log.
+'use strict';
+const fs = require('fs');
+const { spawnSync } = require('child_process');
+
+const CATALOG = process.env.LINPAD_CATALOG || '/usr/share/linpad/catalog.json';
+const STATE = '/var/lib/linpad/apps';
+const FIRSTRUN = '/etc/ish/firstrun.json';
+const REINSTALL = '/etc/ish/reinstall-packages';
+const EDGE = 'https://dl-cdn.alpinelinux.org/alpine/edge/main';
+
+const catalog = JSON.parse(fs.readFileSync(CATALOG, 'utf8'));
+const packs = new Map(catalog.packs.map(p => [p.id, p]));
+
+function run(command, { quiet = false } = {}) {
+    worldCache = null;
+    const result = spawnSync('/bin/sh', ['-c', command], { stdio: quiet ? 'ignore' : 'inherit' });
+    return result.status === 0;
+}
+
+function apkHas(name) {
+    return run(`apk info -e ${name} >/dev/null 2>&1`, { quiet: true });
+}
+
+let worldCache = null;
+function world() {
+    if (worldCache === null) {
+        try {
+            worldCache = new Set(fs.readFileSync('/etc/apk/world', 'utf8').split(/\s+/).filter(Boolean));
+        } catch {
+            worldCache = new Set();
+        }
+    }
+    return worldCache;
+}
+
+// Installed means: its check file exists, or every one of its packages was explicitly
+// added (is in apk's world), not merely pulled in as a dependency of something else.
+function isInstalled(pack) {
+    if (pack.check) return fs.existsSync(pack.check);
+    return (pack.packages || []).every(p => world().has(p));
+}
+
+// Mesa 26 comes from Alpine edge and needs edge's libdrm, libxcb and wayland-libs-client;
+// a pack's `apk add` can move them back to 3.21's versions, which stops every GL program
+// (Qt, VLC's interface) from loading. Re-pin them after every change.
+function repinMesaLibraries() {
+    if (!fs.existsSync('/usr/lib/libgallium-26.2.3.so')) return;
+    run(`apk add -q --upgrade --repository ${EDGE} libdrm libxcb wayland-libs-client`);
+}
+
+function refreshIcons() {
+    run('command -v ish-apply-style >/dev/null && ish-apply-style --cache-only >/dev/null 2>&1', { quiet: true });
+}
+
+// Synchronous writes to fd 1: node's own stdout stream to a pipe is asynchronous, and
+// under iSH-ARM64 the desktop's pipe sometimes received nothing at all.
+function out(text) {
+    fs.writeSync(1, text);
+}
+
+function say(text) {
+    out(`==> ${text}\n`);
+}
+
+function install(pack) {
+    if (isInstalled(pack)) {
+        say(`${pack.name}: already installed`);
+        return true;
+    }
+    say(`Installing ${pack.name}`);
+    let ok = true;
+    if (pack.packages) ok = run(`apk update -q && apk add ${pack.packages.join(' ')}`);
+    if (ok && pack.installer) ok = run(pack.installer);
+    if (ok && pack.postinstall) ok = run(pack.postinstall);
+    repinMesaLibraries();
+    if (!ok) {
+        say(`${pack.name}: FAILED`);
+        return false;
+    }
+    fs.mkdirSync(STATE, { recursive: true });
+    fs.writeFileSync(`${STATE}/${pack.id}.installed`, `${new Date().toISOString()}\n`);
+    say(`${pack.name}: installed`);
+    return true;
+}
+
+function remove(pack) {
+    say(`Removing ${pack.name}`);
+    let ok = true;
+    if (pack.uninstaller) ok = run(pack.uninstaller);
+    // Packages another installed pack still needs stay (e.g. qt6-qtwayland).
+    const needed = new Set();
+    for (const other of packs.values())
+        if (other.id !== pack.id && isInstalled(other)) (other.packages || []).forEach(p => needed.add(p));
+    const toRemove = (pack.packages || []).filter(p => !needed.has(p) && apkHas(p));
+    if (ok && toRemove.length) ok = run(`apk del ${toRemove.join(' ')}`);
+    if (ok && pack.postremove) ok = run(pack.postremove);
+    repinMesaLibraries();
+    fs.rmSync(`${STATE}/${pack.id}.installed`, { force: true });
+    say(`${pack.name}: ${ok ? 'removed' : 'FAILED'}`);
+    return ok;
+}
+
+function chosenInOnboarding() {
+    try {
+        return JSON.parse(fs.readFileSync(FIRSTRUN, 'utf8')).packs || [];
+    } catch {
+        return [];
+    }
+}
+
+function pending() {
+    const ids = [];
+    if (fs.existsSync(REINSTALL) && fs.statSync(REINSTALL).size > 0) ids.push('reinstall');
+    for (const id of chosenInOnboarding()) {
+        const pack = packs.get(id);
+        if (pack && !isInstalled(pack)) ids.push(id);
+    }
+    return ids;
+}
+
+function reinstallUserPackages() {
+    say('Reinstalling the packages you had added before the system update');
+    const list = fs.readFileSync(REINSTALL, 'utf8').split(/\s+/).filter(Boolean);
+    const ok = run(`apk update -q && apk add ${list.join(' ')}`);
+    repinMesaLibraries();
+    if (ok) fs.rmSync(REINSTALL, { force: true });
+    return ok;
+}
+
+function installMany(ids) {
+    let ok = true;
+    for (const id of ids) {
+        if (id === 'reinstall') {
+            ok = reinstallUserPackages() && ok;
+            continue;
+        }
+        const pack = packs.get(id);
+        if (!pack) {
+            say(`unknown app '${id}', skipped`);
+            continue;
+        }
+        ok = install(pack) && ok;
+    }
+    refreshIcons();
+    return ok;
+}
+
+const [command, ...args] = process.argv.slice(2);
+switch (command) {
+case 'list': {
+    const rows = catalog.packs.map(p => ({ ...p, installed: isInstalled(p) }));
+    if (args.includes('--json')) {
+        out(JSON.stringify({ version: catalog.version, packs: rows }) + '\n');
+    } else {
+        for (const r of rows)
+            out(`${r.installed ? '[x]' : '[ ]'} ${r.id.padEnd(13)} ${r.name} (~${r.sizeMB} MB)\n`);
+    }
+    break;
+}
+case 'install':
+    process.exit(installMany(args) ? 0 : 1);
+    break;
+case 'remove': {
+    let ok = true;
+    for (const id of args) {
+        const pack = packs.get(id);
+        if (pack) ok = remove(pack) && ok;
+        else say(`unknown app '${id}', skipped`);
+    }
+    refreshIcons();
+    process.exit(ok ? 0 : 1);
+    break;
+}
+case 'pending':
+    for (const id of pending()) out(`${id}\n`);
+    break;
+case 'firstrun': {
+    const ids = pending();
+    if (!ids.length) {
+        say('Nothing to install');
+        break;
+    }
+    process.exit(installMany(ids) ? 0 : 1);
+    break;
+}
+default:
+    console.error('usage: linpad-apps list [--json] | install ID... | remove ID... | pending | firstrun');
+    process.exit(2);
+}

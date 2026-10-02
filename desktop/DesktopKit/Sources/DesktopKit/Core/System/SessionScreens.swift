@@ -222,20 +222,18 @@ struct OnboardingView: View {
                 }
                 .pickerStyle(.segmented)
             }
-            section("Optional packs") {
-                ForEach(Self.optionalPacks, id: \.id) { pack in
-                    Toggle(isOn: Binding(get: { packs.contains(pack.id) || installed.contains(pack.id) },
-                                         set: { on in if on { packs.insert(pack.id) } else { packs.remove(pack.id) } })) {
-                        HStack {
-                            Label(pack.name, systemImage: pack.symbol)
-                            if installed.contains(pack.id) {
-                                Text("Installed").font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(theme.accent)
-                            }
-                        }
+            section("Optional apps") {
+                if catalog.unavailableReason == nil {
+                    ScrollView {
+                        AppCatalogList(catalog: catalog, selection: $packs)
+                            .padding(.trailing, 6)
                     }
-                    .tint(theme.accent)
-                    .disabled(installed.contains(pack.id))
+                    .frame(maxHeight: 250)
+                    Text("Nothing is preinstalled. Ticked apps install in the background after you start; Settings › Apps shows the progress and adds or removes apps later.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.secondaryText)
+                } else {
+                    legacyPacks
                 }
             }
             HStack {
@@ -253,9 +251,32 @@ struct OnboardingView: View {
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(theme.windowBackground))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(theme.separator))
         .shadow(color: .black.opacity(0.4), radius: 30, y: 10)
-        .task { await probeInstalled() }
+        .task {
+            await catalog.load()
+            await probeInstalled()
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("desktop.onboarding")
+    }
+
+    private var catalog: AppCatalogModel { AppCatalogModel.shared(for: controller.host) }
+
+    /// Linux systems from before the app catalog (no linpad-apps in the guest).
+    @ViewBuilder private var legacyPacks: some View {
+        ForEach(Self.optionalPacks, id: \.id) { pack in
+            Toggle(isOn: Binding(get: { packs.contains(pack.id) || installed.contains(pack.id) },
+                                 set: { on in if on { packs.insert(pack.id) } else { packs.remove(pack.id) } })) {
+                HStack {
+                    Label(pack.name, systemImage: pack.symbol)
+                    if installed.contains(pack.id) {
+                        Text("Installed").font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(theme.accent)
+                    }
+                }
+            }
+            .tint(theme.accent)
+            .disabled(installed.contains(pack.id))
+        }
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -289,6 +310,10 @@ struct OnboardingView: View {
                 _ = await controller.host.run("mkdir -p /etc/ish")
                 try? await controller.host.writeFile("/etc/ish/firstrun.json", data: json)
             }
+        }
+        if catalog.unavailableReason == nil, !packs.isEmpty {
+            catalog.install(packs.sorted())
+            controller.notify("Installing \(packs.count == 1 ? "1 app" : "\(packs.count) apps") in the background. Settings › Apps shows the progress.")
         }
         withAnimation(DesktopMotion.standard) { controller.isOnboardingPresented = false }
     }
