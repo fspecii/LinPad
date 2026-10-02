@@ -176,6 +176,24 @@ void handle_interrupt(int interrupt) {
                     (unsigned long long)cpu->pc,
                     (unsigned long long)cpu->segfault_addr,
                     cpu->segfault_was_write);
+        // A shared file mapping touched where the file doesn't reach:
+        // SIGBUS (BUS_ADRERR), as on Linux, not SIGSEGV.
+        {
+            bool past_eof = false;
+            read_wrlock(&current->mem->lock);
+            struct pt_entry *pe = mem_pt(current->mem, PAGE(cpu->segfault_addr));
+            if (pe != NULL && mem_past_eof(pe))
+                past_eof = true;
+            read_wrunlock(&current->mem->lock);
+            if (past_eof) {
+                struct siginfo_ info = {
+                    .code = BUS_ADRERR_,
+                    .fault.addr = cpu->segfault_addr,
+                };
+                deliver_signal(current, SIGBUS_, info);
+                goto gpf_handled_bus;
+            }
+        }
 #ifdef GUEST_ARM64
         // Instruction-fetch fault: if the guest PC itself points to
         // unmapped memory, the JIT could not even read an instruction
@@ -871,6 +889,7 @@ void handle_interrupt(int interrupt) {
 #ifdef GUEST_ARM64
         gpf_handled:;
 #endif
+        gpf_handled_bus:;
     } else if (interrupt == INT_UNDEFINED) {
 #if defined(GUEST_X86) || !defined(GUEST_ARM64)
         printk("%d illegal instruction at 0x%x: ", current->pid, cpu->eip);

@@ -74,6 +74,7 @@ struct sigaction_ {
 #define TRAP_TRACE_ 2
 #define SEGV_MAPERR_ 1
 #define SEGV_ACCERR_ 2
+#define BUS_ADRERR_ 2
 
 union sigval_ {
     int_t sv_int;

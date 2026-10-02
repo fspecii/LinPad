@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <sched.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -667,7 +668,7 @@ int pt_map_nothing(struct mem *mem, page_t start, pages_t pages, unsigned flags)
 
 // Metadata flags that must be preserved across mprotect — they track
 // allocation type and state, not user-visible protection bits.
-#define P_META_FLAGS (P_ANONYMOUS | P_GROWSDOWN | P_COW | P_SHARED)
+#define P_META_FLAGS (P_ANONYMOUS | P_GROWSDOWN | P_COW | P_SHARED | P_PAST_EOF)
 
 int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
     for (page_t page = start; page < start + pages; page++) {
@@ -782,11 +783,27 @@ static void mem_changed(struct mem *mem) {
 // Used by the emulator to avoid deadlocks.
 static void *mem_ptr_nofault(struct mem *mem, addr_t addr, int type) {
     struct pt_entry *entry = mem_pt(mem, PAGE(addr));
-    if (entry == NULL)
+    if (entry == NULL || (entry->flags & P_PAST_EOF))
         return NULL;
     if (type == MEM_WRITE && !P_WRITABLE(entry->flags))
         return NULL;
     return entry->data->data + entry->offset + PGOFFSET(addr);
+}
+
+// A P_PAST_EOF page becomes accessible once its file covers it: touching it
+// before that must not reach the host mapping (the host would SIGBUS).
+bool mem_past_eof(struct pt_entry *entry) {
+    if (!(entry->flags & P_PAST_EOF))
+        return false;
+    struct data *data = entry->data;
+    struct stat st;
+    if (data->fd == NULL || fstat(data->fd->real_fd, &st) < 0)
+        return true;
+    off_t real_offset = (data->file_offset / real_page_size) * real_page_size;
+    if ((off_t) (real_offset + entry->offset) >= st.st_size)
+        return true;
+    __atomic_and_fetch(&entry->flags, ~P_PAST_EOF, __ATOMIC_RELAXED);
+    return false;
 }
 
 void *mem_ptr(struct mem *mem, addr_t addr, int type) {
@@ -796,6 +813,8 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
 
     page_t page = PAGE(addr);
     struct pt_entry *entry = mem_pt(mem, page);
+    if (entry != NULL && mem_past_eof(entry))
+        return NULL;
     extern __thread volatile sig_atomic_t in_jit;
 
     if (entry == NULL) {

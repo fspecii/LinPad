@@ -139,6 +139,14 @@ struct pt_entry {
 #define P_ANONYMOUS (1 << 6)
 // mapping was created with MAP_SHARED, should not CoW
 #define P_SHARED (1 << 7)
+// page of a shared file mapping that starts at or past the end of the file:
+// mem_ptr treats it as absent (the access is a guest SIGBUS, as on Linux)
+// until the file has grown to cover it. The host mapping is already there
+// and stays coherent with the file, so nothing needs remapping then.
+#define P_PAST_EOF (1 << 8)
+struct pt_entry;
+// true if the entry is a P_PAST_EOF page its file still doesn't cover
+bool mem_past_eof(struct pt_entry *entry);
 
 bool pt_is_hole(struct mem *mem, page_t start, pages_t pages);
 page_t pt_find_hole(struct mem *mem, pages_t size);

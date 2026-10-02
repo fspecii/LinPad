@@ -353,18 +353,28 @@ int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off
 
     // Check if the mapping extends beyond the file size.
     if (have_stat && (off_t)(real_offset + map_size) > st.st_size) {
-        // For MAP_SHARED writable mappings, use a direct file-backed mmap.
-        // The host kernel handles beyond-EOF correctly: writes within the
-        // file are flushed on munmap, and the zero-filled region between
-        // file end and page boundary is discarded. This is what apk needs
-        // for its posix_fallocate + mmap(MAP_SHARED) extraction pattern.
-        // We must NOT extend the file via ftruncate, because apk doesn't
-        // truncate it back, leaving trailing null bytes that corrupt files.
-        if ((mmap_flags & MAP_SHARED) && (mmap_prot & PROT_WRITE)) {
+        // A MAP_SHARED mapping is always a direct file-backed host mapping,
+        // past EOF too: it has to stay shared with every other mapping of
+        // the file, including what another process writes after growing it
+        // (Wine's session object, read-only clients of a memfd that
+        // wineserver extends). The host mapping follows the file as it
+        // grows. Guest pages that start at or past EOF are marked
+        // P_PAST_EOF, so touching them is a guest SIGBUS until the file
+        // covers them, instead of a host SIGBUS. We must NOT extend the file
+        // via ftruncate, because apk doesn't truncate it back, leaving
+        // trailing null bytes that corrupt files.
+        if (mmap_flags & MAP_SHARED) {
             char *memory = mmap(NULL, map_size,
                     mmap_prot, mmap_flags, fd->real_fd, real_offset);
             if (memory != MAP_FAILED) {
-                return pt_map(mem, start, pages, memory, correction, prot);
+                int err = pt_map(mem, start, pages, memory, correction, prot);
+                if (err < 0)
+                    return err;
+                for (pages_t i = 0; i < pages; i++) {
+                    if ((off_t) (offset + i * PAGE_SIZE) >= st.st_size)
+                        mem_pt(mem, start + i)->flags |= P_PAST_EOF;
+                }
+                return 0;
             }
             // mmap failed — fall through to anonymous path
         }
