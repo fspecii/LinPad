@@ -20,6 +20,7 @@ final class DesktopIconStore {
         AppID.packages: "system-software-install",
         AppID.settings: "preferences-system",
         WallpapersApp.id: "preferences-desktop-wallpaper",
+        ThemesApp.id: "preferences-desktop-theme",
     ]
 
     /// Icon themes name some apps differently; each list is tried in order.
@@ -28,6 +29,7 @@ final class DesktopIconStore {
         "code-oss": ["com.visualstudio.code.oss", "vscode", "code", "com.visualstudio.code", "visual-studio-code"],
         "firefox-esr": ["firefox", "org.mozilla.firefox"],
         "thunar": ["org.xfce.thunar", "system-file-manager"],
+        "preferences-desktop-theme": ["applications-graphics", "preferences-desktop-color", "preferences-desktop"],
     ]
 
     private(set) var style: DesktopStyle

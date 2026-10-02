@@ -47,6 +47,17 @@ public final class MockLinuxHost: LinuxHost {
             break
         }
 
+        if trimmed.hasPrefix("mkdir -p -- ") {
+            let quoted = trimmed.dropFirst("mkdir -p -- ".count)
+            guard quoted.hasPrefix("'"), let end = quoted.dropFirst().firstIndex(of: "'") else {
+                return CommandResult(stdout: "", stderr: "mkdir: bad path\n", exitCode: 1)
+            }
+            makeDirectories(String(quoted[quoted.index(after: quoted.startIndex)..<end]))
+            return CommandResult(stdout: "")
+        }
+        if trimmed.hasPrefix("ish-apply-colors --fonts") {
+            return CommandResult(stdout: "fonts: set\n")
+        }
         if trimmed.hasPrefix("ish-apply-style ") {
             return applyStyle(String(trimmed.dropFirst("ish-apply-style ".count)))
         }

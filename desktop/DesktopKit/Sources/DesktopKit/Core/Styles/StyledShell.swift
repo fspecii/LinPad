@@ -76,7 +76,7 @@ struct MenuBar: View {
         .frame(height: DesktopStyleSpec.macos.topBarHeight)
         .background {
             ZStack {
-                Rectangle().fill(.ultraThinMaterial)
+                Rectangle().fill(theme.panelBlur ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(Color.clear))
                 theme.panelBackground
             }
             .ignoresSafeArea(edges: .top)
@@ -154,7 +154,7 @@ struct WindowsTaskbar: View {
         .frame(height: DesktopStyleSpec.windows.bottomBarHeight)
         .background {
             ZStack {
-                Rectangle().fill(.ultraThinMaterial)
+                Rectangle().fill(theme.panelBlur ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(Color.clear))
                 theme.panelBackground
             }
             .ignoresSafeArea(edges: .bottom)
@@ -307,7 +307,7 @@ struct Dock: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background {
-                        RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.ultraThinMaterial)
+                        RoundedRectangle(cornerRadius: 18, style: .continuous).fill(theme.panelBlur ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(Color.clear))
                         RoundedRectangle(cornerRadius: 18, style: .continuous).fill(theme.panelBackground.opacity(0.5))
                         RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.white.opacity(0.12), lineWidth: 1)
                     }

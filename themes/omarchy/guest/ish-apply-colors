@@ -4,6 +4,10 @@
 #   ish-apply-colors none [--json]     back to the style's own colours
 #   ish-apply-colors --refresh         re-apply the current theme (after a style switch)
 #   ish-apply-colors --current         print the active id ("none" when there is none)
+#   ish-apply-colors --fonts <ui-font> <mono-family> <mono-size> <cursor-size>
+#                                      fonts and cursor size for Linux apps (GTK, foot), kept
+#                                      across style and theme switches
+#   ish-apply-colors --fonts default   back to each style's own fonts
 # Steps mirror omarchy-theme-set: lock, render into a staging directory, swap it in with
 # one rename, hook the files up, retint running foot terminals, and write
 # /usr/share/ish/current-colors LAST (the native shell watches it).
@@ -36,13 +40,49 @@ current() { cat "$CURRENT" 2>/dev/null || echo none; }
 install_foot() {
     mkdir -p "$CONFIG/foot"
     cp "$STATE/current/foot.ini" "$CONFIG/foot/colors.ini"
-    cat > "$CONFIG/foot/linpad.ini.tmp" <<EOF
-# $MARKER: written by ish-apply-colors (ish-terminal uses this file when it exists).
-include=/etc/ish/foot/foot.ini
-include=$CONFIG/foot/colors.ini
-EOF
-    mv "$CONFIG/foot/linpad.ini.tmp" "$CONFIG/foot/linpad.ini"
+    write_foot_ini colors
     note foot
+}
+
+# linpad.ini: the shared foot settings, the theme's colours (when a theme is active) and
+# the user's font (when one is set).
+write_foot_ini() { # colors|nocolors
+    mkdir -p "$CONFIG/foot"
+    {
+        echo "# $MARKER: written by ish-apply-colors (ish-terminal uses this file when it exists)."
+        echo "include=/etc/ish/foot/foot.ini"
+        if [ "$1" = colors ] && [ -f "$CONFIG/foot/colors.ini" ]; then echo "include=$CONFIG/foot/colors.ini"; fi
+        if [ -f "$CONFIG/foot/fonts.ini" ]; then echo "include=$CONFIG/foot/fonts.ini"; fi
+    } > "$CONFIG/foot/linpad.ini.tmp"
+    mv "$CONFIG/foot/linpad.ini.tmp" "$CONFIG/foot/linpad.ini"
+}
+
+FONTS_ENV=/usr/share/ish/fonts.env
+
+# Values reach settings.ini and foot.ini: letters, digits, spaces and a few separators.
+safe_font() { printf '%s' "$1" | tr -cd 'A-Za-z0-9 ._+-'; }
+safe_int() { printf '%s' "$1" | tr -cd '0-9'; }
+
+set_fonts() { # ui-font mono-family mono-size cursor-size | default
+    if [ "${1:-}" = default ]; then
+        rm -f "$FONTS_ENV" "$CONFIG/foot/fonts.ini"
+        if [ "$(current)" = none ]; then rm -f "$CONFIG/foot/linpad.ini"; else write_foot_ini colors; fi
+        if command -v ish-apply-style >/dev/null 2>&1; then ish-apply-style "$(ish-apply-style --current)" >/dev/null || true; fi
+        echo "fonts: style defaults"
+        return
+    fi
+    ui=$(safe_font "${1:-}") mono=$(safe_font "${2:-}") size=$(safe_int "${3:-}") cursor=$(safe_int "${4:-}")
+    [ -n "$ui" ] && [ -n "$mono" ] && [ -n "$size" ] && [ -n "$cursor" ] || die "usage: --fonts <ui-font> <mono-family> <mono-size> <cursor-size>"
+    printf 'FONT_OVERRIDE="%s"\nCURSOR_SIZE_OVERRIDE=%s\n' "$ui" "$cursor" > "$FONTS_ENV.tmp"
+    mv "$FONTS_ENV.tmp" "$FONTS_ENV"
+    for f in "$CONFIG/gtk-3.0/settings.ini" "$CONFIG/gtk-4.0/settings.ini" /etc/xdg/gtk-3.0/settings.ini /etc/xdg/gtk-4.0/settings.ini; do
+        [ -f "$f" ] || continue
+        sed -i "s/^gtk-font-name=.*/gtk-font-name=$ui/; s/^gtk-cursor-theme-size=.*/gtk-cursor-theme-size=$cursor/" "$f"
+    done
+    mkdir -p "$CONFIG/foot"
+    printf '# %s\n[main]\nfont=%s:size=%s\n' "$MARKER" "$mono" "$size" > "$CONFIG/foot/fonts.ini"
+    if [ "$(current)" = none ]; then write_foot_ini nocolors; else write_foot_ini colors; fi
+    echo "fonts: ui=$ui mono=$mono:$size cursor=$cursor"
 }
 
 # A file is ours to replace or delete when it is missing, a symlink into the system
@@ -373,7 +413,8 @@ apply_theme() { # id
 
 apply_none() {
     restore_icons
-    rm -f "$CONFIG/foot/linpad.ini" "$CONFIG/foot/colors.ini" "$FIREFOX_PREF"
+    rm -f "$CONFIG/foot/colors.ini" "$FIREFOX_PREF"
+    if [ -f "$CONFIG/foot/fonts.ini" ]; then write_foot_ini nocolors; else rm -f "$CONFIG/foot/linpad.ini"; fi
     for v in 3.0 4.0; do
         f=$CONFIG/gtk-$v/gtk.css
         [ -f "$f" ] && [ ! -L "$f" ] && head -n2 "$f" | grep -q "$MARKER" && rm -f "$f"
@@ -405,6 +446,12 @@ apply_none() {
     fi
 }
 
+if [ "${1:-}" = --fonts ]; then
+    shift
+    set_fonts "$@"
+    exit 0
+fi
+
 target=
 for a in "$@"; do
     case $a in
@@ -413,7 +460,7 @@ for a in "$@"; do
     esac
 done
 case ${target:-} in
-"") echo "usage: ish-apply-colors <id|none> [--json] | --refresh | --current" >&2; exit 2 ;;
+"") echo "usage: ish-apply-colors <id|none> [--json] | --refresh | --current | --fonts ..." >&2; exit 2 ;;
 --current) current; exit 0 ;;
 esac
 

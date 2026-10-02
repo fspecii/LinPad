@@ -31,6 +31,14 @@ final class DesktopController {
     var isRunDialogPresented = false
     let wallpapers = WallpaperStore()
     let colorThemes = ColorThemeStore()
+    /// Themes app › Advanced styling.
+    var styling = DesktopStyling.load()
+    /// Themes app › Appearance (light/dark pair and when each applies).
+    var themeAppearance = ThemeAppearance.load()
+    /// iPadOS's own light/dark, for the Automatic mode.
+    var systemIsDark = true
+    @ObservationIgnored var scheduleTask: Task<Void, Never>?
+    @ObservationIgnored var linuxFontsTask: Task<Void, Never>?
     /// The colour theme picker (⌃⌥⇧Space), while open.
     var themePicker: ColorThemePicker?
     /// Toasts under the pointer, which do not time out.

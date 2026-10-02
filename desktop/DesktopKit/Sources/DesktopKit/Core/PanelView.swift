@@ -30,7 +30,7 @@ struct PanelView: View {
         .frame(height: Self.height)
         .background {
             ZStack {
-                Rectangle().fill(.ultraThinMaterial)
+                Rectangle().fill(theme.panelBlur ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(Color.clear))
                 theme.panelBackground
             }
             .ignoresSafeArea(edges: .top)

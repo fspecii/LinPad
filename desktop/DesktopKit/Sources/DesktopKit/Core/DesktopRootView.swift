@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The whole desktop: wallpaper edge to edge, the panel under the status bar,
 /// and the window area filling the rest of the screen.
@@ -109,6 +110,7 @@ public struct DesktopRootView: View {
             openStartupWindows()
             await controller.boot.run(host: controller.host, linux: controller.linux)
             controller.offerSystemUpdateIfAvailable()
+            controller.startUpdateChecks()
             controller.offerFastModeRetryIfFailed()
             if !UserDefaults.standard.bool(forKey: OnboardingView.completedKey) {
                 withAnimation(DesktopMotion.standard) { controller.isOnboardingPresented = true }
@@ -123,7 +125,7 @@ public struct DesktopRootView: View {
             controller.isDarkAppearance = dark
             controller.wallpapers.isDark = dark
             // Automatic leaves the window alone so the system's choice keeps coming through.
-            let followsSystem = DesktopAppearance(rawValue: appearanceID) == .system
+            let followsSystem = DesktopAppearance(rawValue: appearanceID) == .system || followsSystemThemeMode
             controller.input.setInterfaceStyle(followsSystem ? .unspecified : (dark ? .dark : .light))
         }
         .onChange(of: appearanceID) { _, id in
@@ -137,10 +139,34 @@ public struct DesktopRootView: View {
         .environment(\.desktopTheme, theme)
         .environment(\.desktopStyleTheme, styleTheme)
         .environment(\.desktopColorThemes, controller.colorThemes)
+        .environment(\.desktopController, controller)
         .environment(\.desktopStyle, style)
         .environment(\.desktopIcons, controller.icons)
         .environment(\.desktopWallpapers, controller.wallpapers)
         .environment(\.colorScheme, isDark ? .dark : .light)
+        .fontDesign(controller.styling.uiFont.design)
+        .transaction { transaction in
+            switch controller.styling.animation {
+            case .off: transaction.animation = nil
+            case .fast: transaction.animation = transaction.animation?.speed(1.8)
+            case .normal: break
+            }
+        }
+        .onChange(of: systemColorScheme, initial: true) { _, _ in
+            // The screen's trait is iPadOS's own choice, whatever the desktop forces on its window.
+            controller.systemIsDark = UIScreen.main.traitCollection.userInterfaceStyle == .dark
+            controller.evaluateThemeAppearance()
+        }
+        .onChange(of: followsSystemThemeMode) { _, follows in
+            controller.input.setInterfaceStyle(follows ? .unspecified : (isDark ? .dark : .light))
+        }
+        .onAppear {
+            controller.windowManager.outerGapOverride = controller.styling.outerGap.map { CGFloat($0) }
+        }
+    }
+
+    private var followsSystemThemeMode: Bool {
+        controller.themeAppearance.isEnabled && controller.themeAppearance.mode == .automatic
     }
 
     /// A colour theme brings its own mode; otherwise Settings > Appearance decides.
@@ -270,6 +296,7 @@ public struct DesktopRootView: View {
         if let colors = controller.colorThemes.active {
             theme = colors.applied(to: theme, panelOpacity: theme.panelBackground.opacityComponent)
         }
+        theme = controller.styling.applied(to: theme)
         if controller.windowManager.isZen {
             theme.cornerRadius = 0
             theme.borderWidth = 0

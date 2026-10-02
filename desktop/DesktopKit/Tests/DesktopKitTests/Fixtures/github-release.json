@@ -1,0 +1,39 @@
+{
+  "url": "https://api.github.com/repos/fspecii/LinPad/releases/1",
+  "html_url": "https://github.com/fspecii/LinPad/releases/tag/v1.5.0",
+  "id": 1,
+  "tag_name": "v1.5.0",
+  "target_commitish": "main",
+  "name": "LinPad 1.5.0",
+  "draft": false,
+  "prerelease": false,
+  "created_at": "2026-10-02T10:00:00Z",
+  "published_at": "2026-10-02T10:30:00Z",
+  "assets": [
+    {
+      "name": "LinPad-1.5.0.ipa",
+      "content_type": "application/octet-stream",
+      "size": 812345678,
+      "browser_download_url": "https://github.com/fspecii/LinPad/releases/download/v1.5.0/LinPad-1.5.0.ipa"
+    },
+    {
+      "name": "linpad-rootfs-1.5.0.tar.gz",
+      "content_type": "application/gzip",
+      "size": 723456789,
+      "browser_download_url": "https://github.com/fspecii/LinPad/releases/download/v1.5.0/linpad-rootfs-1.5.0.tar.gz"
+    },
+    {
+      "name": "linpad-rootfs-1.5.0.tar.gz.sha256",
+      "content_type": "text/plain",
+      "size": 93,
+      "browser_download_url": "https://github.com/fspecii/LinPad/releases/download/v1.5.0/linpad-rootfs-1.5.0.tar.gz.sha256"
+    },
+    {
+      "name": "rootfs-manifest.json",
+      "content_type": "application/json",
+      "size": 210,
+      "browser_download_url": "https://github.com/fspecii/LinPad/releases/download/v1.5.0/rootfs-manifest.json"
+    }
+  ],
+  "body": "## What's new\n\n- Automatic updates from GitHub\n- **Settings › Updates**\n\nFull changelog: v1.4.0...v1.5.0"
+}

@@ -22,6 +22,11 @@ ish-colors remove <id>                   # user themes only
 ish-apply-colors <id> [--json]           # apply; see "Apply result"
 ish-apply-colors none [--json]           # back to the style's own colours
 ish-apply-colors --current               # active id, or "none"
+ish-apply-colors --fonts <ui-font> <mono-family> <mono-size> <cursor-size>
+                                         # e.g. "Inter 11" "JetBrains Mono" 12 32; stored in
+                                         # /usr/share/ish/fonts.env (ish-apply-style honours it),
+                                         # GTK settings.ini edited in place, foot via fonts.ini
+ish-apply-colors --fonts default         # back to the style's fonts and cursor size
 ```
 
 - Exit status 0 means done. On failure the last stderr line says why, and with `--json`

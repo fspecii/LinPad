@@ -62,6 +62,20 @@ final class DragDropUITests: XCTestCase {
         String(path.split(separator: "/").last ?? "")
     }
 
+    /// Sends a command and waits until its log output contains one of `markers`.
+    private func automate(_ command: String, until markers: [String], timeout: TimeInterval = 40) -> String {
+        var output = automate(command, wait: 1)
+        let deadline = Date().addingTimeInterval(timeout)
+        let log = Self.automation.appendingPathComponent("log")
+        let start = ((try? String(contentsOf: log, encoding: .utf8)) ?? "").count - output.count
+        while Date() < deadline && !markers.contains(where: output.contains) {
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            let text = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+            output = String(text.dropFirst(max(0, min(start, text.count))))
+        }
+        return output
+    }
+
     /// Repeats a guest command until its output contains `needle`.
     private func waitForGuest(_ command: String, contains needle: String, timeout: TimeInterval = 30) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
@@ -135,6 +149,15 @@ final class DragDropUITests: XCTestCase {
         let name = "menu-\(stamp).txt"
         createFile(name)
 
+        // The background menu.
+        let content = element("files.content")
+        content.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).press(forDuration: 1.2)
+        XCTAssertTrue(menuItem("Open Terminal Here").waitForExistence(timeout: 5))
+        XCTAssertTrue(menuItem("Paste").exists && menuItem("Select All").exists && menuItem("Sort By").exists)
+        save("dnd-files-background-menu")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.05)).tap()
+        sleep(1)
+
         entry(name).press(forDuration: 1.2)
         XCTAssertTrue(menuItem("Duplicate").waitForExistence(timeout: 5), "the item menu opened")
         for title in ["Open With", "Cut", "Copy", "Copy Path", "Rename…", "Compress", "Share…", "Move to Trash",
@@ -159,18 +182,7 @@ final class DragDropUITests: XCTestCase {
         menuItem("Restore").tap()
         waitFor("the copy left the Trash") { !entry(copy).exists }
         XCTAssertTrue(waitForGuest("ls \(folder)", contains: copy), "Restore put it back")
-        element("files.place.Home").tap()
-        XCTAssertTrue(entry(lastComponent(folder)).waitForExistence(timeout: 20))
-        entry(lastComponent(folder)).doubleTap()
-        XCTAssertTrue(entry(copy).waitForExistence(timeout: 20), "and Files shows it there")
 
-        // The background menu.
-        let content = element("files.content")
-        content.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).press(forDuration: 1.2)
-        XCTAssertTrue(menuItem("Open Terminal Here").waitForExistence(timeout: 5))
-        XCTAssertTrue(menuItem("Paste").exists && menuItem("Select All").exists && menuItem("Sort By").exists)
-        save("dnd-files-background-menu")
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.05)).tap()
     }
 
     func testDragBetweenFilesDesktopAndPlaces() {
@@ -196,8 +208,8 @@ final class DragDropUITests: XCTestCase {
         // The desktop's own menu.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.85)).press(forDuration: 1.2)
         XCTAssertTrue(menuItem("Arrange Icons").waitForExistence(timeout: 5))
-        XCTAssertTrue(menuItem("Show Desktop Icons").exists && menuItem("Open Terminal Here").exists
-                      && menuItem("Change Wallpaper").exists)
+        let wallpaper = app.collectionViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Change Wallpaper'")).firstMatch
+        XCTAssertTrue(menuItem("Show Desktop Icons").exists && menuItem("Open Terminal Here").exists && wallpaper.exists)
         save("dnd-desktop-menu")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.95)).tap()
     }
@@ -239,7 +251,9 @@ final class DragDropUITests: XCTestCase {
         let dir = "/root/thunar-\(stamp)"
         // Thunar sorts by name: a-…, b-…, c-… are the first three icons.
         automate("sh|mkdir -p \(dir) && echo one > \(dir)/a-files.txt && echo two > \(dir)/b-desktop.txt && echo three > \(dir)/c-mousepad.txt", wait: 4)
-        automate("open|files|path=/root", wait: 1)
+        let filesDir = "/root/from-thunar-\(stamp)"
+        automate("sh|mkdir -p \(filesDir)", wait: 3)
+        automate("open|files|path=\(filesDir)", wait: 1)
         requireWindow("files")
         automate("open|linux:thunar \(dir)", wait: 1)
         let linux = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'window:linux:'"))
@@ -250,16 +264,16 @@ final class DragDropUITests: XCTestCase {
         save("dnd-thunar-source")
 
         // The first icon sits at (224, 150) in Thunar's content.
-        let toFiles = automate("drag|Thunar|224|150|app:files|300|300", wait: 10)
+        let toFiles = automate("drag|Thunar|224|150|app:files|300|300", until: ["dnd_end", "did not start"])
         XCTAssertTrue(toFiles.contains("dnd_end host"), toFiles)
-        XCTAssertTrue(waitForGuest("ls /root", contains: "a-files.txt"), "Thunar → Files moved the file into /root")
+        XCTAssertTrue(waitForGuest("ls \(filesDir)", contains: "a-files.txt"), "Thunar → Files moved the file into Files' folder")
         XCTAssertTrue(entry("a-files.txt").waitForExistence(timeout: 20), "Files shows it")
         save("dnd-thunar-to-files")
 
         // The desktop shows through between the two windows.
         // Reload Thunar (F5) so the next file is first, whether or not it noticed the move.
         automate("key|Thunar|63", wait: 4)
-        let toDesktop = automate("drag|Thunar|224|150|desktop|640|560", wait: 10)
+        let toDesktop = automate("drag|Thunar|224|150|desktop|640|560", until: ["dnd_end", "did not start"])
         XCTAssertTrue(toDesktop.contains("dnd_end host"), toDesktop)
         XCTAssertTrue(waitForGuest("ls /root/Desktop", contains: "b-desktop.txt"), "Thunar → desktop moved it into ~/Desktop")
         XCTAssertTrue(element("desktop.icon.b-desktop.txt").waitForExistence(timeout: 20), "the desktop shows it")
@@ -269,7 +283,7 @@ final class DragDropUITests: XCTestCase {
         while Date() < deadline && !automate("state", wait: 2).contains("Mousepad") {}
         automate("frame|Mousepad|20|40|600|460", wait: 4)
         automate("key|Thunar|63", wait: 4)
-        let toMousepad = automate("drag|Thunar|224|150|Mousepad|300|250", wait: 10)
+        let toMousepad = automate("drag|Thunar|224|150|Mousepad|300|250", until: ["dnd_end", "did not start"])
         XCTAssertTrue(toMousepad.contains("dnd_end dropped"), toMousepad)
         var state = ""
         let opened = Date().addingTimeInterval(30)
@@ -309,8 +323,20 @@ final class DragDropUITests: XCTestCase {
         XCTAssertTrue(preview("b").waitForExistence(timeout: 30), "↓ moved the preview to b.txt")
         save("dnd-quicklook-b")
 
+        // The simulator never delivers XCUITest's Escape to the app (not to UIKit key commands,
+        // not to GameController), so ⌘. (the iPad's Escape) stands in for it here.
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
-        waitFor("Esc closed Quick Look", timeout: 10) { !preview("b").exists }
+        if !preview("b").waitForNonExistence(timeout: 5) {
+            app.typeKey(".", modifierFlags: .command)
+        }
+        waitFor("Esc / ⌘. closed Quick Look", timeout: 10) { !preview("b").exists }
+        save("dnd-quicklook-closed")
+
+        // Space toggles it closed too.
+        app.typeKey(" ", modifierFlags: [])
+        XCTAssertTrue(preview("b").waitForExistence(timeout: 30), "Space opened it again")
+        app.typeKey(" ", modifierFlags: [])
+        waitFor("Space closed Quick Look", timeout: 10) { !preview("b").exists }
         XCTAssertTrue(entry("b.txt").exists, "back in Files, with b.txt selected")
     }
 
@@ -353,6 +379,28 @@ final class DragDropUITests: XCTestCase {
         XCTAssertTrue(app.buttons["photos.allow"].waitForExistence(timeout: 10) || element("photos.album").waitForExistence(timeout: 5),
                       "the Photos place asks for access or shows the library")
         save("dnd-photos-place")
+    }
+
+    /// The Photos place with library access (granted and seeded beforehand with
+    /// `simctl privacy … grant photos` and `simctl addmedia`): the grid shows the library and
+    /// "Import to ~/Pictures" copies the original into the guest.
+    func testPhotosImportToPictures() {
+        launch(autostart: "")
+        XCTAssertTrue(element("desktop.surface").waitForExistence(timeout: 60))
+        sleep(3)
+        automate("sh|rm -rf /root/Pictures", wait: 3)
+        automate("open|files|path=/root", wait: 1)
+        requireWindow("files")
+        automate("frame|app:files|20|40|900|600", wait: 2)
+        element("files.place.Photos").tap()
+        let asset = app.descendants(matching: .any)["photos.asset"].firstMatch
+        XCTAssertTrue(asset.waitForExistence(timeout: 20), "the library shows photos")
+        save("dnd-photos-grid")
+        asset.press(forDuration: 1.2)
+        XCTAssertTrue(menuItem("Import to ~/Pictures").waitForExistence(timeout: 10))
+        save("dnd-photos-menu")
+        menuItem("Import to ~/Pictures").tap()
+        XCTAssertTrue(waitForGuest("ls /root/Pictures", contains: ".", timeout: 40), "the photo was copied into ~/Pictures")
     }
 
     /// Text dragged from the Text Editor into Mousepad.

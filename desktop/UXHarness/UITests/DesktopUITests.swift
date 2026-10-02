@@ -15,7 +15,7 @@ class DesktopUITests: XCTestCase {
         // An empty argument-domain value starts every workspace untiled, whatever a previous run saved.
         app.launchArguments = ["-desktop.resetSession", "YES", "-desktop.autostart", "", "-desktop.style", style,
                                "-desktop.tiling", "", "-desktop.onboarded", "YES", "-wallhaven.mock", "YES",
-                               "-desktop.wallpaper", "", "-desktop.resetIcons", "YES", "-desktop.colorTheme", ""]
+                               "-desktop.wallpaper", "", "-desktop.resetIcons", "YES", "-desktop.colorTheme", "", "-desktop.themeAppearance", "", "-desktop.styling", ""]
         app.launch()
         XCTAssertTrue(app.buttons["desktop.panel.applications"].waitForExistence(timeout: 10))
         waitFor("boot splash gone", timeout: 15) { !app.descendants(matching: .any)["desktop.bootSplash"].exists }
@@ -164,6 +164,71 @@ class DesktopUITests: XCTestCase {
         app.buttons["themePicker.card.none"].tap()
         app.buttons["themePicker.apply"].tap()
         waitFor("back to the style's colours") { !title.exists }
+    }
+
+    // MARK: Themes app
+
+    private func openThemes() -> XCUIElement {
+        openFromLauncher("themes", search: "Them")
+        let themes = window("themes")
+        XCTAssertTrue(themes.waitForExistence(timeout: 5))
+        app.typeKey(XCUIKeyboardKey.upArrow.rawValue, modifierFlags: windowKeys)
+        waitFor("maximized") { value(of: themes).contains("maximized") }
+        return themes
+    }
+
+    func testThemesAppAppliesAThemeFromTheGallery() {
+        let themes = openThemes()
+        let search = themes.textFields["themes.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("nord")
+        let apply = app.buttons["themes.apply.nord"]
+        XCTAssertTrue(apply.waitForExistence(timeout: 5))
+        apply.tap()
+        waitFor("Nord applied") { apply.label == "Applied" }
+    }
+
+    func testThemeEditorSavesACustomTheme() {
+        _ = openThemes()
+        app.buttons["themes.section.editor"].tap()
+        let name = app.textFields["themes.editor.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.tap()
+        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 12) + "UI Test Theme")
+        let accent = app.textFields["themes.editor.hex.accent"]
+        accent.tap()
+        accent.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 8) + "#ff8800")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.buttons["themes.editor.save"].tap()
+        let status = app.staticTexts["themes.editor.status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 10))
+        waitFor("saved: \(status.label)", timeout: 10) { status.label.hasPrefix("Saved UI Test Theme") }
+        app.buttons["themes.section.gallery"].tap()
+        let search = app.textFields["themes.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("UI Test")
+        XCTAssertTrue(app.buttons["themes.apply.ui-test-theme"].waitForExistence(timeout: 5), "the new theme is in the gallery")
+        XCTAssertEqual(app.buttons["themes.apply.ui-test-theme"].label, "Applied")
+    }
+
+    func testLightAndDarkModesApplyThePairedTheme() {
+        _ = openThemes()
+        app.buttons["themes.section.appearance"].tap()
+        let enabled = app.switches["themes.mode.enabled"]
+        XCTAssertTrue(enabled.waitForExistence(timeout: 5))
+        enabled.tap()
+        let now = app.staticTexts["themes.mode.current"]
+        app.buttons["Light"].firstMatch.tap()
+        let lightPicker = app.buttons["themes.lightTheme"]
+        if lightPicker.exists {
+            lightPicker.tap()
+            app.buttons["Catppuccin Latte"].firstMatch.tap()
+        }
+        waitFor("light member applied: \(now.label)", timeout: 5) { now.label == "Now: Catppuccin Latte" }
+        app.buttons["Dark"].firstMatch.tap()
+        waitFor("dark partner applied: \(now.label)", timeout: 5) { now.label == "Now: Catppuccin" }
     }
 
     func testLauncherIsKeyboardNavigable() {

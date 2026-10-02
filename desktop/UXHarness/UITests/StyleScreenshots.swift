@@ -59,6 +59,29 @@ final class StyleScreenshots: XCTestCase {
         }
     }
 
+    /// Each section of the Themes app, maximized, in landscape.
+    func testCaptureThemesApp() throws {
+        let directory = ProcessInfo.processInfo.environment["DESKTOP_SCREENSHOT_DIR"]
+        try XCTSkipIf(directory == nil, "DESKTOP_SCREENSHOT_DIR not set")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication()
+        app.launchArguments = ["-desktop.resetSession", "YES", "-desktop.autostart", "themes", "-desktop.style", "ish",
+                               "-desktop.onboarded", "YES", "-desktop.colorTheme", "tokyo-night", "-desktop.tiling", "",
+                               "-desktop.wallpaper", "", "-desktop.styling", "", "-desktop.themeAppearance", ""]
+        app.launch()
+        let window = app.descendants(matching: .any)["window:themes"].firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 15))
+        sleep(2)
+        app.typeKey(XCUIKeyboardKey.upArrow.rawValue, modifierFlags: [.control, .option])
+        sleep(2)
+        for section in ["gallery", "appearance", "editor", "styling", "icons", "looks"] {
+            app.buttons["themes.section.\(section)"].tap()
+            sleep(2)
+            save(app, to: directory!, name: "themes-\(section)")
+        }
+        app.terminate()
+    }
+
     private func save(_ app: XCUIApplication, to directory: String, name: String) {
         let url = URL(fileURLWithPath: directory).appendingPathComponent("\(name).png")
         // Redraw so the device orientation is baked into the pixels; the raw PNG is portrait.

@@ -9,6 +9,6 @@ let package = Package(
     ],
     targets: [
         .target(name: "DesktopKit", resources: [.copy("Resources/Wallpapers"), .copy("Resources/ColorThemes")]),
-        .testTarget(name: "DesktopKitTests", dependencies: ["DesktopKit"]),
+        .testTarget(name: "DesktopKitTests", dependencies: ["DesktopKit"], exclude: ["Fixtures"]),
     ]
 )

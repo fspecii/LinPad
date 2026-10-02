@@ -861,6 +861,7 @@ struct FilesAppView: View {
         .task { model.startIfNeeded() }
         .onReceive(NotificationCenter.default.publisher(for: .guestFilesChanged)) { _ in model.reload() }
         .onChange(of: model.path) { _, _ in showsPhotos = false }
+        .onReceive(NotificationCenter.default.publisher(for: .quickLookDidClose)) { _ in keyFocusToken += 1 }
         .onChange(of: isWindowFocused) { _, focused in if focused { model.reload() } }
         .nativeDropTarget(window: model.windowID) { items, operation in
             model.receive(items, into: model.path, operation: operation)

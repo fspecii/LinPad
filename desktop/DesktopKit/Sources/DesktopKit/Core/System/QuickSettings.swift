@@ -160,6 +160,7 @@ struct QuickSettingsPanel: View {
                 .accessibilityIdentifier("quickSettings.style")
             }
             PerformanceModeRow(controller: controller)
+            UpdateStatusRow(service: controller.updates)
             infoRow(symbol: "keyboard", title: "Keyboard") {
                 Button(status.keyboardLanguage ?? "Hardware keyboard") {
                     if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
@@ -279,6 +280,7 @@ struct NotificationCenterPanel: View {
                         .font(.system(size: 13))
                 }
             }
+            UpdateStatusRow(service: controller.updates)
             if notifications.notices.isEmpty {
                 Text("No notifications")
                     .font(.system(size: 13))

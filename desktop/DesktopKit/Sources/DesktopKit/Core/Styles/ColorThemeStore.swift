@@ -56,6 +56,20 @@ final class ColorThemeStore {
         defaults.set(id, forKey: Self.storageKey)
     }
 
+    /// A theme saved or imported by the Themes app shows at once, before the guest's list
+    /// is read again (or on guests without `ish-colors`).
+    func upsertLocal(_ theme: ColorTheme) {
+        themes.removeAll { $0.id == theme.id }
+        themes.append(theme)
+        themes.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    func removeLocal(_ id: String) {
+        themes.removeAll { $0.id == id && $0.isUserTheme }
+        if let builtIn = ColorTheme.builtIn.first(where: { $0.id == id }) { upsertLocal(builtIn) }
+        if currentID == id { select("") }
+    }
+
     /// Reads the guest's list (built-in plus user and git themes).
     func load(host: any LinuxHost) async {
         let result = await host.run("ish-colors list --json", cwd: nil, stdin: nil)
@@ -67,6 +81,7 @@ final class ColorThemeStore {
         let listed = ColorTheme.decodeList(Data(result.stdout.utf8))
         guard !listed.isEmpty else { return }
         var merged = listed
+        for theme in themes where theme.isUserTheme && !merged.contains(where: { $0.id == theme.id }) { merged.append(theme) }
         for theme in ColorTheme.builtIn where !merged.contains(where: { $0.id == theme.id }) { merged.append(theme) }
         themes = merged.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }

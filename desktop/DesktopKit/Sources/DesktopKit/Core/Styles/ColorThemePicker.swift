@@ -140,7 +140,10 @@ struct ThemePreviewCard: View {
     let theme: ColorTheme?
     /// For "Style Colors", which has no palette of its own: draw with the style's theme.
     var fallback: DesktopTheme?
+    /// Adds a notification bubble in the corner (the Themes gallery's larger cards).
+    var showsNotification = false
     @Environment(\.desktopTheme) private var desktopTheme
+    @Environment(\.desktopStyleTheme) private var styleTheme
 
     var body: some View {
         let colors = palette
@@ -165,6 +168,22 @@ struct ThemePreviewCard: View {
                 .padding(.bottom, 7)
             }
         }
+        .overlay(alignment: .topTrailing) {
+            if showsNotification {
+                HStack(spacing: 5) {
+                    Circle().fill(colors.accent).frame(width: 7, height: 7)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Capsule().fill(colors.foreground).frame(width: 46, height: 3)
+                        Capsule().fill(colors.muted).frame(width: 32, height: 3)
+                    }
+                }
+                .padding(6)
+                .background(colors.background)
+                .overlay(Rectangle().strokeBorder(colors.accent, lineWidth: 1.5))
+                .padding(.top, 18)
+                .padding(.trailing, 10)
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
@@ -181,7 +200,7 @@ struct ThemePreviewCard: View {
                           selection: theme.selectionRGB.color, title: bg.mix(fg, 0.08).color,
                           ansi: theme.terminalColors.map(\.color))
         }
-        let base = fallback ?? desktopTheme
+        let base = fallback ?? styleTheme
         return Colors(background: base.windowBackground, darker: base.panelBackground, foreground: base.primaryText,
                       muted: base.secondaryText, accent: base.accent, selection: base.accent.opacity(0.3),
                       title: base.titleBarActive, ansi: [])

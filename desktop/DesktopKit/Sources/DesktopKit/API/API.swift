@@ -288,6 +288,12 @@ public struct DesktopTheme: Equatable {
     public var terminalPalette: [Color] = []
     /// The colour theme these colours came from ("" for the style's own).
     public var colorThemeID: String = ""
+    /// With a value, the focus ring runs from `borderActive` to this colour (45°).
+    public var borderGradientEnd: Color? = nil
+    public var showsFocusRing = true
+    public var showsWindowShadows = true
+    /// Panels and docks blur what is behind them (the style's material); off is flat colour.
+    public var panelBlur = true
 
     public init(accent: Color, panelBackground: Color, windowBackground: Color,
                 titleBarActive: Color, titleBarInactive: Color, primaryText: Color,

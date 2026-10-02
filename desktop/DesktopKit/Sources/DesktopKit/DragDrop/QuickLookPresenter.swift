@@ -7,6 +7,11 @@ import UIKit
 /// through it while it is open (through the selection's files, or through the folder via
 /// `onStep` when one file is selected), and Space or Esc closes it. Guest files are exported
 /// through the guest first (GuestTransferService), and cached while unchanged.
+extension Notification.Name {
+    /// Quick Look closed; the view that opened it takes the keyboard back.
+    static let quickLookDidClose = Notification.Name("DesktopKit.quickLookDidClose")
+}
+
 @MainActor
 final class QuickLookPresenter: NSObject, QLPreviewControllerDataSource, QLPreviewControllerDelegate {
     static let shared = QuickLookPresenter()
@@ -56,7 +61,9 @@ final class QuickLookPresenter: NSObject, QLPreviewControllerDataSource, QLPrevi
 
     func dismiss() {
         watchHardwareKeys(false)
-        presented?.dismiss(animated: true)
+        presented?.dismiss(animated: true) {
+            NotificationCenter.default.post(name: .quickLookDidClose, object: nil)
+        }
         presented = nil
         onStep = nil
     }
@@ -128,6 +135,7 @@ final class QuickLookPresenter: NSObject, QLPreviewControllerDataSource, QLPrevi
             watchHardwareKeys(false)
             presented = nil
             onStep = nil
+            NotificationCenter.default.post(name: .quickLookDidClose, object: nil)
         }
     }
 }
@@ -153,12 +161,17 @@ final class KeyedPreviewController: QLPreviewController {
             (UIKeyCommand.inputLeftArrow, .previous), (UIKeyCommand.inputRightArrow, .next),
             (UIKeyCommand.inputUpArrow, .up), (UIKeyCommand.inputDownArrow, .down),
         ]
-        return inputs.map { input, key in
+        var commands = inputs.map { input, key in
             let command = UIKeyCommand(input: input, modifierFlags: [], action: #selector(performKey(_:)))
             command.wantsPriorityOverSystemBehavior = true
             command.title = "\(key)"
             return command
         }
+        // ⌘. is the iPad's Escape (keyboards without an Esc key).
+        let cancel = UIKeyCommand(input: ".", modifierFlags: .command, action: #selector(performKey(_:)))
+        cancel.wantsPriorityOverSystemBehavior = true
+        commands.append(cancel)
+        return commands
     }
 
     @objc private func performKey(_ command: UIKeyCommand) {

@@ -52,6 +52,14 @@ load_style() { # style variant
     eval "CURSOR_THEME=\$CURSOR_THEME_$VARIANT KVANTUM_THEME=\$KVANTUM_THEME_$VARIANT"
     [ "$VARIANT" = dark ] && DARK=1 || DARK=0
     STYLE_ICON_THEME=$ICON_THEME
+    # Fonts and cursor size the user chose (ish-apply-colors --fonts) outlive style switches.
+    if [ -f "$SHARE/fonts.env" ]; then
+        FONT_OVERRIDE= CURSOR_SIZE_OVERRIDE=
+        # shellcheck disable=SC1091
+        . "$SHARE/fonts.env"
+        if [ -n "$FONT_OVERRIDE" ]; then FONT=$FONT_OVERRIDE; fi
+        if [ -n "$CURSOR_SIZE_OVERRIDE" ]; then CURSOR_SIZE=$CURSOR_SIZE_OVERRIDE; fi
+    fi
     # A pack the user picked outlives style switches, as long as it is still installed.
     override=$(cat "$ICON_OVERRIDE" 2>/dev/null || true)
     if [ -n "$override" ] && theme_dir "$override" >/dev/null; then ICON_THEME=$override; fi

@@ -59,6 +59,7 @@ enum SettingsApp {
     static let wallpaperPage = "wallpaper"
     static let iconsPage = "icons"
     static let appsPage = "apps"
+    static let updatesPage = "updates"
 
     static func descriptor() -> DesktopAppDescriptor {
         DesktopAppDescriptor(
@@ -177,6 +178,8 @@ struct SettingsAppView: View {
                     desktopSection
                     tilingSection
                     shortcutsSection
+                    UpdatesSettingsSection(service: UpdateService.shared(for: host))
+                        .id(SettingsApp.updatesPage)
                     aboutSection
                 }
                 .padding(20)
@@ -246,6 +249,8 @@ struct SettingsAppView: View {
             .accessibilityIdentifier("settings.colorTheme")
         }
         HStack(spacing: 12) {
+            Button("Open Themes…") { desktop.open(appID: ThemesApp.id, arguments: [:]) }
+                .accessibilityIdentifier("settings.openThemes")
             Button("Browse Themes…") { store.onPickerRequest?() }
                 .accessibilityIdentifier("settings.browseThemes")
             if let current = store.current {

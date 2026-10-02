@@ -110,7 +110,7 @@ struct WindowView: View {
         .accessibilityIdentifier("window:\(window.appID)")
         .accessibilityValue(accessibilityState)
         .background {
-            WindowShadow(cornerRadius: radius, isFocused: isFocused, isHidden: isMaximized)
+            WindowShadow(cornerRadius: radius, isFocused: isFocused, isHidden: isMaximized || !theme.showsWindowShadows)
         }
         .overlay { if !window.isMaximized && !isInOverview { resizeHandles } }
         .overlay { if isInOverview { overviewInteraction } }
@@ -128,9 +128,13 @@ struct WindowView: View {
     @ViewBuilder
     private func border(_ shape: RoundedRectangle) -> some View {
         let tiled = manager.isTiledByLayout(window)
-        let width = theme.borderWidth > 0 ? theme.borderWidth : (tiled && !manager.isZen ? 2 : 0)
-        if width > 0 {
-            shape.strokeBorder(isFocused ? (theme.borderActive ?? theme.accent) : theme.borderInactive, lineWidth: width)
+        let width = !theme.showsFocusRing ? 0 : theme.borderWidth > 0 ? theme.borderWidth : (tiled && !manager.isZen ? 2 : 0)
+        let active = theme.borderActive ?? theme.accent
+        if width > 0, isFocused, let end = theme.borderGradientEnd {
+            shape.strokeBorder(LinearGradient(colors: [active, end], startPoint: .topLeading, endPoint: .bottomTrailing),
+                               lineWidth: width)
+        } else if width > 0 {
+            shape.strokeBorder(isFocused ? active : theme.borderInactive, lineWidth: width)
         } else if !manager.isZen {
             shape.strokeBorder(isFocused ? theme.accent.opacity(0.45) : theme.separator, lineWidth: 1)
         }

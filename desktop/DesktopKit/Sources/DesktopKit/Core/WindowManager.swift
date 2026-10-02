@@ -135,7 +135,11 @@ final class WindowManager {
         didSet { if isZen != oldValue { retileAll() } }
     }
     var innerGap: CGFloat { isZen ? 0 : tilingGap }
-    var outerGap: CGFloat { isZen ? 0 : tilingGap * 2 }
+    /// The screen-edge gap the user set in the Themes app; nil is twice the inner gap.
+    var outerGapOverride: CGFloat? {
+        didSet { if outerGapOverride != oldValue { retileAll() } }
+    }
+    var outerGap: CGFloat { isZen ? 0 : (outerGapOverride ?? tilingGap * 2) }
     /// Taskbar buttons in global coordinates, where minimized windows shrink to.
     var taskbarTargets: [UUID: CGRect] = [:]
     /// The desktop area's origin in global coordinates.

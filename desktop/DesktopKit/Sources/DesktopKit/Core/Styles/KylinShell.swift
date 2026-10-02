@@ -88,7 +88,7 @@ struct KylinPanel: View {
         .frame(height: 48)
         .background {
             ZStack {
-                Rectangle().fill(.ultraThinMaterial)
+                Rectangle().fill(theme.panelBlur ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(Color.clear))
                 theme.panelBackground
             }
             .ignoresSafeArea(edges: .bottom)
@@ -225,7 +225,7 @@ struct KylinStartMenu: View {
         .frame(width: 766, height: min(688, max(300, controller.windowManager.desktopSize.height - 16
                                                      - controller.windowManager.keyboardOverlap)))
         .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.panelBlur ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(Color.clear))
             RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.panelBackground)
         }
         .overlay { RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(theme.separator, lineWidth: 1) }
