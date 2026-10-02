@@ -57,46 +57,9 @@ pref("browser.sessionstore.interval", 60000);
 // Fewer frames for decoration: animations cost a full software repaint each.
 pref("toolkit.cosmeticAnimations.enabled", false);
 pref("ui.prefersReducedMotion", 1);
-// "Open in Quick Preview" (bookmarks toolbar): javascript:location.href='ishpreview:'+...
-// hands the page to /usr/local/bin/ish-preview, which shows it in the iPad's Quick
-// Preview (Safari's engine, hardware video) for videos too heavy to decode here.
-pref("network.protocol-handler.external.ishpreview", true);
-pref("network.protocol-handler.expose.ishpreview", false);
-pref("network.protocol-handler.warn-external.ishpreview", false);
-pref("network.protocol-handler.app.ishpreview", "/usr/local/bin/ish-preview");
 EOF
 echo "gecko-tune: wrote $dir/ish-tune.js"
 
-# Firefox on Linux finds external protocol handlers through the desktop database.
-cat > /usr/share/applications/ish-preview.desktop <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=Open in Quick Preview
-Exec=ish-preview %u
-NoDisplay=true
-MimeType=x-scheme-handler/ishpreview;
-EOF
-command -v update-desktop-database >/dev/null && update-desktop-database -q /usr/share/applications
-
-# The bookmarklet, on the bookmarks toolbar (enterprise policy; users can remove it).
-# Alpine's Firefox reads /etc/firefox/policies; the distribution directory is upstream's.
-mkdir -p /usr/lib/firefox-esr/distribution /etc/firefox/policies
-cat > /usr/lib/firefox-esr/distribution/policies.json <<'EOF'
-{
-  "policies": {
-    "DisplayBookmarksToolbar": "always",
-    "Bookmarks": [
-      {
-        "Title": "Open in Quick Preview",
-        "URL": "javascript:void(location.href='ishpreview:'+location.href)",
-        "Placement": "toolbar"
-      }
-    ]
-  }
-}
-EOF
-cp /usr/lib/firefox-esr/distribution/policies.json /etc/firefox/policies/policies.json
-echo "gecko-tune: wrote the Firefox policies (Open in Quick Preview bookmark)"
 
 if [ "${ISH_FIREFOX_SCALE:-}" = 1 ]; then
     mkdir -p /etc/ishwl

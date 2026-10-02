@@ -1,9 +1,7 @@
 #!/bin/sh
 # Opens a web page in the iPad's Quick Preview (Safari's engine, hardware video decoding),
 # whatever the desktop's URL handler is: "preview URL" on ishwl's notify FIFO.
-#   ish-preview https://...              from a terminal
-#   ish-preview ishpreview:https://...   from Firefox's "Open in Quick Preview" bookmark
-#                                        (the ishpreview: protocol handler, gecko-tune.sh)
+#   ish-preview https://...    e.g. a video page too heavy for Firefox under emulation
 url=${1#ishpreview:}
 case $url in
     http://*|https://*) ;;
