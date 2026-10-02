@@ -22,3 +22,6 @@ HEADER_SEARCH_PATHS = $(inherited) $(SRCROOT) $(SRCROOT)/deps/libarchive/libarch
 // Swift for the native desktop (app/Desktop, DesktopKit package)
 SWIFT_VERSION = 5.0
 SWIFT_OBJC_BRIDGING_HEADER = app/iSH-ARM64-Bridging-Header.h
+
+// LinPad releases are versioned independently of upstream iSH (release/RELEASING.md).
+MARKETING_VERSION = 1.4.0
