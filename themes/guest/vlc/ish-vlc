@@ -1,0 +1,16 @@
+#!/bin/sh
+# VLC on the iSH desktop: the Qt interface on Wayland, the video in its own window
+# (xdg_wm_base + wl_shm plugins from build-vlc-wayland.sh) and the sound through
+# PulseAudio (ishaudio). Extra arguments go to vlc.
+export QT_QPA_PLATFORM=${QT_QPA_PLATFORM:-wayland}
+export PULSE_SERVER=${PULSE_SERVER:-unix:/tmp/ishaudio/native}
+# vlc-compat: root and Qt-on-Wayland workarounds (vlc-compat.c). ishaudio-compat:
+# libpulse needs it under iSH (see themes/guest/audio/ishaudio-compat.c).
+for lib in /usr/local/lib/libish-vlc-compat.so /usr/local/lib/libishaudio-compat.so; do
+    [ -r "$lib" ] && LD_PRELOAD="$lib${LD_PRELOAD:+:$LD_PRELOAD}"
+done
+export LD_PRELOAD
+# --no-embedded-video: Qt on Wayland cannot host the video surface in VLC 3.0, so the
+# video gets its own native window next to the controls.
+exec /usr/bin/vlc --no-qt-privacy-ask --no-embedded-video --vout=wl_shm --aout=pulse \
+    --avcodec-threads=0 --avcodec-hw=none "$@"

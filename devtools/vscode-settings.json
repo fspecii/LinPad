@@ -1,0 +1,47 @@
+{
+    "window.titleBarStyle": "native",
+    "window.menuBarStyle": "classic",
+    "window.dialogStyle": "custom",
+    "window.restoreWindows": "all",
+    "files.simpleDialog.enable": true,
+    "update.mode": "none",
+    "extensions.autoUpdate": false,
+    // vsce-sign, the signature checker, crashes the emulator (see the devtools notes).
+    "extensions.verifySignature": false,
+    "telemetry.telemetryLevel": "off",
+    "workbench.enableExperiments": false,
+    "workbench.startupEditor": "none",
+    "workbench.tips.enabled": false,
+    "workbench.secondarySideBar.defaultVisibility": "hidden",
+    "editor.fontFamily": "'DejaVu Sans Mono', 'Noto Sans Mono', monospace",
+    "editor.fontSize": 14,
+    "editor.smoothScrolling": false,
+    "editor.cursorSmoothCaretAnimation": "off",
+    "workbench.list.smoothScrolling": false,
+    "terminal.integrated.smoothScrolling": false,
+    "terminal.integrated.gpuAcceleration": "off",
+    "terminal.integrated.defaultProfile.linux": "sh",
+    "terminal.integrated.profiles.linux": {
+        "sh": { "path": "/bin/sh", "args": ["-l"] }
+    },
+    "files.watcherExclude": {
+        "**/node_modules/**": true,
+        "**/.git/objects/**": true,
+        "**/dist/**": true
+    },
+    "search.followSymlinks": false,
+    "editor.minimap.enabled": false,
+    "workbench.editor.limit.enabled": true,
+    "workbench.editor.limit.value": 10,
+    "extensions.ignoreRecommendations": true,
+    "npm.fetchOnlinePackageInfo": false,
+    "typescript.disableAutomaticTypeAcquisition": true,
+    "typescript.tsserver.maxTsServerMemory": 1024,
+    "git.autofetch": false,
+    "git.enableSmartCommit": true,
+    "git.openRepositoryInParentFolders": "always",
+    "security.workspace.trust.enabled": false,
+    // TypeScript 7 (tsgo, installed by install-vscode.sh): 25x faster than tsserver here.
+    "js/ts.experimental.useTsgo": true,
+    "chat.disableAIFeatures": true
+}

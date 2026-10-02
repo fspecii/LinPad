@@ -1,0 +1,65 @@
+#!/bin/sh
+# Installs the optional packs chosen in first-run onboarding. The desktop writes the
+# choices to /etc/ish/firstrun.json ({"packs": ["vscode", ...], ...}); every pack that
+# installs successfully is recorded in /var/lib/ish/firstrun/<pack>.done, so the script
+# is safe to run again (an interrupted pack is retried on the next run).
+#   ish-firstrun            install the pending packs
+#   ish-firstrun --pending  print the pending pack ids, one per line, and exit
+#   ish-firstrun PACK...    install the given packs regardless of firstrun.json
+# Packs: vscode, multimedia, gpu, browsers (Falkon and Dillo); "reinstall" re-adds the
+# packages listed in /etc/ish/reinstall-packages after a system update.
+set -u
+json=/etc/ish/firstrun.json
+state=/var/lib/ish/firstrun
+mkdir -p "$state"
+
+chosen() {
+    [ -r "$json" ] || return 0
+    node -e '
+        const c = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+        for (const p of c.packs || []) console.log(p);' "$json" 2>/dev/null
+}
+
+pending() {
+    # After "Update Linux system": packages the user had added before the update.
+    [ -s /etc/ish/reinstall-packages ] && echo reinstall
+    for pack in $(chosen); do
+        [ -e "$state/$pack.done" ] || echo "$pack"
+    done
+}
+
+install_pack() {
+    case $1 in
+    vscode) ish-install-vscode --no-wait ;;
+    multimedia) command -v vlc >/dev/null || apk add vlc vlc-qt ;;
+    gpu) apk add mesa-utils vulkan-tools ;;
+    browsers) apk add falkon qt6-qtwayland dillo xwayland ;;
+    reinstall)
+        # shellcheck disable=SC2046
+        apk add $(cat /etc/ish/reinstall-packages) && rm -f /etc/ish/reinstall-packages ;;
+    *) echo "ish-firstrun: unknown pack '$1', skipped" >&2; return 0 ;;
+    esac
+}
+
+if [ "${1:-}" = --pending ]; then
+    pending
+    exit 0
+fi
+
+if [ $# -gt 0 ]; then packs=$*; else packs=$(pending); fi
+[ -n "$packs" ] || { echo "Nothing to install."; exit 0; }
+
+status=0
+for pack in $packs; do
+    echo "==> Installing pack: $pack"
+    if install_pack "$pack"; then
+        [ "$pack" = reinstall ] || touch "$state/$pack.done"
+        echo "==> $pack: done"
+    else
+        status=1
+        echo "==> $pack: FAILED (run 'ish-firstrun $pack' to retry)"
+    fi
+done
+# New .desktop files need icons in the desktop's per-style cache (themes/CONTRACT.md).
+command -v ish-apply-style >/dev/null && ish-apply-style --cache-only >/dev/null 2>&1
+exit $status

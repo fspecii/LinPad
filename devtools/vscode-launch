@@ -1,0 +1,71 @@
+#!/bin/sh
+# `code`: VS Code on the iSH desktop. Works from the launcher (started by ishwl) and from
+# any terminal, including VS Code's own, where `code FILE` opens FILE in the running
+# window.
+PREFIX=${VSCODE_PREFIX:-/opt/vscode}
+
+# The session preloads musl helpers (scm-compat) into every app; VS Code is glibc and
+# cannot load them.
+unset LD_PRELOAD
+
+# Started from a plain terminal: join the desktop's Wayland session if there is one.
+if [ -z "${WAYLAND_DISPLAY:-}" ]; then
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-runtime}"
+    [ -S "$XDG_RUNTIME_DIR/wayland-0" ] && export WAYLAND_DISPLAY=wayland-0
+fi
+export ELECTRON_OZONE_PLATFORM_HINT=wayland
+export DONT_PROMPT_WSL_INSTALL=1 VSCODE_CLI_DISABLE_KEYCHAIN_ENCRYPT=1
+
+# Command-line-only operations (extensions, --version, --wait, reading stdin) need
+# VS Code's Node CLI. Everything else goes straight to Electron, as Linux desktop files
+# do: the CLI would only spend a Node start-up (seconds under emulation) to spawn it.
+for arg in "$@"; do
+    case "$arg" in
+        -v | --version | -h | --help | -s | --status | -w | --wait | - | tunnel | serve-web | \
+        --list-extensions | --show-versions | --install-extension* | --uninstall-extension* | \
+        --update-extensions | --locate-extension* | --locate-shell-integration-path* | --telemetry)
+            exec "$PREFIX/bin/code" --no-sandbox --user-data-dir="$HOME/.config/Code" "$@" ;;
+    esac
+done
+
+# Already running: hand the request over directly (about a second) rather than starting a
+# second Electron just to pass it on (20-60 s here). Falls through when nothing is running.
+# With nothing to open (the desktop icon, the launcher), bring the existing window forward:
+# VS Code on Linux would open another empty one, about a gigabyte here. A first start
+# without arguments restores the last session as usual.
+FORWARD=${VSCODE_FORWARD:-/usr/local/lib/vscode-forward.mjs}
+if [ -f "$FORWARD" ] && command -v node >/dev/null &&
+        node "$FORWARD" "$HOME/.config/Code" ${1+"$@"} $([ $# -eq 0 ] && echo --reuse-window) 2>/dev/null; then
+    exit 0
+fi
+
+# --no-sandbox: iSH has no seccomp or user namespaces, so Chromium's sandbox cannot start.
+# --disable-gpu: Chromium composites in software and hands ishwl wl_shm buffers.
+# --force-disable-user-env: the desktop's environment is the login environment already;
+#   resolving it again means a login shell plus Node on every start.
+# --enable-wayland-ime --wayland-text-input-version=3: text input through ishwl's
+#   zwp_text_input_v3, so the iPad keyboard can compose (accents, dictation, emoji, CJK).
+# The rest keep Chromium from spending emulated CPU and memory on things nobody here uses.
+# Order matters: VS Code's own parser does not know the bare Chromium switches and would
+# take the next argument as their value, so they come before options it does know.
+set -- \
+    --enable-wayland-ime \
+    --wayland-text-input-version=3 \
+    --disable-gpu-compositing \
+    --disable-renderer-backgrounding \
+    --disable-features=WaylandWindowDecorations,CalculateNativeWinOcclusion \
+    --ozone-platform=wayland \
+    --user-data-dir="$HOME/.config/Code" \
+    --no-sandbox \
+    --disable-gpu \
+    --force-disable-user-env \
+    "$@"
+
+# From a terminal, return to the prompt as the CLI would, and keep Chromium's start-up
+# noise out of it. From the launcher, stay in the foreground so the desktop can follow
+# the process.
+if [ -t 0 ] || [ -t 1 ]; then
+    nohup "$PREFIX/code" "$@" >/dev/null 2>&1 &
+    exit 0
+fi
+exec "$PREFIX/code" "$@"

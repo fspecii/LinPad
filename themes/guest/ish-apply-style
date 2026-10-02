@@ -1,0 +1,415 @@
+#!/bin/sh
+# Switches the Linux desktop style and regenerates the icon cache the iOS shell reads.
+#   ish-apply-style <windows|macos|ubuntu|kylin|ish> [light|dark]
+#   ish-apply-style --list | --current | --cache-only
+#   ish-apply-style --icons <icon-theme|match>   icon pack independent of the style
+#   ish-apply-style --icon-themes | --icon-previews
+# GTK 3/4: settings.ini (user and /etc/xdg) plus libadwaita's ~/.config/gtk-4.0 links.
+# Qt 5/6: the gtk3 platform theme (fonts, icons, palette) and Kvantum (widget style).
+# Under ishwl there is no XSETTINGS daemon and the session's GSettings backend is
+# "memory", so running apps keep their style: new windows of a newly started app get it.
+# Icon cache contract: themes/CONTRACT.md in the iSH-ARM64 repo.
+set -eu
+
+SHARE=/usr/share/ish
+STYLES=$SHARE/themes/styles
+CACHE_ROOT=$SHARE/icon-cache
+CURRENT=$SHARE/current-style
+ICON_OVERRIDE=$SHARE/icon-theme
+PREVIEWS=$SHARE/icon-previews
+CONFIG=${XDG_CONFIG_HOME:-${HOME:-/root}/.config}
+SIZES="128 256"
+
+# A few icons that say what a pack looks like, for the shell's icon pack picker.
+PREVIEW_ICONS="folder utilities-terminal system-file-manager accessories-text-editor web-browser user-trash"
+
+# Freedesktop names the native shell draws on its own (launcher, Files, dock, places).
+NATIVE_ICONS="utilities-terminal system-file-manager accessories-text-editor web-browser
+utilities-system-monitor system-software-install preferences-system folder user-home
+text-x-generic image-x-generic video-x-generic audio-x-generic application-x-executable
+user-trash multimedia-video-player
+folder-open folder-documents folder-download folder-music folder-pictures folder-videos
+folder-desktop folder-publicshare folder-templates folder-remote user-desktop
+user-trash-full user-bookmarks network-workgroup network-server drive-harddisk
+drive-removable-media drive-optical media-removable computer start-here"
+
+die() { echo "ish-apply-style: $*" >&2; exit 1; }
+
+usage() {
+    echo "usage: ish-apply-style <windows|macos|ubuntu|kylin|ish> [light|dark]"
+    echo "       ish-apply-style --list | --current | --cache-only"
+    echo "       ish-apply-style --icons <icon-theme|match> | --icon-themes | --icon-previews"
+}
+
+load_style() { # style variant
+    [ -f "$STYLES/$1.conf" ] || die "unknown style '$1' (try --list)"
+    # shellcheck disable=SC1090
+    . "$STYLES/$1.conf"
+    STYLE=$1
+    VARIANT=${2:-$DEFAULT_VARIANT}
+    case $VARIANT in light|dark) ;; *) die "variant must be light or dark";; esac
+    eval "GTK_THEME=\$GTK_THEME_$VARIANT ICON_THEME=\$ICON_THEME_$VARIANT"
+    eval "CURSOR_THEME=\$CURSOR_THEME_$VARIANT KVANTUM_THEME=\$KVANTUM_THEME_$VARIANT"
+    [ "$VARIANT" = dark ] && DARK=1 || DARK=0
+    STYLE_ICON_THEME=$ICON_THEME
+    # A pack the user picked outlives style switches, as long as it is still installed.
+    override=$(cat "$ICON_OVERRIDE" 2>/dev/null || true)
+    if [ -n "$override" ] && theme_dir "$override" >/dev/null; then ICON_THEME=$override; fi
+}
+
+# Installed icon themes (not cursor-only ones): "<id>\t<display name>".
+list_icon_themes() {
+    for base in "${HOME:-/root}/.local/share/icons" "${HOME:-/root}/.icons" /usr/local/share/icons /usr/share/icons; do
+        for index in "$base"/*/index.theme; do
+            [ -f "$index" ] || continue
+            grep -q '^Directories=' "$index" || continue
+            id=${index%/index.theme}; id=${id##*/}
+            [ "$id" = hicolor ] && continue
+            name=$(sed -n 's/^Name=//p' "$index" | head -n1)
+            printf '%s\t%s\n' "$id" "${name:-$id}"
+        done
+    done | awk -F'\t' '!seen[$1]++'
+}
+
+# 64 px renders of PREVIEW_ICONS per theme, in $PREVIEWS/<theme>/<name>.png; themes
+# already rendered since their index.theme last changed are skipped.
+build_previews() {
+    mkdir -p "$PREVIEWS"
+    list_icon_themes | while IFS="$(printf '\t')" read -r id _; do
+        dir=$(theme_dir "$id") || continue
+        out=$PREVIEWS/$id
+        [ -f "$out/.done" ] && [ "$out/.done" -nt "$dir/index.theme" ] && continue
+        CHAIN=$(theme_chain "$id" | tr '\n' ' ')
+        rm -rf "$out.tmp"; mkdir -p "$out.tmp"
+        for name in $PREVIEW_ICONS; do
+            src=$(resolve_icon "$name")
+            [ -n "$src" ] && rasterize "$src" "$out.tmp/$name.png" 64 || true
+        done
+        touch "$out.tmp/.done"
+        rm -rf "$out"; mv "$out.tmp" "$out"
+    done
+    echo "icon previews: $PREVIEWS"
+}
+
+# --- settings -----------------------------------------------------------------------
+
+write_settings_ini() { # file
+    mkdir -p "$(dirname "$1")"
+    cat > "$1.tmp" <<EOF
+[Settings]
+gtk-theme-name=$GTK_THEME
+gtk-icon-theme-name=$ICON_THEME
+gtk-cursor-theme-name=$CURSOR_THEME
+gtk-cursor-theme-size=$CURSOR_SIZE
+gtk-font-name=$FONT
+gtk-application-prefer-dark-theme=$DARK
+gtk-decoration-layout=$BUTTON_LAYOUT
+gtk-enable-animations=false
+EOF
+    mv "$1.tmp" "$1"
+}
+
+# libadwaita ignores gtk-theme-name; the theme reaches it through ~/.config/gtk-4.0.
+# Only links into /usr/share/themes are ever removed, never a user's own gtk.css.
+link_libadwaita() {
+    dir=$CONFIG/gtk-4.0
+    mkdir -p "$dir"
+    for f in gtk.css gtk-dark.css assets; do
+        if [ -L "$dir/$f" ]; then
+            case $(readlink "$dir/$f") in /usr/share/themes/*) rm -f "$dir/$f";; esac
+        fi
+    done
+    src=/usr/share/themes/$GTK_THEME/gtk-4.0
+    [ "$GTK_THEME" != Adwaita ] && [ -f "$src/gtk.css" ] || return 0
+    for f in gtk.css gtk-dark.css assets; do
+        [ -e "$src/$f" ] && [ ! -e "$dir/$f" ] && ln -s "$src/$f" "$dir/$f"
+    done
+    return 0
+}
+
+write_kvantum() {
+    mkdir -p "$CONFIG/Kvantum"
+    printf '[General]\ntheme=%s\n' "$KVANTUM_THEME" > "$CONFIG/Kvantum/kvantum.kvconfig"
+}
+
+write_gsettings() {
+    # Only meaningful with a persistent backend (dconf/keyfile) and the GNOME schemas;
+    # the ishwl session uses the memory backend, where settings.ini is what GTK reads.
+    command -v gsettings >/dev/null 2>&1 || return 0
+    [ "${GSETTINGS_BACKEND:-}" = memory ] && return 0
+    gsettings list-schemas 2>/dev/null | grep -qx org.gnome.desktop.interface || return 0
+    scheme=default; [ "$DARK" = 1 ] && scheme=prefer-dark
+    gsettings set org.gnome.desktop.interface gtk-theme "$GTK_THEME" || true
+    gsettings set org.gnome.desktop.interface icon-theme "$ICON_THEME" || true
+    gsettings set org.gnome.desktop.interface cursor-theme "$CURSOR_THEME" || true
+    gsettings set org.gnome.desktop.interface font-name "$FONT" || true
+    gsettings set org.gnome.desktop.interface monospace-font-name "$MONO_FONT" || true
+    gsettings set org.gnome.desktop.interface color-scheme "$scheme" || true
+    gsettings set org.gnome.desktop.wm.preferences button-layout "$BUTTON_LAYOUT" || true
+}
+
+write_session_env() {
+    # Read by /etc/ishwl/session.d/10-style.sh when the next session starts.
+    cat > "$SHARE/current-style.env.tmp" <<EOF
+ISH_STYLE=$STYLE
+ISH_STYLE_VARIANT=$VARIANT
+XCURSOR_THEME=$CURSOR_THEME
+XCURSOR_SIZE=$CURSOR_SIZE
+EOF
+    mv "$SHARE/current-style.env.tmp" "$SHARE/current-style.env"
+}
+
+apply_settings() {
+    write_settings_ini "$CONFIG/gtk-3.0/settings.ini"
+    write_settings_ini "$CONFIG/gtk-4.0/settings.ini"
+    write_settings_ini /etc/xdg/gtk-3.0/settings.ini
+    write_settings_ini /etc/xdg/gtk-4.0/settings.ini
+    link_libadwaita
+    write_kvantum
+    write_gsettings
+    write_session_env
+}
+
+# --- icon lookup (freedesktop icon theme spec, as GTK does it) ------------------------
+
+theme_dir() {
+    for base in "${HOME:-/root}/.local/share/icons" "${HOME:-/root}/.icons" /usr/local/share/icons /usr/share/icons; do
+        [ -f "$base/$1/index.theme" ] && { echo "$base/$1"; return 0; }
+    done
+    return 1
+}
+
+# The theme, its Inherits= chain (depth first, no repeats), then hicolor.
+theme_chain() {
+    seen=" "
+    queue=$1
+    while [ -n "$queue" ]; do
+        t=${queue%% *}
+        [ "$queue" = "$t" ] && queue= || queue=${queue#* }
+        case $seen in *" $t "*) continue;; esac
+        seen="$seen$t "
+        dir=$(theme_dir "$t") || continue
+        echo "$dir"
+        inherits=$(sed -n 's/^Inherits=//p' "$dir/index.theme" | head -n1 | tr ',' ' ')
+        queue="$inherits${queue:+ $queue}"
+    done
+    case $seen in *" hicolor "*) ;; *) theme_dir hicolor || true;; esac
+}
+
+# "<effective size> <dir>" for every directory of a theme, largest first; scalable
+# directories rank above any fixed size.
+theme_dirs_by_size() { # theme-dir
+    awk '
+        /^\[/ { if (dir != "") print rank(), dir
+                dir = substr($0, 2, length($0) - 2); size = 0; scale = 1; type = ""
+                if (dir == "Icon Theme") dir = ""
+                next }
+        /^Size=/ { size = substr($0, 6) + 0 }
+        /^Scale=/ { scale = substr($0, 7) + 0 }
+        /^Type=/ { type = substr($0, 6) }
+        function rank() { return type == "Scalable" ? 10000 + size : size * scale }
+        END { if (dir != "") print rank(), dir }
+    ' "$1/index.theme" | sort -rn
+}
+
+# Prints the best source file for an icon name, or nothing.
+find_icon_in_chain() { # name
+    name=$1
+    best_png= best_png_size=0 small_svg=
+    for tdir in $CHAIN; do
+        dirs=$(theme_dirs_by_size "$tdir")
+        found=$(echo "$dirs" | while read -r size dir; do
+            [ -n "$dir" ] || continue
+            if [ "${dir#*symbolic}" != "$dir" ] && [ "${name%-symbolic}" = "$name" ]; then continue; fi
+            if [ -e "$tdir/$dir/$name.svg" ]; then
+                echo "svg $size $tdir/$dir/$name.svg"
+            elif [ -e "$tdir/$dir/$name.png" ]; then
+                echo "png $size $tdir/$dir/$name.png"
+            fi
+        done)
+        [ -n "$found" ] || continue
+        # Within one theme: a large or scalable SVG, else the largest PNG of >= 128 px,
+        # else any SVG, else the largest PNG. The first theme with a match wins.
+        pick=$(echo "$found" | awk '
+            $1 == "svg" && $2 >= 48 && svg_big == "" { svg_big = $3 }
+            $1 == "svg" && svg_any == "" { svg_any = $3 }
+            $1 == "png" && png == "" { png = $3; png_size = $2 }
+            END {
+                if (svg_big != "") print svg_big
+                else if (png != "" && png_size >= 128) print png
+                else if (svg_any != "") print svg_any
+                else if (png != "") print png
+            }')
+        [ -n "$pick" ] && { echo "$pick"; return 0; }
+    done
+    for ext in svg png xpm; do
+        [ -e "/usr/share/pixmaps/$name.$ext" ] && { echo "/usr/share/pixmaps/$name.$ext"; return 0; }
+    done
+    return 0
+}
+
+# GTK-style fallback: "multimedia-video-player" -> "multimedia-video" -> "multimedia".
+resolve_icon() { # name
+    case $1 in
+    /*) [ -f "$1" ] && echo "$1"; return 0 ;;
+    esac
+    n=$1
+    while :; do
+        src=$(find_icon_in_chain "$n")
+        [ -n "$src" ] && { echo "$src"; return 0; }
+        case $n in *-*) n=${n%-*} ;; *) return 0 ;; esac
+    done
+}
+
+rasterize() { # src dest size
+    case $1 in
+    *.svg|*.svgz) rsvg-convert -a -w "$3" -h "$3" -f png -o "$2" "$1" 2>/dev/null ;;
+    *) gdk-pixbuf-thumbnailer -s "$3" "$1" "$2" 2>/dev/null ;;
+    esac
+}
+
+json_str() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
+
+safe_file_name() { # icon value -> file stem
+    stem=${1##*/}
+    case $1 in /*) stem=${stem%.*};; esac
+    printf '%s' "$stem" | tr -c 'A-Za-z0-9._+-' '_'
+}
+
+desktop_entries() { # "<file> <icon>" for every entry with an Icon=
+    for f in /usr/share/applications/*.desktop /usr/local/share/applications/*.desktop; do
+        [ -f "$f" ] || continue
+        icon=$(awk -F= '/^\[/ { in_entry = ($0 == "[Desktop Entry]") }
+                       in_entry && $1 == "Icon" { sub(/^Icon=/, ""); print; exit }' "$f")
+        [ -n "$icon" ] && printf '%s\t%s\n' "${f##*/}" "$icon"
+    done
+}
+
+build_icon_cache() {
+    CHAIN=$(theme_chain "$ICON_THEME" | tr '\n' ' ')
+    out=$CACHE_ROOT/$STYLE
+    tmp=$CACHE_ROOT/.$STYLE.tmp
+    rm -rf "$tmp"
+    mkdir -p "$tmp"
+
+    entries=$(desktop_entries)
+    names=$( { echo "$NATIVE_ICONS" | tr ' ' '\n'; echo "$entries" | cut -f2; } | sed '/^$/d' | sort -u)
+
+    icons_json=
+    resolved=0 missing=
+    old_ifs=$IFS
+    IFS='
+'
+    for name in $names; do
+        IFS=$old_ifs
+        src=$(resolve_icon "$name")
+        if [ -z "$src" ]; then
+            missing="$missing $name"
+            IFS='
+'
+            continue
+        fi
+        stem=$(safe_file_name "$name")
+        ok=1
+        for size in $SIZES; do
+            [ "$size" = 128 ] && file=$stem.png || file=$stem@2x.png
+            rasterize "$src" "$tmp/$file" "$size" || ok=0
+            [ -s "$tmp/$file" ] || ok=0
+        done
+        if [ "$ok" = 1 ]; then
+            resolved=$((resolved + 1))
+            entry="$(json_str "$name"): {\"1x\": $(json_str "$stem.png"), \"2x\": $(json_str "$stem@2x.png"), \"source\": $(json_str "$src")}"
+            icons_json="${icons_json:+$icons_json,
+    }$entry"
+        else
+            rm -f "$tmp/$stem.png" "$tmp/$stem@2x.png"
+            missing="$missing $name"
+        fi
+        IFS='
+'
+    done
+    IFS=$old_ifs
+
+    apps_json=
+    printf '%s\n' "$entries" | {
+        while IFS="$(printf '\t')" read -r file icon; do
+            [ -n "$file" ] || continue
+            apps_json="${apps_json:+$apps_json,
+    }$(json_str "$file"): $(json_str "$icon")"
+        done
+        printf '%s' "$apps_json" > "$tmp/.apps"
+    }
+    apps_json=$(cat "$tmp/.apps"); rm -f "$tmp/.apps"
+
+    missing_json=
+    for m in $missing; do missing_json="${missing_json:+$missing_json, }$(json_str "$m")"; done
+
+    cat > "$tmp/index.json" <<EOF
+{
+  "version": 1,
+  "style": $(json_str "$STYLE"),
+  "variant": $(json_str "$VARIANT"),
+  "iconTheme": $(json_str "$ICON_THEME"),
+  "styleIconTheme": $(json_str "$STYLE_ICON_THEME"),
+  "gtkTheme": $(json_str "$GTK_THEME"),
+  "generated": $(json_str "$(date -u +%Y-%m-%dT%H:%M:%SZ)"),
+  "sizes": {"1x": 128, "2x": 256},
+  "icons": {
+    $icons_json
+  },
+  "desktopEntries": {
+    $apps_json
+  },
+  "missing": [$missing_json]
+}
+EOF
+    # Swap the directory in one rename so a reader never sees a half-written cache.
+    rm -rf "$out.old"
+    [ -d "$out" ] && mv "$out" "$out.old"
+    mv "$tmp" "$out"
+    rm -rf "$out.old"
+    echo "icon cache: $out ($resolved icons${missing:+, missing:$missing})"
+}
+
+# --- main -----------------------------------------------------------------------------
+
+case ${1:-} in
+--list) for f in "$STYLES"/*.conf; do n=${f##*/}; echo "${n%.conf}"; done; exit 0 ;;
+--current) cat "$CURRENT" 2>/dev/null || echo ish; exit 0 ;;
+--cache-only)
+    cur=$(cat "$CURRENT" 2>/dev/null || echo ish)
+    var=$(sed -n 's/^ISH_STYLE_VARIANT=//p' "$SHARE/current-style.env" 2>/dev/null)
+    load_style "$cur" "$var"
+    build_icon_cache
+    exit 0 ;;
+--icon-themes) list_icon_themes; exit 0 ;;
+--icon-previews) build_previews; exit 0 ;;
+--icons)
+    pick=${2:-}
+    [ -n "$pick" ] || die "--icons needs an icon theme or 'match'"
+    if [ "$pick" = match ]; then
+        rm -f "$ICON_OVERRIDE"
+    else
+        theme_dir "$pick" >/dev/null || die "icon theme '$pick' is not installed (try --icon-themes)"
+        printf '%s\n' "$pick" > "$ICON_OVERRIDE.tmp"
+        mv "$ICON_OVERRIDE.tmp" "$ICON_OVERRIDE"
+    fi
+    cur=$(cat "$CURRENT" 2>/dev/null || echo ish)
+    var=$(sed -n 's/^ISH_STYLE_VARIANT=//p' "$SHARE/current-style.env" 2>/dev/null)
+    load_style "$cur" "$var"
+    apply_settings
+    build_icon_cache
+    # Rewritten last, as on a style switch, so watchers reload the finished cache.
+    printf '%s\n' "$STYLE" > "$CURRENT.tmp"
+    mv "$CURRENT.tmp" "$CURRENT"
+    echo "icons: $ICON_THEME (style $STYLE uses $STYLE_ICON_THEME)"
+    exit 0 ;;
+-h|--help|"") usage; [ -n "${1:-}" ]; exit $? ;;
+esac
+
+load_style "$1" "${2:-}"
+apply_settings
+build_icon_cache
+printf '%s\n' "$STYLE" > "$CURRENT.tmp"
+mv "$CURRENT.tmp" "$CURRENT"
+echo "style: $STYLE_NAME ($VARIANT) gtk=$GTK_THEME icons=$ICON_THEME cursor=$CURSOR_THEME font=$FONT"

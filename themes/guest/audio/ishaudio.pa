@@ -1,0 +1,20 @@
+# PulseAudio for the iSH desktop: one sink that streams raw PCM to the iOS app.
+# The iOS side (app/Desktop/ISHAudioBridge.swift) reads /tmp/ishaudio/pcm, which is a
+# host FIFO under the fakefs data directory.
+.fail
+load-module module-native-protocol-unix auth-anonymous=1 socket=/tmp/ishaudio/native
+
+# use_system_clock_for_timing: the sink paces itself and drops data when nobody reads,
+# so a missing or stalled reader can never block guest audio clients.
+load-module module-pipe-sink file=/tmp/ishaudio/pcm sink_name=ishaudio format=s16le rate=48000 channels=2 use_system_clock_for_timing=yes sink_properties=device.description=iPad
+set-default-sink ishaudio
+
+# Stops the sink (and so the FIFO traffic) a few seconds after the last stream ends;
+# the host gives the iOS audio session back to other apps once data stops.
+load-module module-suspend-on-idle timeout=3
+
+.nofail
+load-module module-null-source source_name=silence
+set-default-source silence
+load-module module-stream-restore restore_device=false
+load-module module-position-event-sounds

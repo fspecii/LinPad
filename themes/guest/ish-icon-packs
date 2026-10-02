@@ -1,0 +1,156 @@
+#!/bin/sh
+# Installs and removes icon packs for the Settings › Icons picker.
+#   ish-icon-packs list                 one line per pack: id, name, installed (0/1), MB, themes, licence
+#   ish-icon-packs install <id>...      download (pinned, sha256-checked) and install; needs network
+#   ish-icon-packs remove <id>...       remove a pack (packs a desktop style needs are refused)
+# After a change the picker's previews are rebuilt (ish-apply-style --icon-previews).
+# Every pack is stripped to scalable + 16..256 px: real @2x/@3x copies and larger sizes
+# are deleted. Sources and licences: /usr/share/ish/themes/MANIFEST.md.
+set -eu
+
+ICONS=/usr/share/icons
+SHARE=/usr/share/ish/themes
+UPSTREAM_ENV=$SHARE/upstream-env.bash
+WORK=${TMPDIR:-/tmp}/ish-icon-packs
+
+# id|display name|source|ref|sha256|theme dirs|approx. MB|licence
+# source: apk:<packages> | github:<owner/repo> | style (installed with a desktop style)
+catalogue() {
+    cat <<'EOF'
+adwaita|Adwaita|apk:adwaita-icon-theme|-|-|Adwaita|14|LGPL-3.0 / CC-BY-SA-3.0
+papirus|Papirus|apk:papirus-icon-theme|-|-|Papirus Papirus-Dark Papirus-Light|154|GPL-3.0
+breeze|Breeze|apk:breeze-icons|-|-|breeze breeze-dark|PACK_MB_breeze|LGPL-3.0
+tela-circle|Tela Circle|github:vinceliuice/Tela-circle-icon-theme|2026-07-07|0a8aee6e95f19ff96cc497d804c75e2af4271a5e6472c55891fb8ac5b099b59b|Tela-circle Tela-circle-light Tela-circle-dark Tela-circle-purple Tela-circle-purple-light Tela-circle-purple-dark Tela-circle-green Tela-circle-green-light Tela-circle-green-dark|PACK_MB_tela-circle|GPL-3.0
+qogir|Qogir|github:vinceliuice/Qogir-icon-theme|2025-02-15|b0d07cad5601e0341a53a62df0ed111823b75fc38741d435486620a59fb239ee|Qogir Qogir-Light Qogir-Dark|PACK_MB_qogir|GPL-3.0
+colloid|Colloid|github:vinceliuice/Colloid-icon-theme|2026-08-10|367c3ce3ab85721e41ca9aa4fccd1761ec236d1b8cd7daf65f5e9ec88c1a8a15|Colloid Colloid-Light Colloid-Dark|PACK_MB_colloid|GPL-3.0
+numix-circle|Numix Circle|apk:numix-icon-theme-circle numix-icon-theme-circle-light numix-icon-theme-light|-|-|Numix-Circle Numix-Circle-Light Numix Numix-Light|PACK_MB_numix-circle|GPL-3.0
+kora|Kora|github:bikass/kora|v2.0.6|159bdb7a09409a12e54a71136ec8889c51b0bf7c145c8b20e3509dc1e90089bd|kora kora-pgrey|PACK_MB_kora|GPL-3.0
+candy|Candy|github:EliverLara/candy-icons|83512fbcadcb7e1015ebbe1729a1894946b021be|1de25126c50da4edf4b49623993c1ca5f626d5be1020e5bd1b1c683cd724721b|candy-icons|PACK_MB_candy|GPL-3.0
+reversal|Reversal|github:yeyushengfan258/Reversal-icon-theme|2c8122287e3bad5a6bf860ddd8c7e3b78cf4d451|3053cef3034a424be0dc5a81a70550c6f9653e8839b1a1bdc13fbd19fb11c344|Reversal Reversal-dark|PACK_MB_reversal|GPL-3.0
+whitesur|WhiteSur|style|-|-|WhiteSur WhiteSur-light WhiteSur-dark|41|GPL-3.0
+fluent|Fluent|style|-|-|Fluent Fluent-light Fluent-dark|43|GPL-3.0
+yaru|Yaru|style|-|-|Yaru Yaru-dark|25|CC-BY-SA-4.0 / GPL-3.0
+ukui|UKUI|style|-|-|ukui-icon-theme-default|33|GPL-3.0
+EOF
+}
+
+die() { echo "ish-icon-packs: $*" >&2; exit 1; }
+field() { printf '%s\n' "$1" | cut -d'|' -f"$2"; }
+entry() { catalogue | grep "^$1|" || die "unknown pack '$1' (try: ish-icon-packs list)"; }
+
+is_installed() { # entry
+    for t in $(field "$1" 6); do
+        [ -f "$ICONS/$t/index.theme" ] || return 1
+    done
+}
+
+# Real (not symlinked) @2x/@3x copies and sizes above 256 px go; GTK skips the
+# directories index.theme still lists, and the cache is rebuilt from what is left.
+prune_theme() { # theme dir
+    [ -d "$1" ] || return 0
+    find "$1" -maxdepth 2 -type d \( -name '*@2x' -o -name '*@3x' -o -name '512' -o -name '512x512' \
+        -o -name '1024' -o -name '1024x1024' \) -prune -exec rm -rf {} + 2>/dev/null || true
+    gtk-update-icon-cache -qf "$1" 2>/dev/null || true
+}
+
+fetch_github() { # repo ref sha256 -> extracted dir on stdout
+    dir=$WORK/$(basename "$1")
+    mkdir -p "$WORK"
+    curl -fsSL --retry 3 -o "$dir.tar.gz" "https://codeload.github.com/$1/tar.gz/$2"
+    echo "$3  $dir.tar.gz" | sha256sum -c -s || die "checksum mismatch for $1@$2"
+    rm -rf "$dir" "$dir.x"
+    mkdir -p "$dir.x"
+    tar -xzf "$dir.tar.gz" -C "$dir.x"
+    mv "$dir.x"/* "$dir"
+    rm -rf "$dir.x" "$dir.tar.gz"
+    echo "$dir"
+}
+
+# Upstream install scripts run with upstream-env.bash (iSH argv limit, busybox options,
+# case-insensitive APFS; see that file).
+upstream() { # dir script args...
+    d=$1
+    shift
+    (cd "$d" && BASH_ENV="$UPSTREAM_ENV" bash "$@") >"$WORK/upstream.log" 2>&1 || true
+}
+
+install_github() { # id dir
+    case $1 in
+    tela-circle) upstream "$2" ./install.sh -c -d "$ICONS" standard purple green ;;
+    qogir) upstream "$2" ./install.sh -d "$ICONS" -t default -c all ;;
+    colloid) upstream "$2" ./install.sh -d "$ICONS" -t default -s default ;;
+    reversal) upstream "$2" ./install.sh -d "$ICONS" -t default ;;
+    kora)
+        for t in kora kora-pgrey; do
+            rm -rf "${ICONS:?}/$t"
+            cp -R "$2/$t" "$ICONS/$t"
+            rm -f "$ICONS/$t/create-new-icon-theme.cache.sh"
+        done ;;
+    candy)
+        rm -rf "$ICONS/candy-icons"
+        mkdir -p "$ICONS/candy-icons"
+        for f in "$2"/*; do
+            case ${f##*/} in preview|README.md|*.png) ;; *) cp -R "$f" "$ICONS/candy-icons/" ;; esac
+        done ;;
+    *) die "no installer for $1" ;;
+    esac
+}
+
+install_pack() { # id
+    e=$(entry "$1")
+    src=$(field "$e" 3)
+    echo "progress: installing $1"
+    case $src in
+    style) die "$1 comes with its desktop style and is always installed" ;;
+    apk:*) apk add -q ${src#apk:} ;;
+    github:*)
+        dir=$(fetch_github "${src#github:}" "$(field "$e" 4)" "$(field "$e" 5)")
+        install_github "$1" "$dir"
+        rm -rf "$dir" ;;
+    esac
+    for t in $(field "$e" 6); do prune_theme "$ICONS/$t"; done
+    if ! is_installed "$e"; then
+        [ -f "$WORK/upstream.log" ] && tail -20 "$WORK/upstream.log" >&2
+        die "$1: not all of $(field "$e" 6) were installed"
+    fi
+    echo "progress: installed $1"
+}
+
+remove_pack() { # id
+    e=$(entry "$1")
+    src=$(field "$e" 3)
+    case $src in
+    style) die "$1 belongs to a desktop style and cannot be removed" ;;
+    apk:*)
+        # breeze and adwaita are dependencies of installed apps; apk keeps them then.
+        apk del -q ${src#apk:} 2>/dev/null || true ;;
+    esac
+    for t in $(field "$e" 6); do
+        case $src in github:*) rm -rf "${ICONS:?}/$t" ;; esac
+        rm -rf "/usr/share/ish/icon-previews/$t"
+    done
+    echo "progress: removed $1"
+}
+
+list_packs() {
+    catalogue | while IFS='|' read -r id name src ref sha themes mb lic; do
+        e="$id|$name|$src|$ref|$sha|$themes|$mb|$lic"
+        if is_installed "$e"; then inst=1; else inst=0; fi
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$inst" "$mb" "$themes" "$lic"
+    done
+}
+
+cmd=${1:-}
+[ $# -gt 0 ] && shift
+case $cmd in
+list) list_packs ;;
+install)
+    [ $# -gt 0 ] || die "install needs a pack id"
+    for p in "$@"; do install_pack "$p"; done
+    rm -rf "$WORK"
+    ish-apply-style --icon-previews >/dev/null 2>&1 || true ;;
+remove)
+    [ $# -gt 0 ] || die "remove needs a pack id"
+    for p in "$@"; do remove_pack "$p"; done ;;
+*) echo "usage: ish-icon-packs list | install <id>... | remove <id>..." >&2; exit 2 ;;
+esac

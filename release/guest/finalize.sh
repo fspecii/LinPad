@@ -1,0 +1,151 @@
+#!/bin/sh
+# Last step of release/build-rootfs.sh, run inside the guest:
+#   sh finalize.sh ROOTFS_VERSION
+# Branding, version stamp, first-run hooks, the VS Code installer entry, case-collision
+# cleanup, icon caches for every style, pruning and a sanity check of the shipped apps.
+set -eu
+version=${1:?usage: finalize.sh ROOTFS_VERSION}
+src=$(cd "$(dirname "$0")" && pwd)
+
+echo "finalize: base directories"
+for d in /dev /proc /sys /run /tmp /var/tmp /root /home /mnt /media /srv /var/lib/ish; do
+    [ -d "$d" ] || mkdir -p "$d"
+done
+chmod 1777 /tmp /var/tmp
+chmod 700 /root
+
+echo "finalize: branding and version $version"
+sh "$src/os-release.sh" /etc/os-release
+mkdir -p /usr/share/ish /etc/ish
+printf '%s\n' "$version" > /usr/share/ish/rootfs-version
+# The kernel reports the iPad's own name as the host name; this is the fallback.
+echo linux-for-ipad > /etc/hostname
+cat > /etc/motd <<'MOTD'
+Welcome to Linux for iPad (Alpine Linux base, powered by iSH).
+
+  apk add <package>      install software (https://pkgs.alpinelinux.org)
+  ish-firstrun           install the optional packs chosen at setup
+  ish-install-vscode     install Visual Studio Code
+
+MOTD
+
+echo "finalize: Firefox tuning"
+sh "$src/gecko-tune.sh"
+
+echo "finalize: first-run hooks"
+install -D -m 755 "$src/ish-firstrun" /usr/local/sbin/ish-firstrun
+install -D -m 755 "$src/ish-install-vscode" /usr/local/bin/ish-install-vscode
+install -D -m 644 "$src/90-firstrun.sh" /etc/ishwl/session.d/90-firstrun.sh
+install -D -m 644 "$src/ish-code.svg" /usr/share/icons/hicolor/scalable/apps/ish-code.svg
+if [ -x /usr/local/bin/code ]; then
+    rm -f /usr/share/applications/ish-install-vscode.desktop
+else
+    install -D -m 644 "$src/ish-install-vscode.desktop" /usr/share/applications/ish-install-vscode.desktop
+fi
+
+# The app container on the iPad and the Mac's disks used while building and in the
+# simulator differ in case sensitivity; two names that differ only in case share one
+# backing file on a case-insensitive disk. Drop symlinks that only alias another
+# spelling (Thunar -> thunar) and report anything else.
+echo "finalize: case collisions"
+find / \( -path /proc -o -path /sys -o -path /dev -o -path /tmp \) -prune -o -print 2>/dev/null |
+    awk '{ k = tolower($0); n[k]++; m[k] = m[k] "\n" $0 } END { for (k in n) if (n[k] > 1) print substr(m[k], 2) "\n--" }' \
+    > /tmp/case-collisions.txt
+removed=0
+kept=0
+group=
+while IFS= read -r line; do
+    if [ "$line" != "--" ]; then
+        group="$group$line
+"
+        continue
+    fi
+    resolved=
+    IFS='
+'
+    for p in $group; do
+        if [ -L "$p" ]; then
+            target=$(readlink "$p")
+            case $target in /*) ;; *) target=$(dirname "$p")/$target ;; esac
+            for q in $group; do
+                if [ "$q" != "$p" ] && [ "$q" = "$target" ]; then
+                    echo "  removing alias $p -> $(readlink "$p")"
+                    rm -f "$p"
+                    removed=$((removed + 1))
+                    resolved=1
+                fi
+            done
+        fi
+    done
+    IFS=' 	
+'
+    if [ -z "$resolved" ]; then
+        echo "  unresolved: $(printf '%s' "$group" | tr '\n' ' ')"
+        kept=$((kept + 1))
+    fi
+    group=
+done < /tmp/case-collisions.txt
+echo "  $removed alias(es) removed, $kept collision group(s) left"
+sh "$src/fix-thunar.sh"
+
+# Mesa 26 comes from edge (gpu stage) and needs edge's libdrm, libxcb and
+# wayland-libs-client. Later stages' apk runs can move those back to 3.21's versions
+# (wayland-libs-client 1.23 was back after the themes stage), and then libEGL/libgallium
+# fail to relocate and everything that links GL (Qt 5/6, so VLC's and Falkon's
+# interfaces) stops loading. Re-pin them last; the load check below enforces it.
+echo "finalize: edge libraries for Mesa 26"
+if [ -e /usr/lib/libgallium-26.2.3.so ]; then
+    apk update -q
+    apk add -q --upgrade --repository https://dl-cdn.alpinelinux.org/alpine/edge/main \
+        libdrm libxcb wayland-libs-client
+fi
+
+echo "finalize: icon caches"
+current=$(ish-apply-style --current 2>/dev/null || echo ish)
+for style in windows macos ubuntu kylin ish; do
+    [ "$style" = "$current" ] && continue
+    ish-apply-style "$style" >/dev/null
+done
+ish-apply-style "$current" >/dev/null
+
+echo "finalize: pruning"
+# npm installs Claude Code's native binary twice (the platform package and the copy its
+# install script makes as bin/claude.exe, which /usr/local/bin/claude runs): 225 MB each.
+cc=/usr/local/lib/node_modules/@anthropic-ai/claude-code
+musl=$cc/node_modules/@anthropic-ai/claude-code-linux-arm64-musl/claude
+if [ -f "$cc/bin/claude.exe" ] && [ -f "$musl" ] && [ ! -L "$musl" ] && cmp -s "$cc/bin/claude.exe" "$musl"; then
+    rm -f "$musl"
+    ln -s ../../../bin/claude.exe "$musl"
+    echo "  Claude Code: duplicate native binary replaced by a link"
+fi
+rm -rf /root/.cache /root/.npm/_cacache /root/.dbus /root/fixt /root/gt /root/t /var/cache/apk/* \
+    /var/cache/vscode-install /usr/share/ish/themes/cache 2>/dev/null || true
+
+echo "finalize: sanity"
+missing=
+for cmd in ishwl ishwl-session ish-terminal foot fastfetch firefox-esr thunar mousepad node npm \
+        claude git curl vlc ish-vlc ish-apply-style ishaudio-session vulkaninfo ish-firstrun \
+        ish-install-vscode; do
+    command -v "$cmd" >/dev/null || missing="$missing $cmd"
+done
+for f in /etc/profile.d/gpu.sh /usr/local/share/devtools/install-vscode.sh \
+        /usr/share/ish/icon-cache/ish/index.json /usr/share/ish/current-style \
+        /usr/lib/firefox-esr/defaults/pref/ishwl.js /root/Videos/ish-test-720p.mp4; do
+    [ -e "$f" ] || missing="$missing $f"
+done
+if [ -n "$missing" ]; then
+    echo "finalize: MISSING:$missing" >&2
+    exit 1
+fi
+for lib in /usr/lib/libgallium-26.2.3.so /usr/lib/libEGL.so.1 /usr/lib/vlc/plugins/gui/libqt_plugin.so \
+        /usr/lib/libQt5Gui.so.5 /usr/lib/libQt6Gui.so.6 /usr/lib/firefox-esr/libxul.so; do
+    [ -e "$lib" ] || continue
+    if ldd "$lib" 2>&1 | grep -q "Error relocating\|not found"; then
+        echo "finalize: $lib does not load:" >&2
+        ldd "$lib" 2>&1 | grep "Error relocating\|not found" | head -5 >&2
+        exit 1
+    fi
+done
+grep -q '^ID=linuxforipad' "$(readlink -f /etc/os-release)" || { echo "finalize: os-release not branded" >&2; exit 1; }
+echo "finalize: claude $(timeout 120 claude --version 2>&1 | head -n1)"
+echo "finalize: ok ($(cat /etc/alpine-release), $(du -sh / 2>/dev/null | cut -f1) apparent)"

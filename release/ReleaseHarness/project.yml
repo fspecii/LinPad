@@ -1,0 +1,44 @@
+# End-to-end release test of the installed iSH app (real emulator, real rootfs).
+# Install the app first (release/README in CHECKLIST.md), then:
+#   xcodegen generate && xcodebuild test -project ReleaseHarness.xcodeproj -scheme ReleaseHost \
+#     -destination 'platform=iOS Simulator,id=<udid>' TEST_RUNNER_RELEASE_SHOT_DIR=/path/for/screenshots
+# The app must be built with SWIFT_ACTIVE_COMPILATION_CONDITIONS=DESKTOP_AUTOMATION for the
+# Linux-app steps (DragDrop/DebugAutomation.swift).
+name: ReleaseHarness
+options:
+  bundleIdPrefix: com.valentinneagu.releaseharness
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  ReleaseHost:
+    type: application
+    platform: iOS
+    sources: [Host]
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "2"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        CODE_SIGNING_ALLOWED: NO
+        SWIFT_VERSION: "5.0"
+  ReleaseUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: ReleaseHost
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "2"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+        SWIFT_VERSION: "5.0"
+        TEST_TARGET_NAME: ReleaseHost
+schemes:
+  ReleaseHost:
+    build:
+      targets:
+        ReleaseHost: all
+        ReleaseUITests: [test]
+    test:
+      targets: [ReleaseUITests]

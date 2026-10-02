@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Install Visual Studio Code
+Comment=Download and install Microsoft's Visual Studio Code for this device
+Exec=ish-install-vscode
+Icon=ish-code
+Type=Application
+Terminal=false
+Categories=Development;IDE;
+Keywords=vscode;code;editor;ide;install;

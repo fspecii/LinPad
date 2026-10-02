@@ -1,0 +1,23 @@
+#!/bin/sh
+# Starts the session's PulseAudio daemon (ishaudio) unless one is already serving
+# /tmp/ishaudio/native. Called from /etc/ishwl/session.d/20-audio.sh; safe to run by hand.
+#   ishaudio-session [--foreground]
+dir=/tmp/ishaudio
+mkdir -p "$dir" /dev/shm
+compat=/usr/local/lib/libishaudio-compat.so
+case ":${LD_PRELOAD:-}:" in
+*":$compat:"*) ;;
+*) [ -r "$compat" ] && export LD_PRELOAD="${LD_PRELOAD:+$LD_PRELOAD:}$compat" ;;
+esac
+if pactl --server="unix:$dir/native" info >/dev/null 2>&1; then
+    exit 0
+fi
+rm -f "$dir/native" "$dir/pcm"
+mode=--daemonize=yes
+if [ "${1:-}" = "--foreground" ]; then
+    mode=--daemonize=no
+    shift
+fi
+# -n: only our script, not /etc/pulse/default.pa (which would probe ALSA/udev hardware).
+exec pulseaudio -n --file=/etc/ishaudio/ishaudio.pa --exit-idle-time=-1 --disallow-exit \
+    --use-pid-file=no --log-target="file:$dir/pulse.log" "$mode" "$@"

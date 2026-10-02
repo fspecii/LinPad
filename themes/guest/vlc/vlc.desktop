@@ -1,0 +1,15 @@
+[Desktop Entry]
+Version=1.0
+Name=VLC media player
+GenericName=Media player
+Comment=Read, capture, broadcast your multimedia streams
+Exec=ish-vlc --started-from-file %U
+TryExec=ish-vlc
+Icon=vlc
+Terminal=false
+Type=Application
+Categories=AudioVideo;Player;Recorder;
+MimeType=video/mp4;video/x-matroska;video/webm;video/quicktime;video/x-msvideo;video/mpeg;video/ogg;audio/mpeg;audio/mp4;audio/x-wav;audio/flac;audio/ogg;audio/x-vorbis+ogg;audio/aac;application/ogg;
+Keywords=Player;Capture;DVD;Audio;Video;Server;Broadcast;
+StartupWMClass=vlc
+X-KDE-Protocols=ftp,http,https,mms,rtmp,rtsp,sftp,smb
