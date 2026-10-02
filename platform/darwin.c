@@ -1,5 +1,9 @@
 #include <mach/mach.h>
 #include <sys/sysctl.h>
+#include <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+#include <os/proc.h>
+#endif
 #include <sys/time.h>
 #include "platform/platform.h"
 
@@ -26,10 +30,29 @@ struct mem_usage get_mem_usage() {
     assert(status == KERN_SUCCESS);
 
     struct mem_usage usage;
-    usage.total = basic.max_mem;
-    usage.free = vm.free_count * vm_page_size;
-    usage.active = vm.active_count * vm_page_size;
-    usage.inactive = vm.inactive_count * vm_page_size;
+    uint64_t memsize = 0;
+    size_t size = sizeof(memsize);
+    if (sysctlbyname("hw.memsize", &memsize, &size, NULL, 0) == 0 && memsize != 0)
+        usage.total = memsize;
+    else
+        usage.total = basic.max_mem;
+    usage.free = (uint64_t) vm.free_count * vm_page_size;
+    usage.active = (uint64_t) vm.active_count * vm_page_size;
+    usage.inactive = (uint64_t) vm.inactive_count * vm_page_size;
+    usage.cached = (uint64_t) vm.external_page_count * vm_page_size;
+    usage.available = (uint64_t) (vm.free_count + vm.inactive_count +
+            vm.purgeable_count + vm.speculative_count) * vm_page_size;
+#if TARGET_OS_IPHONE
+    // An iOS app is killed by jetsam long before the device runs out of
+    // memory; what matters is this process's remaining allowance.
+    size_t headroom = os_proc_available_memory();
+    if (headroom != 0)
+        usage.available = headroom;
+    if (usage.free > usage.available)
+        usage.free = usage.available;
+#endif
+    if (usage.available > usage.total)
+        usage.available = usage.total;
     return usage;
 }
 

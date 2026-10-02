@@ -12,10 +12,12 @@ struct cpu_usage {
 struct cpu_usage get_cpu_usage(void);
 
 struct mem_usage {
-    uint64_t total;
+    uint64_t total;     // physical memory
     uint64_t free;
     uint64_t active;
     uint64_t inactive;
+    uint64_t available; // what can still be allocated (iOS: this app's jetsam headroom)
+    uint64_t cached;    // file-backed pages
 };
 struct mem_usage get_mem_usage(void);
 

@@ -36,6 +36,12 @@ struct mem_usage get_mem_usage() {
     sscanf(buf, "Active: %"PRIu64" kB\n", &usage.active);
     read_proc_line("/proc/meminfo", "Inactive:", buf);
     sscanf(buf, "Inactive: %"PRIu64" kB\n", &usage.inactive);
+    usage.available = usage.free;
+    read_proc_line("/proc/meminfo", "MemAvailable:", buf);
+    sscanf(buf, "MemAvailable: %"PRIu64" kB\n", &usage.available);
+    usage.cached = 0;
+    read_proc_line("/proc/meminfo", "Cached:", buf);
+    sscanf(buf, "Cached: %"PRIu64" kB\n", &usage.cached);
 
     return usage;
 }
