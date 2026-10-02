@@ -139,6 +139,13 @@ icons are square, but a few are not, so draw them aspect-fit.
   launcher entry to `icons[...]` in two lookups.
 - `missing` lists names the theme chain could not resolve; fall back to an SF Symbol.
 - `source` is informational (the guest file that was rasterised).
+- `"symbolic": true` marks a symbolic icon (a one-colour mask from a `-symbolic` file or a
+  symbolic directory): draw it as a template tinted with the text colour. Absent means a
+  full-colour icon, drawn as is.
+- `2x` may name the same file as `1x`: names from `EXACT_ICONS` (below) that are not also
+  in `NATIVE_ICONS` are rendered at 128 px only.
+- `icons` is authoritative: a name that is not a key is not in the cache, so readers
+  need not probe the disk for it.
 - New keys may be added; unknown keys must be ignored. `version` changes only for
   incompatible changes.
 
@@ -159,14 +166,35 @@ folder-remote user-desktop user-trash-full user-bookmarks network-workgroup
 network-server drive-harddisk drive-removable-media drive-optical media-removable
 computer start-here`.
 
+The shell's own controls, places and file types (`EXACT_ICONS` in `ish-apply-style`; the
+native names are in DesktopKit `ThemeIconNames` and `FileTypeIcons`, and a DesktopKit unit
+test fails when the shell asks for a name the guest does not render):
+
+- places: `user-home folder-home user-desktop drive-harddisk drive-harddisk-system
+  folder-temp folder-recent user-trash user-trash-full folder-pictures folder-remote
+  drive-removable-media inode-directory`, …
+- file types: freedesktop mimetype icon names (`text-x-python`, `image-png`,
+  `application-pdf`, `application-vnd.oasis.opendocument.text`, …) and the
+  shared-mime-info generic icons (`text-x-script`, `package-x-generic`,
+  `x-office-document`, `font-x-generic`, …); the shell walks the chain type → alias
+  spellings → generic icon → `<media>-x-generic` → `text-x-generic`.
+- actions, symbolic first: `go-previous go-next go-up folder-new document-new view-refresh
+  view-grid view-list view-app-grid open-menu view-more sidebar-show document-edit
+  edit-clear-all user-trash media-eject drive-harddisk list-add start-here
+  window-minimize window-maximize window-restore window-close`, each as `<name>-symbolic`
+  and (where it exists) the full-colour `<name>`.
+
 ### Lookup rules (what the guest does)
 
 Theme chain: the style's icon theme, its `Inherits=` chain, then `hicolor`, then
 `/usr/share/pixmaps`. In the first theme that has the name: a scalable or ≥48 px SVG,
 else a ≥128 px PNG, else any SVG, else the largest PNG. Symbolic directories are skipped
-unless the name ends in `-symbolic`. If nothing matches, the last `-component` is
-dropped and the lookup repeats (`multimedia-video-player` → `multimedia-video` →
-`multimedia`), as GTK does. SVGs are rasterised with `rsvg-convert`, PNG/XPM with
+unless the name ends in `-symbolic`; such a name takes the file in a symbolic directory
+first (some packs keep a coloured icon of the same name in their sized directories). If
+nothing matches, the last `-component` is dropped and the lookup repeats
+(`multimedia-video-player` → `multimedia-video` → `multimedia`), as GTK does. Names in
+`EXACT_ICONS` skip that fallback (the shell has its own chain, and `text-x-python` must
+not become `text`); a `-symbolic` one may fall back to the full-colour name only. SVGs are rasterised with `rsvg-convert`, PNG/XPM with
 `gdk-pixbuf-thumbnailer`.
 
 ## Window chrome hints for the native shell

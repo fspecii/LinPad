@@ -175,6 +175,8 @@ T=$KIT/themes
 if [ -d "$T" ]; then
     put 755 "$T/ish-apply-style" /usr/local/bin/ish-apply-style && styles_changed=1
     put 755 "$T/ish-icon-packs" /usr/local/bin/ish-icon-packs
+    # Desktop themes' GTK themes, downloaded on first use (ish-apply-style calls it).
+    [ -f "$T/ish-style-packs" ] && put 755 "$T/ish-style-packs" /usr/local/bin/ish-style-packs
     put 644 "$T/upstream-env.bash" /usr/share/ish/themes/upstream-env.bash
     put 644 "$T/MANIFEST.md" /usr/share/ish/themes/MANIFEST.md
     for f in "$T"/styles/*.conf; do
@@ -288,10 +290,14 @@ step "Caches"
 done
 if command -v ish-apply-style >/dev/null 2>&1; then
     current=$(ish-apply-style --current 2>/dev/null || echo ish)
+    # The user's light/dark choice; without it the style's default variant would be applied.
+    variant=$(sed -n 's/^ISH_STYLE_VARIANT=//p' /usr/share/ish/current-style.env 2>/dev/null)
     index=/usr/share/ish/icon-cache/$current/index.json
+    # A new ish-apply-style may render more names (the shell's places, file types and
+    # toolbar icons), so its cache is rebuilt too.
     if [ $styles_changed = 1 ] || [ ! -s "$index" ]; then
         echo "  rebuilding the icon cache ($current)"
-        if ish-apply-style "$current" >/dev/null 2>&1; then
+        if ish-apply-style "$current" $variant >/dev/null 2>&1; then
             changed "icon cache ($current)"
         else
             fail "ish-apply-style $current failed"
