@@ -8,7 +8,6 @@
 #define KEY_BACKSPACE 14
 #define KEY_TAB 15
 #define KEY_ENTER 28
-#define KEY_LEFTSHIFT 42
 
 static void resource_unlink(struct wl_resource *resource) {
     wl_list_remove(wl_resource_get_link(resource));
@@ -237,6 +236,14 @@ static int keymap_fd(struct server *s, size_t *size) {
     return fd;
 }
 
+static void keyboard_send_keymap(struct server *s, struct wl_resource *kb) {
+    size_t size;
+    int fd = keymap_fd(s, &size);
+    if (fd < 0) return;
+    wl_keyboard_send_keymap(kb, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, size);
+    close(fd);
+}
+
 static void keyboard_send_modifiers(struct server *s, struct wl_resource *kb) {
     wl_keyboard_send_modifiers(kb, wl_display_next_serial(s->display), s->mods_depressed,
                                s->mods_latched, s->mods_locked, s->group);
@@ -332,27 +339,88 @@ void seat_key(struct server *s, uint32_t keycode, bool pressed) {
     update_modifiers(s);
 }
 
-static bool keycode_for_codepoint(struct server *s, uint32_t cp, uint32_t *keycode, bool *shift) {
-    switch (cp) {
-    case '\n': case '\r': *keycode = KEY_ENTER; *shift = false; return true;
-    case '\t': *keycode = KEY_TAB; *shift = false; return true;
-    case '\b': *keycode = KEY_BACKSPACE; *shift = false; return true;
+/* A key press that types one character: the key, the modifier keys to hold and the
+ * layout (group) it lives in. */
+struct key_recipe {
+    xkb_keycode_t keycode;
+    xkb_keycode_t mods[2];
+    int nmods;
+    xkb_layout_index_t layout;
+};
+
+static xkb_keycode_t key_with_sym(struct xkb_keymap *keymap, xkb_layout_index_t layout, xkb_keysym_t sym) {
+    xkb_keycode_t min = xkb_keymap_min_keycode(keymap), max = xkb_keymap_max_keycode(keymap);
+    for (xkb_keycode_t kc = min; kc <= max; kc++) {
+        const xkb_keysym_t *syms;
+        int n = xkb_keymap_key_get_syms_by_level(keymap, kc, layout, 0, &syms);
+        for (int i = 0; i < n; i++)
+            if (syms[i] == sym)
+                return kc;
     }
+    return XKB_KEYCODE_INVALID;
+}
+
+/* Tries every layout of the keymap (the active one first) with no modifier, Shift,
+ * the third-level key (AltGr) and Shift+AltGr, on a scratch xkb_state, so it finds
+ * whatever key the current keymap really uses for the character. */
+static bool find_key(struct server *s, uint32_t cp, struct key_recipe *out) {
+    xkb_layout_index_t layouts = xkb_keymap_num_layouts(s->keymap);
     xkb_keycode_t min = xkb_keymap_min_keycode(s->keymap), max = xkb_keymap_max_keycode(s->keymap);
-    for (xkb_level_index_t level = 0; level < 2; level++) {
-        for (xkb_keycode_t kc = min; kc <= max; kc++) {
-            const xkb_keysym_t *syms;
-            int n = xkb_keymap_key_get_syms_by_level(s->keymap, kc, 0, level, &syms);
-            for (int i = 0; i < n; i++) {
-                if (xkb_keysym_to_utf32(syms[i]) == cp) {
-                    *keycode = kc - 8;
-                    *shift = level == 1;
-                    return true;
-                }
+    xkb_keycode_t shift = key_with_sym(s->keymap, 0, XKB_KEY_Shift_L);
+    for (xkb_layout_index_t i = 0; i < layouts; i++) {
+        xkb_layout_index_t layout = (s->group + i) % layouts;
+        xkb_keycode_t level3 = key_with_sym(s->keymap, layout, XKB_KEY_ISO_Level3_Shift);
+        const xkb_keycode_t combos[4][2] = {
+            {XKB_KEYCODE_INVALID, XKB_KEYCODE_INVALID}, {shift, XKB_KEYCODE_INVALID},
+            {level3, XKB_KEYCODE_INVALID}, {shift, level3},
+        };
+        for (int c = 0; c < 4; c++) {
+            if (c > 0 && (combos[c][0] == XKB_KEYCODE_INVALID || (c == 3 && level3 == XKB_KEYCODE_INVALID)))
+                continue;
+            struct xkb_state *state = xkb_state_new(s->keymap);
+            if (!state) return false;
+            xkb_state_update_mask(state, 0, 0, 0, 0, 0, layout);
+            int nmods = 0;
+            for (int m = 0; m < 2; m++) {
+                if (combos[c][m] == XKB_KEYCODE_INVALID) continue;
+                xkb_state_update_key(state, combos[c][m], XKB_KEY_DOWN);
+                nmods++;
             }
+            for (xkb_keycode_t kc = min; kc <= max; kc++) {
+                if (kc == shift || kc == level3) continue;
+                if (xkb_state_key_get_utf32(state, kc) != cp) continue;
+                *out = (struct key_recipe) {.keycode = kc, .nmods = nmods, .layout = layout,
+                                            .mods = {combos[c][0], combos[c][1]}};
+                xkb_state_unref(state);
+                return true;
+            }
+            xkb_state_unref(state);
         }
     }
     return false;
+}
+
+static void lock_layout(struct server *s, xkb_layout_index_t base, xkb_layout_index_t latched,
+                        xkb_layout_index_t locked) {
+    xkb_state_update_mask(s->xkb_state,
+                          xkb_state_serialize_mods(s->xkb_state, XKB_STATE_MODS_DEPRESSED),
+                          xkb_state_serialize_mods(s->xkb_state, XKB_STATE_MODS_LATCHED),
+                          xkb_state_serialize_mods(s->xkb_state, XKB_STATE_MODS_LOCKED),
+                          base, latched, locked);
+    update_modifiers(s);
+}
+
+static void type_key(struct server *s, const struct key_recipe *r) {
+    xkb_layout_index_t base = xkb_state_serialize_layout(s->xkb_state, XKB_STATE_LAYOUT_DEPRESSED);
+    xkb_layout_index_t latched = xkb_state_serialize_layout(s->xkb_state, XKB_STATE_LAYOUT_LATCHED);
+    xkb_layout_index_t locked = xkb_state_serialize_layout(s->xkb_state, XKB_STATE_LAYOUT_LOCKED);
+    bool other_layout = r->layout != s->group;
+    if (other_layout) lock_layout(s, 0, 0, r->layout);
+    for (int m = 0; m < r->nmods; m++) seat_key(s, r->mods[m] - 8, true);
+    seat_key(s, r->keycode - 8, true);
+    seat_key(s, r->keycode - 8, false);
+    for (int m = r->nmods - 1; m >= 0; m--) seat_key(s, r->mods[m] - 8, false);
+    if (other_layout) lock_layout(s, base, latched, locked);
 }
 
 static uint32_t utf8_next(const unsigned char **p) {
@@ -370,21 +438,82 @@ static uint32_t utf8_next(const unsigned char **p) {
     return cp;
 }
 
-/* Text from an on-screen keyboard has no key codes; replay it through the US keymap. */
+/* Text from an on-screen keyboard has no key codes; replay it through the current
+ * keymap, with Shift, AltGr or another of its layouts where the character needs them. */
 void seat_type_text(struct server *s, const char *utf8) {
     const unsigned char *p = (const unsigned char *) utf8;
     while (*p) {
-        uint32_t cp = utf8_next(&p), keycode;
-        bool shift;
-        if (!keycode_for_codepoint(s, cp, &keycode, &shift)) {
-            log_msg(s, "no key for U+%04X", cp);
-            continue;
+        uint32_t cp = utf8_next(&p);
+        struct key_recipe recipe = {.layout = s->group};
+        switch (cp) {
+        case '\n': case '\r': recipe.keycode = KEY_ENTER + 8; break;
+        case '\t': recipe.keycode = KEY_TAB + 8; break;
+        case '\b': recipe.keycode = KEY_BACKSPACE + 8; break;
+        default:
+            if (!find_key(s, cp, &recipe)) {
+                log_msg(s, "no key for U+%04X in keymap %s", cp, s->keymap_names ? s->keymap_names : "default");
+                continue;
+            }
         }
-        if (shift) seat_key(s, KEY_LEFTSHIFT, true);
-        seat_key(s, keycode, true);
-        seat_key(s, keycode, false);
-        if (shift) seat_key(s, KEY_LEFTSHIFT, false);
+        type_key(s, &recipe);
     }
+}
+
+/* Layout, variant and option names go into include paths of the XKB rules, so only
+ * the characters real names use are accepted (e.g. "ru,us", "ch(de_mac)", "lv3:ralt_alt"). */
+static bool valid_xkb_names(const char *text) {
+    if (strlen(text) > 128) return false;
+    for (const char *p = text; *p; p++)
+        if (!strchr("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-+,:()", *p))
+            return false;
+    return strstr(text, "..") == NULL;
+}
+
+bool seat_set_keymap(struct server *s, const char *layout, const char *variant, const char *options) {
+    char label[400];
+    snprintf(label, sizeof(label), "%s %s %s", *layout ? layout : "-", *variant ? variant : "-",
+             *options ? options : "-");
+    if (s->keymap_names && strcmp(label, s->keymap_names) == 0)
+        return true;
+    if (!valid_xkb_names(layout) || !valid_xkb_names(variant) || !valid_xkb_names(options)) {
+        log_msg(s, "keymap: refusing names '%s'", label);
+        return false;
+    }
+    struct xkb_rule_names names = {
+        .rules = "evdev", .model = "pc105",
+        .layout = *layout ? layout : NULL, .variant = *variant ? variant : NULL,
+        .options = *options ? options : NULL,
+    };
+    struct xkb_keymap *keymap = xkb_keymap_new_from_names(s->xkb, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    struct xkb_state *state = keymap ? xkb_state_new(keymap) : NULL;
+    char *string = keymap ? xkb_keymap_get_as_string(keymap, XKB_KEYMAP_FORMAT_TEXT_V1) : NULL;
+    if (!state || !string) {
+        log_msg(s, "keymap: cannot compile '%s', keeping %s", label, s->keymap_names);
+        free(string);
+        xkb_state_unref(state);
+        xkb_keymap_unref(keymap);
+        return false;
+    }
+    xkb_state_unref(s->xkb_state);
+    xkb_keymap_unref(s->keymap);
+    free(s->keymap_string);
+    free(s->keymap_names);
+    s->keymap = keymap;
+    s->xkb_state = state;
+    s->keymap_string = string;
+    s->keymap_names = strdup(label);
+    s->mods_depressed = s->mods_latched = s->mods_locked = s->group = 0;
+    log_msg(s, "keymap: %s", label);
+
+    /* Every client recompiles from the new keymap (Xwayland applies it to its X server
+     * too); the focused one also needs the modifier state that goes with it. */
+    struct wl_resource *kb;
+    wl_resource_for_each(kb, &s->keyboard_resources) {
+        keyboard_send_keymap(s, kb);
+        if (s->keyboard_focus && same_client(kb, s->keyboard_focus->resource))
+            keyboard_send_modifiers(s, kb);
+    }
+    return true;
 }
 
 /* ---- wl_seat ---- */
@@ -410,12 +539,7 @@ static void seat_get_keyboard(struct wl_client *client, struct wl_resource *reso
     wl_resource_set_implementation(kb, &keyboard_impl, s, resource_unlink);
     wl_list_insert(&s->keyboard_resources, wl_resource_get_link(kb));
 
-    size_t size;
-    int fd = keymap_fd(s, &size);
-    if (fd >= 0) {
-        wl_keyboard_send_keymap(kb, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, size);
-        close(fd);
-    }
+    keyboard_send_keymap(s, kb);
     if (wl_resource_get_version(kb) >= WL_KEYBOARD_REPEAT_INFO_SINCE_VERSION)
         wl_keyboard_send_repeat_info(kb, 30, 500);
     if (s->keyboard_focus && same_client(kb, s->keyboard_focus->resource))
@@ -458,7 +582,8 @@ void seat_init(struct server *s) {
     s->keyboard_focus_destroy.notify = keyboard_focus_destroyed;
 
     s->xkb = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    struct xkb_rule_names names = {.rules = "evdev", .model = "pc105", .layout = "us"};
+    /* XKB_DEFAULT_LAYOUT and friends apply until the host sends the iPad's layout. */
+    struct xkb_rule_names names = {.rules = "evdev", .model = "pc105"};
     s->keymap = s->xkb ? xkb_keymap_new_from_names(s->xkb, &names, XKB_KEYMAP_COMPILE_NO_FLAGS) : NULL;
     if (!s->keymap) {
         fprintf(stderr, "ishwl: cannot compile the xkb keymap (is xkeyboard-config installed?)\n");
@@ -466,5 +591,6 @@ void seat_init(struct server *s) {
     }
     s->xkb_state = xkb_state_new(s->keymap);
     s->keymap_string = xkb_keymap_get_as_string(s->keymap, XKB_KEYMAP_FORMAT_TEXT_V1);
+    s->keymap_names = strdup("default");
     wl_global_create(s->display, &wl_seat_interface, 8, s, seat_bind);
 }

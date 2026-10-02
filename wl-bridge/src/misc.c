@@ -24,11 +24,13 @@ static void output_resource_destroy(struct wl_resource *resource) {
     wl_list_remove(wl_resource_get_link(resource));
 }
 
-/* Per-app output scale: /etc/ishwl/app-scale lines "PROGRAM SCALE", PROGRAM being the
- * basename of the client's executable (e.g. "firefox-esr 1"). Heavy software-rendered
- * apps draw a quarter of the pixels at scale 1; the host scales the frame up. Read at
- * every bind, so a change applies to apps started afterwards. */
-static int32_t client_output_scale(struct server *s, struct wl_client *client) {
+/* Per-app output scale: /etc/ishwl/app-scale lines "PROGRAM SCALE [FULLSCREEN_SCALE]",
+ * PROGRAM being the basename of the client's executable (e.g. "firefox-esr 1"). Heavy
+ * software-rendered apps draw a quarter of the pixels at scale 1; the host scales the
+ * frame up. The optional third column applies while the app has a fullscreen window
+ * ("firefox-esr 2 1": sharp text, but fullscreen video renders at scale 1). Read at
+ * every bind and fullscreen change, so a change applies to apps started afterwards. */
+static int32_t client_output_scale(struct server *s, struct wl_client *client, bool fullscreen) {
     pid_t pid;
     wl_client_get_credentials(client, &pid, NULL, NULL);
     FILE *f = pid > 0 ? fopen("/etc/ishwl/app-scale", "r") : NULL;
@@ -40,18 +42,44 @@ static int32_t client_output_scale(struct server *s, struct wl_client *client) {
     exe[n > 0 ? n : 0] = '\0';
     const char *base = strrchr(exe, '/') ? strrchr(exe, '/') + 1 : exe;
     char line[300], name[256];
-    int scale, result = s->output_scale;
-    while (n > 0 && fgets(line, sizeof(line), f))
-        if (sscanf(line, "%255s %d", name, &scale) == 2 && name[0] != '#' && strcmp(name, base) == 0 &&
-            scale >= 1 && scale <= 3)
+    int scale, fs_scale, result = s->output_scale;
+    while (n > 0 && fgets(line, sizeof(line), f)) {
+        int fields = sscanf(line, "%255s %d %d", name, &scale, &fs_scale);
+        if (fields < 2 || name[0] == '#' || strcmp(name, base) != 0)
+            continue;
+        if (fullscreen && fields == 3)
+            scale = fs_scale;
+        if (scale >= 1 && scale <= 3)
             result = scale;
+    }
     fclose(f);
     return result;
 }
 
+static void output_send_scale(struct server *s, struct wl_resource *resource, int32_t scale) {
+    int version = wl_resource_get_version(resource);
+    wl_output_send_mode(resource, WL_OUTPUT_MODE_CURRENT | WL_OUTPUT_MODE_PREFERRED,
+                        s->output_width * scale, s->output_height * scale, 60000);
+    if (version >= WL_OUTPUT_SCALE_SINCE_VERSION)
+        wl_output_send_scale(resource, scale);
+}
+
+/* A toplevel of `client` entered or left fullscreen: re-announce its outputs' scale. */
+void output_client_fullscreen(struct server *s, struct wl_client *client, bool fullscreen) {
+    int32_t scale = client_output_scale(s, client, fullscreen);
+    struct wl_resource *resource;
+    wl_resource_for_each(resource, &s->output_resources) {
+        if (wl_resource_get_client(resource) != client)
+            continue;
+        output_send_scale(s, resource, scale);
+        if (wl_resource_get_version(resource) >= WL_OUTPUT_DONE_SINCE_VERSION)
+            wl_output_send_done(resource);
+    }
+}
+
 static void output_bind(struct wl_client *client, void *data, uint32_t version, uint32_t id) {
     struct server *s = data;
-    int32_t scale = client_output_scale(s, client);
+    int32_t scale = client_output_scale(s, client, false);
     struct wl_resource *resource = wl_resource_create(client, &wl_output_interface, version, id);
     if (!resource) {
         wl_client_post_no_memory(client);
@@ -61,10 +89,7 @@ static void output_bind(struct wl_client *client, void *data, uint32_t version, 
     wl_list_insert(&s->output_resources, wl_resource_get_link(resource));
     wl_output_send_geometry(resource, 0, 0, 0, 0, WL_OUTPUT_SUBPIXEL_UNKNOWN, "iSH", "DesktopKit",
                             WL_OUTPUT_TRANSFORM_NORMAL);
-    wl_output_send_mode(resource, WL_OUTPUT_MODE_CURRENT | WL_OUTPUT_MODE_PREFERRED,
-                        s->output_width * scale, s->output_height * scale, 60000);
-    if (version >= WL_OUTPUT_SCALE_SINCE_VERSION)
-        wl_output_send_scale(resource, scale);
+    output_send_scale(s, resource, scale);
     if (version >= WL_OUTPUT_NAME_SINCE_VERSION)
         wl_output_send_name(resource, "DESKTOP-1");
     if (version >= WL_OUTPUT_DONE_SINCE_VERSION)

@@ -113,6 +113,9 @@ static void handle_line(struct server *s, char *line) {
         unescape(argv[3]);
         unescape(argv[4]);
         text_input_apply(s, (uint32_t) ARGI(1), (uint32_t) ARGI(2), argv[3], argv[4], ARGI(5), ARGI(6));
+    } else if (strcmp(cmd, "keymap") == 0 && argc > 3) {
+        for (int i = 1; i <= 3; i++) unescape(argv[i]);
+        seat_set_keymap(s, argv[1], argv[2], argv[3]);
     } else if (strcmp(cmd, "focus") == 0) {
         seat_focus_view(s, v);
     } else if (strcmp(cmd, "configure") == 0) {

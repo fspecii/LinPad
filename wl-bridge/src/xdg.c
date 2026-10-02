@@ -304,11 +304,21 @@ static void toplevel_unset_maximized(struct wl_client *client, struct wl_resourc
 }
 
 static void toplevel_set_fullscreen(struct wl_client *client, struct wl_resource *resource, struct wl_resource *output) {
+    struct view *v = wl_resource_get_user_data(resource);
     toplevel_set_maximized(client, resource);
+    if (v && !v->fullscreen) {
+        v->fullscreen = true;
+        output_client_fullscreen(v->server, client, true);
+    }
 }
 
 static void toplevel_unset_fullscreen(struct wl_client *client, struct wl_resource *resource) {
+    struct view *v = wl_resource_get_user_data(resource);
     toplevel_unset_maximized(client, resource);
+    if (v && v->fullscreen) {
+        v->fullscreen = false;
+        output_client_fullscreen(v->server, client, false);
+    }
 }
 
 static void toplevel_set_minimized(struct wl_client *client, struct wl_resource *resource) {

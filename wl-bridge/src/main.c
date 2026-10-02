@@ -253,6 +253,10 @@ int main(int argc, char **argv) {
             s.runtime_dir, s.headless ? " (headless)" : "");
     log_msg(&s, "scm-compat: %s", scm_compat_mode());
 
+    const char *frame_log = getenv("ISHWL_FRAMELOG");
+    if (frame_log && *frame_log && (s.frame_log = fopen(frame_log, "a")))
+        setvbuf(s.frame_log, NULL, _IOLBF, 0);
+
     if (!s.headless)
         run_prewarm(&s, prewarm);
 

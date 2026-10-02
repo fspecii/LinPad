@@ -197,6 +197,8 @@ static void composite_view(struct view *v) {
     surface_for_each(root, -g.x, -g.y, blit_surface, &ctx);
 
     v->frame_seq++;
+    if (s->frame_log)
+        fprintf(s->frame_log, "%u %u %u %d %d\n", now_ms(), v->id, v->frame_seq, damage.w, damage.h);
     if (s->headless) {
         v->png_dirty = s->png_dir != NULL;
         wl_list_insert_list(s->orphan_callbacks.prev, &v->presented_callbacks);

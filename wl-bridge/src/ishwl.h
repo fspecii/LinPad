@@ -1,5 +1,6 @@
 #pragma once
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
@@ -163,6 +164,7 @@ struct view {
     int32_t min_w, min_h, max_w, max_h;
     int32_t host_width, host_height; /* size the host asked for, 0 = client's choice */
     bool activated, maximized;
+    bool fullscreen;          /* xdg set_fullscreen: the client sees its app-scale fullscreen scale */
 
     /* popup */
     struct positioner positioner;
@@ -193,6 +195,7 @@ struct server {
     const char *runtime_dir;  /* frame buffers and the bridge FIFOs live here */
     bool headless;            /* no host: frames are acked locally (and dumped with png_dir) */
     const char *png_dir;
+    FILE *frame_log;          /* $ISHWL_FRAMELOG: "MS VIEW SEQ DAMAGE_W DAMAGE_H" per composited frame */
     int verbose;              /* -v: lifecycle; -vv: also every bridge message */
 
     struct wl_list views;
@@ -220,6 +223,7 @@ struct server {
     struct xkb_keymap *keymap;
     struct xkb_state *xkb_state;
     char *keymap_string;
+    char *keymap_names;       /* "layout variant options" as the host last set them */
     uint32_t mods_depressed, mods_latched, mods_locked, group;
 
     /* text input (textinput.c) */
@@ -286,10 +290,15 @@ void seat_pointer_axis_stop(struct server *s);
 void seat_pointer_leave(struct server *s);
 void seat_key(struct server *s, uint32_t keycode, bool pressed);
 void seat_type_text(struct server *s, const char *utf8);
+/* Recompiles the XKB keymap (rules evdev, model pc105) and re-sends it to every client.
+ * Empty fields take libxkbcommon's defaults; returns false and keeps the old keymap
+ * when the names are invalid or do not compile. */
+bool seat_set_keymap(struct server *s, const char *layout, const char *variant, const char *options);
 void seat_focus_view(struct server *s, struct view *v);
 
 /* misc.c: output, decorations, data device */
 void misc_globals_init(struct server *s);
+void output_client_fullscreen(struct server *s, struct wl_client *client, bool fullscreen);
 
 /* clipboard.c */
 void clipboard_init(struct server *s);

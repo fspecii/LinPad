@@ -97,7 +97,7 @@ text-input update: bytes to delete around the caret, text to insert, then the pr
 and its cursor in bytes; an empty preedit ends the composition), `configure ID W H MAXIMIZED`, `focus ID|0`, `close ID`, `motion ID X Y`,
 `button ID X Y EVDEV_BUTTON 0|1`, `axis ID DX DY [SOURCE]` (wl_pointer.axis_source: 0 wheel,
 1 finger, 2 continuous), `axis_stop ID`, `leave`, `key EVDEV_CODE 0|1`,
-`text UTF8`, `selection`, `dismiss`, `spawn CMD`, `hello` (re-announce everything), `quit`.
+`text UTF8`, `keymap LAYOUT VARIANT OPTIONS` (XKB names, `-` for empty; see Keyboard layouts), `selection`, `dismiss`, `spawn CMD`, `hello` (re-announce everything), `quit`.
 
 Coordinates are view-local logical pixels: one Linux logical pixel is one iOS point.
 
@@ -108,8 +108,8 @@ host creates have no fakefs metadata and are invisible to the guest).
 ## Compositor scope
 
 The compositor implements these globals: `wl_compositor` v5, `wl_subcompositor`
-(sync/desync), `wl_shm` (ARGB/XRGB), `wl_seat` v8 (pointer and keyboard; keymap is XKB
-"us" through xkbcommon; `text` is replayed as key presses), `wl_output` v4,
+(sync/desync), `wl_shm` (ARGB/XRGB), `wl_seat` v8 (pointer and keyboard; the XKB keymap follows the iPad's layout,
+see Keyboard layouts; `text` is replayed as key presses), `wl_output` v4,
 `xdg_wm_base` v3 (positioner placement, popup grab and dismissal, reposition),
 `zxdg_decoration_manager_v1`, `org_kde_kwin_server_decoration_manager`,
 `wp_viewporter` (source crop and destination size, nearest-neighbour),
@@ -265,6 +265,38 @@ Modifiers and releases do not wait.
   over the Linux app.
 - Key repeat is client-side, from `wl_keyboard.repeat_info` (30/s after 500 ms). The host
   sends one press and one release per key, as UIKit does.
+
+**Keyboard layouts.** Keys travel by position (HID usage → evdev), and the keymap turns
+them into characters, as on a Linux PC. The host picks the XKB layout
+(`Linux/LinuxKeyboardLayout.swift`, `LinuxKeyboardLayoutMonitor.swift`) and sends
+`keymap LAYOUT VARIANT OPTIONS` after `hello` and on every change; ishwl compiles it
+(rules evdev, model pc105), sends `wl_keyboard.keymap` to every client and keeps the old
+keymap when the names are refused (only `[A-Za-z0-9_+,:()-]`) or do not compile.
+Xwayland applies a new `wl_keyboard.keymap` to its X server, so X11 apps follow without
+`setxkbmap`.
+- Automatic (the default, `desktop.linux.keyboardLayout`) maps the iPad's input language
+  (`UITextInputMode.primaryLanguage`, which changes with the Globe key) to Apple's layout
+  for it: `de` → `de(mac)`, `de-CH` → `ch(de_mac)`, `uk` → `ua(macOS)`, `ja` → `jp`.
+  iPadOS has no public API for the hardware layout, so every unmodified key press is
+  checked against the layout: `UIKey.charactersIgnoringModifiers` is what the iPad made of
+  that HID usage. A contradiction (QWERTZ, AZERTY, Dvorak or JIS keys under an English input
+  mode) switches to the catalog layout that agrees with everything typed since the last
+  language change. The per-layout table is generated from xkeyboard-config by
+  `tools/xkb-base-chars.c`.
+- Non-Latin layouts are sent with US as a second group (`ru,us`), so shortcuts find Latin
+  letters; on-screen keyboard `text` that is only in another group is typed with that
+  group locked for the key.
+- Apple ISO keyboards report the key left of 1 and the key right of left Shift swapped;
+  when the typed characters show that, the host swaps the two evdev codes, as hid-apple does.
+- `desktop.linux.optionKeyRole`: right Option is AltGr and left Option Alt (default), both
+  AltGr (`lv3:alt_switch`), or both Alt (`lv3:ralt_alt`). This is the Linux keymap; text the
+  iPad types itself into a Linux text field (see Option key) is unaffected.
+- `text` replay looks each character up in the current keymap with no modifier, Shift,
+  AltGr and Shift+AltGr, so on-screen keyboard text keeps working on every layout.
+- Dead keys in the keymap compose in the client (xkbcommon's Compose tables come from
+  libx11's `/usr/share/X11/locale`, which the repair kit keeps installed).
+- `tools/keymap-test.sh` checks all of this in the guest with a headless ishwl, the
+  `tools/keymap-test.c` client and a rootful Xwayland.
 
 **Seat.** `wl_seat` v8: a wheel sends `axis_value120` (v8 clients) or `axis_discrete`
 (v5–7), at 15 surface pixels per notch, as weston and wlroots do.
