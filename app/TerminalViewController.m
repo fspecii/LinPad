@@ -15,6 +15,7 @@
 #import "CurrentRoot.h"
 #import "NSObject+SaneKVO.h"
 #import "LinuxInterop.h"
+#import "SceneDelegate.h"
 #include "kernel/init.h"
 #include "kernel/task.h"
 #include "kernel/calls.h"
@@ -145,8 +146,23 @@
 }
 
 - (void)viewDidAppear:(BOOL)animated {
-    [AppDelegate maybePresentStartupMessageOnViewController:self];
+    if (self.embedded)
+        currentTerminalViewController = self;
+    else
+        [AppDelegate maybePresentStartupMessageOnViewController:self];
     [super viewDidAppear:animated];
+}
+
+- (void)viewDidDisappear:(BOOL)animated {
+    if (self.embedded && currentTerminalViewController == self)
+        currentTerminalViewController = nil;
+    [super viewDidDisappear:animated];
+}
+
+- (void)dealloc {
+    // A closed desktop window takes its shell with it (the hangup SIGHUPs the session).
+    if (_embedded)
+        [_sessionTerminal destroy];
 }
 
 - (void)startNewSession {
@@ -168,7 +184,7 @@
 }
 
 - (int)startSession {
-    NSArray<NSString *> *command = UserPreferences.shared.launchCommand;
+    NSArray<NSString *> *command = self.launchCommandOverride ?: UserPreferences.shared.launchCommand;
 
 #if !ISH_LINUX
     int err = become_new_init_child();
@@ -248,6 +264,9 @@
         }
     }
     current = NULL; // it's been freed
+    // A desktop window's one-off command must not rerun when its shell exits.
+    if (self.embedded)
+        self.launchCommandOverride = nil;
     [self startNewSession];
 }
 #endif
@@ -320,7 +339,8 @@
 }
 
 - (BOOL)prefersStatusBarHidden {
-    return UserPreferences.shared.hideStatusBar;
+    // Inside the desktop the panel replaces the status bar.
+    return self.embedded || UserPreferences.shared.hideStatusBar;
 }
 
 - (void)keyboardDidSomething:(NSNotification *)notification {

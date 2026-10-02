@@ -34,6 +34,7 @@
 @interface ISHShellExecutionContext : NSObject {
     int _stdoutPipe[2];
     int _stderrPipe[2];
+    int _stdinPipe[2];
 }
 @property (nonatomic) int guestPid;
 @property (nonatomic) NSDate *startTime;
@@ -44,9 +45,12 @@
 @property (nonatomic) dispatch_semaphore_t waitSemaphore;
 @property (nonatomic) ISHShellExecutionResult *result;
 @property (atomic) BOOL isCompleted;
+@property (atomic) BOOL readersAbandoned;
+@property (nonatomic) dispatch_group_t readersGroup;
 
 - (int *)stdoutPipe;
 - (int *)stderrPipe;
+- (int *)stdinPipe;
 
 @end
 
@@ -60,6 +64,10 @@
     return _stderrPipe;
 }
 
+- (int *)stdinPipe {
+    return _stdinPipe;
+}
+
 - (instancetype)init {
     if (self = [super init]) {
         _stdoutBuffer = [NSMutableString string];
@@ -68,6 +76,9 @@
         _stdoutPipe[1] = -1;
         _stderrPipe[0] = -1;
         _stderrPipe[1] = -1;
+        _stdinPipe[0] = -1;
+        _stdinPipe[1] = -1;
+        _readersGroup = dispatch_group_create();
         _result = [[ISHShellExecutionResult alloc] init];
         _result.error = ISHShellExecutorErrorNone;
     }
@@ -79,8 +90,11 @@
     if (_stdoutPipe[1] >= 0) close(_stdoutPipe[1]);
     if (_stderrPipe[0] >= 0) close(_stderrPipe[0]);
     if (_stderrPipe[1] >= 0) close(_stderrPipe[1]);
+    if (_stdinPipe[0] >= 0) close(_stdinPipe[0]);
+    if (_stdinPipe[1] >= 0) close(_stdinPipe[1]);
     _stdoutPipe[0] = _stdoutPipe[1] = -1;
     _stderrPipe[0] = _stderrPipe[1] = -1;
+    _stdinPipe[0] = _stdinPipe[1] = -1;
 }
 
 - (void)dealloc {
@@ -118,9 +132,17 @@ static dispatch_once_t _onceToken;
 + (int)executeCommand:(NSString *)command
          lineCallback:(ISHShellLineCallback)lineCallback
            completion:(ISHShellCompletionCallback)completion {
+    return [self executeCommand:command stdinData:nil lineCallback:lineCallback completion:completion];
+}
+
++ (int)executeCommand:(NSString *)command
+            stdinData:(NSData *)stdinData
+         lineCallback:(ISHShellLineCallback)lineCallback
+           completion:(ISHShellCompletionCallback)completion {
     return [self executeExecutable:@"/bin/sh"
                          arguments:@[@"-c", command]
                        environment:nil
+                         stdinData:stdinData
                       lineCallback:lineCallback
                         completion:completion];
 }
@@ -130,11 +152,35 @@ static dispatch_once_t _onceToken;
              environment:(NSDictionary<NSString *, NSString *> *)environment
             lineCallback:(ISHShellLineCallback)lineCallback
               completion:(ISHShellCompletionCallback)completion {
+    return [self executeExecutable:executable
+                         arguments:arguments
+                       environment:environment
+                         stdinData:nil
+                      lineCallback:lineCallback
+                        completion:completion];
+}
+
++ (int)executeExecutable:(NSString *)executable
+               arguments:(NSArray<NSString *> *)arguments
+             environment:(NSDictionary<NSString *, NSString *> *)environment
+               stdinData:(NSData *)stdinData
+            lineCallback:(ISHShellLineCallback)lineCallback
+              completion:(ISHShellCompletionCallback)completion {
 
     ISHShellExecutionContext *ctx = [[ISHShellExecutionContext alloc] init];
     ctx.lineCallback = lineCallback;
     ctx.completion = completion;
     ctx.startTime = [NSDate date];
+
+    if (stdinData != nil) {
+        if (pipe([ctx stdinPipe]) < 0) {
+            NSLog(@"ISHShellExecutor: pipe() failed: %s", strerror(errno));
+            [ctx cleanup];
+            return ISHShellExecutorErrorProcessCreationFailed;
+        }
+        // The guest may exit without draining stdin; that must not SIGPIPE the app.
+        fcntl([ctx stdinPipe][1], F_SETNOSIGPIPE, 1);
+    }
 
     // Create pipes for stdout and stderr
     if (pipe([ctx stdoutPipe]) < 0 || pipe([ctx stderrPipe]) < 0) {
@@ -161,10 +207,10 @@ static dispatch_once_t _onceToken;
 
     struct task *task = current;
 
-    // Setup stdin as /dev/null
+    // Setup stdin as the stdin pipe, or /dev/null
     struct fd *stdin_fd = adhoc_fd_create(&realfs_fdops);
     if (stdin_fd) {
-        stdin_fd->real_fd = open("/dev/null", O_RDONLY);
+        stdin_fd->real_fd = stdinData != nil ? dup([ctx stdinPipe][0]) : open("/dev/null", O_RDONLY);
         task->files->files[0] = stdin_fd;
     }
 
@@ -194,17 +240,23 @@ static dispatch_once_t _onceToken;
         [fullArgs addObjectsFromArray:arguments];
     }
 
-    char argv_buf[4096];
+    // Same limit as the kernel's ARGV_MAX (32 pages) for guest-initiated execve.
+    const size_t argv_max = 32 * 4096;
+    size_t argv_size = 1;
+    for (NSString *arg in fullArgs)
+        argv_size += strlen(arg.UTF8String) + 1;
+    if (argv_size > argv_max) {
+        current = saved_current;
+        [ctx cleanup];
+        NSLog(@"ISHShellExecutor: argv too long");
+        return ISHShellExecutorErrorExecFailed;
+    }
+    NSMutableData *argv_data = [NSMutableData dataWithLength:argv_size];
+    char *argv_buf = argv_data.mutableBytes;
     size_t pos = 0;
     for (NSString *arg in fullArgs) {
         const char *str = arg.UTF8String;
         size_t len = strlen(str) + 1;
-        if (pos + len + 1 >= sizeof(argv_buf)) {  // +1 for final NUL
-            current = saved_current;
-            [ctx cleanup];
-            NSLog(@"ISHShellExecutor: argv too long");
-            return ISHShellExecutorErrorExecFailed;
-        }
         memcpy(argv_buf + pos, str, len);
         pos += len;
     }
@@ -252,6 +304,28 @@ static dispatch_once_t _onceToken;
     // Register context
     @synchronized(_activeExecutions) {
         _activeExecutions[@(ctx.guestPid)] = ctx;
+    }
+
+    if (stdinData != nil) {
+        close([ctx stdinPipe][0]);
+        [ctx stdinPipe][0] = -1;
+        int writeEnd = [ctx stdinPipe][1];
+        [ctx stdinPipe][1] = -1;
+        dispatch_async(_readerQueue, ^{
+            const char *bytes = stdinData.bytes;
+            size_t remaining = stdinData.length;
+            while (remaining > 0) {
+                ssize_t written = write(writeEnd, bytes, remaining);
+                if (written < 0) {
+                    if (errno == EINTR)
+                        continue;
+                    break;
+                }
+                bytes += written;
+                remaining -= (size_t) written;
+            }
+            close(writeEnd);
+        });
     }
 
     // Start reader threads
@@ -339,125 +413,110 @@ static dispatch_once_t _onceToken;
 
     if (ctx.isCompleted) return;
     ctx.isCompleted = YES;
-
-    // Finalize result
     ctx.result.exitCode = exitCode;
     ctx.result.duration = -[ctx.startTime timeIntervalSinceNow];
-    ctx.result.output = [ctx.stdoutBuffer copy];
-    ctx.result.errorOutput = [ctx.stderrBuffer copy];
 
-    // Give readers a moment to flush remaining data
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC),
-                   dispatch_get_main_queue(), ^{
-        [ctx cleanup];
-
-        // Call completion callback
-        if (ctx.completion) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                ctx.completion(ctx.result);
-            });
+    // Output written just before exit may still be in the pipes. Wait for EOF, but
+    // not forever: a background child that inherited stdout keeps the pipe open.
+    dispatch_async(_readerQueue, ^{
+        if (dispatch_group_wait(ctx.readersGroup, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC)) != 0) {
+            ctx.readersAbandoned = YES;
+            dispatch_group_wait(ctx.readersGroup, DISPATCH_TIME_FOREVER);
         }
-
-        // Signal semaphore for sync execution
-        if (ctx.waitSemaphore) {
-            dispatch_semaphore_signal(ctx.waitSemaphore);
-        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self finishExecution:ctx];
+        });
     });
+}
+
++ (void)finishExecution:(ISHShellExecutionContext *)ctx {
+    @synchronized(ctx.stdoutBuffer) {
+        ctx.result.output = [ctx.stdoutBuffer copy];
+    }
+    @synchronized(ctx.stderrBuffer) {
+        ctx.result.errorOutput = [ctx.stderrBuffer copy];
+    }
+    [ctx cleanup];
+
+    if (ctx.completion)
+        ctx.completion(ctx.result);
+
+    // Signal semaphore for sync execution
+    if (ctx.waitSemaphore)
+        dispatch_semaphore_signal(ctx.waitSemaphore);
 }
 
 #pragma mark - Pipe Reading
 
 + (void)startReaderForPipe:(int)fd context:(ISHShellExecutionContext *)ctx isStdErr:(BOOL)isStdErr {
+    dispatch_group_enter(ctx.readersGroup);
     dispatch_async(_readerQueue, ^{
         [self readPipe:fd context:ctx isStdErr:isStdErr];
+        dispatch_group_leave(ctx.readersGroup);
     });
+}
+
+static NSString *DecodeOutput(NSData *data) {
+    NSString *string = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    // Fallback to Latin1 for binary data
+    return string ?: [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding];
 }
 
 + (void)readPipe:(int)fd context:(ISHShellExecutionContext *)ctx isStdErr:(BOOL)isStdErr {
     char buffer[4096];
-    NSMutableString *lineBuffer = [NSMutableString string];
-    NSMutableString *outputBuffer = isStdErr ? ctx.stderrBuffer : ctx.stdoutBuffer;
+    // Bytes, not characters: a UTF-8 sequence can straddle two reads.
+    NSMutableData *pending = [NSMutableData data];
 
-    while (!ctx.isCompleted) {
-        ssize_t bytesRead = read(fd, buffer, sizeof(buffer) - 1);
-
+    for (;;) {
+        ssize_t bytesRead = read(fd, buffer, sizeof(buffer));
         if (bytesRead > 0) {
-            buffer[bytesRead] = '\0';
-            NSString *chunk = [[NSString alloc] initWithBytes:buffer
-                                                       length:bytesRead
-                                                     encoding:NSUTF8StringEncoding];
-            if (!chunk) {
-                // Fallback to Latin1 for binary data
-                chunk = [[NSString alloc] initWithBytes:buffer
-                                                 length:bytesRead
-                                               encoding:NSISOLatin1StringEncoding];
-            }
-
-            [lineBuffer appendString:chunk];
-
-            // Process complete lines
-            [self processLines:lineBuffer
-                       context:ctx
-                  outputBuffer:outputBuffer
-                      isStdErr:isStdErr];
-
+            [pending appendBytes:buffer length:bytesRead];
+            [self emitCompleteLines:pending context:ctx isStdErr:isStdErr];
         } else if (bytesRead == 0) {
-            // EOF - pipe closed
             break;
-        } else {
-            // Error or would block
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                usleep(10000); // 10ms
-                continue;
-            } else {
+        } else if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+            if (ctx.readersAbandoned)
                 break;
-            }
+            usleep(10000); // 10ms
+        } else {
+            break;
         }
     }
 
     // Process any remaining partial line
-    if (lineBuffer.length > 0) {
-        @synchronized(outputBuffer) {
-            [outputBuffer appendString:lineBuffer];
-        }
+    if (pending.length > 0)
+        [self emitLine:DecodeOutput(pending) newline:NO context:ctx isStdErr:isStdErr];
+}
 
-        if (ctx.lineCallback) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                ctx.lineCallback([lineBuffer copy], isStdErr);
-            });
-        }
++ (void)emitCompleteLines:(NSMutableData *)pending
+                  context:(ISHShellExecutionContext *)ctx
+                 isStdErr:(BOOL)isStdErr {
+    for (;;) {
+        const char *bytes = pending.bytes;
+        const char *newline = memchr(bytes, '\n', pending.length);
+        if (newline == NULL)
+            return;
+        NSUInteger lineLength = (NSUInteger) (newline - bytes);
+        NSString *line = DecodeOutput([NSData dataWithBytes:bytes length:lineLength]);
+        [pending replaceBytesInRange:NSMakeRange(0, lineLength + 1) withBytes:NULL length:0];
+        [self emitLine:line newline:YES context:ctx isStdErr:isStdErr];
     }
 }
 
-+ (void)processLines:(NSMutableString *)lineBuffer
-             context:(ISHShellExecutionContext *)ctx
-        outputBuffer:(NSMutableString *)outputBuffer
-            isStdErr:(BOOL)isStdErr {
-
-    while (YES) {
-        NSRange newlineRange = [lineBuffer rangeOfString:@"\n"];
-        if (newlineRange.location == NSNotFound) {
-            break;
-        }
-
-        // Extract line without newline
-        NSString *line = [lineBuffer substringToIndex:newlineRange.location];
-
-        // Remove processed line from buffer
-        [lineBuffer deleteCharactersInRange:NSMakeRange(0, newlineRange.location + 1)];
-
-        // Add to output buffer
-        @synchronized(outputBuffer) {
-            [outputBuffer appendString:line];
++ (void)emitLine:(NSString *)line
+         newline:(BOOL)newline
+         context:(ISHShellExecutionContext *)ctx
+        isStdErr:(BOOL)isStdErr {
+    NSMutableString *outputBuffer = isStdErr ? ctx.stderrBuffer : ctx.stdoutBuffer;
+    @synchronized(outputBuffer) {
+        [outputBuffer appendString:line];
+        if (newline)
             [outputBuffer appendString:@"\n"];
-        }
-
-        // Call line callback
-        if (ctx.lineCallback) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                ctx.lineCallback(line, isStdErr);
-            });
-        }
+    }
+    if (ctx.lineCallback) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            ctx.lineCallback(line, isStdErr);
+        });
     }
 }
 

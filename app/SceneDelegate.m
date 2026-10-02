@@ -18,6 +18,21 @@ TerminalViewController *currentTerminalViewController = NULL;
 
 static NSString *const TerminalUUID = @"TerminalUUID";
 
+// Implemented in Swift (app/Desktop/DesktopBridge.swift) and looked up at runtime,
+// because this file is also compiled into targets that don't link DesktopKit.
+@protocol ISHDesktopBridge
++ (BOOL)isEnabled;
++ (UIViewController *)makeRootViewController;
+@end
+
+static Class<ISHDesktopBridge> DesktopBridgeIfEnabled(void) {
+    Class bridge = NSClassFromString(@"DesktopBridge");
+    if (![bridge respondsToSelector:@selector(isEnabled)] || ![bridge respondsToSelector:@selector(makeRootViewController)])
+        return nil;
+    Class<ISHDesktopBridge> desktop = bridge;
+    return [desktop isEnabled] ? desktop : nil;
+}
+
 @implementation SceneDelegate
 
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)connectionOptions {
@@ -29,7 +44,15 @@ static NSString *const TerminalUUID = @"TerminalUUID";
         return;
     }
 
+    Class<ISHDesktopBridge> desktop = DesktopBridgeIfEnabled();
+    if (desktop != nil) {
+        self.window.rootViewController = [desktop makeRootViewController];
+        return;
+    }
+
     TerminalViewController *vc = (TerminalViewController *) self.window.rootViewController;
+    if (![vc isKindOfClass:TerminalViewController.class])
+        return;
     vc.sceneSession = session;
     if (session.stateRestorationActivity == nil) {
         [vc startNewSession];
@@ -53,12 +76,16 @@ static NSString *const TerminalUUID = @"TerminalUUID";
 }
 
 - (void)sceneDidBecomeActive:(UIScene *)scene {
-    TerminalViewController *terminalViewController = (TerminalViewController *) self.window.rootViewController;;
+    TerminalViewController *terminalViewController = (TerminalViewController *) self.window.rootViewController;
+    if (![terminalViewController isKindOfClass:TerminalViewController.class])
+        return;
     currentTerminalViewController = terminalViewController;
 }
 
 - (void)sceneWillResignActive:(UIScene *)scene {
     TerminalViewController *terminalViewController = (TerminalViewController *) self.window.rootViewController;
+    if (![terminalViewController isKindOfClass:TerminalViewController.class])
+        return;
 
     if (currentTerminalViewController == terminalViewController) {
         currentTerminalViewController = NULL;

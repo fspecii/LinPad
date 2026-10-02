@@ -19,7 +19,7 @@ typedef NS_ENUM(NSInteger, ISHShellExecutorError) {
 
 @interface ISHShellExecutionResult : NSObject
 
-/// Exit code of the shell process (0 = success)
+/// Raw wait status of the shell process (exit status << 8 | terminating signal; 0 = success)
 @property (nonatomic, readonly) int exitCode;
 
 /// Guest process PID
@@ -56,6 +56,13 @@ typedef void (^ISHShellCompletionCallback)(ISHShellExecutionResult *result);
 /// @param completion Called when process exits (on main queue), can be nil
 /// @return Guest process PID, or negative error code on failure
 + (int)executeCommand:(NSString *)command
+         lineCallback:(nullable ISHShellLineCallback)lineCallback
+           completion:(nullable ISHShellCompletionCallback)completion;
+
+/// Execute a shell command, feeding stdinData to its standard input
+/// @param stdinData Bytes written to the process's stdin, which is then closed (nil = /dev/null)
++ (int)executeCommand:(NSString *)command
+            stdinData:(nullable NSData *)stdinData
          lineCallback:(nullable ISHShellLineCallback)lineCallback
            completion:(nullable ISHShellCompletionCallback)completion;
 

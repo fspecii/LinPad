@@ -1,0 +1,49 @@
+# A DesktopKit-only host app (MockLinuxHost, no emulator) and the desktop's UI tests.
+#   xcodegen generate && xcodebuild test -project DesktopUX.xcodeproj -scheme DesktopHarness \
+#     -destination 'platform=iOS Simulator,id=518E05EE-26E1-4302-B4D9-90537588D271'
+name: DesktopUX
+options:
+  bundleIdPrefix: com.valentinneagu.desktopux
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  DesktopKit:
+    path: ../DesktopKit
+targets:
+  DesktopHarness:
+    type: application
+    platform: iOS
+    sources: [Harness]
+    dependencies:
+      - package: DesktopKit
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "2"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UIStatusBarHidden: YES
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "Save wallpapers you download to your photo library."
+        CODE_SIGNING_ALLOWED: NO
+        SWIFT_VERSION: "5.0"
+  DesktopUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: DesktopHarness
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "2"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+        SWIFT_VERSION: "5.0"
+        TEST_TARGET_NAME: DesktopHarness
+schemes:
+  DesktopHarness:
+    build:
+      targets:
+        DesktopHarness: all
+        DesktopUITests: [test]
+    test:
+      targets: [DesktopUITests]

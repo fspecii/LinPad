@@ -23,6 +23,7 @@ if [[ $? -ne 0 ]]; then
     [binaries]
     c = 'clang'
     ar = 'ar'
+    pkg-config = 'pkg-config'
 
     [host_machine]
     system = 'darwin'
@@ -44,6 +45,21 @@ EOF
     config=$(meson introspect --buildoptions)
 fi
 
+# GPU (gpu/DESIGN.md): ISH_VIRTGPU and ISH_VIRTGPU_PREFIX come from app/VirtGPU.xcconfig.
+virtgpu=${ISH_VIRTGPU:-disabled}
+pkg_config_path=
+if [[ $virtgpu == enabled ]]; then
+    pkg_config_path=$ISH_VIRTGPU_PREFIX/lib/pkgconfig
+    if [[ ! -f $pkg_config_path/virglrenderer.pc ]]; then
+        echo "error: $pkg_config_path/virglrenderer.pc missing; run gpu/build-third-party.sh (or set ISH_VIRTGPU=disabled)"
+        exit 1
+    fi
+    # meson dirs created before the GPU work have no host pkg-config
+    if [[ -f cross.txt ]] && ! grep -q pkg-config cross.txt; then
+        awk '{ print } /^ *ar = .ar.$/ { match($0, /^ */); printf "%spkg-config = '\''pkg-config'\''\n", substr($0, 1, RLENGTH) }' cross.txt > cross.txt.new && mv cross.txt.new cross.txt
+    fi
+fi
+
 buildtype=debug
 b_ndebug=false
 if [[ $CONFIGURATION == Release ]]; then
@@ -61,7 +77,9 @@ if [[ -n "$ISH_KERNEL" ]]; then
 fi
 kconfig=""
 guest_arch=${GUEST_ARCH:-x86}
-for var in buildtype log b_ndebug b_sanitize log_handler kernel kconfig guest_arch; do
+# Native JIT (jit/DESIGN.md): ISH_JIT_BUILD=enabled on the xcodebuild command line.
+jit=${ISH_JIT_BUILD:-disabled}
+for var in buildtype log b_ndebug b_sanitize log_handler kernel kconfig guest_arch virtgpu pkg_config_path jit; do
     old_value=$(python3 -c "import sys, json; v = next(x['value'] for x in json.load(sys.stdin) if x['name'] == '$var'); print(str(v).lower() if isinstance(v, bool) else ','.join(v) if isinstance(v, list) else v)" <<< $config)
     new_value=${!var}
     if [[ $old_value != $new_value ]]; then

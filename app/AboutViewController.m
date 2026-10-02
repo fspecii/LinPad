@@ -54,9 +54,11 @@
                                                                                  action:@selector(exitRecovery:)];
         self.navigationItem.leftBarButtonItem = nil;
     }
-    _versionLabel.text = [NSString stringWithFormat:@"iSH %@ (Build %@)",
+    NSString *appName = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleDisplayName"] ?: @"iSH";
+    _versionLabel.text = [NSString stringWithFormat:@"%@ %@ (Build %@)%@", appName,
                           [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"],
-                          [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"]];
+                          [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"],
+                          [appName isEqualToString:@"iSH"] ? @"" : @", powered by iSH"];
 
     [UserPreferences.shared observe:@[@"capsLockMapping", @"fontSize", @"launchCommand", @"bootCommand"]
                             options:0 owner:self usingBlock:^(typeof(self) self) {

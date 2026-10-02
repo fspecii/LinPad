@@ -1,0 +1,43 @@
+# UI tests for drag and drop and context menus, driving the installed iSH app (real
+# emulator, real Linux windows). Install it first with desktop/simrun-dnd.sh, then:
+#   xcodegen generate && xcodebuild test -project DnDHarness.xcodeproj -scheme DnDHost \
+#     -destination 'platform=iOS Simulator,id=F3A6AD48-7A55-400C-A189-52349AF6A317' \
+#     TEST_RUNNER_DND_SCREENSHOT_DIR=/path/for/screenshots
+name: DnDHarness
+options:
+  bundleIdPrefix: com.valentinneagu.dndharness
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  DnDHost:
+    type: application
+    platform: iOS
+    sources: [Host]
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "2"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        CODE_SIGNING_ALLOWED: NO
+        SWIFT_VERSION: "5.0"
+  DnDUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: DnDHost
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "2"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+        SWIFT_VERSION: "5.0"
+        TEST_TARGET_NAME: DnDHost
+schemes:
+  DnDHost:
+    build:
+      targets:
+        DnDHost: all
+        DnDUITests: [test]
+    test:
+      targets: [DnDUITests]

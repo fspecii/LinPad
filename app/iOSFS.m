@@ -128,17 +128,63 @@ void iosfs_clear_all_bookmarks(void) {
     sync_bookmarks();
 }
 
+// Set by iosfs_mount_url for the duration of its do_mount call.
+static NSURL *pending_mount_url = nil;
+
+int iosfs_mount_url(NSURL *url, NSString *point) {
+    const char *c_point = [point cStringUsingEncoding:BOOKMARK_PATH_ENCODING];
+    if (c_point == NULL)
+        return _EINVAL;
+    lock(&mounts_lock);
+    pending_mount_url = url;
+    int err = do_mount(&iosfs, c_point, c_point, "", 0);
+    pending_mount_url = nil;
+    unlock(&mounts_lock);
+    return err;
+}
+
+int iosfs_unmount_point(NSString *point) {
+    const char *c_point = [point cStringUsingEncoding:BOOKMARK_PATH_ENCODING];
+    if (c_point == NULL)
+        return _EINVAL;
+    lock(&mounts_lock);
+    int err = do_umount(c_point);
+    unlock(&mounts_lock);
+    if (err == _EINVAL) {
+        // Not mounted (its folder went away at boot): just forget it.
+        [ios_mount_bookmarks removeObjectForKey:point];
+        sync_bookmarks();
+        return 0;
+    }
+    return err;
+}
+
+NSDictionary<NSString *, NSData *> *iosfs_mount_bookmarks(void) {
+    return ios_mount_bookmarks.copy ?: @{};
+}
+
 static int iosfs_mount(struct mount *mount) {
     NSURL *url = nil;
-    if (mount_from_bookmarks) {
+    if (pending_mount_url != nil) {
+        url = pending_mount_url;
+        if (![url startAccessingSecurityScopedResource])
+            return _EPERM;
+    } else if (mount_from_bookmarks) {
         NSString *bookmarkName = [NSString stringWithCString:mount->source encoding:BOOKMARK_PATH_ENCODING];
+        BOOL stale = NO;
         url = [NSURL URLByResolvingBookmarkData:ios_mount_bookmarks[bookmarkName]
                                         options:0
                                   relativeToURL:nil
-                            bookmarkDataIsStale:NULL
+                            bookmarkDataIsStale:&stale
                                           error:nil];
         if (url != nil && ![url startAccessingSecurityScopedResource]) {
             return _EPERM;
+        }
+        // A moved or renamed folder still resolves; save a fresh bookmark for next boot.
+        if (url != nil && stale) {
+            NSData *fresh = [url bookmarkDataWithOptions:0 includingResourceValuesForKeys:nil relativeToURL:nil error:nil];
+            if (fresh != nil)
+                ios_mount_bookmarks[bookmarkName] = fresh;
         }
     }
 

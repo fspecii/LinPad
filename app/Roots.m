@@ -9,6 +9,9 @@
 #import "Roots.h"
 #import "AppGroup.h"
 #import "NSObject+SaneKVO.h"
+#include <copyfile.h>
+#include <sqlite3.h>
+#include <sys/stat.h>
 #include "tools/fakefs.h"
 
 static NSURL *RootsDir(void) {
@@ -25,7 +28,14 @@ static NSURL *RootsDir(void) {
     return rootsDir;
 }
 
+/// Imports and updates are unpacked here and moved into RootsDir() only when complete, so
+/// a kill mid-import never leaves a partial root behind. Anything here at launch is stale.
+static NSURL *StagingDir(void) {
+    return [ContainerURL() URLByAppendingPathComponent:@"roots-staging"];
+}
+
 static NSString *kDefaultRoot = @"Default Root";
+static NSString *kPendingUpdate = @"linux.pendingSystemUpdate";
 
 @interface Roots ()
 @property NSMutableOrderedSet<NSString *> *roots;
@@ -41,18 +51,15 @@ static NSString *kDefaultRoot = @"Default Root";
         NSError *error = nil;
         NSArray<NSString *> *rootNames = [NSFileManager.defaultManager contentsOfDirectoryAtPath:RootsDir().path error:&error];
         NSAssert(error == nil, @"couldn't list roots: %@", error);
-        self.roots = [rootNames mutableCopy];
-        if (!self.roots.count) {
-            // import default root
-            NSError *error;
-            if (![self importRootFromArchive:[NSBundle.mainBundle URLForResource:@"root" withExtension:@"tar.gz"]
-                                        name:@"default"
-                                       error:&error
-                            progressReporter:nil]) {
-                NSAssert(NO, @"failed to import default root, error %@", error);
-            }
-            _wantsVersionFile = YES;
+        NSMutableOrderedSet<NSString *> *roots = [NSMutableOrderedSet new];
+        for (NSString *name in rootNames) {
+            if (![name hasPrefix:@"."])
+                [roots addObject:name];
         }
+        self.roots = roots;
+        [NSFileManager.defaultManager removeItemAtURL:StagingDir() error:nil];
+        // The bundled root is imported by the app delegate (importBundledRootWithProgress:),
+        // off the main thread when the desktop shows progress for it.
         [self observe:@[@"roots"] options:0 owner:self usingBlock:^(typeof(self) self) {
             if (self.defaultRoot == nil && self.roots.count)
                 self.defaultRoot = self.roots[0];
@@ -130,10 +137,8 @@ void root_progress_callback(void *cookie, double progress, const char *message, 
     NSAssert(![self.roots containsObject:name], @"root already exists: %@", name);
     struct fakefsify_error fs_err;
     NSURL *destination = [self rootUrl:name];
-    NSURL *tempDestination = [NSFileManager.defaultManager.temporaryDirectory
-                              URLByAppendingPathComponent:[NSProcessInfo.processInfo globallyUniqueString]];
-    if (tempDestination == nil)
-        return NO;
+    [NSFileManager.defaultManager createDirectoryAtURL:StagingDir() withIntermediateDirectories:YES attributes:nil error:nil];
+    NSURL *tempDestination = [StagingDir() URLByAppendingPathComponent:[NSProcessInfo.processInfo globallyUniqueString]];
     if (!fakefs_import(archive.fileSystemRepresentation,
                        tempDestination.fileSystemRepresentation,
                        &fs_err, (struct progress) {(__bridge void *) progress, root_progress_callback})) {
@@ -219,6 +224,289 @@ void root_progress_callback(void *cookie, double progress, const char *message, 
         return NO;
     NSUInteger index = [self.roots indexOfObject:name];
     [[self mutableOrderedSetValueForKey:@"roots"] replaceObjectAtIndex:index withObject:newName];
+    return YES;
+}
+
+#pragma mark - Bundled root, versions and updates
+
+- (NSURL *)bundledRootArchive {
+    return [NSBundle.mainBundle URLForResource:@"root" withExtension:@"tar.gz"];
+}
+
+static NSString *ReadVersion(NSURL *url) {
+    NSString *text = [NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:nil];
+    text = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return text.length ? text : nil;
+}
+
+- (NSString *)bundledRootVersion {
+    NSURL *url = [NSBundle.mainBundle URLForResource:@"root" withExtension:@"version"];
+    return url ? ReadVersion(url) : nil;
+}
+
+- (NSString *)installedRootVersion {
+    if (self.needsDefaultRoot)
+        return nil;
+    return ReadVersion([self.defaultRootUrl URLByAppendingPathComponent:@"data/usr/share/ish/rootfs-version"]);
+}
+
+- (NSURL *)defaultRootUrl {
+    return [self rootUrl:self.defaultRoot ?: @"default"];
+}
+
+- (BOOL)needsDefaultRoot {
+    return self.roots.count == 0;
+}
+
+- (BOOL)importBundledRootWithProgress:(id<ProgressReporter>)progress error:(NSError **)error {
+    NSURL *archive = self.bundledRootArchive;
+    if (archive == nil) {
+        *error = [NSError errorWithDomain:@"iSH" code:ENOENT userInfo:@{NSLocalizedDescriptionKey: @"The app has no bundled root filesystem"}];
+        return NO;
+    }
+    if (![self importRootFromArchive:archive name:@"default" error:error progressReporter:progress])
+        return NO;
+    _wantsVersionFile = YES;
+    return YES;
+}
+
+- (NSString *)availableUpdate {
+    NSString *bundled = self.bundledRootVersion;
+    if (bundled == nil || self.needsDefaultRoot || self.bundledRootArchive == nil)
+        return nil;
+    NSString *installed = self.installedRootVersion;
+    if (installed != nil && bundled.longLongValue <= installed.longLongValue)
+        return nil;
+    return bundled;
+}
+
+- (NSString *)pendingUpdate {
+    return [NSUserDefaults.standardUserDefaults stringForKey:kPendingUpdate];
+}
+- (void)setPendingUpdate:(NSString *)pendingUpdate {
+    [NSUserDefaults.standardUserDefaults setObject:pendingUpdate forKey:kPendingUpdate];
+}
+
+// User data carried from the old root into the updated one. Everything else (the system:
+// /usr, /lib, /bin, /sbin, /etc, /var/lib/apk, ...) comes from the new rootfs.
+static NSArray<NSString *> *UpdateKeptPaths(void) {
+    return @[@"/root", @"/home", @"/opt", @"/srv",
+             @"/etc/passwd", @"/etc/group", @"/etc/shadow", @"/etc/gshadow",
+             @"/etc/hostname", @"/etc/hosts", @"/etc/ish/firstrun.json", @"/etc/ishwl/options"];
+}
+
+#define UPDATE_SQL(stmt) do { if ((stmt) != SQLITE_OK) goto sql_error; } while (0)
+
+/// Rows for `prefix` itself and everything below it (paths are blobs: "/root", "/root/x").
+static int BindPrefix(sqlite3_stmt *stmt, int first, const char *prefix) {
+    size_t length = strlen(prefix);
+    char upper[PATH_MAX];
+    snprintf(upper, sizeof(upper), "%s0", prefix); // '0' sorts right after '/'
+    sqlite3_bind_blob(stmt, first, prefix, (int) length, SQLITE_TRANSIENT);
+    char lower[PATH_MAX];
+    snprintf(lower, sizeof(lower), "%s/", prefix);
+    sqlite3_bind_blob(stmt, first + 1, lower, (int) strlen(lower), SQLITE_TRANSIENT);
+    return sqlite3_bind_blob(stmt, first + 2, upper, (int) strlen(upper), SQLITE_TRANSIENT);
+}
+
+/// Copies `kept` paths (with their fakefs metadata and file contents) from the root at
+/// `old` into the freshly imported root at `new`, replacing what the new root has there.
+/// File contents are APFS clones, so this costs no space and little time.
+static BOOL CarryUserData(NSURL *old, NSURL *new, NSArray<NSString *> *kept, NSString **message) {
+    sqlite3 *db = NULL;
+    sqlite3_stmt *exists = NULL, *select = NULL, *deletePaths = NULL, *insertStat = NULL, *insertPath = NULL;
+    BOOL ok = NO;
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *oldData = [old URLByAppendingPathComponent:@"data"].path;
+    NSString *newData = [new URLByAppendingPathComponent:@"data"].path;
+    NSString *attach = [NSString stringWithFormat:@"attach database '%@' as old",
+                        [[old URLByAppendingPathComponent:@"meta.db"].path stringByReplacingOccurrencesOfString:@"'" withString:@"''"]];
+
+    if (sqlite3_open_v2([new URLByAppendingPathComponent:@"meta.db"].fileSystemRepresentation, &db, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK)
+        goto sql_error;
+    sqlite3_busy_timeout(db, 5000);
+    UPDATE_SQL(sqlite3_exec(db, attach.UTF8String, NULL, NULL, NULL));
+    UPDATE_SQL(sqlite3_exec(db, "begin", NULL, NULL, NULL));
+    UPDATE_SQL(sqlite3_prepare_v2(db, "select count(*) from old.paths where path = ?1 or (path >= ?2 and path < ?3)", -1, &exists, NULL));
+    UPDATE_SQL(sqlite3_prepare_v2(db, "select p.path, p.inode, s.stat from old.paths p join old.stats s on s.inode = p.inode "
+                                      "where p.path = ?1 or (p.path >= ?2 and p.path < ?3) order by p.path", -1, &select, NULL));
+    UPDATE_SQL(sqlite3_prepare_v2(db, "delete from main.paths where path = ?1 or (path >= ?2 and path < ?3)", -1, &deletePaths, NULL));
+    UPDATE_SQL(sqlite3_prepare_v2(db, "insert into main.stats (stat) values (?)", -1, &insertStat, NULL));
+    UPDATE_SQL(sqlite3_prepare_v2(db, "insert or replace into main.paths (path, inode) values (?, ?)", -1, &insertPath, NULL));
+
+    for (NSString *keep in kept) {
+        const char *prefix = keep.UTF8String;
+        BindPrefix(exists, 1, prefix);
+        if (sqlite3_step(exists) != SQLITE_ROW)
+            goto sql_error;
+        sqlite3_int64 count = sqlite3_column_int64(exists, 0);
+        sqlite3_reset(exists);
+        if (count == 0)
+            continue; // the old root never had it: keep the new root's
+
+        BindPrefix(deletePaths, 1, prefix);
+        if (sqlite3_step(deletePaths) != SQLITE_DONE)
+            goto sql_error;
+        sqlite3_reset(deletePaths);
+        [fm removeItemAtPath:[newData stringByAppendingString:keep] error:nil];
+
+        NSMutableDictionary<NSNumber *, NSNumber *> *inodes = [NSMutableDictionary new];
+        BindPrefix(select, 1, prefix);
+        int step;
+        while ((step = sqlite3_step(select)) == SQLITE_ROW) {
+            NSString *path = [[NSString alloc] initWithBytes:sqlite3_column_blob(select, 0)
+                                                      length:sqlite3_column_bytes(select, 0)
+                                                    encoding:NSUTF8StringEncoding];
+            if (path == nil)
+                continue;
+            NSNumber *oldInode = @(sqlite3_column_int64(select, 1));
+            NSNumber *newInode = inodes[oldInode];
+            if (newInode == nil) {
+                sqlite3_bind_blob(insertStat, 1, sqlite3_column_blob(select, 2), sqlite3_column_bytes(select, 2), SQLITE_TRANSIENT);
+                if (sqlite3_step(insertStat) != SQLITE_DONE)
+                    goto sql_error;
+                sqlite3_reset(insertStat);
+                newInode = @(sqlite3_last_insert_rowid(db));
+                inodes[oldInode] = newInode;
+            }
+            sqlite3_bind_blob(insertPath, 1, path.UTF8String, (int) strlen(path.UTF8String), SQLITE_TRANSIENT);
+            sqlite3_bind_int64(insertPath, 2, newInode.longLongValue);
+            if (sqlite3_step(insertPath) != SQLITE_DONE)
+                goto sql_error;
+            sqlite3_reset(insertPath);
+
+            // The backing file: directories are made, everything else (regular files,
+            // symlinks, which fakefs stores as files, device placeholders) is cloned.
+            NSString *src = [oldData stringByAppendingString:path];
+            NSString *dst = [newData stringByAppendingString:path];
+            struct stat st;
+            if (lstat(src.fileSystemRepresentation, &st) < 0)
+                continue;
+            [fm createDirectoryAtPath:dst.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
+            if (S_ISDIR(st.st_mode)) {
+                mkdir(dst.fileSystemRepresentation, 0777);
+            } else if (S_ISFIFO(st.st_mode)) {
+                mkfifo(dst.fileSystemRepresentation, 0666);
+            } else if (copyfile(src.fileSystemRepresentation, dst.fileSystemRepresentation, NULL,
+                                COPYFILE_CLONE | COPYFILE_DATA | COPYFILE_NOFOLLOW) < 0) {
+                *message = [NSString stringWithFormat:@"copying %@: %s", path, strerror(errno)];
+                goto done;
+            }
+        }
+        sqlite3_reset(select);
+        if (step != SQLITE_DONE)
+            goto sql_error;
+    }
+    UPDATE_SQL(sqlite3_exec(db, "delete from main.stats where inode not in (select inode from main.paths)", NULL, NULL, NULL));
+    UPDATE_SQL(sqlite3_exec(db, "commit", NULL, NULL, NULL));
+    ok = YES;
+    goto done;
+
+sql_error:
+    *message = [NSString stringWithFormat:@"database: %s", db ? sqlite3_errmsg(db) : "cannot open"];
+done:
+    sqlite3_finalize(exists);
+    sqlite3_finalize(select);
+    sqlite3_finalize(deletePaths);
+    sqlite3_finalize(insertStat);
+    sqlite3_finalize(insertPath);
+    if (db != NULL) {
+        if (!ok)
+            sqlite3_exec(db, "rollback", NULL, NULL, NULL);
+        sqlite3_close(db);
+    }
+    return ok;
+}
+
+static NSOrderedSet<NSString *> *WorldPackages(NSURL *root) {
+    NSString *text = [NSString stringWithContentsOfURL:[root URLByAppendingPathComponent:@"data/etc/apk/world"]
+                                              encoding:NSUTF8StringEncoding error:nil];
+    NSMutableOrderedSet *packages = [NSMutableOrderedSet new];
+    for (NSString *line in [text componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]) {
+        if (line.length)
+            [packages addObject:line];
+    }
+    return packages;
+}
+
+/// Packages in the old world file that the new system lacks are listed in
+/// /etc/ish/reinstall-packages, which the guest's first-run hook installs (ish-firstrun).
+/// The file must have fakefs metadata to be visible in the guest, so its row is cloned
+/// from /etc/apk/world's (a root-owned 0644 file).
+static void ListPackagesToReinstall(NSURL *old, NSURL *new) {
+    NSMutableOrderedSet<NSString *> *missing = [WorldPackages(old) mutableCopy];
+    [missing minusOrderedSet:WorldPackages(new)];
+    if (missing.count == 0)
+        return;
+    NSString *list = [[missing.array componentsJoinedByString:@"\n"] stringByAppendingString:@"\n"];
+    NSURL *file = [new URLByAppendingPathComponent:@"data/etc/ish/reinstall-packages"];
+    [NSFileManager.defaultManager createDirectoryAtURL:file.URLByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
+    if (![list writeToURL:file atomically:NO encoding:NSUTF8StringEncoding error:nil])
+        return;
+    sqlite3 *db;
+    if (sqlite3_open_v2([new URLByAppendingPathComponent:@"meta.db"].fileSystemRepresentation, &db, SQLITE_OPEN_READWRITE, NULL) == SQLITE_OK) {
+        sqlite3_exec(db, "insert into stats (stat) select stat from stats where inode = (select inode from paths where path = cast('/etc' as blob)) "
+                         "and not exists (select 1 from paths where path = cast('/etc/ish' as blob));"
+                         "insert into paths (path, inode) select cast('/etc/ish' as blob), last_insert_rowid() "
+                         "where not exists (select 1 from paths where path = cast('/etc/ish' as blob));"
+                         "insert into stats (stat) select stat from stats where inode = (select inode from paths where path = cast('/etc/apk/world' as blob));"
+                         "insert or replace into paths (path, inode) values (cast('/etc/ish/reinstall-packages' as blob), last_insert_rowid());",
+                     NULL, NULL, NULL);
+    }
+    sqlite3_close(db);
+}
+
+- (BOOL)updateDefaultRootWithProgress:(id<ProgressReporter>)progress error:(NSError **)error {
+    NSString *name = self.defaultRoot;
+    NSURL *archive = self.bundledRootArchive;
+    if (name == nil || archive == nil || self.needsDefaultRoot) {
+        *error = [NSError errorWithDomain:@"iSH" code:ENOENT userInfo:@{NSLocalizedDescriptionKey: @"Nothing to update"}];
+        return NO;
+    }
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSURL *old = [self rootUrl:name];
+    [fm createDirectoryAtURL:StagingDir() withIntermediateDirectories:YES attributes:nil error:nil];
+    NSURL *staged = [StagingDir() URLByAppendingPathComponent:[@"update-" stringByAppendingString:NSProcessInfo.processInfo.globallyUniqueString]];
+
+    struct fakefsify_error fs_err;
+    if (!fakefs_import(archive.fileSystemRepresentation, staged.fileSystemRepresentation, &fs_err,
+                       (struct progress) {(__bridge void *) progress, root_progress_callback})) {
+        *error = [NSError errorWithDomain:fs_err.type == ERR_SQLITE ? @"SQLite" : NSPOSIXErrorDomain code:fs_err.code
+                                 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%s, line %d", fs_err.message, fs_err.line]}];
+        free(fs_err.message);
+        [fm removeItemAtURL:staged error:nil];
+        return NO;
+    }
+    [progress updateProgress:1 message:@"Keeping your files…"];
+    NSString *message = nil;
+    if (!CarryUserData(old, staged, UpdateKeptPaths(), &message)) {
+        *error = [NSError errorWithDomain:@"iSH" code:EIO userInfo:@{NSLocalizedDescriptionKey: message ?: @"could not keep user data"}];
+        [fm removeItemAtURL:staged error:nil];
+        return NO;
+    }
+    ListPackagesToReinstall(old, staged);
+
+    // Swap: the old root stays, renamed, until the user deletes it (Settings > Filesystems).
+    NSString *previous = [NSString stringWithFormat:@"%@ (before update %@)", name, self.installedRootVersion ?: @"unversioned"];
+    while ([self.roots containsObject:previous] || [fm fileExistsAtPath:[self rootUrl:previous].path])
+        previous = [previous stringByAppendingString:@"+"];
+    if (![fm moveItemAtURL:old toURL:[self rootUrl:previous] error:error]) {
+        [fm removeItemAtURL:staged error:nil];
+        return NO;
+    }
+    if (![fm moveItemAtURL:staged toURL:old error:error]) {
+        // Put the old system back rather than leave no default root.
+        [fm moveItemAtURL:[self rootUrl:previous] toURL:old error:nil];
+        [fm removeItemAtURL:staged error:nil];
+        return NO;
+    }
+    void (^addRoot)(void) = ^{
+        [[self mutableOrderedSetValueForKey:@"roots"] addObject:previous];
+    };
+    if (!NSThread.isMainThread)
+        dispatch_sync(dispatch_get_main_queue(), addRoot);
+    else
+        addRoot();
     return YES;
 }
 

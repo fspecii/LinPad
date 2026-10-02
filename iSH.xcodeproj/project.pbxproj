@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXAggregateTarget section */
@@ -21,6 +21,11 @@
 /* End PBXAggregateTarget section */
 
 /* Begin PBXBuildFile section */
+		DE5C00000000000000000011 /* ISHShellExecutor.m in Sources */ = {isa = PBXBuildFile; fileRef = DE5C00000000000000000002 /* ISHShellExecutor.m */; };
+		DE5C00000000000000000012 /* ISHLinuxHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE5C00000000000000000004 /* ISHLinuxHost.swift */; };
+		DE5C00000000000000000013 /* DesktopBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE5C00000000000000000005 /* DesktopBridge.swift */; };
+		DE5C000000000000000000A2 /* ISHAudioBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE5C000000000000000000A1 /* ISHAudioBridge.swift */; };
+		DE5C00000000000000000014 /* DesktopKit in Frameworks */ = {isa = PBXBuildFile; productRef = DE5C00000000000000000021 /* DesktopKit */; };
 		0FC2383C2991FBA6004C09EC /* mmx.c in Sources */ = {isa = PBXBuildFile; fileRef = 0FC2383B2991FB82004C09EC /* mmx.c */; };
 		491B31E62883BF22008EEFB0 /* ThemeViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 491B31E52883BF22008EEFB0 /* ThemeViewController.m */; };
 		49302D8E277669D300C9885A /* ish.c in Sources */ = {isa = PBXBuildFile; fileRef = 49302D8D277669D300C9885A /* ish.c */; };
@@ -495,6 +500,12 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		DE5C00000000000000000001 /* ISHShellExecutor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ISHShellExecutor.h; sourceTree = "<group>"; };
+		DE5C00000000000000000002 /* ISHShellExecutor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ISHShellExecutor.m; sourceTree = "<group>"; };
+		DE5C00000000000000000003 /* iSH-ARM64-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "iSH-ARM64-Bridging-Header.h"; sourceTree = "<group>"; };
+		DE5C00000000000000000004 /* ISHLinuxHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISHLinuxHost.swift; sourceTree = "<group>"; };
+		DE5C00000000000000000005 /* DesktopBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopBridge.swift; sourceTree = "<group>"; };
+		DE5C000000000000000000A1 /* ISHAudioBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISHAudioBridge.swift; sourceTree = "<group>"; };
 		0FC2383B2991FB82004C09EC /* mmx.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = mmx.c; sourceTree = "<group>"; };
 		408A2639236440F8008A4E81 /* iOSFS.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = iOSFS.m; sourceTree = "<group>"; };
 		408A263B23644102008A4E81 /* iOSFS.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = iOSFS.h; sourceTree = "<group>"; };
@@ -848,6 +859,7 @@
 				AA000034AF96D90D00FFB7A4 /* libbz2.tbd in Frameworks */,
 				AA000035AF96D90D00FFB7A4 /* libiconv.tbd in Frameworks */,
 				AA000036AF96D90D00FFB7A4 /* libresolv.tbd in Frameworks */,
+				DE5C00000000000000000014 /* DesktopKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1137,9 +1149,23 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		DE5C00000000000000000006 /* Desktop */ = {
+			isa = PBXGroup;
+			children = (
+				DE5C00000000000000000005 /* DesktopBridge.swift */,
+				DE5C000000000000000000A1 /* ISHAudioBridge.swift */,
+				DE5C00000000000000000004 /* ISHLinuxHost.swift */,
+			);
+			path = Desktop;
+			sourceTree = "<group>";
+		};
 		BB792B521F96D90D00FFB7A4 /* app */ = {
 			isa = PBXGroup;
 			children = (
+				DE5C00000000000000000006 /* Desktop */,
+				DE5C00000000000000000003 /* iSH-ARM64-Bridging-Header.h */,
+				DE5C00000000000000000001 /* ISHShellExecutor.h */,
+				DE5C00000000000000000002 /* ISHShellExecutor.m */,
 				BB792B531F96D90D00FFB7A4 /* AppDelegate.h */,
 				BB792B541F96D90D00FFB7A4 /* AppDelegate.m */,
 				AA000132AF96D90D00FFB7A4 /* DebugServer.h */,
@@ -1566,6 +1592,9 @@
 				AA000062AF96D90D00FFB7A4 /* PBXTargetDependency */,
 			);
 			name = "iSH-ARM64";
+			packageProductDependencies = (
+				DE5C00000000000000000021 /* DesktopKit */,
+			);
 			productName = "iSH ARM64";
 			productReference = AA0000021F96D90D00FFB7A4 /* iSH ARM64.app */;
 			productType = "com.apple.product-type.application";
@@ -1847,6 +1876,9 @@
 				Base,
 			);
 			mainGroup = BB792B451F96D8E000FFB7A4;
+			packageReferences = (
+				DE5C00000000000000000020 /* XCLocalSwiftPackageReference "desktop/DesktopKit" */,
+			);
 			productRefGroup = BB792B511F96D90D00FFB7A4 /* Products */;
 			projectDirPath = "";
 			projectReferences = (
@@ -2389,6 +2421,10 @@
 				AA000110AF96D90D00FFB7A4 /* FontPickerViewController.m in Sources */,
 				AA000111AF96D90D00FFB7A4 /* UpgradeRootViewController.m in Sources */,
 				AA000112AF96D90D00FFB7A4 /* SceneDelegate.m in Sources */,
+				DE5C00000000000000000011 /* ISHShellExecutor.m in Sources */,
+				DE5C00000000000000000012 /* ISHLinuxHost.swift in Sources */,
+				DE5C00000000000000000013 /* DesktopBridge.swift in Sources */,
+				DE5C000000000000000000A2 /* ISHAudioBridge.swift in Sources */,
 				AA000113AF96D90D00FFB7A4 /* AboutExternalKeyboardViewController.m in Sources */,
 				AA000114AF96D90D00FFB7A4 /* PassthroughView.m in Sources */,
 				AA000115AF96D90D00FFB7A4 /* UserPreferences.m in Sources */,
@@ -3464,6 +3500,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		DE5C00000000000000000020 /* XCLocalSwiftPackageReference "desktop/DesktopKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = desktop/DesktopKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		DE5C00000000000000000021 /* DesktopKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DE5C00000000000000000020 /* XCLocalSwiftPackageReference "desktop/DesktopKit" */;
+			productName = DesktopKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = BB792B461F96D8E000FFB7A4 /* Project object */;
 }
