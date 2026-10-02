@@ -1,0 +1,4 @@
+#!/bin/sh
+# neofetch is a large bash script and takes many seconds under emulation; fastfetch
+# shows the same information.
+exec fastfetch "$@"

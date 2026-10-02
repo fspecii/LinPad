@@ -1,0 +1,26 @@
+#!/bin/sh
+# Facts about the iPad that the iOS app publishes as UserDefaults, which iSH exposes
+# as JSON values under /proc/ish/.defaults. Used by fastfetch.
+default() {
+    value=$(cat "/proc/ish/.defaults/$1" 2>/dev/null) || return 1
+    value=${value#\"}
+    value=${value%\"}
+    [ -n "$value" ] && printf '%s\n' "$value"
+}
+case $1 in
+    host) default linux.hostModel || echo iPad ;;
+    cpu)
+        # /proc/cpuinfo has no model name under iSH.
+        chip=$(default linux.chipName || echo ARM64)
+        echo "$chip ($(nproc) cores, emulated by iSH)"
+        ;;
+    gpu)
+        name=$(default linux.gpuName || echo "Apple GPU")
+        if [ -e /dev/dri/renderD128 ]; then
+            echo "$name (Venus, Vulkan)"
+        else
+            echo "$name (not used: software rendering)"
+        fi
+        ;;
+    *) echo "usage: ish-device-info host|cpu|gpu" >&2; exit 2 ;;
+esac

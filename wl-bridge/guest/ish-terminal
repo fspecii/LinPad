@@ -1,0 +1,7 @@
+#!/bin/sh
+# The desktop's Linux terminal: foot, coloured for the current desktop style
+# (/usr/share/ish/current-style, see themes/CONTRACT.md).
+style=$(cat /usr/share/ish/current-style 2>/dev/null)
+config=/etc/ish/foot/${style:-ish}.ini
+[ -r "$config" ] || config=/etc/ish/foot/ish.ini
+exec foot --config="$config" "$@"

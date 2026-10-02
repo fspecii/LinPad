@@ -1,0 +1,16 @@
+#!/bin/sh
+# Opens an http(s) URL on the iPad desktop: the host shows it in Quick Preview, or in
+# Firefox when desktop.linux.urlHandler is "firefox". foot's URL mode and $BROWSER use it.
+# The request is one line on ishwl's notify FIFO; lines that short are written
+# atomically, so it can share the FIFO with ishwl.
+url=$1
+case $url in
+    http://*|https://*) ;;
+    *) echo "usage: ish-open http(s)://..." >&2; exit 2 ;;
+esac
+notify=/tmp/ishwl/notify
+encoded=$(printf '%s' "$url" | sed 's/%/%25/g; s/ /%20/g')
+if [ -p "$notify" ] && timeout 2 sh -c 'printf "open %s\n" "$1" > "$2"' sh "$encoded" "$notify"; then
+    exit 0
+fi
+exec firefox-esr "$url"

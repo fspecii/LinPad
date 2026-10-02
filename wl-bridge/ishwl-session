@@ -1,0 +1,49 @@
+#!/bin/sh
+# The Linux GUI session the iOS desktop starts once: a session bus plus ishwl.
+# Apps are then launched through ishwl ("spawn" on the events FIFO), so they
+# inherit WAYLAND_DISPLAY and the bus address from here.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-runtime}"
+export HOME="${HOME:-/root}" USER="${USER:-root}"
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+mkdir -p "$XDG_RUNTIME_DIR" /dev/shm
+chmod 700 "$XDG_RUNTIME_DIR"
+
+# No accessibility bus and no GVfs daemons: both need more of D-Bus than iSH provides today.
+export NO_AT_BRIDGE=1 GTK_A11Y=none GIO_USE_VFS=local GSETTINGS_BACKEND=memory
+
+# Qt: Wayland, no client-side title bars (DesktopKit draws them). QtWebEngine has no GPU
+# and no seccomp/namespaces here, and its zygote/renderer processes cost more under
+# emulation than the single-process mode saves in isolation.
+# Firefox: Wayland (also set by ishwl), no crash reporter (Breakpad's ptrace-based
+# dumper does not work under iSH). Its prefs come from defaults/pref/ishwl.js.
+export MOZ_ENABLE_WAYLAND=1 MOZ_CRASHREPORTER_DISABLE=1
+
+# GPU (iSH-ARM64 gpu/DESIGN.md): Vulkan/zink defaults, set only when the emulated
+# virtio-gpu node exists. Apps opt in to EGL on the GPU with WAYLAND_DISPLAY=wayland-0-gpu.
+[ -r /etc/profile.d/gpu.sh ] && . /etc/profile.d/gpu.sh
+
+# There is no GPU: Mesa's EGL either fails or crashes (llvmpipe), so Qt is kept off EGL
+# and Qt Quick (QtWebEngine's view) renders in software straight into wl_shm buffers.
+export QT_QPA_PLATFORM=wayland QT_WAYLAND_DISABLE_WINDOWDECORATION=1 QTWEBENGINE_DISABLE_SANDBOX=1
+export QT_WAYLAND_CLIENT_BUFFER_INTEGRATION=none QT_QUICK_BACKEND=software
+export XDG_CURRENT_DESKTOP="${XDG_CURRENT_DESKTOP:-GNOME}" # Qt then uses the Adwaita icon theme
+export QTWEBENGINE_CHROMIUM_FLAGS="${QTWEBENGINE_CHROMIUM_FLAGS:---single-process --no-sandbox --disable-gpu}"
+
+# Every process that may pass fds over a unix socket needs the same SCM_RIGHTS
+# translation (src/scm-compat.c), the bus daemon and bus-activated services included;
+# a mix of translated and untranslated peers drops D-Bus connections.
+scm_compat=/usr/local/lib/libishwl-scm.so
+[ -r "$scm_compat" ] && export LD_PRELOAD="$scm_compat${LD_PRELOAD:+:$LD_PRELOAD}"
+
+if [ -z "$DBUS_SESSION_BUS_ADDRESS" ] && command -v dbus-daemon >/dev/null 2>&1; then
+    DBUS_SESSION_BUS_ADDRESS=$(dbus-daemon --session --fork --print-address=1 2>/dev/null | head -n1)
+    [ -n "$DBUS_SESSION_BUS_ADDRESS" ] && export DBUS_SESSION_BUS_ADDRESS
+fi
+
+# Add-ons (desktop styles, ishaudio) hook in here; see themes/guest/session.d in the repo.
+for f in /etc/ishwl/session.d/*.sh; do [ -r "$f" ] && . "$f"; done
+
+# Extra ishwl options for this device, e.g. "--scale 1" to trade sharpness for speed.
+[ -r /etc/ishwl/options ] && set -- $(cat /etc/ishwl/options) "$@"
+
+exec ishwl "$@"

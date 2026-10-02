@@ -1,0 +1,3 @@
+# Started with the Linux GUI session (ishwl --prewarm), one command per line.
+# A resident Thunar makes opening a file manager window near-instant.
+thunar --daemon

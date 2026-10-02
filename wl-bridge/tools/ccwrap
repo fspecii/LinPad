@@ -1,0 +1,17 @@
+#!/bin/sh
+# Works around iSH's wait4 returning EINTR after 1 s: gcc treats that as fatal
+# when cc1 runs longer. For "-c" we run cc1 and as ourselves (sh retries waits).
+case " $* " in *" -c "*) ;; *) exec cc "$@" ;; esac
+out=; src=; flags=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -c) ;;
+    -o) out=$2; shift ;;
+    *.c) src=$1 ;;
+    -g) ;;
+    *) flags="$flags $1" ;;
+  esac
+  shift
+done
+cc1=$(cc -print-prog-name=cc1)
+$cc1 -quiet $flags "$src" -o "$out.s" && as "$out.s" -o "$out" && rm -f "$out.s"

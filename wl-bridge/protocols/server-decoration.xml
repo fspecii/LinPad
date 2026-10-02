@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Minimal copy of KDE's org_kde_kwin_server_decoration (LGPL-2.1, plasma-wayland-protocols).
+     GTK3 and GTK4 only switch to server-side decorations when this global exists. -->
+<protocol name="server_decoration">
+  <interface name="org_kde_kwin_server_decoration_manager" version="1">
+    <request name="create">
+      <arg name="id" type="new_id" interface="org_kde_kwin_server_decoration"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+    <event name="default_mode">
+      <arg name="mode" type="uint"/>
+    </event>
+    <enum name="mode">
+      <entry name="None" value="0"/>
+      <entry name="Client" value="1"/>
+      <entry name="Server" value="2"/>
+    </enum>
+  </interface>
+  <interface name="org_kde_kwin_server_decoration" version="1">
+    <request name="release" type="destructor"/>
+    <request name="request_mode">
+      <arg name="mode" type="uint"/>
+    </request>
+    <event name="mode">
+      <arg name="mode" type="uint"/>
+    </event>
+    <enum name="mode">
+      <entry name="None" value="0"/>
+      <entry name="Client" value="1"/>
+      <entry name="Server" value="2"/>
+    </enum>
+  </interface>
+</protocol>

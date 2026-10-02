@@ -1,0 +1,39 @@
+#!/bin/sh
+# Runs an X11-only app (VLC 3's Qt interface, Dillo, ...) inside its own rootful
+# Xwayland, which shows up through ishwl as one ordinary window.
+#   ishwl-x11 [-g WIDTHxHEIGHT] command [args...]
+# Rootless Xwayland would need an X window manager inside ishwl; one X server per app
+# keeps ishwl a plain Wayland compositor. ishwl-x11-wm makes the app's main window
+# fill the server's screen. The server, and with it the WM, exits with the app.
+geometry=1024x700
+if [ "$1" = "-g" ]; then
+    geometry=$2
+    shift 2
+fi
+[ $# -gt 0 ] || { echo "usage: ishwl-x11 [-g WxH] command [args...]" >&2; exit 2; }
+
+display=1
+while [ -e "/tmp/.X11-unix/X$display" ] || [ -e "/tmp/.X$display-lock" ]; do
+    display=$((display + 1))
+done
+
+# ishwl names the window after the app rather than "Xwayland on :N": it looks up
+# /tmp/ishwl-x11/<pid of the Wayland client>, written here before Xwayland connects.
+app=${ISHWL_APP:-${1##*/}}
+mkdir -p /tmp/ishwl-x11
+sh -c 'echo "$1" > "/tmp/ishwl-x11/$$"; shift; exec Xwayland "$@"' sh "$app" \
+    ":$display" -geometry "$geometry" -nolisten tcp -noreset &
+server=$!
+trap 'kill $server 2>/dev/null; rm -f "/tmp/ishwl-x11/$server"' EXIT INT TERM
+
+tries=0
+while [ ! -S "/tmp/.X11-unix/X$display" ]; do
+    kill -0 $server 2>/dev/null || { echo "ishwl-x11: Xwayland failed to start" >&2; exit 1; }
+    tries=$((tries + 1))
+    [ $tries -le 100 ] || { echo "ishwl-x11: no X socket after 10s" >&2; exit 1; }
+    sleep 0.1
+done
+
+export DISPLAY=":$display" GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb
+command -v ishwl-x11-wm >/dev/null && ishwl-x11-wm &
+"$@"

@@ -1,0 +1,4 @@
+# Per-app launch rules for ishwl-launch: program name, then flags (x11, compat).
+# VLC 3's Qt interface needs an X server, and VLC refuses to run as root.
+vlc x11 compat
+dillo x11

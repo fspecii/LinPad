@@ -1,0 +1,24 @@
+#!/bin/sh
+# ishwl starts every app through this: ishwl-launch "shell command".
+# /etc/ishwl/apps holds per-app rules, one line per program: its name, then flags.
+#   x11     the app needs X11; it gets its own Xwayland (ishwl-x11)
+#   compat  preload libishwl-compat.so (runs as non-root, see preload/appcompat.c)
+command=$1
+program=$(printf '%s\n' "$command" | awk '{
+    for (i = 1; i <= NF; i++) if ($i != "env" && $i !~ /=/) { print $i; exit }
+}')
+program=${program##*/}
+rules=$(awk -v p="$program" '$1 == p { $1 = ""; print; exit }' /etc/ishwl/apps 2>/dev/null)
+
+wrapper=
+preload=$LD_PRELOAD
+for rule in $rules; do
+    case $rule in
+        x11) wrapper=ishwl-x11 ;;
+        compat) preload="${preload:+$preload }/usr/local/lib/libishwl-compat.so" ;;
+    esac
+done
+# The preload goes to the app only: Xwayland must keep seeing root, which owns the
+# Wayland runtime directory.
+export ISHWL_APP="$program"
+exec $wrapper env LD_PRELOAD="$preload" /bin/sh -c "$command"
