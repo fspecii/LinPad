@@ -1,0 +1,433 @@
+#!/bin/sh
+# Applies a colour theme (Omarchy colors.toml) on top of the current desktop style.
+#   ish-apply-colors <id> [--json]     render and apply; see `ish-colors list`
+#   ish-apply-colors none [--json]     back to the style's own colours
+#   ish-apply-colors --refresh         re-apply the current theme (after a style switch)
+#   ish-apply-colors --current         print the active id ("none" when there is none)
+# Steps mirror omarchy-theme-set: lock, render into a staging directory, swap it in with
+# one rename, hook the files up, retint running foot terminals, and write
+# /usr/share/ish/current-colors LAST (the native shell watches it).
+# Contract: themes/omarchy/CONTRACT-COLORS.md.
+set -eu
+
+SHARE=/usr/share/linpad/colors
+TEMPLATES=$SHARE/templates
+CURRENT=/usr/share/ish/current-colors
+HOME=${HOME:-/root}
+CONFIG=${XDG_CONFIG_HOME:-$HOME/.config}
+STATE=$HOME/.local/state/linpad/colors
+MARKER="linpad-colors"
+JSON=0
+APPLIED=
+
+die() {
+    if [ "$JSON" = 1 ]; then printf '{"ok": false, "error": "%s"}\n' "$(printf '%s' "$*" | sed 's/"/\\"/g')"; fi
+    echo "ish-apply-colors: $*" >&2
+    exit 1
+}
+note() { APPLIED="${APPLIED:+$APPLIED }$1"; }
+
+current() { cat "$CURRENT" 2>/dev/null || echo none; }
+
+# --- per-app hook-up ------------------------------------------------------------------
+
+# foot: ish-terminal starts foot with ~/.config/foot/linpad.ini when it exists (the
+# style ini otherwise); it keeps the shared font/keys and adds the theme's colours.
+install_foot() {
+    mkdir -p "$CONFIG/foot"
+    cp "$STATE/current/foot.ini" "$CONFIG/foot/colors.ini"
+    cat > "$CONFIG/foot/linpad.ini.tmp" <<EOF
+# $MARKER: written by ish-apply-colors (ish-terminal uses this file when it exists).
+include=/etc/ish/foot/foot.ini
+include=$CONFIG/foot/colors.ini
+EOF
+    mv "$CONFIG/foot/linpad.ini.tmp" "$CONFIG/foot/linpad.ini"
+    note foot
+}
+
+# A file is ours to replace or delete when it is missing, a symlink into the system
+# themes (ish-apply-style's libadwaita link) or carries the marker.
+ours() {
+    [ ! -e "$1" ] && [ ! -L "$1" ] && return 0
+    if [ -L "$1" ]; then case $(readlink "$1") in /usr/share/themes/*) return 0 ;; esac; return 1; fi
+    head -n2 "$1" | grep -q "$MARKER"
+}
+
+gtk_theme() { sed -n 's/^gtk-theme-name=//p' "$CONFIG/gtk-3.0/settings.ini" 2>/dev/null | head -n1; }
+
+install_gtk() {
+    mode=$1
+    for v in 3.0 4.0; do
+        f=$CONFIG/gtk-$v/gtk.css
+        mkdir -p "$CONFIG/gtk-$v"
+        if ! ours "$f"; then
+            echo "ish-apply-colors: $f is not ours, left alone" >&2
+            continue
+        fi
+        {
+            if [ "$v" = 4.0 ]; then
+                # GTK 4 loads only this file, so the style's theme (normally linked here)
+                # is imported first and recoloured after.
+                t=$(gtk_theme)
+                [ -n "$t" ] && [ -f "/usr/share/themes/$t/gtk-4.0/gtk.css" ] &&
+                    printf '/* %s */\n@import url("file:///usr/share/themes/%s/gtk-4.0/gtk.css");\n' "$MARKER" "$t"
+                cat "$STATE/current/gtk4-colors.css"
+            fi
+            cat "$STATE/current/gtk3.css"
+        } > "$f.tmp"
+        # The marker must be in the first two lines for ours().
+        if [ "$v" = 4.0 ] && ! head -n2 "$f.tmp" | grep -q "$MARKER"; then
+            { echo "/* $MARKER */"; cat "$f.tmp"; } > "$f.tmp2" && mv "$f.tmp2" "$f.tmp"
+        fi
+        rm -f "$f"
+        mv "$f.tmp" "$f"
+        dark=0; [ "$mode" = dark ] && dark=1
+        for ini in "$CONFIG/gtk-$v/settings.ini" "/etc/xdg/gtk-$v/settings.ini"; do
+            [ -f "$ini" ] && sed -i "s/^gtk-application-prefer-dark-theme=.*/gtk-application-prefer-dark-theme=$dark/" "$ini"
+        done
+    done
+    note gtk
+}
+
+# Qt: a Kvantum theme "LinPad" recoloured from KvUKUI(Dark), the same recolour
+# install.sh applies for the kylin style.
+install_kvantum() {
+    mode=$1
+    base=KvUKUI; [ "$mode" = dark ] && base=KvUKUIDark
+    [ -f "/usr/share/Kvantum/$base/$base.kvconfig" ] || return 0
+    get() { awk -F'\t' -v k="$1" '$1 == k { print $2; exit }' "$STATE/current/palette.tsv"; }
+    dir=$CONFIG/Kvantum/LinPad
+    rm -rf "$dir.tmp"; mkdir -p "$dir.tmp"
+    cp "/usr/share/Kvantum/$base/$base.svg" "$dir.tmp/LinPad.svg"
+    sed -e "s/^window.color=.*/window.color=$(get background)/" \
+        -e "s/^base.color=.*/base.color=$(get dark_background)/" \
+        -e "s/^alt.base.color=.*/alt.base.color=$(get background)/" \
+        -e "s/^button.color=.*/button.color=$(get lighter_background)/" \
+        -e "s/^\(window\.text\|text\|button\.text\)\.color=.*/\1.color=$(get foreground)/" \
+        -e "s/^disabled.text.color=.*/disabled.text.color=$(get muted)/" \
+        -e "s/^highlight.color=.*/highlight.color=$(get accent)/" \
+        -e "s/^inactive.highlight.color=.*/inactive.highlight.color=$(get accent)/" \
+        -e "s/^highlight.text.color=.*/highlight.text.color=$(get background)/" \
+        -e "s/^link.color=.*/link.color=$(get accent)/" \
+        "/usr/share/Kvantum/$base/$base.kvconfig" > "$dir.tmp/LinPad.kvconfig"
+    rm -rf "$dir"; mv "$dir.tmp" "$dir"
+    printf '[General]\ntheme=LinPad\n' > "$CONFIG/Kvantum/kvantum.kvconfig"
+    note qt
+}
+
+install_btop() {
+    mkdir -p "$CONFIG/btop/themes"
+    cp "$STATE/current/btop.theme" "$CONFIG/btop/themes/linpad.theme"
+    conf=$CONFIG/btop/btop.conf
+    if [ -f "$conf" ] && grep -q '^color_theme' "$conf"; then
+        sed -i 's|^color_theme *=.*|color_theme = "linpad"|' "$conf"
+    else
+        echo 'color_theme = "linpad"' >> "$conf"
+    fi
+    note btop
+}
+
+# JSONC-safe for VS Code's own settings layout: replace the key's line, or add it after
+# the opening brace.
+set_json_key() { # file key json-value
+    f=$1
+    mkdir -p "$(dirname "$f")"
+    if [ ! -s "$f" ]; then printf '{\n    "%s": %s\n}\n' "$2" "$3" > "$f"; return; fi
+    if grep -q "\"$2\"[[:space:]]*:" "$f"; then
+        sed -i "s|\"$2\"[[:space:]]*:[^,}]*|\"$2\": $3|" "$f"
+    else
+        sed -i "0,/{/s|{|{\n    \"$2\": $3,|" "$f"
+    fi
+}
+
+del_json_key() { # file key value
+    [ -f "$1" ] && sed -i "/\"$2\"[[:space:]]*:[[:space:]]*$3[[:space:]]*,\{0,1\}[[:space:]]*$/d" "$1"
+    return 0
+}
+
+vscode_targets() { # "<cli> <settings dir> <extensions dir>" per installed editor
+    for e in "code:Code:.vscode" "code-oss:Code - OSS:.vscode-oss" "codium:VSCodium:.vscode-oss"; do
+        cli=${e%%:*}; rest=${e#*:}; cfg=${rest%%:*}; ext=${rest#*:}
+        if command -v "$cli" >/dev/null 2>&1 || [ -d "$CONFIG/$cfg" ]; then
+            printf '%s\t%s\t%s\n' "$cli" "$CONFIG/$cfg/User" "$HOME/$ext/extensions"
+        fi
+    done
+}
+
+install_vscode() {
+    vsn=$1 vse=$2 mode=$3
+    targets=$(vscode_targets)
+    [ -n "$targets" ] || return 0
+    printf '%s\n' "$targets" | while IFS="$(printf '\t')" read -r cli user extdir; do
+        if [ "$vsn" != generated ] && [ -n "$vse" ]; then
+            label=$vsn
+            # Open VSX extensions are installed in the background (network, slow under
+            # emulation); VS Code switches to the theme once it is there.
+            if command -v "$cli" >/dev/null 2>&1 && ! "$cli" --list-extensions 2>/dev/null | grep -qix "$vse"; then
+                (nohup "$cli" --install-extension "$vse" >/dev/null 2>&1 &)
+            fi
+        else
+            label="LinPad"
+            ui=vs-dark; [ "$mode" = light ] && ui=vs
+            ext=$extdir/local.linpad-theme
+            ver="1.0.$(cksum < "$STATE/current/vscode-theme.json" | cut -d' ' -f1)"
+            mkdir -p "$ext/themes"
+            cp "$STATE/current/vscode-theme.json" "$ext/themes/linpad-color-theme.json"
+            cat > "$ext/package.json" <<EOF
+{
+    "name": "linpad-theme",
+    "displayName": "LinPad",
+    "description": "LinPad colour theme (generated by ish-apply-colors from an Omarchy template, MIT)",
+    "publisher": "local",
+    "version": "$ver",
+    "engines": { "vscode": "^1.70.0" },
+    "categories": ["Themes"],
+    "contributes": {
+        "themes": [{ "label": "LinPad", "uiTheme": "$ui", "path": "./themes/linpad-color-theme.json", "_watch": true }]
+    }
+}
+EOF
+            register_vscode_extension "$extdir" "$ext" "$ver"
+        fi
+        set_json_key "$user/settings.json" workbench.colorTheme "\"$(printf '%s' "$label" | sed 's/"/\\"/g')\""
+        echo "$label" > "$STATE/vscode-label"
+    done
+    note vscode
+}
+
+# VS Code lists extensions from extensions.json; a folder it does not list is ignored.
+register_vscode_extension() { # extdir ext version
+    command -v jq >/dev/null 2>&1 || return 0
+    list=$1/extensions.json
+    [ -s "$list" ] || echo '[]' > "$list"
+    jq --arg id local.linpad-theme --arg v "$3" --arg p "$2" --arg rel "${2##*/}" \
+        'map(select(.identifier.id != $id)) + [{identifier: {id: $id}, version: $v,
+          location: {"$mid": 1, fsPath: $p, external: ("file://" + $p), path: $p, scheme: "file"},
+          relativeLocation: $rel}]' "$list" > "$list.tmp" && mv "$list.tmp" "$list"
+}
+
+# Firefox: light/dark only (content follows prefers-color-scheme; toolbars follow it too).
+# userChrome edits are not used: they need a profile pref and break across versions.
+FIREFOX_PREF=/usr/lib/firefox-esr/defaults/pref/linpad-colors.js
+install_firefox() {
+    [ -d /usr/lib/firefox-esr/defaults/pref ] || return 0
+    dark=0 theme=1; [ "$1" = dark ] && { dark=1; theme=0; }
+    cat > "$FIREFOX_PREF" <<EOF
+// $MARKER: written by ish-apply-colors
+pref("ui.systemUsesDarkTheme", $dark);
+pref("browser.theme.content-theme", $theme);
+pref("browser.theme.toolbar-theme", $theme);
+EOF
+    note firefox
+}
+
+# Icon pack from the theme, unless the user picked one in Settings › Icons: the
+# override file then differs from the one this script last wrote.
+icon_variant() { # base mode -> installed theme id
+    case $2 in dark) s1=-Dark s2=-dark ;; *) s1=-Light s2=-light ;; esac
+    for t in "$1$s1" "$1$s2" "$1"; do
+        for b in /usr/share/icons "$HOME/.local/share/icons"; do
+            [ -f "$b/$t/index.theme" ] && { echo "$t"; return 0; }
+        done
+    done
+    return 1
+}
+
+install_icons() { # base mode
+    [ -n "$1" ] || return 0
+    override=$(cat /usr/share/ish/icon-theme 2>/dev/null || true)
+    ours_icons=$(cat "$STATE/icons-set" 2>/dev/null || true)
+    if [ -n "$override" ] && [ "$override" != "$ours_icons" ]; then
+        echo "ish-apply-colors: keeping the user's icon pack $override" >&2
+        return 0
+    fi
+    t=$(icon_variant "$1" "$2") || return 0
+    [ "$t" = "$override" ] && { note icons; return 0; }
+    ish-apply-style --icons "$t" >/dev/null
+    echo "$t" > "$STATE/icons-set"
+    note icons
+}
+
+restore_icons() {
+    override=$(cat /usr/share/ish/icon-theme 2>/dev/null || true)
+    ours_icons=$(cat "$STATE/icons-set" 2>/dev/null || true)
+    if [ -n "$ours_icons" ] && [ "$override" = "$ours_icons" ]; then
+        ish-apply-style --icons match >/dev/null
+    fi
+    rm -f "$STATE/icons-set"
+}
+
+# --- running foot terminals -----------------------------------------------------------
+
+# The ptys of foot's children: /proc/<pid>/stat gives comm and ppid, fd/0 the pty.
+# Not pidof/pgrep (they read /proc/<pid>/exe, which can crash iSH) and not the shell's
+# `read` on procfs files (it never returns under iSH); awk reads them fine.
+foot_ptys() {
+    awk '{
+        if (!match($0, /\(.*\)/)) next
+        comm = substr($0, RSTART + 1, RLENGTH - 2)
+        n = split(substr($0, RSTART + RLENGTH + 1), f, " ")
+        pid = $1; ppid[pid] = f[2]
+        if (comm == "foot") foot[pid] = 1
+    } END { for (p in ppid) if (ppid[p] in foot) print p }' /proc/[0-9]*/stat 2>/dev/null |
+    while read -r child; do
+        tty=$(readlink "/proc/$child/fd/0" 2>/dev/null || true)
+        case $tty in /dev/pts/*) echo "$tty" ;; esac
+    done | sort -u
+}
+
+retint_foot() { # osc-file
+    n=0
+    for tty in $(foot_ptys); do
+        [ -w "$tty" ] && cat "$1" > "$tty" 2>/dev/null && n=$((n + 1))
+    done
+    echo "$n"
+}
+
+osc_sequences() { # palette.tsv -> OSC string (port of omarchy-theme-osc)
+    awk -F'\t' '{ C[$1] = $2 }
+    function osc(code, k) { if (C[k] != "") printf "\033]%s;%s\007", code, C[k] }
+    END {
+        osc(10, "foreground"); osc(11, "background"); osc(12, "cursor")
+        osc(17, "selection_background"); osc(19, "selection_foreground")
+        for (i = 0; i < 16; i++) if (C["color" i] != "") printf "\033]4;%d;%s\007", i, C["color" i]
+    }' "$1"
+}
+
+style_osc() { # style -> OSC sequences from /etc/ish/foot/<style>.ini [colors], else resets
+    ini=/etc/ish/foot/$1.ini
+    [ -r "$ini" ] || ini=/etc/ish/foot/ish.ini
+    printf '\033]104\007\033]110\007\033]111\007\033]112\007'
+    [ -r "$ini" ] || return 0
+    awk -F= '/^\[/ { sec = $0; next } sec == "[colors]" && NF == 2 {
+        k = $1; v = $2; gsub(/[ \t]/, "", k); gsub(/[ \t]/, "", v)
+        if (v !~ /^[0-9A-Fa-f]{6}$/) next
+        if (k == "foreground") printf "\033]10;#%s\007", v
+        else if (k == "background") printf "\033]11;#%s\007", v
+        else if (k ~ /^regular[0-7]$/) printf "\033]4;%d;#%s\007", substr(k, 8), v
+        else if (k ~ /^bright[0-7]$/) printf "\033]4;%d;#%s\007", substr(k, 7) + 8, v
+    }' "$ini"
+}
+
+# --- apply / none ---------------------------------------------------------------------
+
+apply_theme() { # id
+    id=$1
+    case $id in */*|.*) die "bad theme id '$id'" ;; esac
+    src=
+    for d in "$CONFIG/linpad/colors/$id" "$SHARE/$id"; do [ -f "$d/colors.toml" ] && { src=$d; break; }; done
+    [ -n "$src" ] || die "unknown colour theme '$id' (see: ish-colors list)"
+
+    next=$STATE/next
+    rm -rf "$next"; mkdir -p "$next"
+    for f in colors.toml theme.conf icons.theme light.mode; do
+        [ -f "$src/$f" ] && [ ! -L "$src/$f" ] && cp "$src/$f" "$next/"
+    done
+    ish-colors resolve "$next/colors.toml" > "$next/palette.tsv"
+    grep -q '^background	#' "$next/palette.tsv" || die "theme '$id' has no usable background colour"
+    for t in foot.ini btop.theme vscode-theme.json gtk3.css gtk4-colors.css; do
+        tpl=$CONFIG/linpad/themed/$t.tpl
+        [ -f "$tpl" ] || tpl=$TEMPLATES/$t.tpl
+        ish-colors render "$next/colors.toml" "$tpl" "$next" > "$next/$t"
+    done
+    osc_sequences "$next/palette.tsv" > "$next/foot.osc"
+    echo "$id" > "$next/id"
+    rm -rf "$STATE/current"
+    mv "$next" "$STATE/current"
+
+    mode=$(awk -F'\t' '$1 == "mode" { print $2 }' "$STATE/current/palette.tsv")
+    conf_get() { sed -n "s/^$1=//p" "$STATE/current/theme.conf" 2>/dev/null | head -n1; }
+    icons=$(conf_get icons)
+    [ -z "$icons" ] && [ -f "$STATE/current/icons.theme" ] && icons=$(head -n1 "$STATE/current/icons.theme")
+    # Omarchy themes name Yaru colour variants, which are not installed; the same
+    # nearest-pack table make-palettes.py uses for the built-in themes.
+    case $icons in
+    Yaru-blue) icons=Papirus ;;
+    Yaru-purple|Yaru-magenta|Yaru-prussiangreen) icons=Tela-circle ;;
+    Yaru-sage|Yaru-sage-dark|Yaru-olive|Yaru-viridian) icons=Qogir ;;
+    Yaru-red|Yaru-yellow|Yaru-bark) icons=Colloid ;;
+    Yaru-wartybrown) icons=kora ;;
+    Yaru-gray|Yaru-grey|Yaru) icons=Numix-Circle ;;
+    esac
+
+    # Icons first: --icons rewrites the GTK/Qt settings files this script then adjusts.
+    install_icons "$icons" "$mode"
+    install_foot
+    install_gtk "$mode"
+    install_kvantum "$mode"
+    install_btop
+    install_vscode "$(conf_get vscode_name)" "$(conf_get vscode_extension)" "$mode"
+    install_firefox "$mode"
+    live=$(retint_foot "$STATE/current/foot.osc")
+
+    printf '%s\n' "$id" > "$CURRENT.tmp"
+    mv "$CURRENT.tmp" "$CURRENT"
+    if [ "$JSON" = 1 ]; then
+        printf '{"ok": true, "id": "%s", "appearance": "%s", "applied": [%s], "iconTheme": "%s", "retintedTerminals": %s}\n' \
+            "$id" "$mode" "$(printf '%s' "$APPLIED" | sed 's/[^ ][^ ]*/"&"/g; s/ /, /g')" \
+            "$(cat "$STATE/icons-set" 2>/dev/null || true)" "$live"
+    else
+        echo "colours: $id ($mode) -> $APPLIED; $live terminal(s) retinted"
+    fi
+}
+
+apply_none() {
+    restore_icons
+    rm -f "$CONFIG/foot/linpad.ini" "$CONFIG/foot/colors.ini" "$FIREFOX_PREF"
+    for v in 3.0 4.0; do
+        f=$CONFIG/gtk-$v/gtk.css
+        [ -f "$f" ] && [ ! -L "$f" ] && head -n2 "$f" | grep -q "$MARKER" && rm -f "$f"
+    done
+    rm -rf "$CONFIG/Kvantum/LinPad" "$CONFIG/btop/themes/linpad.theme"
+    [ -f "$CONFIG/btop/btop.conf" ] && sed -i '/^color_theme = "linpad"$/d' "$CONFIG/btop/btop.conf"
+    label=$(cat "$STATE/vscode-label" 2>/dev/null || true)
+    if [ -n "$label" ]; then
+        vscode_targets | while IFS="$(printf '\t')" read -r _ user _; do
+            del_json_key "$user/settings.json" workbench.colorTheme "\"$label\""
+        done
+        rm -f "$STATE/vscode-label"
+    fi
+    # The style rewrites settings.ini (dark preference), the libadwaita links and Kvantum.
+    style=$(cat /usr/share/ish/current-style 2>/dev/null || echo ish)
+    variant=$(sed -n 's/^ISH_STYLE_VARIANT=//p' /usr/share/ish/current-style.env 2>/dev/null)
+    ish-apply-style "$style" $variant >/dev/null
+    # Running terminals get the style's colours. A reset (OSC 104/110/111) would return
+    # them to the theme they were started with.
+    style_osc "$style" > "$STATE/reset.osc"
+    live=$(retint_foot "$STATE/reset.osc")
+    rm -rf "$STATE/current"
+    printf 'none\n' > "$CURRENT.tmp"
+    mv "$CURRENT.tmp" "$CURRENT"
+    if [ "$JSON" = 1 ]; then
+        printf '{"ok": true, "id": "none", "retintedTerminals": %s}\n' "$live"
+    else
+        echo "colours: none (style $style); $live terminal(s) reset"
+    fi
+}
+
+target=
+for a in "$@"; do
+    case $a in
+    --json) JSON=1 ;;
+    *) [ -z "$target" ] && target=$a || die "one theme at a time" ;;
+    esac
+done
+case ${target:-} in
+"") echo "usage: ish-apply-colors <id|none> [--json] | --refresh | --current" >&2; exit 2 ;;
+--current) current; exit 0 ;;
+esac
+
+mkdir -p "$STATE"
+# One apply at a time; a second request waits (the shell may queue several).
+exec 9>"$STATE/.lock"
+command -v flock >/dev/null 2>&1 && flock 9
+# ish-apply-style calls back into --refresh after a style switch; not from here.
+export ISH_APPLY_COLORS_RUNNING=1
+
+case $target in
+--refresh)
+    id=$(current)
+    [ "$id" = none ] || apply_theme "$id" ;;
+none|--none) apply_none ;;
+*) apply_theme "$target" ;;
+esac

@@ -1,0 +1,7 @@
+Color themes and theme templates adapted from Omarchy (https://github.com/omacom/omarchy,
+commit 821ae589059ffdadc970315f866c94b55d268af7), Copyright (c) David Heinemeier Hansson,
+MIT License (LICENSE.omarchy). Palettes originate from Tokyo Night (enkia), Catppuccin,
+Gruvbox Material (sainnhe), Nord (Arctic Ice Studio), Everforest (sainnhe), Kanagawa
+(rebelot), Rosé Pine, Flexoki (Steph Ango) and the Omarchy community; each under its own
+MIT licence. Ristretto and Lumon are not included. gtk3.css.tpl and gtk4-colors.css.tpl
+are LinPad's own; foot.ini.tpl, btop.theme.tpl and vscode-theme.json.tpl are Omarchy's.

@@ -119,6 +119,10 @@ link_libadwaita() {
             case $(readlink "$dir/$f") in /usr/share/themes/*) rm -f "$dir/$f";; esac
         fi
     done
+    # A colour theme's file (ish-apply-colors) imports the old style; --refresh rewrites it.
+    if [ -f "$dir/gtk.css" ] && head -n2 "$dir/gtk.css" | grep -q linpad-colors; then
+        rm -f "$dir/gtk.css"
+    fi
     src=/usr/share/themes/$GTK_THEME/gtk-4.0
     [ "$GTK_THEME" != Adwaita ] && [ -f "$src/gtk.css" ] || return 0
     for f in gtk.css gtk-dark.css assets; do
@@ -371,6 +375,15 @@ EOF
     echo "icon cache: $out ($resolved icons${missing:+, missing:$missing})"
 }
 
+# A colour theme (ish-apply-colors) recolours on top of the settings written here, so it
+# is re-applied after they change; not when ish-apply-colors itself called us.
+refresh_colors() {
+    [ -z "${ISH_APPLY_COLORS_RUNNING:-}" ] || return 0
+    command -v ish-apply-colors >/dev/null 2>&1 || return 0
+    c=$(cat "$SHARE/current-colors" 2>/dev/null || echo none)
+    [ "$c" = none ] || ish-apply-colors --refresh >/dev/null || true
+}
+
 # --- main -----------------------------------------------------------------------------
 
 case ${1:-} in
@@ -402,6 +415,7 @@ case ${1:-} in
     # Rewritten last, as on a style switch, so watchers reload the finished cache.
     printf '%s\n' "$STYLE" > "$CURRENT.tmp"
     mv "$CURRENT.tmp" "$CURRENT"
+    refresh_colors
     echo "icons: $ICON_THEME (style $STYLE uses $STYLE_ICON_THEME)"
     exit 0 ;;
 -h|--help|"") usage; [ -n "${1:-}" ]; exit $? ;;
@@ -412,4 +426,5 @@ apply_settings
 build_icon_cache
 printf '%s\n' "$STYLE" > "$CURRENT.tmp"
 mv "$CURRENT.tmp" "$CURRENT"
+refresh_colors
 echo "style: $STYLE_NAME ($VARIANT) gtk=$GTK_THEME icons=$ICON_THEME cursor=$CURSOR_THEME font=$FONT"

@@ -14,6 +14,9 @@ ISH=${ISH:-$HERE/../build-arm64-release/ish}
 echo "copying themes/guest into the guest"
 tar -C "$HERE/guest" -cf - . | "$ISH" -f "$FS" /bin/sh -c \
     'rm -rf /tmp/ish-themes-src && mkdir -p /tmp/ish-themes-src && tar -C /tmp/ish-themes-src -xf -'
+# Colour themes (Omarchy port) go to /tmp/ish-themes-src/omarchy; install.sh installs them.
+tar -C "$HERE/omarchy/guest" -cf - . | "$ISH" -f "$FS" /bin/sh -c \
+    'mkdir -p /tmp/ish-themes-src/omarchy && tar -C /tmp/ish-themes-src/omarchy -xf -'
 
 echo "installing (this takes several minutes under emulation)"
 "$ISH" -f "$FS" /bin/sh -c "sh /tmp/ish-themes-src/install.sh '$STYLE' && rm -rf /tmp/ish-themes-src" </dev/null

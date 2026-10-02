@@ -288,6 +288,29 @@ if apk info -e thunar >/dev/null 2>&1 && [ ! -x /usr/bin/thunar ]; then
     apk fix -q thunar
 fi
 
+# Colour themes (Omarchy colors.toml, themes/omarchy): palettes, templates, commands.
+if [ -d "$SRC/omarchy/colors" ]; then
+    log "colour themes"
+    apk add -q jq
+    LINPAD=/usr/share/linpad/colors
+    rm -rf "$LINPAD.tmp"
+    mkdir -p "$LINPAD.tmp"
+    cp -R "$SRC/omarchy/colors/." "$LINPAD.tmp/"
+    cp -R "$SRC/omarchy/templates" "$LINPAD.tmp/templates"
+    cp "$SRC/omarchy/LICENSE.omarchy" "$SRC/omarchy/ATTRIBUTION" "$LINPAD.tmp/"
+    rm -rf "$LINPAD"
+    mv "$LINPAD.tmp" "$LINPAD"
+    put 755 "$SRC/omarchy/ish-colors" /usr/local/bin/ish-colors
+    put 755 "$SRC/omarchy/ish-apply-colors" /usr/local/bin/ish-apply-colors
+    [ -s /usr/share/ish/current-colors ] || echo none > /usr/share/ish/current-colors
+    # ish-terminal (wl-bridge/guest) gained the hook that points foot at the colour
+    # theme; images built before that get it here.
+    if [ -f /usr/local/bin/ish-terminal ] && ! grep -q linpad.ini /usr/local/bin/ish-terminal; then
+        sed -i 's|^exec foot |[ -r "${HOME:-/root}/.config/foot/linpad.ini" ] \&\& config=${HOME:-/root}/.config/foot/linpad.ini\nexec foot |' \
+            /usr/local/bin/ish-terminal
+    fi
+fi
+
 # Icon packs for Settings › Icons. The rest of the catalogue (ish-icon-packs list) is
 # installed on demand by the picker's "Get More Icon Packs…".
 log "icon packs: $BASE_ICON_PACKS"

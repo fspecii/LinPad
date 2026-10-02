@@ -1,0 +1,297 @@
+#!/bin/sh
+# Colour themes (Omarchy colors.toml schema) for the native picker and the guest.
+#   ish-colors list [--json]              built-in and user themes
+#   ish-colors show <id> [--json]         one theme, every resolved key
+#   ish-colors resolve <colors.toml>      key<TAB>value, Omarchy's fallback rules
+#   ish-colors render <colors.toml> <template> [mode-file-dir]   template -> stdout
+#   ish-colors install <git-url>          copy colors.toml (+ icons.theme, images) of a theme repo
+#   ish-colors remove <id>                remove a user theme
+# Built-in themes: /usr/share/linpad/colors/<id>/ (colors.toml, theme.conf).
+# User themes:     ~/.config/linpad/colors/<id>/ (colors.toml, optional theme.conf, icons.theme,
+#                  backgrounds/). A user theme with the id of a built-in one wins.
+# Contract: themes/omarchy/CONTRACT-COLORS.md. Templates and palettes are adapted from Omarchy
+# (MIT, /usr/share/linpad/colors/LICENSE.omarchy).
+set -eu
+
+BUILTIN=/usr/share/linpad/colors
+USER_DIR=${HOME:-/root}/.config/linpad/colors
+
+die() { echo "ish-colors: $*" >&2; exit 1; }
+
+# Port of omarchy-theme-color --all: every key the templates may use, resolved.
+resolve() { # colors.toml [dir holding light.mode]
+    [ -f "$1" ] || die "no such file: $1"
+    light=0
+    [ -f "${2:-$(dirname "$1")}/light.mode" ] && light=1
+    awk -v light_mode="$light" '
+    function hexv(c) { return index("0123456789abcdef", tolower(c)) - 1 }
+    function byte(h, i) { return hexv(substr(h, i, 1)) * 16 + hexv(substr(h, i + 1, 1)) }
+    function ishex(v) { return v ~ /^#[0-9A-Fa-f]{6}$/ }
+    function mix(a, b, amt,    r, g, bl) {
+        if (!ishex(a) || !ishex(b)) return a
+        a = substr(a, 2); b = substr(b, 2)
+        r = int(byte(a, 1) * (1 - amt) + byte(b, 1) * amt + 0.5)
+        g = int(byte(a, 3) * (1 - amt) + byte(b, 3) * amt + 0.5)
+        bl = int(byte(a, 5) * (1 - amt) + byte(b, 5) * amt + 0.5)
+        return sprintf("#%02x%02x%02x", r, g, bl)
+    }
+    function has(k) { return (k in C) && C[k] != "" }
+    function alias(k, f) { if (!has(k) && has(f)) C[k] = C[f] }
+    function dflt(k, v) { if (!has(k)) C[k] = v }
+    /^[ \t]*(#|\[|$)/ { next }
+    {
+        line = $0
+        eq = index(line, "="); if (!eq) next
+        key = substr(line, 1, eq - 1); val = substr(line, eq + 1)
+        gsub(/[ \t"\047]/, "", key)
+        if (val ~ /["\047]/) { sub(/^[^"\047]*["\047]/, "", val); sub(/["\047].*$/, "", val) }
+        else { sub(/^[ \t]+/, "", val); sub(/[ \t]+(#.*)?$/, "", val) }
+        # Values end up in config files and escape sequences: same charset as Omarchy.
+        if (key !~ /^[A-Za-z0-9_-]+$/ || val !~ /^[A-Za-z0-9#(),._+\/% -]*$/) next
+        C[key] = val
+    }
+    END {
+        split("background:bg dark_background:dark_bg darker_background:darker_bg lighter_background:lighter_bg foreground:fg dark_foreground:dark_fg light_foreground:light_fg bright_foreground:bright_fg", L, " ")
+        for (i in L) { split(L[i], p, ":"); alias(p[1], p[2]) }
+        alias("background", "color0"); alias("foreground", "color7")
+        if (has("background")) C["color0"] = C["background"]
+        if (has("foreground")) C["color7"] = C["foreground"]
+        split("red:color1 green:color2 yellow:color3 blue:color4 magenta:color5 cyan:color6 bright_red:color9 bright_green:color10 bright_yellow:color11 bright_blue:color12 bright_magenta:color13 bright_cyan:color14", A, " ")
+        for (i in A) { split(A[i], p, ":"); alias(p[1], p[2]) }
+        alias("magenta", "purple"); alias("bright_magenta", "bright_purple")
+        dflt("light_foreground", has("color7") ? C["color7"] : C["foreground"])
+        dflt("bright_foreground", has("color15") ? C["color15"] : C["foreground"])
+        C["cursor"] = C["bright_foreground"]
+        dflt("lighter_background", has("color0") ? C["color0"] : C["background"])
+        dflt("dark_foreground", has("color8") ? C["color8"] : C["foreground"])
+        dflt("muted", has("color8") ? C["color8"] : C["dark_foreground"])
+        dflt("selection", has("selection_background") ? C["selection_background"] : (has("color8") ? C["color8"] : C["background"]))
+        dflt("selection_background", C["selection"])
+        dflt("selection_foreground", C["bright_foreground"])
+        dflt("orange", C["yellow"])
+        dflt("brown", mix(C["orange"], "#000000", 0.5))
+        dflt("dark_background", mix(C["background"], "#000000", 0.25))
+        dflt("darker_background", mix(C["background"], "#000000", 0.5))
+        split("red yellow green cyan blue magenta", B, " ")
+        for (i in B) dflt("bright_" B[i], mix(C[B[i]], "#ffffff", 0.2))
+        alias("purple", "magenta"); alias("bright_purple", "bright_magenta")
+        split("background red green yellow blue magenta cyan foreground muted bright_red bright_green bright_yellow bright_blue bright_magenta bright_cyan bright_foreground", N, " ")
+        for (i = 1; i <= 16; i++) dflt("color" (i - 1), C[N[i]])
+        for (i in L) { split(L[i], p, ":"); if (has(p[1])) C[p[2]] = C[p[1]] }
+        alias("mode", "theme_type")
+        if (!has("mode")) {
+            if (light_mode) C["mode"] = "light"
+            else if (ishex(C["background"])) {
+                h = substr(C["background"], 2)
+                C["mode"] = (byte(h, 1) + byte(h, 3) + byte(h, 5) > 382) ? "light" : "dark"
+            } else C["mode"] = "dark"
+        }
+        C["theme_type"] = C["mode"]
+        for (k in C) printf "%s\t%s\n", k, C[k]
+    }' "$1" | LC_ALL=C sort
+}
+
+# Omarchy template syntax: {{ key }}, {{ key_strip }}, {{ key_rgb }},
+# {{ mix[_strip|_rgb] a b N% }}. Unknown keys are left as they are.
+render() { # colors.toml template [light.mode dir]
+    resolve "$1" "${3:-}" | awk -F'\t' -v tpl="$2" '
+    function hexv(c) { return index("0123456789abcdef", tolower(c)) - 1 }
+    function byte(h, i) { return hexv(substr(h, i, 1)) * 16 + hexv(substr(h, i + 1, 1)) }
+    function ishex(v) { return v ~ /^#[0-9A-Fa-f]{6}$/ }
+    function rgb(v, h) { h = substr(v, 2); return byte(h, 1) "," byte(h, 3) "," byte(h, 5) }
+    function mix(a, b, amt,    r, g, bl) {
+        a = substr(a, 2); b = substr(b, 2)
+        r = int(byte(a, 1) * (1 - amt) + byte(b, 1) * amt + 0.5)
+        g = int(byte(a, 3) * (1 - amt) + byte(b, 3) * amt + 0.5)
+        bl = int(byte(a, 5) * (1 - amt) + byte(b, 5) * amt + 0.5)
+        return sprintf("#%02x%02x%02x", r, g, bl)
+    }
+    function value(tok,    n, w, fn, base, v, amt) {
+        n = split(tok, w, /[ \t]+/)
+        if (w[1] ~ /^mix(_strip|_rgb)?$/ && n == 4) {
+            if (!ishex(C[w[2]]) || !ishex(C[w[3]])) return ""
+            amt = w[4]; sub(/%$/, "", amt); amt += 0; if (amt > 1) amt /= 100
+            v = mix(C[w[2]], C[w[3]], amt)
+            fn = w[1]
+        } else if (n == 1) {
+            base = w[1]; fn = ""
+            if (base ~ /_strip$/ && !(base in C)) { fn = "strip"; sub(/_strip$/, "", base) }
+            else if (base ~ /_rgb$/ && !(base in C)) { fn = "rgb"; sub(/_rgb$/, "", base) }
+            if (!(base in C)) return ""
+            v = C[base]
+        } else return ""
+        if (fn ~ /strip$/) return ishex(v) ? substr(v, 2) : v
+        if (fn ~ /rgb$/) return ishex(v) ? rgb(v) : v
+        return v
+    }
+    { C[$1] = $2 }
+    END {
+        while ((getline line < tpl) > 0) {
+            out = ""
+            while (match(line, /\{\{[^}]*\}\}/)) {
+                tok = substr(line, RSTART + 2, RLENGTH - 4)
+                gsub(/^[ \t]+|[ \t]+$/, "", tok)
+                v = value(tok)
+                out = out substr(line, 1, RSTART - 1) (v != "" ? v : substr(line, RSTART, RLENGTH))
+                line = substr(line, RSTART + RLENGTH)
+            }
+            print out line
+        }
+    }'
+}
+
+theme_dir() { # id -> dir (user first)
+    case $1 in */*|.*|"") return 1 ;; esac
+    for d in "$USER_DIR/$1" "$BUILTIN/$1"; do
+        [ -f "$d/colors.toml" ] && { echo "$d"; return 0; }
+    done
+    return 1
+}
+
+conf() { # dir key
+    [ -f "$1/theme.conf" ] && sed -n "s/^$2=//p" "$1/theme.conf" | head -n1
+}
+
+json_str() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
+
+# Nearest Wallhaven search colours to the theme's background and accent.
+wallhaven_colors() { # bg accent
+    awk -v bg="$1" -v ac="$2" '
+    function hexv(c) { return index("0123456789abcdef", tolower(c)) - 1 }
+    function byte(h, i) { return hexv(substr(h, i, 1)) * 16 + hexv(substr(h, i + 1, 1)) }
+    function nearest(c,    i, best, bd, d, h) {
+        c = substr(c, 2); bd = -1
+        for (i = 1; i <= n; i++) {
+            h = P[i]
+            d = (byte(c,1)-byte(h,1))^2 + (byte(c,3)-byte(h,3))^2 + (byte(c,5)-byte(h,5))^2
+            if (bd < 0 || d < bd) { bd = d; best = h }
+        }
+        return best
+    }
+    BEGIN {
+        n = split("660000 990000 cc0000 cc3333 ea4c88 993399 663399 333399 0066cc 0099cc 66cccc 77cc33 669900 336600 666600 999900 cccc33 ffff00 ffcc33 ff9900 ff6600 cc6633 996633 663300 000000 999999 cccccc ffffff 424153", P, " ")
+        a = nearest(bg); b = nearest(ac)
+        printf "\"%s\"", a; if (b != a) printf ", \"%s\"", b
+    }'
+}
+
+theme_json() { # id dir
+    id=$1 dir=$2
+    tmp=$(resolve "$dir/colors.toml")
+    get() { printf '%s\n' "$tmp" | awk -F'\t' -v k="$1" '$1 == k { print $2; exit }'; }
+    name=$(conf "$dir" name); [ -n "$name" ] || name=$id
+    icons=$(conf "$dir" icons)
+    [ -z "$icons" ] && [ -f "$dir/icons.theme" ] && icons=$(head -n1 "$dir/icons.theme" | tr -cd 'A-Za-z0-9._+-')
+    vsn=$(conf "$dir" vscode_name); [ -n "$vsn" ] || vsn=generated
+    vse=$(conf "$dir" vscode_extension)
+    q=$(conf "$dir" wallhaven_q)
+    case $dir in "$USER_DIR"/*) src=user ;; *) src=builtin ;; esac
+    palette=
+    for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+        palette="${palette:+$palette, }\"$(get "color$i")\""
+    done
+    bg=$(get background) ac=$(get accent)
+    printf '{"id": %s, "name": %s, "source": "%s", "appearance": "%s", ' "$(json_str "$id")" "$(json_str "$name")" "$src" "$(get mode)"
+    printf '"accent": "%s", "background": "%s", "foreground": "%s", "selection": "%s", ' "$ac" "$bg" "$(get foreground)" "$(get selection)"
+    printf '"selectionForeground": "%s", "cursor": "%s", "muted": "%s", ' "$(get selection_foreground)" "$(get cursor)" "$(get muted)"
+    printf '"darkBackground": "%s", "darkerBackground": "%s", "lighterBackground": "%s", ' "$(get dark_background)" "$(get darker_background)" "$(get lighter_background)"
+    printf '"brightForeground": "%s", "red": "%s", ' "$(get bright_foreground)" "$(get red)"
+    printf '"ansi": [%s], ' "$palette"
+    printf '"iconTheme": %s, "vscode": {"name": %s, "extension": %s}, ' "$(json_str "$icons")" "$(json_str "$vsn")" "$(json_str "$vse")"
+    printf '"wallhaven": {"q": %s, "colors": [%s], "categories": "100", "purity": "100", "sorting": "toplist"}}' \
+        "$(json_str "$q")" "$(wallhaven_colors "$bg" "$ac")"
+}
+
+list_ids() {
+    for d in "$USER_DIR"/* "$BUILTIN"/*; do
+        [ -f "$d/colors.toml" ] && echo "${d##*/}"
+    done | awk '!seen[$0]++' | sort
+}
+
+list() { # [--json]
+    if [ "${1:-}" = --json ]; then
+        printf '['
+        sep=
+        for id in $(list_ids); do
+            printf '%s\n  ' "$sep"
+            theme_json "$id" "$(theme_dir "$id")"
+            sep=,
+        done
+        printf '\n]\n'
+    else
+        for id in $(list_ids); do
+            d=$(theme_dir "$id")
+            printf '%s\t%s\t%s\n' "$id" "$(conf "$d" name || true)" "$(resolve "$d/colors.toml" | awk -F'\t' '$1 == "mode" { print $2 }')"
+        done
+    fi
+}
+
+# Only data is kept from a theme repository (PORT-SPEC.md 1.6 / P17): colors.toml (or a
+# legacy alacritty.toml converted to it), icons.theme, light.mode and image files.
+# Symlinks, scripts, *.lua, terminal and editor configs are never copied.
+install_git() { # url
+    url=$1
+    case $url in
+    -*|*::*|ext:*|fd:*) die "refusing URL: $url" ;;
+    https://*|git@*:*) ;;
+    *) die "only https:// or git@host:path URLs are accepted" ;;
+    esac
+    name=${url%/}; name=${name##*/}; name=${name##*:}; name=${name%.git}
+    name=${name#omarchy-}; name=${name%-theme}
+    name=$(printf '%s' "$name" | tr 'A-Z' 'a-z')
+    printf '%s' "$name" | LC_ALL=C grep -qE '^[a-z0-9_][a-z0-9._+-]*$' || die "bad theme name: $name"
+    command -v git >/dev/null 2>&1 || die "git is not installed (apk add git)"
+    tmp=${TMPDIR:-/tmp}/ish-colors-$$
+    rm -rf "$tmp"
+    trap 'rm -rf "$tmp"' EXIT
+    GIT_TERMINAL_PROMPT=0 git clone -q --depth 1 -- "$url" "$tmp" || die "git clone failed"
+    stage=$tmp.stage
+    mkdir -p "$stage/backgrounds"
+    trap 'rm -rf "$tmp" "$stage"' EXIT
+    if [ -f "$tmp/colors.toml" ] && [ ! -L "$tmp/colors.toml" ]; then
+        cp "$tmp/colors.toml" "$stage/colors.toml"
+    else
+        die "no colors.toml in $url (legacy alacritty-only themes are not supported)"
+    fi
+    for f in icons.theme light.mode; do
+        if [ -f "$tmp/$f" ] && [ ! -L "$tmp/$f" ]; then
+            head -c 256 "$tmp/$f" | tr -cd 'A-Za-z0-9._+\n-' > "$stage/$f"
+        fi
+    done
+    if [ -d "$tmp/backgrounds" ] && [ ! -L "$tmp/backgrounds" ]; then
+        for img in "$tmp"/backgrounds/*; do
+            [ -f "$img" ] && [ ! -L "$img" ] || continue
+            case $(printf '%s' "${img##*/}" | tr 'A-Z' 'a-z') in
+            *.jpg|*.jpeg|*.png|*.webp) ;;
+            *) continue ;;
+            esac
+            # Images only, 20 MB each at most, never executable.
+            [ "$(wc -c < "$img")" -le 20971520 ] || continue
+            cp "$img" "$stage/backgrounds/"
+            chmod 644 "$stage/backgrounds/${img##*/}"
+        done
+    fi
+    resolve "$stage/colors.toml" | grep -q '^background	#' || die "colors.toml has no usable background colour"
+    printf 'name=%s\nsource_url=%s\n' "$name" "$(printf '%s' "$url" | tr -cd 'A-Za-z0-9:/._@+~-')" > "$stage/theme.conf"
+    mkdir -p "$USER_DIR"
+    rm -rf "${USER_DIR:?}/$name"
+    mv "$stage" "$USER_DIR/$name"
+    echo "installed: $name"
+}
+
+cmd=${1:-}
+[ $# -gt 0 ] && shift
+case $cmd in
+list) list "${1:-}" ;;
+show)
+    d=$(theme_dir "${1:-}") || die "unknown theme '${1:-}'"
+    if [ "${2:-}" = --json ]; then theme_json "$1" "$d"; echo; else resolve "$d/colors.toml"; fi ;;
+resolve) resolve "$@" ;;
+render) [ $# -ge 2 ] || die "render needs a colors.toml and a template"; render "$@" ;;
+install) [ $# -eq 1 ] || die "install needs one git URL"; install_git "$1" ;;
+remove)
+    [ -n "${1:-}" ] && [ -d "$USER_DIR/$1" ] || die "no user theme '${1:-}'"
+    case $1 in */*|.*) die "bad id" ;; esac
+    rm -rf "${USER_DIR:?}/$1"; echo "removed: $1" ;;
+*) echo "usage: ish-colors list [--json] | show <id> [--json] | resolve <colors.toml> | render <colors.toml> <tpl> | install <git-url> | remove <id>" >&2; exit 2 ;;
+esac

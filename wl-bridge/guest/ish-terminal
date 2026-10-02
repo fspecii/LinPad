@@ -4,4 +4,6 @@
 style=$(cat /usr/share/ish/current-style 2>/dev/null)
 config=/etc/ish/foot/${style:-ish}.ini
 [ -r "$config" ] || config=/etc/ish/foot/ish.ini
+# A colour theme (ish-apply-colors, themes/omarchy) replaces the style's colours.
+[ -r "${HOME:-/root}/.config/foot/linpad.ini" ] && config=${HOME:-/root}/.config/foot/linpad.ini
 exec foot --config="$config" "$@"
