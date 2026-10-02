@@ -126,9 +126,16 @@ final class WindowManager {
     private(set) var tiling = Array(repeating: TilingState(), count: WindowManager.defaultWorkspaceCount)
     /// Where each tiled window sits; windows absent here float.
     private(set) var tileFrames: [UUID: CGRect] = [:]
-    var tilingGap: CGFloat = 8 {
+    /// Space between tiles; the screen edge gets twice as much (Omarchy's 5 / 10).
+    var tilingGap: CGFloat = 5 {
         didSet { if tilingGap != oldValue { retileAll() } }
     }
+    /// "Zen": no gaps, borders or rounding (⌃⌥⇧⌫).
+    var isZen = false {
+        didSet { if isZen != oldValue { retileAll() } }
+    }
+    var innerGap: CGFloat { isZen ? 0 : tilingGap }
+    var outerGap: CGFloat { isZen ? 0 : tilingGap * 2 }
     /// Taskbar buttons in global coordinates, where minimized windows shrink to.
     var taskbarTargets: [UUID: CGRect] = [:]
     /// The desktop area's origin in global coordinates.
@@ -735,8 +742,9 @@ final class WindowManager {
               let position = members.firstIndex(where: { $0.id == window.id }) else { return }
         let isMaster = position == 0
         guard (isMaster && edge.movesMaxX) || (!isMaster && edge.movesMinX) else { return }
-        let split = isMaster ? origin.maxX + translation.width : origin.minX + translation.width - tilingGap
-        tiling[index].masterRatio = WindowGeometry.masterRatio(forSplitAt: split, in: desktopSize, gap: tilingGap)
+        let split = isMaster ? origin.maxX + translation.width : origin.minX + translation.width - innerGap
+        tiling[index].masterRatio = WindowGeometry.masterRatio(forSplitAt: split, in: desktopSize, gap: innerGap,
+                                                               outerGap: outerGap)
         retile(index)
     }
 
@@ -753,7 +761,7 @@ final class WindowManager {
         guard state.isEnabled, desktopSize.width > 0 else { return }
         let members = tiledMembers(of: workspace)
         let frames = WindowGeometry.tileFrames(count: members.count, layout: state.layout, in: desktopSize,
-                                               gap: tilingGap, masterRatio: state.masterRatio)
+                                               gap: innerGap, outerGap: outerGap, masterRatio: state.masterRatio)
         for (window, frame) in zip(members, frames) {
             tileFrames[window.id] = frame
         }

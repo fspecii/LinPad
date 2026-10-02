@@ -92,15 +92,15 @@ final class TilingManagerTests: XCTestCase {
     func testOpeningClosingAndMinimizingRetiles() {
         manager.setTiling(true)
         let a = open("a")
-        XCTAssertEqual(manager.displayFrame(for: a).width, 1164)
+        XCTAssertEqual(manager.displayFrame(for: a).width, 1160, "10 pt from each screen edge")
         let b = open("b")
         XCTAssertEqual(manager.displayFrame(for: a).width, manager.displayFrame(for: b).width, accuracy: 1)
         let c = open("c")
         XCTAssertEqual(manager.displayFrame(for: b).minX, manager.displayFrame(for: c).minX)
         manager.minimize(b.id)
-        XCTAssertEqual(manager.displayFrame(for: c).height, 770, "c takes the whole stack")
+        XCTAssertEqual(manager.displayFrame(for: c).height, 766, "c takes the whole stack")
         manager.close(c.id)
-        XCTAssertEqual(manager.displayFrame(for: a).width, 1164)
+        XCTAssertEqual(manager.displayFrame(for: a).width, 1160, "10 pt from each screen edge")
     }
 
     func testTurningTilingOffRestoresFloatingFrames() {
@@ -118,7 +118,7 @@ final class TilingManagerTests: XCTestCase {
         let b = open("b")
         manager.toggleFloating(b.id)
         XCTAssertFalse(manager.isTiledByLayout(b))
-        XCTAssertEqual(manager.displayFrame(for: a).width, 1164)
+        XCTAssertEqual(manager.displayFrame(for: a).width, 1160, "10 pt from each screen edge")
         manager.focus(a.id)
         XCTAssertEqual(manager.visibleStack().first?.id, b.id, "floats stay above tiles")
     }

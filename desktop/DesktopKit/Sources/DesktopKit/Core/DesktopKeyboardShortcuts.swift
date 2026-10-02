@@ -107,6 +107,12 @@ struct DesktopCommand: Identifiable {
                            modifiers: onCommand ? .command : windowKeys, keyLabel: onCommand ? "↩" : "T") {
                 $0.open(appID: AppID.terminal, arguments: [:])
             },
+            DesktopCommand(id: "theme.picker", title: "Color Themes", group: .general, key: .space,
+                           modifiers: [.control, .option, .shift], keyLabel: "Space") { $0.presentThemePicker() },
+            DesktopCommand(id: "theme.next", title: "Next Color Theme", group: .general, key: "c",
+                           modifiers: [.control, .option, .shift], keyLabel: "C") { $0.cycleColorTheme() },
+            DesktopCommand(id: "background.next", title: "Next Wallpaper", group: .general, key: "b",
+                           modifiers: [.control, .option, .shift], keyLabel: "B") { $0.cycleWallpaper() },
             DesktopCommand(id: "overview", title: "Overview", group: .general, key: "o",
                            modifiers: windowKeys, keyLabel: "O") { $0.toggleOverview() },
 
@@ -131,6 +137,10 @@ struct DesktopCommand: Identifiable {
                            modifiers: [.control, .option, .shift], keyLabel: "T") { controller in
                 let manager = controller.windowManager
                 manager.setTiling(!manager.isTiling(workspace: manager.currentWorkspace))
+            },
+            DesktopCommand(id: "tiling.zen", title: "Gaps, Borders and Rounding Off", group: .tiling, key: .delete,
+                           modifiers: [.control, .option, .shift], keyLabel: "⌫") { controller in
+                withAnimation(DesktopMotion.tile) { controller.windowManager.isZen.toggle() }
             },
             DesktopCommand(id: "tiling.layout", title: "Next Tiling Layout", group: .tiling, key: "\\",
                            modifiers: windowKeys, keyLabel: "\\") { $0.windowManager.cycleTilingLayout() },
@@ -267,6 +277,15 @@ final class DesktopKeyCommands {
         if controller.isOverlayPresented {
             overlayCommands.append(Self.keyCommand(title: "Close", key: .escape, modifiers: [], id: "overlay.close"))
         }
+        if controller.themePicker != nil {
+            overlayCommands += [
+                Self.keyCommand(title: "Previous Theme", key: .leftArrow, modifiers: [], id: "picker.previous"),
+                Self.keyCommand(title: "Next Theme", key: .rightArrow, modifiers: [], id: "picker.next"),
+                Self.keyCommand(title: "Previous Theme", key: .upArrow, modifiers: [], id: "picker.previous"),
+                Self.keyCommand(title: "Next Theme", key: .downArrow, modifiers: [], id: "picker.next"),
+                Self.keyCommand(title: "Apply Theme", key: .return, modifiers: [], id: "picker.commit"),
+            ]
+        }
         if controller.switcher.isPresented {
             overlayCommands += [
                 Self.keyCommand(title: "Previous Window", key: .leftArrow, modifiers: [], id: "switcher.previous"),
@@ -304,6 +323,9 @@ final class DesktopKeyCommands {
         case "switcher.previous": controller.switcher.move(by: -1)
         case "switcher.next": controller.switcher.move(by: 1)
         case "switcher.commit": controller.commitSwitcher()
+        case "picker.previous": controller.moveThemePicker(by: -1)
+        case "picker.next": controller.moveThemePicker(by: 1)
+        case "picker.commit": controller.commitThemePicker()
         case "desktop.left": _ = controller.desktopKeyHandler?(.move(dx: -1, dy: 0))
         case "desktop.right": _ = controller.desktopKeyHandler?(.move(dx: 1, dy: 0))
         case "desktop.up": _ = controller.desktopKeyHandler?(.move(dx: 0, dy: -1))

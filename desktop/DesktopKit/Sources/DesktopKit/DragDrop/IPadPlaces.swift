@@ -90,10 +90,14 @@ final class IPadPlaceStore {
 
     /// Shows the folder picker, mounts the choice into the guest and returns its mount point.
     func addFolder(host: any LinuxHost) async throws -> String? {
-        guard let mounter = host as? any HostDirectoryMounting else {
-            throw HostMountError(code: -19)
-        }
+        guard host is any HostDirectoryMounting else { throw HostMountError(code: -19) }
         guard let url = await FolderPicker.pick() else { return nil }
+        return try await addFolder(url, host: host)
+    }
+
+    /// Mounts a folder URL (from the picker, or a test) and remembers it.
+    func addFolder(_ url: URL, host: any LinuxHost) async throws -> String {
+        guard let mounter = host as? any HostDirectoryMounting else { throw HostMountError(code: -19) }
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
         let bookmark = (try? url.bookmarkData()) ?? Data()

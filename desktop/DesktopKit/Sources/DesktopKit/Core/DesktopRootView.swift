@@ -135,14 +135,18 @@ public struct DesktopRootView: View {
             withAnimation(DesktopMotion.standard) { controller.windowManager.setMetrics(value) }
         }
         .environment(\.desktopTheme, theme)
+        .environment(\.desktopStyleTheme, styleTheme)
+        .environment(\.desktopColorThemes, controller.colorThemes)
         .environment(\.desktopStyle, style)
         .environment(\.desktopIcons, controller.icons)
         .environment(\.desktopWallpapers, controller.wallpapers)
         .environment(\.colorScheme, isDark ? .dark : .light)
     }
 
+    /// A colour theme brings its own mode; otherwise Settings > Appearance decides.
     private var isDark: Bool {
-        (DesktopAppearance(rawValue: appearanceID) ?? .styleDefault).isDark(style: style, system: systemColorScheme)
+        if let colors = controller.colorThemes.active { return colors.isDark }
+        return (DesktopAppearance(rawValue: appearanceID) ?? .styleDefault).isDark(style: style, system: systemColorScheme)
     }
 
     /// Touch metrics unless a hardware keyboard or pointer is attached, or the user chose.
@@ -252,11 +256,25 @@ public struct DesktopRootView: View {
         }
     }
 
-    private var theme: DesktopTheme {
+    /// The style's own colours.
+    private var styleTheme: DesktopTheme {
         var theme = DesktopTheme.dark
         theme.accent = DesktopSettings.accentColor(for: accentID)
         theme.monospacedFontSize = CGFloat(monospacedFontSize)
         return style.spec.theme(base: theme, isDark: isDark)
+    }
+
+    /// Style shapes and translucency, recoloured by the colour theme when one is active.
+    private var theme: DesktopTheme {
+        var theme = styleTheme
+        if let colors = controller.colorThemes.active {
+            theme = colors.applied(to: theme, panelOpacity: theme.panelBackground.opacityComponent)
+        }
+        if controller.windowManager.isZen {
+            theme.cornerRadius = 0
+            theme.borderWidth = 0
+        }
+        return theme
     }
 
     private var desktopArea: some View {
@@ -336,8 +354,15 @@ public struct DesktopRootView: View {
                     .transition(.scale(scale: 0.95).combined(with: .opacity))
             }
         }
+        .overlay {
+            if controller.themePicker != nil {
+                ColorThemePickerView(controller: controller)
+                    .transition(.opacity)
+            }
+        }
         .animation(.snappy(duration: 0.2), value: controller.isLauncherPresented)
         .animation(.snappy(duration: 0.2), value: controller.isRunDialogPresented)
+        .animation(.snappy(duration: 0.2), value: controller.themePicker != nil)
         .ignoresSafeArea(edges: style.spec.shell == .taskbar || style.spec.shell == .kylinPanel
                          || style.spec.dockEdge == .bottom
                          ? [.horizontal] : [.bottom, .horizontal])

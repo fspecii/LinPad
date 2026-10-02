@@ -16,6 +16,7 @@ import UIKit
 ///   click|WINDOW|X|Y[|right]         click in a Linux window (content coordinates)
 ///   dblclick|WINDOW|X|Y
 ///   frame|WINDOW|X|Y|W|H / minimize|WINDOW / focus|WINDOW   arrange windows
+///   mount|HOST-FOLDER                 add an iPad place without the picker
 ///   key|WINDOW|EVDEV[,EVDEV…]           press the keys in order, release in reverse
 ///   drag|WINDOW|X|Y|TARGET|X|Y       drag from a Linux window to TARGET: another window
 ///                                    (content coordinates) or "desktop" (desktop coordinates)
@@ -123,6 +124,13 @@ final class DebugAutomation {
                 window.frame = CGRect(x: x, y: y, width: w, height: h)
             }
             log("ok")
+        case "mount" where fields.count > 1:
+            do {
+                let point = try await IPadPlaceStore.shared.addFolder(URL(fileURLWithPath: fields[1]), host: controller.host)
+                log("mounted \(point)")
+            } catch {
+                log("mount failed: \(error.localizedDescription)")
+            }
         case "key":
             guard fields.count >= 3, let view = linuxView(fields[1]) else { return log("bad key") }
             let codes = fields[2].split(separator: ",").compactMap { UInt32($0) }

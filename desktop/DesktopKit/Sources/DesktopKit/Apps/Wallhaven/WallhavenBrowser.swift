@@ -236,6 +236,12 @@ struct WallpapersAppView: View {
 
     private static let cellWidth: CGFloat = 230
 
+    private func search(_ text: String, color: String?) {
+        model.query.text = text
+        model.query.color = color.flatMap { Wallhaven.colors.contains($0) ? $0 : nil }
+        if model.mode == .search { model.reload() } else { model.mode = .search }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             toolbar
@@ -252,7 +258,15 @@ struct WallpapersAppView: View {
         .foregroundStyle(theme.primaryText)
         .onAppear {
             context.window.setTitle("Wallpapers")
-            if model.items.isEmpty { model.reload() }
+            if let query = context.arguments[WallpapersApp.queryArgument] {
+                search(query, color: context.arguments[WallpapersApp.colorArgument])
+            } else if model.items.isEmpty {
+                model.reload()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WallpapersApp.searchRequested)) { note in
+            guard let query = note.userInfo?[WallpapersApp.queryArgument] as? String else { return }
+            search(query, color: note.userInfo?[WallpapersApp.colorArgument] as? String)
         }
         .sheet(item: $model.detail) { wallpaper in
             WallhavenDetailView(wallpaper: wallpaper, model: model, host: context.host)

@@ -14,7 +14,8 @@ struct DesktopNotice: Identifiable, Equatable {
 @Observable @MainActor
 final class NotificationCenterModel {
     static let doNotDisturbKey = "desktop.doNotDisturb"
-    private static let historyLimit = 100
+    /// Omarchy keeps the last 10.
+    static let historyLimit = 10
 
     private(set) var notices: [DesktopNotice] = []
     private(set) var unreadCount = 0

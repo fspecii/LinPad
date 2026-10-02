@@ -251,10 +251,12 @@ extension WindowGeometry {
 
     /// Tile frames for `count` windows in tiling order. `gap` separates tiles from each other
     /// and from the desktop's edges.
+    /// `gap` separates tiles; `outerGap` (default: the same) keeps them off the screen edge.
     static func tileFrames(count: Int, layout: TilingLayout, in bounds: CGSize, gap: CGFloat,
-                           masterRatio: CGFloat = 0.5) -> [CGRect] {
+                           outerGap: CGFloat? = nil, masterRatio: CGFloat = 0.5) -> [CGRect] {
         guard count > 0, bounds.width > 0, bounds.height > 0 else { return [] }
-        let area = CGRect(origin: .zero, size: bounds).insetBy(dx: gap, dy: gap)
+        let outer = outerGap ?? gap
+        let area = CGRect(origin: .zero, size: bounds).insetBy(dx: outer, dy: outer)
         func column(_ rect: CGRect, rows: Int) -> [CGRect] {
             let height = (rect.height - gap * CGFloat(rows - 1)) / CGFloat(rows)
             return (0..<rows).map { row in
@@ -294,10 +296,11 @@ extension WindowGeometry {
     }
 
     /// The master ratio that puts the split between master and stack at `x`.
-    static func masterRatio(forSplitAt x: CGFloat, in bounds: CGSize, gap: CGFloat) -> CGFloat {
-        let usable = bounds.width - gap * 3
+    static func masterRatio(forSplitAt x: CGFloat, in bounds: CGSize, gap: CGFloat, outerGap: CGFloat? = nil) -> CGFloat {
+        let outer = outerGap ?? gap
+        let usable = bounds.width - outer * 2 - gap
         guard usable > 0 else { return 0.5 }
-        let ratio = (x - gap) / usable
+        let ratio = (x - outer) / usable
         return min(max(ratio, masterRatioRange.lowerBound), masterRatioRange.upperBound)
     }
 

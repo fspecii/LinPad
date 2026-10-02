@@ -30,6 +30,11 @@ final class DesktopController {
     var isLauncherPresented = false
     var isRunDialogPresented = false
     let wallpapers = WallpaperStore()
+    let colorThemes = ColorThemeStore()
+    /// The colour theme picker (⌃⌥⇧Space), while open.
+    var themePicker: ColorThemePicker?
+    /// Toasts under the pointer, which do not time out.
+    @ObservationIgnored var hoveredToasts: Set<UUID> = []
     @ObservationIgnored private var wallpaperToast: UUID?
     /// Mirrors the root view's light/dark decision, which picks the light or dark wallpaper.
     var isDarkAppearance = true
@@ -71,7 +76,7 @@ final class DesktopController {
     var isOverlayPresented: Bool {
         isLauncherPresented || isRunDialogPresented || switcher.isPresented || isOverviewPresented
             || isQuickSettingsPresented || isNotificationCenterPresented || isPowerMenuPresented || isLocked
-            || isOnboardingPresented
+            || isOnboardingPresented || themePicker != nil
     }
 
     func toggleQuickSettings() {
@@ -157,6 +162,9 @@ final class DesktopController {
         linux?.delegate = self
         linux?.start()
         input.controller = self
+        colorThemes.onApplyRequest = { [weak self] id in self?.applyColorTheme(id) }
+        colorThemes.onPickerRequest = { [weak self] in self?.presentThemePicker() }
+        colorThemes.onFindWallpapersRequest = { [weak self] theme in self?.findWallpapers(for: theme) }
         wallpapers.onApplied = { [weak self] message, undo in
             guard let self else { return }
             // One wallpaper toast at a time, so Undo always means the latest change.
@@ -253,6 +261,10 @@ final class DesktopController {
         }
         Task { [weak self] in
             try? await Task.sleep(for: lifetime ?? (action == nil ? Self.toastLifetime : .seconds(12)))
+            // A pointer resting on the toast holds it, as Mako does.
+            while self?.hoveredToasts.contains(toast.id) == true {
+                try? await Task.sleep(for: .milliseconds(400))
+            }
             self?.dismissToast(toast.id)
         }
         return toast.id
@@ -309,6 +321,8 @@ final class DesktopController {
     func dismissTopOverlay() {
         if isLocked {
             unlockScreen()
+        } else if themePicker != nil {
+            cancelThemePicker()
         } else if isPowerMenuPresented {
             isPowerMenuPresented = false
         } else if isQuickSettingsPresented || isNotificationCenterPresented {
@@ -374,7 +388,7 @@ final class DesktopController {
         setOverviewPresented(!isOverviewPresented)
     }
 
-    private func dismissTransientOverlays() {
+    func dismissTransientOverlays() {
         switcher.dismiss()
         if isOverviewPresented { setOverviewPresented(false) }
     }

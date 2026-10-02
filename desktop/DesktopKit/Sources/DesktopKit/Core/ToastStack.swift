@@ -39,7 +39,10 @@ struct ToastStack: View {
                 }
                 .overlay {
                     RoundedRectangle(cornerRadius: theme.cornerRadius, style: .continuous)
-                        .strokeBorder(theme.separator, lineWidth: 1)
+                        .strokeBorder(theme.borderActive ?? theme.separator, lineWidth: theme.borderActive == nil ? 1 : 2)
+                }
+                .onHover { inside in
+                    if inside { controller.hoveredToasts.insert(toast.id) } else { controller.hoveredToasts.remove(toast.id) }
                 }
                 .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
                 .toastSwipeToDismiss { controller.dismissToast(toast.id) }

@@ -13,6 +13,12 @@ struct WindowLayer: View {
 
     private var manager: WindowManager { controller.windowManager }
 
+    /// Omarchy's "popin 87%": new windows grow from 87 % with an ease-out, closing fades fast.
+    private static let popIn = AnyTransition.asymmetric(
+        insertion: .scale(scale: 0.87, anchor: .center).combined(with: .opacity)
+            .animation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.41)),
+        removal: .opacity.animation(.linear(duration: 0.15)))
+
     var body: some View {
         let overview = controller.isOverviewPresented ? OverviewLayout(controller: controller) : nil
         ZStack(alignment: .topLeading) {
@@ -28,7 +34,7 @@ struct WindowLayer: View {
             ForEach(manager.windows) { window in
                 WindowView(window: window, controller: controller, overviewFrame: overview?.frames[window.id])
                     .zIndex(Double(manager.stackingOrder(of: window)))
-                    .transition(reduceMotion ? .opacity : .scale(scale: 0.94, anchor: .center).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : Self.popIn)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -95,8 +101,9 @@ struct WindowView: View {
         }
         .clipShape(shape)
         .overlay {
-            shape.strokeBorder(isFocused ? theme.accent.opacity(0.45) : theme.separator, lineWidth: 1)
+            border(shape)
                 .allowsHitTesting(false)
+                .animation(DesktopMotion.quick, value: isFocused)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(window.title)
@@ -113,6 +120,20 @@ struct WindowView: View {
         .offset(x: placement.origin.x + overviewDrag.width, y: placement.origin.y + overviewDrag.height)
         .allowsHitTesting(isVisible)
         .accessibilityHidden(!isVisible)
+    }
+
+    /// Omarchy's focus ring: 2 pt in the accent (or the theme's border colour) on the focused
+    /// window, neutral on the rest. Colour themes turn it on everywhere; with the style's own
+    /// colours it marks tiles, and floating windows keep their hairline.
+    @ViewBuilder
+    private func border(_ shape: RoundedRectangle) -> some View {
+        let tiled = manager.isTiledByLayout(window)
+        let width = theme.borderWidth > 0 ? theme.borderWidth : (tiled && !manager.isZen ? 2 : 0)
+        if width > 0 {
+            shape.strokeBorder(isFocused ? (theme.borderActive ?? theme.accent) : theme.borderInactive, lineWidth: width)
+        } else if !manager.isZen {
+            shape.strokeBorder(isFocused ? theme.accent.opacity(0.45) : theme.separator, lineWidth: 1)
+        }
     }
 
     private struct Placement {

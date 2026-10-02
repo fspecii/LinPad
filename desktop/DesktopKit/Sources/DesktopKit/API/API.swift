@@ -272,6 +272,22 @@ public struct DesktopTheme: Equatable {
     public var separator: Color
     public var cornerRadius: CGFloat
     public var monospacedFontSize: CGFloat
+    /// Text and list selection fill.
+    public var selection: Color = Color.accentColor.opacity(0.3)
+    /// Badges, close-button hover, errors.
+    public var urgent: Color = Color(red: 0.94, green: 0.33, blue: 0.31)
+    /// The focus ring around the focused window, and around everything else.
+    public var borderActive: Color? = nil
+    public var borderInactive: Color = Color(red: 0x59 / 255, green: 0x59 / 255, blue: 0x59 / 255).opacity(0.67)
+    /// 0 turns the focus ring off.
+    public var borderWidth: CGFloat = 0
+    public var hoverFill: Color = Color.primary.opacity(0.08)
+    /// Behind the launcher, overview and pickers.
+    public var scrim: Color = Color.black.opacity(0.45)
+    /// The 16 ANSI colours for terminals; empty keeps each terminal's own.
+    public var terminalPalette: [Color] = []
+    /// The colour theme these colours came from ("" for the style's own).
+    public var colorThemeID: String = ""
 
     public init(accent: Color, panelBackground: Color, windowBackground: Color,
                 titleBarActive: Color, titleBarInactive: Color, primaryText: Color,

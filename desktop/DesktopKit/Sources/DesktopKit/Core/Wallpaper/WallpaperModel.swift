@@ -58,6 +58,9 @@ struct WallpaperSettings: Codable, Equatable, Sendable {
     var usesPerWorkspace = false
     var perWorkspace: [Int: WallpaperSource] = [:]
     var slideshow = WallpaperSlideshow()
+    /// The wallpaper last used with each colour theme ("" = style colours); a theme switch
+    /// brings its wallpaper back.
+    var perTheme: [String: WallpaperSource]?
 
     func source(workspace: Int, isDark: Bool) -> WallpaperSource {
         if usesPerWorkspace, let own = perWorkspace[workspace] { return own }
@@ -162,6 +165,37 @@ final class WallpaperStore {
         settings = copy
         if let data = try? JSONEncoder().encode(copy) { defaults.set(data, forKey: Self.settingsKey) }
         restartSlideshow()
+    }
+
+    /// Remembers the outgoing theme's wallpaper and restores the incoming one's, if any.
+    func switchTheme(from old: String, to new: String) {
+        update { settings in
+            var memory = settings.perTheme ?? [:]
+            memory[old] = settings.light
+            if let saved = memory[new] {
+                settings.light = saved
+                settings.dark = saved
+            }
+            settings.perTheme = memory
+        }
+    }
+
+    /// ⌃⌥⇧B: the next library image (favourites first, if there are any) on every workspace.
+    func cycleWallpaper(themeID: String) {
+        let favorites = library.filter(\.isFavorite)
+        let pool = (favorites.isEmpty ? library : favorites).map(\.id)
+        guard !pool.isEmpty else { return }
+        let current: String? = if case .image(let id) = settings.light { id } else { nil }
+        let next = pool[((current.flatMap(pool.firstIndex(of:)) ?? -1) + 1) % pool.count]
+        update { settings in
+            settings.light = .image(next)
+            settings.dark = .image(next)
+            settings.perWorkspace = [:]
+            settings.usesPerWorkspace = false
+            var memory = settings.perTheme ?? [:]
+            memory[themeID] = .image(next)
+            settings.perTheme = memory
+        }
     }
 
     /// Workspaces were reordered or deleted (old index → new index); deleted ones are absent.

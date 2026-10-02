@@ -47,6 +47,9 @@ final class QuickLookPresenter: NSObject, QLPreviewControllerDataSource, QLPrevi
         self.urls = urls
         presented.reloadData()
         presented.currentPreviewItemIndex = min(index, urls.count - 1)
+        // Reloading moves the first responder into the new preview's views, which would
+        // take Space and Esc away from the panel's key commands.
+        DispatchQueue.main.async { [weak presented] in presented?.becomeFirstResponder() }
     }
 
     func dismiss() {
