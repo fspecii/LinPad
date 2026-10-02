@@ -1,5 +1,9 @@
 #if __APPLE__
 #include <sys/sysctl.h>
+#include <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+#include <os/proc.h>
+#endif
 #endif
 #include <unistd.h>
 #include <string.h>
@@ -14,6 +18,21 @@
 
 #if ANON_MMAP_LIMIT_PAGES > 0
 _Atomic long anon_page_count;
+
+// On iOS the app is killed (jetsam) when it passes its memory limit, long before
+// anon_page_limit() is reached on an 8 GB iPad. Refuse new anonymous memory with
+// ENOMEM while less than this headroom is left, so the guest program fails (a
+// browser tab, a decoder) instead of the whole app.
+#define HOST_MEMORY_HEADROOM (192ull << 20)
+static bool host_memory_low(pages_t pages) {
+#if TARGET_OS_IPHONE
+    size_t available = os_proc_available_memory();
+    return available != 0 && available < HOST_MEMORY_HEADROOM + (uint64_t) pages * PAGE_SIZE;
+#else
+    (void) pages;
+    return false;
+#endif
+}
 
 long anon_page_limit(void) {
     static long limit;
@@ -54,8 +73,12 @@ struct mm *mm_copy(struct mm *mm) {
     mem_init(&new_mm->mem);
     fd_retain(new_mm->exefile);
     write_wrlock(&mm->mem.lock);
-    pt_copy_on_write(&mm->mem, &new_mm->mem, 0, MEM_PAGES);
+    int err = pt_copy_on_write(&mm->mem, &new_mm->mem, 0, MEM_PAGES);
     write_wrunlock(&mm->mem.lock);
+    if (err < 0) {
+        mm_release(new_mm);
+        return NULL;
+    }
     return new_mm;
 }
 
@@ -206,7 +229,8 @@ static addr_t do_mmap(addr_t addr, uint64_t len, dword_t prot, dword_t flags, fd
         }
 #endif
 #if ANON_MMAP_LIMIT_PAGES > 0
-        if (!is_prot_none && atomic_load(&anon_page_count) + (long)pages > anon_page_limit())
+        if (!is_prot_none && (atomic_load(&anon_page_count) + (long)pages > anon_page_limit() ||
+                    host_memory_low(pages)))
             return _ENOMEM;
         if (!is_prot_none)
             atomic_fetch_add(&anon_page_count, (long)pages);
@@ -454,7 +478,7 @@ addr_t sys_brk(addr_t new_brk) {
         if (!pt_is_hole(&mm->mem, start, size))
             goto out;
 #if ANON_MMAP_LIMIT_PAGES > 0
-        if (atomic_load(&anon_page_count) + (long)size > anon_page_limit())
+        if (atomic_load(&anon_page_count) + (long)size > anon_page_limit() || host_memory_low(size))
             goto out;
         atomic_fetch_add(&anon_page_count, (long)size);
 #endif

@@ -144,6 +144,8 @@ struct pt_entry {
 // until the file has grown to cover it. The host mapping is already there
 // and stays coherent with the file, so nothing needs remapping then.
 #define P_PAST_EOF (1 << 8)
+// fault injection for host allocations behind guest memory (ISH_FAIL_HOST_ALLOC=N)
+bool mem_host_alloc_fails(void);
 struct pt_entry;
 // true if the entry is a P_PAST_EOF page its file still doesn't cover
 bool mem_past_eof(struct pt_entry *entry);

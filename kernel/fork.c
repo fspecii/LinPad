@@ -57,6 +57,7 @@ static struct tgroup *tgroup_copy(struct tgroup *old_group) {
     }
     group->itimer = NULL;
     group->doing_group_exit = false;
+    group->rusage = (struct rusage_) {};
     group->children_rusage = (struct rusage_) {};
     {
         struct timespec _ts;
@@ -81,7 +82,10 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     if (flags & CLONE_VM_) {
         mm_retain(mm);
     } else {
-        task_set_mm(task, mm_copy(mm));
+        struct mm *new_mm = mm_copy(mm);
+        if (new_mm == NULL)
+            return _ENOMEM;
+        task_set_mm(task, new_mm);
     }
 
     if (flags & CLONE_FILES_) {

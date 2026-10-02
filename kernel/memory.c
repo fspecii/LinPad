@@ -89,25 +89,57 @@ void mem_destroy(struct mem *mem) {
     wrlock_destroy(&mem->lock);
 }
 
-// Navigate 4-level page table to find L3 entry, creating intermediate nodes as needed
+// Host allocations for guest memory can fail when the app is near the iOS
+// memory limit; every caller unwinds and the guest gets ENOMEM (a host crash
+// there took the whole app down while Firefox played video).
+// ISH_FAIL_HOST_ALLOC=N makes every Nth one fail, to test exactly that.
+bool mem_host_alloc_fails(void) {
+    static long every = -1;
+    static _Atomic long count;
+    if (every < 0) {
+        const char *env = getenv("ISH_FAIL_HOST_ALLOC");
+        every = env != NULL ? atol(env) : 0;
+    }
+    return every > 0 && ++count % every == 0;
+}
+
+static void *pt_calloc(size_t n, size_t size) {
+    if (mem_host_alloc_fails())
+        return NULL;
+    return calloc(n, size);
+}
+
+// Navigate 4-level page table to find L3 entry, creating intermediate nodes as
+// needed. NULL if the host is out of memory.
 static struct pt_entry *mem_pt_new(struct mem *mem, page_t page) {
     struct pt_node *l0 = mem->pgdir;
     int i0 = PT_INDEX(page, 0);
     struct pt_node *l1 = l0->children[i0];
     if (l1 == NULL) {
-        l1 = l0->children[i0] = calloc(1, sizeof(struct pt_node));
+        l1 = pt_calloc(1, sizeof(struct pt_node));
+        if (l1 == NULL)
+            return NULL;
+        l0->children[i0] = l1;
         mem->pgdir_used++;
     }
 
     int i1 = PT_INDEX(page, 1);
     struct pt_node *l2 = l1->children[i1];
-    if (l2 == NULL)
-        l2 = l1->children[i1] = calloc(1, sizeof(struct pt_node));
+    if (l2 == NULL) {
+        l2 = pt_calloc(1, sizeof(struct pt_node));
+        if (l2 == NULL)
+            return NULL;
+        l1->children[i1] = l2;
+    }
 
     int i2 = PT_INDEX(page, 2);
     struct pt_entry *l3 = l2->children[i2];
-    if (l3 == NULL)
-        l3 = l2->children[i2] = calloc(PT_ENTRIES, sizeof(struct pt_entry));
+    if (l3 == NULL) {
+        l3 = pt_calloc(PT_ENTRIES, sizeof(struct pt_entry));
+        if (l3 == NULL)
+            return NULL;
+        l2->children[i2] = l3;
+    }
 
     int i3 = PT_INDEX(page, 3);
     return &l3[i3];
@@ -573,16 +605,21 @@ bool pt_is_hole(struct mem *mem, page_t start, pages_t pages) {
     return true;
 }
 
+// Takes ownership of memory: on failure it is unmapped (except the vdso) and
+// the range is left unmapped.
 int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t offset, unsigned flags) {
-    if (memory == MAP_FAILED)
-        return errno_map();
+    if (memory == MAP_FAILED || memory == NULL)
+        return _ENOMEM;
 
     // If this fails, the munmap in pt_unmap would probably fail.
     assert((uintptr_t) memory % real_page_size == 0 || memory == vdso_data);
 
-    struct data *data = malloc(sizeof(struct data));
-    if (data == NULL)
+    struct data *data = mem_host_alloc_fails() ? NULL : malloc(sizeof(struct data));
+    if (data == NULL) {
+        if (memory != vdso_data)
+            munmap(memory, pages * PAGE_SIZE + offset);
         return _ENOMEM;
+    }
     *data = (struct data) {
         .data = memory,
         .size = pages * PAGE_SIZE + offset,
@@ -596,8 +633,20 @@ int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t of
     for (page_t page = start; page < start + pages; page++) {
         if (mem_pt(mem, page) != NULL)
             pt_unmap(mem, page, 1);
-        data->refcount++;
         struct pt_entry *pt = mem_pt_new(mem, page);
+        if (pt == NULL) {
+            // Out of host memory for the page table: undo what this call
+            // mapped (nothing was translated from it yet), then give back
+            // the memory.
+            for (page_t done = start; done < page; done++)
+                mem_pt(mem, done)->data = NULL;
+            if (memory != vdso_data)
+                munmap(memory, data->size);
+            free(data);
+            mem_changed(mem);
+            return _ENOMEM;
+        }
+        data->refcount++;
         pt->data = data;
         pt->offset = ((page - start) << PAGE_BITS) + offset;
         pt->flags = flags;
@@ -660,7 +709,8 @@ int pt_map_nothing(struct mem *mem, page_t start, pages_t pages, unsigned flags)
     if (!(flags & P_READ) && !(flags & P_WRITE) && !(flags & P_EXEC))
         host_prot = PROT_NONE;
     size_t map_size = (size_t)pages * PAGE_SIZE;
-    void *memory = mmap(NULL, map_size, host_prot, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    void *memory = mem_host_alloc_fails() ? MAP_FAILED :
+        mmap(NULL, map_size, host_prot, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     if (memory == MAP_FAILED)
         return _ENOMEM;
     return pt_map(mem, start, pages, memory, 0, flags | P_ANONYMOUS);
@@ -747,8 +797,15 @@ int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t page
             return -1;
         if (!(entry->flags & P_SHARED))
             entry->flags |= P_COW;
-        entry->data->refcount++;
         struct pt_entry *dst_entry = mem_pt_new(dst, page);
+        if (dst_entry == NULL) {
+            // out of host memory; the caller frees dst, which uncounts its pages
+#if ANON_MMAP_LIMIT_PAGES > 0
+            atomic_fetch_add(&anon_page_count, anon_copied);
+#endif
+            return -1;
+        }
+        entry->data->refcount++;
         dst_entry->data = entry->data;
         dst_entry->offset = entry->offset;
         dst_entry->flags = entry->flags;
@@ -815,6 +872,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
     struct pt_entry *entry = mem_pt(mem, page);
     if (entry != NULL && mem_past_eof(entry))
         return NULL;
+    int cow_tries = 0;
     extern __thread volatile sig_atomic_t in_jit;
 
     if (entry == NULL) {
@@ -951,8 +1009,12 @@ have_entry:
         asbestos_invalidate_page(mem->mmu.asbestos, page);
         // if page is cow, ~~milk~~ copy it
         if (entry->flags & P_COW) {
-            void *copy = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
-                    MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+            void *copy = mem_host_alloc_fails() ? MAP_FAILED : mmap(NULL, PAGE_SIZE,
+                    PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+            // Out of host memory: fail the access (the guest gets a fault)
+            // rather than copying into MAP_FAILED.
+            if (copy == MAP_FAILED)
+                return NULL;
 
             read_wrunlock(&mem->lock);
             // BLOCKING write_wrlock (not trylock) in both JIT and
@@ -976,7 +1038,12 @@ have_entry:
                 if (entry->flags & P_ANONYMOUS)
                     atomic_fetch_add(&anon_page_count, 1);
 #endif
-                pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW);
+                if (pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW) < 0) {
+#if ANON_MMAP_LIMIT_PAGES > 0
+                    if (entry->flags & P_ANONYMOUS)
+                        atomic_fetch_sub(&anon_page_count, 1);
+#endif
+                }
                 mem_changed(mem);
             } else {
                 munmap(copy, PAGE_SIZE);
@@ -992,7 +1059,7 @@ have_entry:
         // forked meanwhile, making it copy-on-write again: copy it again
         // instead of failing the write.
         entry = mem_pt(mem, page);
-        if (entry != NULL && (entry->flags & P_COW))
+        if (entry != NULL && (entry->flags & P_COW) && ++cow_tries < 8)
             goto have_entry;
     }
 #ifndef NDEBUG

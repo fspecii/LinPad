@@ -364,7 +364,7 @@ int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off
         // via ftruncate, because apk doesn't truncate it back, leaving
         // trailing null bytes that corrupt files.
         if (mmap_flags & MAP_SHARED) {
-            char *memory = mmap(NULL, map_size,
+            char *memory = mem_host_alloc_fails() ? MAP_FAILED : mmap(NULL, map_size,
                     mmap_prot, mmap_flags, fd->real_fd, real_offset);
             if (memory != MAP_FAILED) {
                 int err = pt_map(mem, start, pages, memory, correction, prot);
@@ -380,7 +380,7 @@ int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off
         }
 
         // Create anonymous backing for the full range (zeros for BSS)
-        char *memory = mmap(NULL, map_size,
+        char *memory = mem_host_alloc_fails() ? MAP_FAILED : mmap(NULL, map_size,
                 PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (memory == MAP_FAILED)
             return _ENOMEM;
@@ -413,7 +413,7 @@ int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off
         return pt_map(mem, start, pages, memory, correction, prot);
     }
 
-    char *memory = mmap(NULL, map_size,
+    char *memory = mem_host_alloc_fails() ? MAP_FAILED : mmap(NULL, map_size,
             mmap_prot, mmap_flags, fd->real_fd, real_offset);
     if (memory == MAP_FAILED)
         return _ENOMEM;
