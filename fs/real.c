@@ -20,6 +20,7 @@
 #include "fs/dev.h"
 #include "fs/devices.h"
 #include "fs/real.h"
+#include "kernel/inotify.h"
 #define ISH_INTERNAL
 #include "fs/fake.h"
 #include "fs/tty.h"
@@ -163,11 +164,24 @@ int realfs_fstat(struct fd *fd, struct statbuf *fake_stat) {
     return 0;
 }
 
+// A host EINTR comes from the SIGUSR1 that delivers a guest signal to a
+// blocked thread. Retry only when no guest signal is waiting, otherwise the
+// guest never gets to run its handler (e.g. musl's membarrier fallback, which
+// waits for every thread to run a signal handler).
+static bool guest_signal_pending(void) {
+    if (current == NULL || current->sighand == NULL)
+        return false;
+    lock(&current->sighand->lock);
+    bool pending = !!(current->pending & ~current->blocked);
+    unlock(&current->sighand->lock);
+    return pending;
+}
+
 ssize_t realfs_read(struct fd *fd, void *buf, size_t bufsize) {
     ssize_t res;
     do {
         res = read(fd->real_fd, buf, bufsize);
-    } while (res < 0 && errno == EINTR);
+    } while (res < 0 && errno == EINTR && !guest_signal_pending());
     if (res < 0)
         return errno_map();
     return res;
@@ -177,9 +191,11 @@ ssize_t realfs_write(struct fd *fd, const void *buf, size_t bufsize) {
     ssize_t res;
     do {
         res = write(fd->real_fd, buf, bufsize);
-    } while (res < 0 && errno == EINTR);
+    } while (res < 0 && errno == EINTR && !guest_signal_pending());
     if (res < 0)
         return errno_map();
+    if (res > 0 && inotify_wants(IN_MODIFY_))
+        fsnotify_fd(fd, IN_MODIFY_);
     return res;
 }
 
@@ -200,6 +216,8 @@ ssize_t realfs_pwrite(struct fd *fd, const void *buf, size_t bufsize, off_t off)
     } while (res < 0 && errno == EINTR);
     if (res < 0)
         return errno_map();
+    if (res > 0 && inotify_wants(IN_MODIFY_))
+        fsnotify_fd(fd, IN_MODIFY_);
     return res;
 }
 

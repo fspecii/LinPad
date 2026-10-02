@@ -66,7 +66,7 @@ dword_t sys_clock_gettime(dword_t clock, addr_t tp) {
     STRACE("clock_gettime(%d, 0x%x)", clock, tp);
 
     struct timespec ts;
-    if (clock == CLOCK_PROCESS_CPUTIME_ID_) {
+    if (clock == CLOCK_PROCESS_CPUTIME_ID_ || clock == CLOCK_THREAD_CPUTIME_ID_) {
         // FIXME this is thread usage, not process usage
         struct rusage_ rusage = rusage_get_current();
         ts.tv_sec = rusage.utime.sec;
@@ -483,6 +483,8 @@ fd_t sys_timerfd_create(int_t clockid, int_t flags) {
     if (clockid_to_real(clockid, &real_clockid)) return _EINVAL;
 
     struct fd *fd = adhoc_fd_create(&timerfd_ops);
+    if (fd != NULL)
+        fd->anon_name = "[timerfd]";
     if (fd == NULL)
         return _ENOMEM;
 
@@ -504,9 +506,13 @@ int_t sys_timerfd_settime(fd_t f, int_t flags, addr_t new_value_addr, addr_t old
         return _EFAULT;
     struct timer_spec spec = timer_spec_to_real(value);
     struct timer_spec old_spec;
-    if (flags & TIMER_ABSTIME_) {
+    // A zero it_value disarms the timer whether or not it is absolute.
+    if ((flags & TIMER_ABSTIME_) && !timespec_is_zero(spec.value)) {
         struct timespec now = timespec_now(fd->timerfd.timer->clockid);
         spec.value = timespec_subtract(spec.value, now);
+        // already expired: fire as soon as possible (zero would disarm)
+        if (!timespec_positive(spec.value))
+            spec.value = (struct timespec) {.tv_sec = 0, .tv_nsec = 1};
     }
 
     lock(&fd->lock);

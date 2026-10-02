@@ -102,6 +102,8 @@ static int proc_refresh_data(struct fd *fd) {
     }
     fd->proc.data.size = 0;
     struct proc_entry *entry = &fd->proc.entry;
+    if (entry->meta->show == NULL)
+        return _EINVAL;
     int err = entry->meta->show(entry, &fd->proc.data);
     if (err < 0)
         return err;
@@ -109,6 +111,17 @@ static int proc_refresh_data(struct fd *fd) {
 }
 
 static off_t_ proc_seek(struct fd *fd, off_t_ off, int whence) {
+    // Files read with pread (/proc/pid/mem) have no content to size; gdb
+    // seeks them to target addresses.
+    if (fd->proc.entry.meta->pread) {
+        if (whence == LSEEK_SET)
+            fd->offset = off;
+        else if (whence == LSEEK_CUR)
+            fd->offset += off;
+        else
+            return _EINVAL;
+        return fd->offset;
+    }
     int err = proc_refresh_data(fd);
     if (err < 0)
         return err;
@@ -182,8 +195,9 @@ static ssize_t proc_pwrite(struct fd *fd, const void *buf, size_t bufsize, off_t
     }
     
     struct proc_data data = {(char *)buf, bufsize, bufsize};
-    fd->proc.entry.meta->update(&fd->proc.entry, &data);
-    
+    int err = fd->proc.entry.meta->update(&fd->proc.entry, &data);
+    if (err < 0)
+        return err;
     return bufsize;
 }
 

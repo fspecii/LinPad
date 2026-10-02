@@ -5,10 +5,15 @@
 #include "kernel/fs.h"
 #include "util/sync.h"
 
+uint64_t mmu_new_id(void) {
+    static uint64_t next_id = 1;
+    return __atomic_fetch_add(&next_id, 1, __ATOMIC_RELAXED);
+}
+
 void tlb_refresh(struct tlb *tlb, struct mmu *mmu) {
-    if (tlb->mmu == mmu && tlb->mem_changes == mmu->changes)
+    if (tlb->mmu == mmu && tlb->mmu_id == mmu->id && tlb->mem_changes == mmu->changes)
         return;
-    if (tlb->mmu != mmu) {
+    if (tlb->mmu != mmu || tlb->mmu_id != mmu->id) {
         // Address space changed (execve); block cache and ret_cache are invalid
         memset(tlb->block_cache, 0, sizeof(tlb->block_cache));
         tlb->block_cache_gen = 0;
@@ -18,6 +23,7 @@ void tlb_refresh(struct tlb *tlb, struct mmu *mmu) {
         }
     }
     tlb->mmu = mmu;
+    tlb->mmu_id = mmu->id;
     tlb->dirty_page = TLB_PAGE_EMPTY;
     tlb->mem_changes = mmu->changes;
     tlb_flush(tlb);

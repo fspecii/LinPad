@@ -7,6 +7,7 @@
 #include "fs/poll.h"
 #include "fs/fd.h"
 #include "fs/inode.h"
+#include "kernel/inotify.h"
 
 struct fd *fd_create(const struct fd_ops *ops) {
     struct fd *fd = malloc(sizeof(struct fd));
@@ -32,6 +33,12 @@ struct fd *fd_retain(struct fd *fd) {
 
 int fd_close(struct fd *fd) {
     int err = 0;
+    if (fd->refcount == 1 && inotify_watch_count != 0 && fd->mount != NULL && !is_adhoc_fd(fd)) {
+        // last close of an open file description
+        uint32_t mask = fd->flags & (O_WRONLY_ | O_RDWR_) ? IN_CLOSE_WRITE_ : IN_CLOSE_NOWRITE_;
+        if (inotify_wants(mask))
+            fsnotify_fd(fd, mask);
+    }
     if (--fd->refcount == 0) {
         poll_cleanup_fd(fd);
         if (fd->ops->close)
@@ -143,9 +150,18 @@ static int fdtable_expand(struct fdtable *table, fd_t max) {
 }
 
 struct fd *fdtable_get(struct fdtable *table, fd_t f) {
-    if (f < 0 || (unsigned) f >= current->files->size)
+    if (f < 0 || (unsigned) f >= table->size)
         return NULL;
     return table->files[f];
+}
+
+struct fd *f_get_retain(fd_t f) {
+    lock(&current->files->lock);
+    struct fd *fd = fdtable_get(current->files, f);
+    if (fd != NULL)
+        fd_retain(fd);
+    unlock(&current->files->lock);
+    return fd;
 }
 
 struct fd *f_get(fd_t f) {

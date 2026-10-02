@@ -8,8 +8,12 @@
 #include "fs/real.h"
 #include "fs/tty.h"
 #include "kernel/calls.h"
+#include "fs/sysfs.h"
 #include "kernel/init.h"
 #include "kernel/personality.h"
+#ifdef ISH_VIRTGPU
+#include "fs/dev_virtgpu.h"
+#endif
 
 int mount_root(const struct fs_ops *fs, const char *source) {
     char source_realpath[MAX_PATH + 1];
@@ -104,6 +108,10 @@ int become_first_process() {
         return PTR_ERR(task);
 
     current = task;
+    sysfs_create_nodes();
+#ifdef ISH_VIRTGPU
+    virtgpu_create_nodes();
+#endif
     return 0;
 }
 

@@ -104,10 +104,19 @@ void notify_once(cond_t *cond);
 
 // this is a read-write lock that prefers writers, i.e. if there are any
 // writers waiting a read lock will block.
-// on darwin pthread_rwlock_t is already like this, on linux you can configure
-// it to prefer writers. not worrying about anything else right now.
+//
+// It is built from atomics plus a mutex and two condition variables rather
+// than pthread_rwlock_t: Darwin's rwlock can lose a wakeup when its waiters
+// keep getting interrupted by signals (every guest signal is a pthread_kill
+// SIGUSR1), leaving readers and a writer asleep on a lock nobody holds.
+// Uncontended readers only touch the two counters; the mutex is for waiting.
 typedef struct {
-    pthread_rwlock_t l;
+    atomic_int readers; // read-locked by this many, including ones backing out
+    atomic_int writers; // waiting or holding the write lock
+    bool writer_active; // protected by m
+    pthread_mutex_t m;
+    pthread_cond_t readers_cond;
+    pthread_cond_t writers_cond;
     // 0: unlocked
     // -1: write-locked
     // >0: read-locked with this many readers
@@ -117,34 +126,84 @@ typedef struct {
     int pid;
 } wrlock_t;
 static inline void wrlock_init(wrlock_t *lock) {
-    pthread_rwlockattr_t *pattr = NULL;
-#if defined(__GLIBC__)
-    pthread_rwlockattr_t attr;
-    pattr = &attr;
-    pthread_rwlockattr_init(pattr);
-    pthread_rwlockattr_setkind_np(pattr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
-#endif
-    if (pthread_rwlock_init(&lock->l, pattr)) __builtin_trap();
+    if (pthread_mutex_init(&lock->m, NULL)) __builtin_trap();
+    if (pthread_cond_init(&lock->readers_cond, NULL)) __builtin_trap();
+    if (pthread_cond_init(&lock->writers_cond, NULL)) __builtin_trap();
+    lock->readers = lock->writers = 0;
+    lock->writer_active = false;
     lock->val = lock->line = lock->pid = 0;
     lock->file = NULL;
 }
 
 extern int current_pid(void);
 static inline void wrlock_destroy(wrlock_t *lock) {
-    if (pthread_rwlock_destroy(&lock->l) != 0) __builtin_trap();
+    if (pthread_cond_destroy(&lock->readers_cond) != 0) __builtin_trap();
+    if (pthread_cond_destroy(&lock->writers_cond) != 0) __builtin_trap();
+    if (pthread_mutex_destroy(&lock->m) != 0) __builtin_trap();
 }
-static inline void read_wrlock(wrlock_t *lock) {
-    if (pthread_rwlock_rdlock(&lock->l) != 0) __builtin_trap();
+static inline void __wrlock_reader_leave(wrlock_t *lock) {
+    // The waiting writer checks readers under m before sleeping, so taking m
+    // to signal it can't miss it.
+    if (atomic_fetch_sub(&lock->readers, 1) == 1 && atomic_load(&lock->writers) > 0) {
+        pthread_mutex_lock(&lock->m);
+        pthread_cond_broadcast(&lock->writers_cond);
+        pthread_mutex_unlock(&lock->m);
+    }
+}
+// WRLOCK_DEBUG=1 (e.g. meson -Dc_args=-DWRLOCK_DEBUG=1) tracks who holds
+// each wrlock: every thread keeps a list of the locks it holds and where it
+// took them. Taking a lock the thread already holds is reported with both
+// places, and a wait longer than 5 s prints every holder of that lock.
+#ifndef WRLOCK_DEBUG
+#define WRLOCK_DEBUG 0
+#endif
+#if WRLOCK_DEBUG
+void wrlock_debug_check(wrlock_t *lock, bool write, const char *file, int line);
+void wrlock_debug_acquired(wrlock_t *lock, bool write, const char *file, int line);
+void wrlock_debug_released(wrlock_t *lock);
+void wrlock_debug_wait(pthread_cond_t *cond, wrlock_t *lock, bool write, const char *file, int line);
+#define WRLOCK_WAIT(cond, lock, write, file, line) wrlock_debug_wait(cond, lock, write, file, line)
+#else
+#define wrlock_debug_check(lock, write, file, line) ((void) 0)
+#define wrlock_debug_acquired(lock, write, file, line) ((void) 0)
+#define wrlock_debug_released(lock) ((void) 0)
+#define WRLOCK_WAIT(cond, lock, write, file, line) pthread_cond_wait(cond, &(lock)->m)
+#endif
+
+static inline void __read_wrlock(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
+    wrlock_debug_check(lock, false, file, line);
+    for (;;) {
+        if (atomic_load(&lock->writers) == 0) {
+            atomic_fetch_add(&lock->readers, 1);
+            if (atomic_load(&lock->writers) == 0)
+                break;
+            __wrlock_reader_leave(lock); // a writer came in: let it go first
+        }
+        pthread_mutex_lock(&lock->m);
+        while (atomic_load(&lock->writers) > 0)
+            WRLOCK_WAIT(&lock->readers_cond, lock, false, file, line);
+        pthread_mutex_unlock(&lock->m);
+    }
     assert(lock->val >= 0);
     lock->val++;
+    wrlock_debug_acquired(lock, false, file, line);
 }
+#define read_wrlock(lock) __read_wrlock(lock, __FILE__, __LINE__)
 static inline void read_wrunlock(wrlock_t *lock) {
     assert(lock->val > 0);
+    wrlock_debug_released(lock);
     lock->val--;
-    if (pthread_rwlock_unlock(&lock->l) != 0) __builtin_trap();
+    __wrlock_reader_leave(lock);
 }
 static inline void __write_wrlock(wrlock_t *lock, const char *file, int line) {
-    if (pthread_rwlock_wrlock(&lock->l) != 0) __builtin_trap();
+    wrlock_debug_check(lock, true, file, line);
+    pthread_mutex_lock(&lock->m);
+    atomic_fetch_add(&lock->writers, 1);
+    while (lock->writer_active || atomic_load(&lock->readers) > 0)
+        WRLOCK_WAIT(&lock->writers_cond, lock, true, file, line);
+    lock->writer_active = true;
+    pthread_mutex_unlock(&lock->m);
+    wrlock_debug_acquired(lock, true, file, line);
     assert(lock->val == 0);
     lock->val = -1;
     lock->file = file;
@@ -153,18 +212,38 @@ static inline void __write_wrlock(wrlock_t *lock, const char *file, int line) {
 }
 #define write_wrlock(lock) __write_wrlock(lock, __FILE__, __LINE__)
 static inline bool write_wrtrylock(wrlock_t *lock) {
-    int err = pthread_rwlock_trywrlock(&lock->l);
-    if (err == EBUSY) return false;
-    if (err != 0) __builtin_trap();
-    assert(lock->val == 0);
-    lock->val = -1;
-    return true;
+    pthread_mutex_lock(&lock->m);
+    bool ok = false;
+    if (!lock->writer_active) {
+        atomic_fetch_add(&lock->writers, 1);
+        if (atomic_load(&lock->readers) == 0) {
+            lock->writer_active = true;
+            ok = true;
+        } else if (atomic_fetch_sub(&lock->writers, 1) == 1) {
+            // readers that saw us may be waiting
+            pthread_cond_broadcast(&lock->readers_cond);
+        }
+    }
+    pthread_mutex_unlock(&lock->m);
+    if (ok) {
+        assert(lock->val == 0);
+        lock->val = -1;
+        wrlock_debug_acquired(lock, true, "write_wrtrylock", 0);
+    }
+    return ok;
 }
 static inline void write_wrunlock(wrlock_t *lock) {
     assert(lock->val == -1);
+    wrlock_debug_released(lock);
     lock->val = lock->line = lock->pid = 0;
     lock->file = NULL;
-    if (pthread_rwlock_unlock(&lock->l) != 0) __builtin_trap();
+    pthread_mutex_lock(&lock->m);
+    lock->writer_active = false;
+    if (atomic_fetch_sub(&lock->writers, 1) > 1)
+        pthread_cond_broadcast(&lock->writers_cond);
+    else
+        pthread_cond_broadcast(&lock->readers_cond);
+    pthread_mutex_unlock(&lock->m);
 }
 
 extern __thread sigjmp_buf unwind_buf;

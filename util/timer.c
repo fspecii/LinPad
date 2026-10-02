@@ -13,6 +13,7 @@ struct timer *timer_new(clockid_t clockid, timer_callback_t callback, void *data
     timer->active = false;
     timer->thread_running = false;
     lock_init(&timer->lock);
+    cond_init(&timer->cond);
     timer->dead = false;
     return timer;
 }
@@ -22,10 +23,11 @@ void timer_free(struct timer *timer) {
     timer->active = false;
     if (timer->thread_running) {
         timer->dead = true;
-        pthread_kill(timer->thread, SIGUSR1);
+        notify(&timer->cond);
         unlock(&timer->lock);
     } else {
         unlock(&timer->lock);
+        cond_destroy(&timer->cond);
         free(timer);
     }
 }
@@ -35,10 +37,10 @@ static void *timer_thread(void *param) {
     lock(&timer->lock);
     while (true) {
         struct timespec remaining = timespec_subtract(timer->end, timespec_now(timer->clockid));
-        while (timer->active && timespec_positive(remaining)) {
-            unlock(&timer->lock);
-            nanosleep(&remaining, NULL);
-            lock(&timer->lock);
+        // Sleep on the condvar rather than in nanosleep, so a timer_set that
+        // lands between dropping the lock and going to sleep is not lost.
+        while (timer->active && !timer->dead && timespec_positive(remaining)) {
+            wait_for_ignore_signals(&timer->cond, &timer->lock, &remaining);
             remaining = timespec_subtract(timer->end, timespec_now(timer->clockid));
         }
         if (timer->active)
@@ -51,10 +53,13 @@ static void *timer_thread(void *param) {
         }
     }
     timer->thread_running = false;
-    if (timer->dead)
-        free(timer);
-    else
+    if (timer->dead) {
         unlock(&timer->lock);
+        cond_destroy(&timer->cond);
+        free(timer);
+    } else {
+        unlock(&timer->lock);
+    }
     return NULL;
 }
 
@@ -71,7 +76,7 @@ int timer_set(struct timer *timer, struct timer_spec spec, struct timer_spec *ol
     timer->interval = spec.interval;
     timer->active = !timespec_is_zero(spec.value);
     if (timer->thread_running) {
-        pthread_kill(timer->thread, SIGUSR1);
+        notify(&timer->cond);
     } else if (timer->active) {
         timer->thread_running = true;
         pthread_create(&timer->thread, NULL, timer_thread, timer);

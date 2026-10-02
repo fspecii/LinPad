@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <limits.h>
@@ -7,6 +8,7 @@
 #include "kernel/fs.h"
 #include "fs/fd.h"
 #include "fs/path.h"
+#include "kernel/task.h"
 
 struct newstat64 stat_convert_newstat64(struct statbuf stat) {
     struct newstat64 newstat;
@@ -56,15 +58,51 @@ struct stat_arm64 stat_convert_arm64(struct statbuf stat) {
     return arm64stat;
 }
 
+// /proc/<pid>/fd/<n> is a "magic" link: following it reaches the open file
+// itself, even when the link text (socket:[…], pipe:[…], anon_inode:…) is
+// not a path. Returns the stat of that file, or 1 if path is not such a link.
+static int proc_fd_link_stat(const char *path, struct statbuf *stat) {
+    int pid, n, end = 0;
+    if (sscanf(path, "/proc/%d/fd/%d%n", &pid, &n, &end) != 2 || path[end] != '\0')
+        return 1;
+    lock(&pids_lock);
+    struct task *task = pid_get_task(pid);
+    struct fd *fd = NULL;
+    if (task != NULL && !task->exiting && task->files != NULL) {
+        lock(&task->files->lock);
+        fd = fdtable_get(task->files, n);
+        if (fd != NULL)
+            fd_retain(fd);
+        unlock(&task->files->lock);
+    }
+    unlock(&pids_lock);
+    if (fd == NULL)
+        return _ENOENT;
+    memset(stat, 0, sizeof(*stat));
+    int err = fd->mount->fs->fstat(fd, stat);
+    fd_close(fd);
+    return err;
+}
+
 int generic_statat(struct fd *at, const char *path_raw, struct statbuf *stat, bool follow_links) {
     char path[MAX_PATH];
     int err = path_normalize(at, path_raw, path, follow_links ? N_SYMLINK_FOLLOW : N_SYMLINK_NOFOLLOW);
-    if (err < 0)
-        return err;
-    struct mount *mount = find_mount_and_trim_path(path);
-    memset(stat, 0, sizeof(*stat));
-    err = mount->fs->stat(mount, path, stat);
-    mount_release(mount);
+    if (err >= 0) {
+        struct mount *mount = find_mount_and_trim_path(path);
+        memset(stat, 0, sizeof(*stat));
+        err = mount->fs->stat(mount, path, stat);
+        mount_release(mount);
+    }
+    if (err == _ENOENT && follow_links) {
+        // maybe a /proc/<pid>/fd/<n> link to a socket, pipe or anon inode,
+        // whose text (socket:[…]) resolves to nothing
+        char link[MAX_PATH];
+        if (path_normalize(at, path_raw, link, N_SYMLINK_NOFOLLOW) >= 0) {
+            int fd_err = proc_fd_link_stat(link, stat);
+            if (fd_err != 1)
+                return fd_err;
+        }
+    }
     return err;
 }
 

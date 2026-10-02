@@ -60,14 +60,30 @@ struct poll *poll_create() {
     poll->waiters = 0;
     poll->notify_pipe[0] = -1;
     poll->notify_pipe[1] = -1;
+    poll->owner = NULL;
     list_init(&poll->poll_fds);
     list_init(&poll->pollfd_freelist);
     lock_init(&poll->lock);
     return poll;
 }
 
+static inline bool poll_fd_is_epoll(struct poll_fd *pollfd) {
+    return pollfd->fd->ops->poll == epoll_fd_poll;
+}
+
 static inline bool poll_fd_is_real(struct poll_fd *pollfd) {
-    return pollfd->fd->ops->poll == realfs_poll;
+    // An epoll fd is registered through its own host kqueue/epoll fd, which
+    // becomes readable when one of its host fds has an event.
+    return pollfd->fd->ops->poll == realfs_poll || poll_fd_is_epoll(pollfd);
+}
+
+// What to register on the host for a member fd. A nested epoll set is
+// watched for readability of its host kqueue/epoll; its real readiness comes
+// from epoll_fd_poll, which also drains stale host events (see there).
+static inline int poll_fd_real_types(struct poll_fd *pollfd, int types) {
+    if (poll_fd_is_epoll(pollfd))
+        return types ? POLL_READ : 0;
+    return types;
 }
 
 // does not do its own locking
@@ -115,7 +131,7 @@ int poll_add_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info 
     poll_fd->triggered_types = 0;
 
     if (poll_fd_is_real(poll_fd)) {
-        err = real_poll_update(&poll->real, fd->real_fd, types, poll_fd);
+        err = real_poll_update(&poll->real, fd->real_fd, poll_fd_real_types(poll_fd, types), poll_fd);
         if (err < 0) {
             free(poll_fd);
             err = errno_map();
@@ -173,7 +189,7 @@ int poll_mod_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info 
     }
 
     if (poll_fd_is_real(poll_fd)) {
-        err = real_poll_update(&poll->real, fd->real_fd, types, poll_fd);
+        err = real_poll_update(&poll->real, fd->real_fd, poll_fd_real_types(poll_fd, types), poll_fd);
         if (err < 0) {
             err = errno_map();
             goto out;
@@ -206,8 +222,20 @@ void poll_cleanup_fd(struct fd *fd) {
     unlock(&fd->poll_lock);
 }
 
-void poll_wakeup(struct fd *fd, int events) {
+// Take a reference unless the fd is already being closed (refcount 0).
+static bool fd_try_retain(struct fd *fd) {
+    unsigned count = atomic_load(&fd->refcount);
+    while (count != 0) {
+        if (atomic_compare_exchange_weak(&fd->refcount, &count, count + 1))
+            return true;
+    }
+    return false;
+}
+
+static void poll_wakeup_depth(struct fd *fd, int events, int depth) {
     struct poll_fd *poll_fd;
+    struct fd *owners[8];
+    int n_owners = 0;
     lock(&fd->poll_lock);
     list_for_each_entry(&fd->poll_fds, poll_fd, polls) {
         struct poll *poll = poll_fd->poll;
@@ -216,10 +244,64 @@ void poll_wakeup(struct fd *fd, int events) {
             poll_fd->triggered_types &= ~events;
         if (poll->notify_pipe[1] != -1)
             write(poll->notify_pipe[1], "", 1);
+        if (poll->owner != NULL && n_owners < 8 && fd_try_retain(poll->owner))
+            owners[n_owners++] = poll->owner;
         unlock(&poll->lock);
         // oneshot?
     }
     unlock(&fd->poll_lock);
+    // An event in an epoll set makes the epoll fd itself readable. Linux
+    // limits epoll nesting to 5 levels; so do we.
+    for (int i = 0; i < n_owners; i++) {
+        if (depth < 5)
+            poll_wakeup_depth(owners[i], POLL_READ, depth + 1);
+        fd_close(owners[i]);
+    }
+}
+
+void poll_wakeup(struct fd *fd, int events) {
+    poll_wakeup_depth(fd, events, 0);
+}
+
+int epoll_fd_poll(struct fd *fd) {
+    struct poll *poll = fd->epollfd.poll;
+    int ready = 0;
+    lock(&poll->lock);
+    // Nobody is waiting on this set, so its host events would never be
+    // collected, and the host kqueue/epoll would stay readable forever: an
+    // outer set watching it would either spin or, once the events pile up,
+    // never see a new edge. Collect them here, doing the edge-triggered
+    // bookkeeping poll_wait would have done. Readiness is decided below.
+    if (poll->waiters == 0) {
+        struct real_poll_event e[16];
+        struct timespec zero = {0, 0};
+        int n;
+        do {
+            n = real_poll_wait(&poll->real, e, sizeof(e) / sizeof(e[0]), &zero);
+            for (int i = 0; i < n; i++) {
+                struct poll_fd *triggered = rpe_data(&e[i]);
+                if (triggered != NULL && triggered->poll != NULL &&
+                        triggered->types & POLL_EDGETRIGGERED)
+                    triggered->triggered_types &= ~rpe_events(&e[i]);
+            }
+        } while (n == (int) (sizeof(e) / sizeof(e[0])));
+    }
+    struct poll_fd *poll_fd;
+    list_for_each_entry(&poll->poll_fds, poll_fd, fds) {
+        struct fd *member = poll_fd->fd;
+        if (member == fd || member->ops->poll == NULL)
+            continue;
+        int types = member->ops->poll(member);
+        types &= poll_fd->types | POLL_HUP | POLL_ERR;
+        if (poll_fd->types & POLL_EDGETRIGGERED)
+            types &= ~poll_fd->triggered_types;
+        if (types) {
+            ready = POLL_READ;
+            break;
+        }
+    }
+    unlock(&poll->lock);
+    return ready;
 }
 
 int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struct timespec *timeout) {
@@ -341,46 +423,6 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
             if (current->group->doing_group_exit) {
                 res = _EINTR;
                 break;
-            }
-            // Safety valve: if no thread in this process group has
-            // done real work for >60s and there are no live child
-            // processes, force exit. Catches V8/libuv exit cleanup
-            // hangs where the event loop spins idle forever.
-            //
-            // Exceptions:
-            //   - pid 1 (init): legitimately idles, killing halts the system
-            //   - processes with a controlling TTY: interactive shells idle
-            //     waiting for user input and must not be killed
-            if (current->pid != 1 && current->group->tty == NULL) {
-                struct timespec _now;
-                clock_gettime(CLOCK_MONOTONIC, &_now);
-                uint64_t now_ns = (uint64_t)_now.tv_sec * 1000000000ULL + _now.tv_nsec;
-                uint64_t last = atomic_load_explicit(
-                    &current->group->last_progress_ns, memory_order_relaxed);
-                int64_t idle_s = (int64_t)(now_ns - last) / 1000000000LL;
-                if (idle_s >= 60) {
-                    bool has_live_children = false;
-                    int thread_count = 0;
-                    lock(&pids_lock);
-                    lock(&current->group->lock);
-                    struct task *t_iter;
-                    list_for_each_entry(&current->group->threads, t_iter, group_links) {
-                        thread_count++;
-                        struct task *child;
-                        list_for_each_entry(&t_iter->children, child, siblings) {
-                            if (child->group != current->group && !child->zombie)
-                                has_live_children = true;
-                        }
-                    }
-                    unlock(&current->group->lock);
-                    unlock(&pids_lock);
-                    if (!has_live_children) {
-                        if (ish_exec_trace())
-                            printk("SAFETY-VALVE[poll]: pid=%d idle %llds, %d threads → exit_group\n",
-                                   current->pid, (long long)idle_s, thread_count);
-                        do_exit_group(0);
-                    }
-                }
             }
             if (timeout != NULL) {
                 // Timed wait: subtract elapsed time

@@ -63,9 +63,15 @@ struct rusage_ {
 };
 
 struct rusage_ rusage_get_current(void);
+struct tgroup;
+struct rusage_ rusage_get_group(struct tgroup *group);
+#if __APPLE__
+struct rusage_ rusage_get_host_thread(unsigned int thread); // a mach_port_t
+#endif
 void rusage_add(struct rusage_ *dst, struct rusage_ *src);
 #define RUSAGE_SELF_ 0
 #define RUSAGE_CHILDREN_ -1
+#define RUSAGE_THREAD_ 1
 dword_t sys_getrusage(dword_t who, addr_t rusage_addr);
 
 int_t sys_sched_getaffinity(pid_t_ pid, dword_t cpusetsize, addr_t cpuset_addr);

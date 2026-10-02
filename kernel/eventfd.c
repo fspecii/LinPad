@@ -10,6 +10,8 @@ int_t sys_eventfd2(uint_t initval, int_t flags) {
         return _EINVAL;
 
     struct fd *fd = adhoc_fd_create(&eventfd_ops);
+    if (fd != NULL)
+        fd->anon_name = "[eventfd]";
     if (fd == NULL)
         return _ENOMEM;
     fd->eventfd.val = initval;

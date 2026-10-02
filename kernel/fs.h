@@ -111,7 +111,14 @@ bool mount_param_flag(const char *info, const char *flag);
 #define O_TRUNC_ (1 << 9)
 #define O_APPEND_ (1 << 10)
 #define O_NONBLOCK_ (1 << 11)
+// O_DIRECTORY and O_NOFOLLOW differ between architectures
+#ifdef GUEST_ARM64
+#define O_DIRECTORY_ (1 << 14)
+#define O_NOFOLLOW_ (1 << 15)
+#else
 #define O_DIRECTORY_ (1 << 16)
+#define O_NOFOLLOW_ (1 << 17)
+#endif
 #define O_CLOEXEC_ (1 << 19)
 
 // generic ioctls
@@ -148,6 +155,9 @@ struct fs_ops {
     int (*close)(struct fd *fd);
 
     int (*stat)(struct mount *mount, const char *path, struct statbuf *stat); // required
+    // optional: only the type, mode and owner, for permission checks during
+    // path walks; cheaper than stat when the fs keeps them apart from the data
+    int (*stat_mode)(struct mount *mount, const char *path, struct statbuf *stat);
     int (*fstat)(struct fd *fd, struct statbuf *stat); // required
     int (*setattr)(struct mount *mount, const char *path, struct attr attr);
     int (*fsetattr)(struct fd *fd, struct attr attr);

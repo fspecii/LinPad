@@ -5,6 +5,8 @@
 #elif __APPLE__
 // pull in thread_info and friends
 #include <mach/mach.h>
+#include <pthread.h>
+#include <time.h>
 #else
 #error
 #endif
@@ -172,15 +174,56 @@ struct rusage_ rusage_get_current() {
     rusage.stime.sec = usage.ru_stime.tv_sec;
     rusage.stime.usec = usage.ru_stime.tv_usec;
 #elif __APPLE__
+    mach_port_t self = mach_thread_self();
+    rusage = rusage_get_host_thread(self);
+    mach_port_deallocate(mach_task_self(), self);
+#endif
+    return rusage;
+}
+
+#if __APPLE__
+struct rusage_ rusage_get_host_thread(unsigned int thread) {
+    struct rusage_ rusage = {};
     thread_basic_info_data_t info;
     mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
-    thread_info(mach_thread_self(), THREAD_BASIC_INFO, (thread_info_t) &info, &count);
+    if (thread_info(thread, THREAD_BASIC_INFO, (thread_info_t) &info, &count) != KERN_SUCCESS)
+        return rusage;
     rusage.utime.sec = info.user_time.seconds;
     rusage.utime.usec = info.user_time.microseconds;
     rusage.stime.sec = info.system_time.seconds;
     rusage.stime.usec = info.system_time.microseconds;
-#endif
     return rusage;
+}
+#endif
+
+// CPU time of a whole thread group: the live threads' host threads plus
+// what exited threads already added to group->rusage. Caller holds pids_lock.
+struct rusage_ rusage_get_group(struct tgroup *group) {
+    lock(&group->lock);
+    struct rusage_ total = group->rusage;
+    struct task *task;
+    list_for_each_entry(&group->threads, task, group_links) {
+        if (task->exiting || task->zombie)
+            continue;
+        struct rusage_ r = {};
+        if (task == current) {
+            r = rusage_get_current();
+        } else {
+#if __APPLE__
+            r = rusage_get_host_thread(pthread_mach_thread_np(task->thread));
+#elif __linux__
+            clockid_t clock;
+            struct timespec ts;
+            if (pthread_getcpuclockid(task->thread, &clock) == 0 && clock_gettime(clock, &ts) == 0) {
+                r.utime.sec = ts.tv_sec;
+                r.utime.usec = ts.tv_nsec / 1000;
+            }
+#endif
+        }
+        rusage_add(&total, &r);
+    }
+    unlock(&group->lock);
+    return total;
 }
 
 static void timeval_add(struct timeval_ *dst, struct timeval_ *src) {
@@ -201,6 +244,12 @@ dword_t sys_getrusage(dword_t who, addr_t rusage_addr) {
     struct rusage_ rusage;
     switch (who) {
         case RUSAGE_SELF_:
+            // the whole process, as on Linux
+            lock(&pids_lock);
+            rusage = rusage_get_group(current->group);
+            unlock(&pids_lock);
+            break;
+        case RUSAGE_THREAD_:
             rusage = rusage_get_current();
             break;
         case RUSAGE_CHILDREN_:

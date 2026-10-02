@@ -41,7 +41,8 @@
 #define CLONE_NEWNET_ 0x40000000
 #define CLONE_IO_ 0x80000000
 #define IMPLEMENTED_FLAGS (CLONE_VM_|CLONE_FILES_|CLONE_FS_|CLONE_SIGHAND_|CLONE_SYSVSEM_|CLONE_VFORK_|CLONE_THREAD_|\
-        CLONE_SETTLS_|CLONE_CHILD_SETTID_|CLONE_PARENT_SETTID_|CLONE_CHILD_CLEARTID_|CLONE_DETACHED_)
+        CLONE_SETTLS_|CLONE_CHILD_SETTID_|CLONE_PARENT_SETTID_|CLONE_CHILD_CLEARTID_|CLONE_DETACHED_|\
+        CLONE_UNTRACED_)
 
 static struct tgroup *tgroup_copy(struct tgroup *old_group) {
     struct tgroup *group = malloc(sizeof(struct tgroup));
@@ -143,6 +144,9 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
             goto fail_free_sighand;
     if (flags & CLONE_CHILD_CLEARTID_)
         task->clear_tid = ctid_addr;
+    // A new thread sharing memory must not inherit the parent's signal stack
+    if ((flags & (CLONE_VM_ | CLONE_VFORK_)) == CLONE_VM_)
+        task->altstack = task->altstack_size = 0;
     task->exit_signal = flags & CSIGNAL_;
 
     // remember to do CLONE_SYSVSEM

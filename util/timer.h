@@ -62,6 +62,7 @@ struct timer {
     timer_callback_t callback;
     void *data;
     lock_t lock;
+    cond_t cond; // signalled when the timer is changed, wakes the timer thread
 
     bool dead; // set by timer_free, the thread will free the timer if this is set when it finishes
 };

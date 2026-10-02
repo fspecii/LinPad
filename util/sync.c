@@ -1,3 +1,9 @@
+// before the iSH headers, which redefine words the system headers use
+#include <execinfo.h>
+#include <stdio.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
 #include <errno.h>
 #include <limits.h>
 #include "kernel/task.h"
@@ -129,3 +135,106 @@ void sigusr1_handler() {
     }
 #endif
 
+
+#if WRLOCK_DEBUG
+
+// Per-thread list of held wrlocks, linked into a global list so a waiter can
+// print the holders of the lock it waits for.
+#define WRLOCK_HELD_MAX 32
+struct wrlock_held {
+    wrlock_t *lock;
+    bool write;
+    const char *file;
+    int line;
+};
+struct wrlock_thread {
+    struct wrlock_thread *next;
+    pthread_t thread;
+    int pid;
+    int count;
+    struct wrlock_held held[WRLOCK_HELD_MAX];
+};
+static pthread_mutex_t wrlock_threads_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct wrlock_thread *wrlock_threads;
+static __thread struct wrlock_thread *wrlock_self;
+
+static struct wrlock_thread *wrlock_thread_self(void) {
+    if (wrlock_self == NULL) {
+        wrlock_self = calloc(1, sizeof(*wrlock_self));
+        wrlock_self->thread = pthread_self();
+        pthread_mutex_lock(&wrlock_threads_lock);
+        wrlock_self->next = wrlock_threads;
+        wrlock_threads = wrlock_self;
+        pthread_mutex_unlock(&wrlock_threads_lock);
+    }
+    wrlock_self->pid = current_pid();
+    return wrlock_self;
+}
+
+static void wrlock_debug_backtrace(void) {
+    void *frames[32];
+    int n = backtrace(frames, 32);
+    backtrace_symbols_fd(frames, n, STDERR_FILENO);
+}
+
+void wrlock_debug_check(wrlock_t *lock, bool write, const char *file, int line) {
+    struct wrlock_thread *self = wrlock_thread_self();
+    for (int i = 0; i < self->count; i++) {
+        struct wrlock_held *h = &self->held[i];
+        if (h->lock == lock) {
+            fprintf(stderr, "WRLOCK: pid %d takes %p for %s at %s:%d, but already holds it for %s since %s:%d\n",
+                    self->pid, (void *) lock, write ? "write" : "read", file, line,
+                    h->write ? "write" : "read", h->file, h->line);
+            wrlock_debug_backtrace();
+        }
+    }
+}
+
+void wrlock_debug_acquired(wrlock_t *lock, bool write, const char *file, int line) {
+    struct wrlock_thread *self = wrlock_thread_self();
+    pthread_mutex_lock(&wrlock_threads_lock);
+    if (self->count < WRLOCK_HELD_MAX)
+        self->held[self->count] = (struct wrlock_held) {lock, write, file, line};
+    self->count++;
+    pthread_mutex_unlock(&wrlock_threads_lock);
+}
+
+void wrlock_debug_released(wrlock_t *lock) {
+    struct wrlock_thread *self = wrlock_thread_self();
+    pthread_mutex_lock(&wrlock_threads_lock);
+    int n = self->count < WRLOCK_HELD_MAX ? self->count : WRLOCK_HELD_MAX;
+    int i;
+    for (i = n - 1; i >= 0; i--) {
+        if (self->held[i].lock == lock)
+            break;
+    }
+    if (i < 0) {
+        fprintf(stderr, "WRLOCK: pid %d releases %p which it doesn't hold\n", self->pid, (void *) lock);
+        wrlock_debug_backtrace();
+    } else {
+        memmove(&self->held[i], &self->held[i + 1], (n - i - 1) * sizeof(self->held[0]));
+        self->count--;
+    }
+    pthread_mutex_unlock(&wrlock_threads_lock);
+}
+
+void wrlock_debug_wait(pthread_cond_t *cond, wrlock_t *lock, bool write, const char *file, int line) {
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += 5;
+    if (pthread_cond_timedwait(cond, &lock->m, &deadline) != ETIMEDOUT)
+        return;
+    pthread_mutex_lock(&wrlock_threads_lock);
+    fprintf(stderr, "WRLOCK: pid %d waited 5 s for %s of %p at %s:%d (readers %d, writers %d, writer active %d); holders:\n",
+            current_pid(), write ? "write" : "read", (void *) lock, file, line,
+            atomic_load(&lock->readers), atomic_load(&lock->writers), lock->writer_active);
+    for (struct wrlock_thread *t = wrlock_threads; t != NULL; t = t->next) {
+        for (int i = 0; i < t->count && i < WRLOCK_HELD_MAX; i++) {
+            if (t->held[i].lock == lock)
+                fprintf(stderr, "WRLOCK:   pid %d holds it for %s since %s:%d\n", t->pid,
+                        t->held[i].write ? "write" : "read", t->held[i].file, t->held[i].line);
+        }
+    }
+    pthread_mutex_unlock(&wrlock_threads_lock);
+}
+#endif

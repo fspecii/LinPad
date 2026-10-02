@@ -9,6 +9,7 @@
 #include "fs/dev.h"
 #include "kernel/task.h"
 #include "kernel/errno.h"
+#include "kernel/inotify.h"
 
 struct mount *find_mount_and_trim_path(char *path) {
     struct mount *mount = mount_find(path);
@@ -37,11 +38,23 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
 
     // TODO really, really, seriously reconsider what I'm doing with the strings
     char path[MAX_PATH];
-    int err = path_normalize(at, path_raw, path, N_SYMLINK_FOLLOW |
+    int err = path_normalize(at, path_raw, path,
+            // O_PATH|O_NOFOLLOW opens the link itself, which iSH can't; keep following
+            ((flags & O_NOFOLLOW_) && !(flags & (1 << 21)) /* O_PATH */ ? N_SYMLINK_NOFOLLOW : N_SYMLINK_FOLLOW) |
             (flags & O_CREAT_ ? N_PARENT_DIR_WRITE : 0));
     if (err < 0)
         return ERR_PTR(err);
+    // inotify: remember the full path and whether this open creates the file
+    bool notify = inotify_watch_count != 0;
+    char full[MAX_PATH];
+    if (notify)
+        strcpy(full, path);
     struct mount *mount = find_mount_and_trim_path(path);
+    bool existed = true;
+    if (notify && (flags & O_CREAT_)) {
+        struct statbuf before;
+        existed = mount->fs->stat(mount, path, &before) >= 0;
+    }
     struct fd *fd = mount->fs->open(mount, path, flags, mode);
     if (IS_ERR(fd)) {
         // if an error happens after this point, fd_close will release the
@@ -101,6 +114,14 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
     err = _ENOTDIR;
     if (!S_ISDIR(fd->type) && flags & O_DIRECTORY_)
         goto error;
+    if (notify) {
+        if (!existed)
+            fsnotify_create(full, false);
+        else if ((flags & O_TRUNC_) && (flags & (O_WRONLY_ | O_RDWR_)))
+            fsnotify_path(full, IN_MODIFY_);
+        if (inotify_wants(IN_OPEN_))
+            fsnotify_path_isdir(full, IN_OPEN_, S_ISDIR(fd->type));
+    }
     return fd;
 
 error:
@@ -149,6 +170,12 @@ int generic_linkat(struct fd *src_at, const char *src_raw, struct fd *dst_at, co
     err = path_normalize(dst_at, dst_raw, dst, N_SYMLINK_NOFOLLOW | N_PARENT_DIR_WRITE);
     if (err < 0)
         return err;
+    char full_src[MAX_PATH], full_dst[MAX_PATH];
+    bool notify = inotify_watch_count != 0;
+    if (notify) {
+        strcpy(full_src, src);
+        strcpy(full_dst, dst);
+    }
     struct mount *mount = find_mount_and_trim_path(src);
     struct mount *dst_mount = find_mount_and_trim_path(dst);
     if (mount != dst_mount)
@@ -159,6 +186,10 @@ int generic_linkat(struct fd *src_at, const char *src_raw, struct fd *dst_at, co
         err = mount->fs->link(mount, src, dst);
     mount_release(mount);
     mount_release(dst_mount);
+    if (notify && err >= 0) {
+        fsnotify_path(full_src, IN_ATTRIB_);
+        fsnotify_create(full_dst, false);
+    }
     return err;
 }
 
@@ -171,11 +202,17 @@ int generic_unlinkat(struct fd *at, const char *path_raw) {
     int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW | N_PARENT_DIR_WRITE);
     if (err < 0)
         return err;
+    bool notify = inotify_watch_count != 0;
+    char full[MAX_PATH];
+    if (notify)
+        strcpy(full, path);
     struct mount *mount = find_mount_and_trim_path(path);
     err = _EPERM;
     if (mount->fs->unlink)
         err = mount->fs->unlink(mount, path);
     mount_release(mount);
+    if (notify && err >= 0)
+        fsnotify_delete(full, false);
     return err;
 }
 
@@ -192,6 +229,12 @@ int generic_renameat(struct fd *src_at, const char *src_raw, struct fd *dst_at, 
         return err;
     if (contains_mount_point(src))
         return _EBUSY;
+    bool notify = inotify_watch_count != 0;
+    char full_src[MAX_PATH], full_dst[MAX_PATH];
+    if (notify) {
+        strcpy(full_src, src);
+        strcpy(full_dst, dst);
+    }
     struct mount *mount = find_mount_and_trim_path(src);
     struct mount *dst_mount = find_mount_and_trim_path(dst);
     if (mount != dst_mount)
@@ -200,8 +243,15 @@ int generic_renameat(struct fd *src_at, const char *src_raw, struct fd *dst_at, 
         err = _EPERM;
     else
         err = mount->fs->rename(mount, src, dst);
+    bool isdir = false;
+    if (notify && err >= 0) {
+        struct statbuf moved;
+        isdir = mount->fs->stat(mount, dst, &moved) >= 0 && S_ISDIR(moved.mode);
+    }
     mount_release(mount);
     mount_release(dst_mount);
+    if (notify && err >= 0)
+        fsnotify_move(full_src, full_dst, isdir);
     return err;
 }
 
@@ -210,11 +260,17 @@ int generic_symlinkat(const char *target, struct fd *at, const char *link_raw) {
     int err = path_normalize(at, link_raw, link, N_SYMLINK_NOFOLLOW | N_PARENT_DIR_WRITE);
     if (err < 0)
         return err;
+    bool notify = inotify_watch_count != 0;
+    char full[MAX_PATH];
+    if (notify)
+        strcpy(full, link);
     struct mount *mount = find_mount_and_trim_path(link);
     err = _EPERM;
     if (mount->fs->symlink)
         err = mount->fs->symlink(mount, target, link);
     mount_release(mount);
+    if (notify && err >= 0)
+        fsnotify_create(full, false);
     return err;
 }
 
@@ -228,11 +284,17 @@ int generic_mknodat(struct fd *at, const char *path_raw, mode_t_ mode, dev_t_ de
     int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW | N_PARENT_DIR_WRITE);
     if (err < 0)
         return err;
+    bool notify = inotify_watch_count != 0;
+    char full[MAX_PATH];
+    if (notify)
+        strcpy(full, path);
     struct mount *mount = find_mount_and_trim_path(path);
     err = _EPERM;
     if (mount->fs->mknod)
         err = mount->fs->mknod(mount, path, mode, dev);
     mount_release(mount);
+    if (notify && err >= 0)
+        fsnotify_create(full, false);
     return err;
 }
 
@@ -241,11 +303,17 @@ int generic_setattrat(struct fd *at, const char *path_raw, struct attr attr, boo
     int err = path_normalize(at, path_raw, path, follow_links ? N_SYMLINK_FOLLOW : N_SYMLINK_NOFOLLOW);
     if (err < 0)
         return err;
+    bool notify = inotify_watch_count != 0;
+    char full[MAX_PATH];
+    if (notify)
+        strcpy(full, path);
     struct mount *mount = find_mount_and_trim_path(path);
     err = _EPERM;
     if (mount->fs->setattr)
         err = mount->fs->setattr(mount, path, attr);
     mount_release(mount);
+    if (notify && err >= 0)
+        fsnotify_path(full, attr.type == attr_size ? IN_MODIFY_ : IN_ATTRIB_);
     return err;
 }
 
@@ -254,11 +322,17 @@ int generic_utime(struct fd *at, const char *path_raw, struct timespec atime, st
     int err = path_normalize(at, path_raw, path, follow_links ? N_SYMLINK_FOLLOW : N_SYMLINK_NOFOLLOW);
     if (err < 0)
         return err;
+    bool notify = inotify_watch_count != 0;
+    char full[MAX_PATH];
+    if (notify)
+        strcpy(full, path);
     struct mount *mount = find_mount_and_trim_path(path);
     err = _EPERM;
     if (mount->fs->utime)
         err = mount->fs->utime(mount, path, atime, mtime);
     mount_release(mount);
+    if (notify && err >= 0)
+        fsnotify_path(full, IN_ATTRIB_);
     return err;
 }
 
@@ -280,11 +354,17 @@ int generic_mkdirat(struct fd *at, const char *path_raw, mode_t_ mode) {
     int err = path_normalize(at, path_raw, path, N_SYMLINK_FOLLOW | N_PARENT_DIR_WRITE);
     if (err < 0)
         return err;
+    bool notify = inotify_watch_count != 0;
+    char full[MAX_PATH];
+    if (notify)
+        strcpy(full, path);
     struct mount *mount = find_mount_and_trim_path(path);
     err = _EPERM;
     if (mount->fs->mkdir)
         err = mount->fs->mkdir(mount, path, mode);
     mount_release(mount);
+    if (notify && err >= 0)
+        fsnotify_create(full, true);
     return err;
 }
 
@@ -295,11 +375,17 @@ int generic_rmdirat(struct fd *at, const char *path_raw) {
         return err;
     if (contains_mount_point(path))
         return _EBUSY;
+    bool notify = inotify_watch_count != 0;
+    char full[MAX_PATH];
+    if (notify)
+        strcpy(full, path);
     struct mount *mount = find_mount_and_trim_path(path);
     err = _EPERM;
     if (mount->fs->rmdir)
         err = mount->fs->rmdir(mount, path);
     mount_release(mount);
+    if (notify && err >= 0)
+        fsnotify_delete(full, true);
     return err;
 }
 

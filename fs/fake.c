@@ -482,11 +482,20 @@ static int fakefs_mknod(struct mount *mount, const char *path, mode_t_ mode, dev
 static int fakefs_stat(struct mount *mount, const char *path, struct statbuf *fake_stat) {
     ISH_SIGNPOST_SCOPE_BEGIN(fs, "fakefs_stat", _fs_spid);
     struct fakefs_db *fs = &mount->fakefs;
-    db_begin_read(fs);
     struct ish_stat ishstat;
     ino_t inode;
-    if (!path_read_stat(fs, path, &ishstat, &inode)) {
-        db_rollback(fs);
+    // The metadata comes from the cache or one read transaction; the host
+    // stat below doesn't need the db lock.
+    int known = path_read_stat_cached(fs, path, &ishstat, &inode);
+    if (known < 0) {
+        db_begin_read(fs);
+        known = path_read_stat(fs, path, &ishstat, &inode);
+        if (known)
+            db_commit(fs);
+        else
+            db_rollback(fs);
+    }
+    if (!known) {
         /* Auto-create for bind-mounted paths */
         if (is_under_bind_mount(path)) {
             inode = bind_mount_ensure_inode(fs, mount, path);
@@ -513,10 +522,8 @@ static int fakefs_stat(struct mount *mount, const char *path, struct statbuf *fa
         /* For bind-mounted paths, stat the host path directly to avoid
          * AT_SYMLINK_NOFOLLOW returning symlink stats instead of dir stats. */
         struct stat real_stat;
-        if (stat(host_stat_path, &real_stat) < 0) {
-            db_commit(fs);
+        if (stat(host_stat_path, &real_stat) < 0)
             return errno_map();
-        }
         /* Copy basic fields from real stat */
         fake_stat->size = real_stat.st_size;
         fake_stat->nlink = real_stat.st_nlink;
@@ -527,7 +534,6 @@ static int fakefs_stat(struct mount *mount, const char *path, struct statbuf *fa
     } else {
         err = realfs.stat(mount, path, fake_stat);
     }
-    db_commit(fs);
     if (err < 0)
         return err;
     fake_stat->inode = inode;
@@ -536,6 +542,33 @@ static int fakefs_stat(struct mount *mount, const char *path, struct statbuf *fa
     fake_stat->gid = ishstat.gid;
     fake_stat->rdev = ishstat.rdev;
     ISH_SIGNPOST_SCOPE_END(fs, "fakefs_stat", _fs_spid);
+    return 0;
+}
+
+// The type and permissions live in the db, so a path walk's directory check
+// needs no host stat. Bind-mounted paths take the full stat (it creates
+// their metadata on demand).
+static int fakefs_stat_mode(struct mount *mount, const char *path, struct statbuf *fake_stat) {
+    struct fakefs_db *fs = &mount->fakefs;
+    struct ish_stat ishstat;
+    ino_t inode;
+    int known = path_read_stat_cached(fs, path, &ishstat, &inode);
+    if (known < 0) {
+        db_begin_read(fs);
+        known = path_read_stat(fs, path, &ishstat, &inode);
+        if (known)
+            db_commit(fs);
+        else
+            db_rollback(fs);
+    }
+    if (!known)
+        return fakefs_stat(mount, path, fake_stat);
+    memset(fake_stat, 0, sizeof(*fake_stat));
+    fake_stat->inode = inode;
+    fake_stat->mode = ishstat.mode;
+    fake_stat->uid = ishstat.uid;
+    fake_stat->gid = ishstat.gid;
+    fake_stat->rdev = ishstat.rdev;
     return 0;
 }
 
@@ -653,6 +686,13 @@ static ssize_t file_readlink(struct mount *mount, const char *path, char *buf, s
 
 static ssize_t fakefs_readlink(struct mount *mount, const char *path, char *buf, size_t bufsize) {
     struct fakefs_db *fs = &mount->fakefs;
+    // Path walks call this for every component; almost none are symlinks.
+    struct ish_stat cached;
+    int known = path_read_stat_cached(fs, path, &cached, NULL);
+    if (known == 0)
+        return _ENOENT;
+    if (known == 1 && !S_ISLNK(cached.mode))
+        return _EINVAL;
     db_begin_read(fs);
     struct ish_stat ishstat;
     if (!path_read_stat(fs, path, &ishstat, NULL)) {
@@ -1051,6 +1091,7 @@ const struct fs_ops fakefs = {
 
     .close = realfs_close,
     .stat = fakefs_stat,
+    .stat_mode = fakefs_stat_mode,
     .fstat = fakefs_fstat,
     .flock = realfs_flock,
     .setattr = fakefs_setattr,

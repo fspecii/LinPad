@@ -1,4 +1,5 @@
 #include "debug.h"
+#include <stdlib.h>
 #include <string.h>
 #include <signal.h>
 #include <stdio.h>
@@ -17,8 +18,8 @@
 int xsave_extra = 0;
 int fxsave_extra = 0;
 static void sigmask_set(sigset_t_ set);
-static void altstack_to_user(struct sighand *sighand, struct stack_t_ *user_stack);
-static bool is_on_altstack(addr_t sp, struct sighand *sighand);
+static void altstack_to_user(struct task *task, struct stack_t_ *user_stack);
+static bool is_on_altstack(addr_t sp, struct task *task);
 
 static int signal_is_blockable(int sig) {
     return sig != SIGKILL_ && sig != SIGSTOP_;
@@ -94,6 +95,7 @@ void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
     deliver_signal_unlocked(task, sig, info);
     unlock(&task->sighand->lock);
     cpu_poke(&task->cpu);
+    signalfd_notify(task, sig);
 }
 
 void send_signal(struct task *task, int sig, struct siginfo_ info) {
@@ -120,7 +122,12 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
     if (sighand == NULL)
         return;
     lock(&sighand->lock);
-    if (signal_action(sighand, sig) != SIGNAL_IGNORE) {
+    // Like Linux, a blocked signal is queued even if its action is to ignore
+    // it, since the action may change before it is unblocked (and signalfd
+    // readers depend on it, e.g. for SIGCHLD).
+    bool queued = signal_action(sighand, sig) != SIGNAL_IGNORE ||
+        (signal_is_blockable(sig) && sigset_has(task->blocked, sig));
+    if (queued) {
         deliver_signal_unlocked(task, sig, info);
         // Poke the target CPU so it exits the JIT loop at the next gadget
         // boundary instead of waiting for INT_TIMER (up to 1024 cycles).
@@ -128,6 +135,8 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
         cpu_poke(&task->cpu);
     }
     unlock(&sighand->lock);
+    if (queued)
+        signalfd_notify(task, sig);
 
     if (sig == SIGCONT_ || sig == SIGKILL_) {
         lock(&task->group->lock);
@@ -347,7 +356,7 @@ static void setup_rt_sigframe(struct siginfo_ *info, struct rt_sigframe_ *frame)
     frame->info = *info;
     frame->uc.flags = 0;
     frame->uc.link = 0;
-    altstack_to_user(current->sighand, &frame->uc.stack);
+    altstack_to_user(current, &frame->uc.stack);
     setup_sigcontext(&frame->uc.mcontext, &current->cpu);
     frame->uc.sigmask = current->blocked;
 
@@ -493,8 +502,8 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
     current->cpu.eip = sighand->action[info->sig].handler;
     dword_t sp = current->cpu.esp;
 #endif
-    if (sighand->altstack && !is_on_altstack(sp, sighand)) {
-        sp = sighand->altstack + sighand->altstack_size;
+    if ((action->flags & SA_ONSTACK_) && current->altstack && !is_on_altstack(sp, current)) {
+        sp = current->altstack + current->altstack_size;
     }
     if (xsave_extra) {
         // do as the kernel does
@@ -538,11 +547,17 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
 #endif
     }
 
-    // install frame
+    // Install the frame without the sighand lock: writing guest memory can
+    // wait on the mm lock behind another thread's page fault, and senders
+    // (kill, exit_group, shutdown) take this lock while holding pids_lock.
+    // Only this thread removes entries from its own signal queue, so the
+    // caller's iteration stays valid.
+    unlock(&sighand->lock);
     if (user_write(sp, &frame, frame_size)) {
-        printk("failed to install frame for %d at %#x\n", info->sig, sp);
+        printk("failed to install frame for %d at %#llx\n", info->sig, (unsigned long long) sp);
         deliver_signal(current, SIGSEGV_, SIGINFO_NIL);
     }
+    lock(&sighand->lock);
 
 #if defined(GUEST_ARM64)
     // Set LR to the signal return trampoline.
@@ -700,10 +715,10 @@ int64_t sys_rt_sigreturn() {
 
     lock(&current->sighand->lock);
     // FIXME this duplicates logic from sys_sigaltstack
-    if (!is_on_altstack(sp, current->sighand) &&
+    if (!is_on_altstack(sp, current) &&
             frame.uc.stack.size >= MINSIGSTKSZ_) {
-        current->sighand->altstack = frame.uc.stack.stack;
-        current->sighand->altstack_size = frame.uc.stack.size;
+        current->altstack = frame.uc.stack.stack;
+        current->altstack_size = frame.uc.stack.size;
     }
     sigmask_set(frame.uc.sigmask);
     unlock(&current->sighand->lock);
@@ -903,20 +918,20 @@ int_t sys_rt_sigpending(addr_t set_addr, dword_t size) {
     return user_put_sigset(set_addr, size, pending);
 }
 
-static bool is_on_altstack(addr_t sp, struct sighand *sighand) {
-    return sp > sighand->altstack && sp <= sighand->altstack + sighand->altstack_size;
+static bool is_on_altstack(addr_t sp, struct task *task) {
+    return sp > task->altstack && sp <= task->altstack + task->altstack_size;
 }
 
-static void altstack_to_user(struct sighand *sighand, struct stack_t_ *user_stack) {
-    user_stack->stack = sighand->altstack;
-    user_stack->size = sighand->altstack_size;
+static void altstack_to_user(struct task *task, struct stack_t_ *user_stack) {
+    user_stack->stack = task->altstack;
+    user_stack->size = task->altstack_size;
     user_stack->flags = 0;
-    if (sighand->altstack == 0)
+    if (task->altstack == 0)
         user_stack->flags |= SS_DISABLE_;
 #if defined(GUEST_ARM64)
-    if (is_on_altstack(current->cpu.sp, sighand))
+    if (is_on_altstack(task->cpu.sp, task))
 #else
-    if (is_on_altstack(current->cpu.esp, sighand))
+    if (is_on_altstack(task->cpu.esp, task))
 #endif
         user_stack->flags |= SS_ONSTACK_;
 }
@@ -924,41 +939,36 @@ static void altstack_to_user(struct sighand *sighand, struct stack_t_ *user_stac
 dword_t sys_sigaltstack(addr_t ss_addr, addr_t old_ss_addr) {
     STRACE("sigaltstack(0x%x, 0x%x)", ss_addr, old_ss_addr);
     struct sighand *sighand = current->sighand;
+    // guest memory is accessed outside the sighand lock (see receive_signal)
+    struct stack_t_ ss;
+    if (ss_addr != 0 && user_get(ss_addr, ss))
+        return _EFAULT;
     lock(&sighand->lock);
-    if (old_ss_addr != 0) {
-        struct stack_t_ old_ss;
-        altstack_to_user(sighand, &old_ss);
-        if (user_put(old_ss_addr, old_ss)) {
-            unlock(&sighand->lock);
-            return _EFAULT;
-        }
-    }
+    struct stack_t_ old_ss;
+    altstack_to_user(current, &old_ss);
     if (ss_addr != 0) {
 #if defined(GUEST_ARM64)
-        if (is_on_altstack(current->cpu.sp, sighand)) {
+        if (is_on_altstack(current->cpu.sp, current)) {
 #else
-        if (is_on_altstack(current->cpu.esp, sighand)) {
+        if (is_on_altstack(current->cpu.esp, current)) {
 #endif
             unlock(&sighand->lock);
             return _EPERM;
         }
-        struct stack_t_ ss;
-        if (user_get(ss_addr, ss)) {
-            unlock(&sighand->lock);
-            return _EFAULT;
-        }
         if (ss.flags & SS_DISABLE_) {
-            sighand->altstack = 0;
+            current->altstack = 0;
         } else {
             if (ss.size < MINSIGSTKSZ_) {
                 unlock(&sighand->lock);
                 return _ENOMEM;
             }
-            sighand->altstack = ss.stack;
-            sighand->altstack_size = ss.size;
+            current->altstack = ss.stack;
+            current->altstack_size = ss.size;
         }
     }
     unlock(&sighand->lock);
+    if (old_ss_addr != 0 && user_put(old_ss_addr, old_ss))
+        return _EFAULT;
     return 0;
 }
 
@@ -1052,34 +1062,69 @@ static int kill_task(struct task *task, dword_t sig) {
     return 0;
 }
 
+// Signal a set of processes collected under pids_lock. The lock is taken again
+// for each one instead of being held across the whole set, so a target that is
+// slow to take the signal (its sighand lock busy) never stalls every other
+// process that needs pids_lock, e.g. to exit.
+static int kill_pids(const pid_t_ *pids, int count, dword_t sig) {
+    int err = _ESRCH;
+    for (int i = 0; i < count; i++) {
+        lock(&pids_lock);
+        // like Linux, a zombie can still be signaled (to no effect)
+        struct task *task = pid_get_task_zombie(pids[i]);
+        int kill_err = task != NULL ? kill_task(task, sig) : _ESRCH;
+        unlock(&pids_lock);
+        // an error only if no process could be signaled
+        if (err != 0 && kill_err != _ESRCH)
+            err = kill_err;
+    }
+    return err;
+}
+
+// must be called with pids_lock, which it releases
 static int kill_group(pid_t_ pgid, dword_t sig) {
     struct pid *pid = pid_get(pgid);
     if (pid == NULL) {
         unlock(&pids_lock);
         return _ESRCH;
     }
+    int count = 0;
     struct tgroup *tgroup;
-    int err = _EPERM;
-    list_for_each_entry(&pid->pgroup, tgroup, pgroup) {
-        int kill_err = kill_task(tgroup->leader, sig);
-        // killing a group should return an error only if no process can be signaled
-        if (err == _EPERM)
-            err = kill_err;
+    list_for_each_entry(&pid->pgroup, tgroup, pgroup)
+        count++;
+    pid_t_ *pids = malloc(sizeof(pid_t_) * (count + 1));
+    if (pids == NULL) {
+        unlock(&pids_lock);
+        return _ENOMEM;
     }
+    count = 0;
+    list_for_each_entry(&pid->pgroup, tgroup, pgroup)
+        pids[count++] = tgroup->leader->pid;
+    unlock(&pids_lock);
+    int err = kill_pids(pids, count, sig);
+    free(pids);
     return err;
 }
 
+// must be called with pids_lock, which it releases
 static int kill_everything(dword_t sig) {
-    int err = _EPERM;
+    pid_t_ *pids = malloc(sizeof(pid_t_) * MAX_PID);
+    if (pids == NULL) {
+        unlock(&pids_lock);
+        return _ENOMEM;
+    }
+    int count = 0;
     for (int i = 2; i < MAX_PID; i++) {
         struct task *task = pid_get_task(i);
         if (task == NULL || task == current || !task_is_leader(task))
             continue;
-        int kill_err = kill_task(task, sig);
-        if (err == _EPERM)
-            err = kill_err;
+        pids[count++] = i;
     }
-    return err;
+    unlock(&pids_lock);
+    int err = kill_pids(pids, count, sig);
+    free(pids);
+    // like Linux, kill(-1) fails with ESRCH only when there was nobody to signal
+    return count == 0 ? _ESRCH : err;
 }
 
 static int do_kill(pid_t_ pid, dword_t sig, pid_t_ tgid) {
@@ -1089,29 +1134,25 @@ static int do_kill(pid_t_ pid, dword_t sig, pid_t_ tgid) {
     if (pid == 0)
         pid = -current->group->pgid;
 
-    int err;
     lock(&pids_lock);
+    if (pid == -1)
+        return kill_everything(sig);
+    if (pid < 0)
+        return kill_group(-pid, sig);
 
-    if (pid == -1) {
-        err = kill_everything(sig);
-    } else if (pid < 0) {
-        err = kill_group(-pid, sig);
-    } else {
-        struct task *task = pid_get_task(pid);
-        if (task == NULL) {
-            unlock(&pids_lock);
-            return _ESRCH;
-        }
-
-        // If tgid is nonzero, it must be correct
-        if (tgid != 0 && task->tgid != tgid) {
-            unlock(&pids_lock);
-            return _ESRCH;
-        }
-
-        err = kill_task(task, sig);
+    struct task *task = pid_get_task(pid);
+    if (task == NULL) {
+        unlock(&pids_lock);
+        return _ESRCH;
     }
 
+    // If tgid is nonzero, it must be correct
+    if (tgid != 0 && task->tgid != tgid) {
+        unlock(&pids_lock);
+        return _ESRCH;
+    }
+
+    int err = kill_task(task, sig);
     unlock(&pids_lock);
     return err;
 }

@@ -25,6 +25,14 @@ add_project_arguments('-DENGINE_' + get_option('engine').to_upper() + '=1', lang
 guest_arch = get_option('guest_arch')
 add_project_arguments('-DGUEST_' + guest_arch.to_upper() + '=1', language: 'c')
 
+# Native same-architecture JIT (jit/). Off by default; ISH_JIT=1 at runtime.
+if get_option('jit').enabled()
+    if guest_arch != 'arm64' or host_machine.cpu_family() != 'aarch64'
+        error('-Djit=enabled requires an arm64 guest on an aarch64 host')
+    endif
+    add_project_arguments('-DISH_JIT=1', language: 'c')
+endif
+
 if get_option('no_crlf')
     add_project_arguments('-DNO_CRLF', language: 'c')
 endif
@@ -44,6 +52,14 @@ libm = cc.find_library('m', required: false)
 libdl = cc.find_library('dl', required: false)
 sqlite3 = cc.find_library('sqlite3')
 dependencies = [librt, libm, libdl, threads, sqlite3]
+
+virglrenderer = dependency('virglrenderer', static: true, required: get_option('virtgpu'))
+virtgpu_src = []
+if virglrenderer.found()
+    add_project_arguments('-DISH_VIRTGPU=1', language: 'c')
+    dependencies += virglrenderer
+    virtgpu_src += 'fs/dev_virtgpu.c'
+endif
 
 # vdso is arch-specific
 if guest_arch == 'x86'
@@ -111,6 +127,10 @@ elif guest_arch == 'arm64'
     ]
 endif
 
+if get_option('jit').enabled()
+    emu_src += ['jit/jit.c', 'jit/translate.c', 'jit/codemem.c', 'jit/pcache.c']
+endif
+
 libish_emu = library('ish_emu', emu_src, include_directories: includes)
 
 libfakefs = library('fakefs',
@@ -158,6 +178,8 @@ if get_option('kernel') == 'ish'
         'kernel/random.c',
         'kernel/misc.c',
         'kernel/eventfd.c',
+        'kernel/memfd.c',
+        'kernel/signalfd.c',
         'kernel/inotify.c',
         'kernel/ipc.c',
         'kernel/ptrace.c',
@@ -179,6 +201,7 @@ if get_option('kernel') == 'ish'
         'fs/proc/entry.c',
         'fs/proc/ish.c',
         'fs/proc/net.c',
+        'fs/proc/sys.c',
         'fs/proc/root.c',
         'fs/proc/pid.c',
 
@@ -186,6 +209,8 @@ if get_option('kernel') == 'ish'
 
         'fs/adhoc.c',
         'fs/sock.c',
+        'fs/netlink.c',
+        'fs/sysfs.c',
         'fs/pipe.c',
         'fs/sockrestart.c',
         'fs/lock.c',
@@ -208,10 +233,11 @@ if get_option('kernel') == 'ish'
         'util/signpost.c',
 
         'platform/' + host_machine.system() + '.c',
-    ]
+    ] + virtgpu_src
 
     libish = library('ish', src,
-        include_directories: includes)
+        include_directories: includes,
+        dependencies: virglrenderer)
     ish = declare_dependency(
         link_with: [libish, libish_emu, libfakefs],
         dependencies: dependencies,

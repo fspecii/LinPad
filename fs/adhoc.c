@@ -14,6 +14,12 @@ struct fd *adhoc_fd_create(const struct fd_ops *ops) {
     mount_retain(&adhoc_mount);
     fd->mount = &adhoc_mount;
     fd->stat = (struct statbuf) {};
+    // every anonymous file gets its own inode number, as on Linux
+    static _Atomic ino_t next_inode = 1;
+    fd->stat.inode = next_inode++;
+    fd->stat.mode = 0600;
+    fd->stat.dev = 0xd; // anon_inodefs-like device
+    fd->anon_name = "[unknown]";
     return fd;
 }
 
@@ -40,11 +46,13 @@ static int adhoc_fsetattr(struct fd *fd, struct attr attr) {
 }
 
 static int adhoc_getpath(struct fd *fd, char *buf) {
-    const char *type = "unknown"; // TODO allow this to be customized
-    if (fd->stat.inode == 0)
-        sprintf(buf, "anon_inode:[%s]", type);
+    // the targets of /proc/<pid>/fd/<n> links, as Linux prints them
+    if (S_ISSOCK(fd->stat.mode))
+        sprintf(buf, "socket:[%lu]", (unsigned long) fd->stat.inode);
+    else if (S_ISFIFO(fd->stat.mode))
+        sprintf(buf, "pipe:[%lu]", (unsigned long) fd->stat.inode);
     else
-        sprintf(buf, "%s:[%lu]", type, (unsigned long) fd->stat.inode);
+        sprintf(buf, "anon_inode:%s", fd->anon_name);
     return 0;
 }
 

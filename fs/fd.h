@@ -40,6 +40,11 @@ struct fd {
             uint64_t expirations;
         } timerfd;
         struct {
+            uint64_t mask; // sigset_t_
+            struct tgroup *group;
+            struct list fds; // in the list of all signalfds
+        } signalfd;
+        struct {
             int domain;
             int type;
             int protocol;
@@ -52,6 +57,13 @@ struct fd {
             char unix_name[108];
             struct fd *unix_peer; // locked by peer_lock, for simplicity
             cond_t unix_got_peer;
+            bool unix_connecting; // connect() done, accept() not yet
+            // while connecting: in the list of sockets accept() can claim,
+            // found by the id connect() sent through the host socket
+            struct list unix_connecting_link;
+            uint64_t unix_connect_id;
+            // fds sent before the other side accepted, handed over by accept()
+            struct list unix_scm_pending;
             // Queue of struct scm for sending file descriptors
             // locked by fd->lock
             struct list unix_scm;
@@ -60,6 +72,15 @@ struct fd {
                 uid_t_ uid;
                 uid_t_ gid;
             } unix_cred;
+            bool unix_passcred; // SO_PASSCRED
+            // credentials of the last message sent to this end, recorded at
+            // send time so they survive the sender closing (SCM_CREDENTIALS)
+            struct ucred_ unix_recv_cred;
+            bool unix_has_recv_cred;
+            // AF_NETLINK: host end that replies are written to, port id, groups
+            int netlink_peer;
+            uint32_t netlink_pid;
+            uint32_t netlink_groups;
         } socket;
 
         // See app/Pasteboard.m
@@ -101,6 +122,7 @@ struct fd {
     struct inode_data *inode;
     ino_t fake_inode;
     struct statbuf stat; // for adhoc fs
+    const char *anon_name; // adhoc fs: the "[eventfd]" in "anon_inode:[eventfd]"
     struct fd_sockrestart sockrestart; // argh
 
     // these are used for a variety of things related to the fd
@@ -184,6 +206,9 @@ void fdtable_do_cloexec(struct fdtable *table);
 struct fd *fdtable_get(struct fdtable *table, fd_t f);
 
 struct fd *f_get(fd_t f);
+// Like f_get, but takes a reference under the fd table lock, so the fd stays
+// valid even if another thread closes the descriptor. Release with fd_close.
+struct fd *f_get_retain(fd_t f);
 // steals a reference to the fd, gives it to the table on success and destroys it on error
 // flags is checked for O_CLOEXEC and O_NONBLOCK
 fd_t f_install(struct fd *fd, int flags);

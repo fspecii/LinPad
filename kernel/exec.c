@@ -209,6 +209,9 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
         }
     }
 
+    // other threads must be gone before their memory and fds go away
+    de_thread();
+
     // free the process's memory.
     // from this point on, if any error occurs the process will have to be
     // killed before it even starts. please don't be too sad about it, it's
@@ -312,17 +315,22 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
 
     // STACK TIME!
 
+    // Map enough stack up front for the strings, pointer arrays and auxv
+    // copied below: a growsdown fault only extends the stack 16 pages at a
+    // time, so argv+envp beyond ~64 KB used to fault during this copy.
+    pages_t stack_pages = (args_size(argv) + args_size(envp) + strlen(file) + 1 +
+            (argv.count + envp.count + 2) * sizeof(addr_t) + PAGE_SIZE) / PAGE_SIZE + 2;
 #ifdef GUEST_ARM64
     // ARM64: stack near top of 48-bit address space
-    if ((err = pt_map_nothing(current->mem, STACK_INIT_PAGE, 1, P_WRITE | P_GROWSDOWN)) < 0)
+    if ((err = pt_map_nothing(current->mem, STACK_INIT_PAGE - stack_pages + 1, stack_pages, P_WRITE | P_GROWSDOWN)) < 0)
         goto beyond_hope;
     if ((err = pt_map_nothing(current->mem, STACK_TOP_PAGE, 1, P_READ)) < 0)
         goto beyond_hope;
     write_wrunlock(&current->mem->lock);
     addr_t sp = STACK_TOP_ADDR;
 #else
-    // allocate 1 page of stack at 0xffffd, and let it grow down
-    if ((err = pt_map_nothing(current->mem, 0xffffd, 1, P_WRITE | P_GROWSDOWN)) < 0)
+    // allocate the argument pages of stack below 0xffffe, and let it grow down
+    if ((err = pt_map_nothing(current->mem, 0xffffd - stack_pages + 1, stack_pages, P_WRITE | P_GROWSDOWN)) < 0)
         goto beyond_hope;
     // Map a read-only guard page above the stack (page 0xffffe).
     if ((err = pt_map_nothing(current->mem, 0xffffe, 1, P_READ)) < 0)
@@ -723,7 +731,7 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
         if (action->handler != SIG_IGN_)
             action->handler = SIG_DFL_;
     }
-    current->sighand->altstack = 0;
+    current->altstack = 0;
     unlock(&current->sighand->lock);
 
     current->did_exec = true;
@@ -939,8 +947,19 @@ dword_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
             };
             const char *inject_args[16]; // base args + optional requires
             size_t inject_count = 0;
-            for (size_t i = 0; i < sizeof(inject_args_base)/sizeof(inject_args_base[0]); i++)
+            // V8's JIT runs correctly under the arm64 backend and is required
+            // for real WebAssembly (Vite's dev server, es-module-lexer, esbuild-wasm).
+            // ISH_NODE_JITLESS=1 restores the interpreter-only mode.
+            bool jitless = false;
+            for (const char *e = envp; *e != '\0'; e += strlen(e) + 1) {
+                if (strcmp(e, "ISH_NODE_JITLESS=1") == 0)
+                    jitless = true;
+            }
+            for (size_t i = 0; i < sizeof(inject_args_base)/sizeof(inject_args_base[0]); i++) {
+                if (!jitless && strcmp(inject_args_base[i], "--jitless") == 0)
+                    continue;
                 inject_args[inject_count++] = inject_args_base[i];
+            }
             for (size_t i = 0; i < sizeof(optional_requires)/sizeof(optional_requires[0]); i++) {
                 // Extract path after "--require="
                 const char *path = optional_requires[i] + 10; // strlen("--require=")

@@ -39,6 +39,7 @@ void mem_init(struct mem *mem) {
     mem->mmu.ops = &mem_mmu_ops;
     mem->mmu.asbestos = asbestos_new(&mem->mmu);
     mem->mmu.changes = 0;
+    mem->mmu.id = mmu_new_id();
     wrlock_init(&mem->lock);
     lock_init(&mem->cow_lock);
 }
@@ -232,16 +233,24 @@ static page_t pt_find_hole_from(struct mem *mem, pages_t size, page_t start) {
             continue;
         }
 
-        // L3 exists — check individual pages
-        if (mem_pt(mem, page) != NULL) {
-            in_hole = false;
-        } else {
-            if (!in_hole) { in_hole = true; hole_end = page + 1; }
-            if (hole_end - page >= size)
-                return page;
+        // L3 exists — check its pages directly, down to the start of this
+        // leaf (walking from the root for each page was most of the cost)
+        for (int i3 = PT_INDEX(page, 3); ; i3--) {
+            if (page <= MMAP_HOLE_END)
+                return BAD_PAGE;
+            if (l3[i3].data != NULL) {
+                in_hole = false;
+            } else {
+                if (!in_hole) { in_hole = true; hole_end = page + 1; }
+                if (hole_end - page >= size)
+                    return page;
+            }
+            if (page == 0)
+                return BAD_PAGE;
+            page--;
+            if (i3 == 0)
+                break;
         }
-        if (page == 0) break;
-        page--;
     }
     return BAD_PAGE;
 }
@@ -249,35 +258,52 @@ static page_t pt_find_hole_from(struct mem *mem, pages_t size, page_t start) {
 // Scan upward in the high address space (above 4GB) for large allocations
 // that don't fit in the low region. Used for Wasm guard regions etc.
 static page_t pt_find_hole_high(struct mem *mem, pages_t size) {
-    // Search from 0x100000 (4GB) upward to USER_ADDR_MAX_PAGE
-    // Use a simple strategy: scan upward looking for unallocated L0 subtrees
+    // Search from 0x100000 (4GB) upward to USER_ADDR_MAX_PAGE for a run of
+    // pages with no page tables (whole empty L0 subtrees) that also does not
+    // overlap a lazy reservation. Reservations allocate no page tables, so
+    // they have to be skipped explicitly or every large PROT_NONE
+    // reservation after the first lands on top of the previous one.
     page_t page = 0x100000; // Start at 4GB
-    page_t hole_start = page;
-    pages_t hole_size = 0;
-
     while (page < USER_ADDR_MAX_PAGE) {
-        int i0 = PT_INDEX(page, 0);
-        struct pt_node *l0 = mem->pgdir;
-        struct pt_node *l1 = l0 ? l0->children[i0] : NULL;
-        if (l1 == NULL) {
-            // Entire L0 subtree is empty (2^27 pages = 512GB)
+        page_t hole_start = page;
+        pages_t hole_size = 0;
+        bool found = false;
+        while (page < USER_ADDR_MAX_PAGE) {
+            int i0 = PT_INDEX(page, 0);
+            struct pt_node *l0 = mem->pgdir;
+            struct pt_node *l1 = l0 ? l0->children[i0] : NULL;
             page_t l0_size = (page_t)1 << (PT_BITS * 3);
             page_t l0_base = (page_t)i0 << (PT_BITS * 3);
-            if (hole_size == 0) hole_start = l0_base < page ? page : l0_base;
-            page_t subtree_end = l0_base + l0_size;
-            if (subtree_end > USER_ADDR_MAX_PAGE)
-                subtree_end = USER_ADDR_MAX_PAGE;
-            hole_size = subtree_end - hole_start;
-            if (hole_size >= size)
-                return hole_start;
-            page = subtree_end;
-            continue;
+            if (l1 == NULL) {
+                // Entire L0 subtree is empty (2^27 pages = 512GB)
+                if (hole_size == 0) hole_start = l0_base < page ? page : l0_base;
+                page_t subtree_end = l0_base + l0_size;
+                if (subtree_end > USER_ADDR_MAX_PAGE)
+                    subtree_end = USER_ADDR_MAX_PAGE;
+                hole_size = subtree_end - hole_start;
+                if (hole_size >= size) {
+                    found = true;
+                    break;
+                }
+                page = subtree_end;
+                continue;
+            }
+            // L1 exists — something is mapped here, skip
+            hole_size = 0;
+            page = l0_base + l0_size;
         }
-        // L1 exists — something is mapped here, skip
-        hole_size = 0;
-        page_t l0_size = (page_t)1 << (PT_BITS * 3);
-        page_t l0_base = (page_t)i0 << (PT_BITS * 3);
-        page = l0_base + l0_size;
+        if (!found)
+            return BAD_PAGE;
+        // Move past any reservation inside the candidate and retry from there.
+        page_t skip_to = 0;
+        for (struct mem_reservation *r = mem->reservations; r; r = r->next) {
+            if (r->start < hole_start + size && r->start + r->pages > hole_start &&
+                    r->start + r->pages > skip_to)
+                skip_to = r->start + r->pages;
+        }
+        if (skip_to == 0)
+            return hole_start;
+        page = skip_to;
     }
     return BAD_PAGE;
 }
@@ -375,6 +401,7 @@ void mem_init(struct mem *mem) {
     mem->mmu.ops = &mem_mmu_ops;
     mem->mmu.asbestos = asbestos_new(&mem->mmu);
     mem->mmu.changes = 0;
+    mem->mmu.id = mmu_new_id();
     wrlock_init(&mem->lock);
     lock_init(&mem->cow_lock);
 }
@@ -689,9 +716,17 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
             void *data = (char *) entry->data->data + entry->offset;
             // force to be page aligned
             data = (void *) ((uintptr_t) data & ~(real_page_size - 1));
+            // The host page (real_page_size, 16K on Apple) holds several
+            // guest pages. Raising it to exactly this page's protection could
+            // *lower* it for a writable neighbour (NONE->READ after a neighbour
+            // went NONE->RW), leaving the TLB thinking the neighbour is
+            // writable while host stores fault. Guest protection is enforced
+            // by the page table, so make the host page RW whenever the backing
+            // allows it (shared mappings of read-only files do not).
             int prot = PROT_READ;
             if (flags & P_WRITE) prot |= PROT_WRITE;
-            if (mprotect(data, real_page_size, prot) < 0)
+            if (mprotect(data, real_page_size, PROT_READ | PROT_WRITE) < 0 &&
+                    mprotect(data, real_page_size, prot) < 0)
                 return errno_map();
         }
     }
@@ -845,15 +880,12 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         // haven't been touched yet, which later store instructions then
         // fault on. The SIGSEGV handler runs on the same shallow stack
         // and recursively faults, corrupting PC to 0 (infinite loop).
-        // Cap expansion at 16 pages (64KB) to bound accidental
-        // expansion when a wild pointer just happens to fall into a
-        // growsdown region.
+        // Any access within RLIMIT_STACK (checked above) grows it, as on
+        // Linux: a frame or alloca larger than 64 KB touches its far end
+        // first, so a capped growth left that page unmapped (SIGSEGV).
         {
-            const pages_t max_grow = 16;
             pages_t grow_end = p; // first already-mapped page
             pages_t grow_start = page;
-            if ((pages_t)(grow_end - grow_start) > max_grow)
-                grow_start = grow_end - max_grow;
             pages_t grow_count = grow_end - grow_start;
 #if ANON_MMAP_LIMIT_PAGES > 0
             atomic_fetch_add(&anon_page_count, grow_count);
@@ -936,6 +968,14 @@ have_entry:
     }
 
     void *ptr = mem_ptr_nofault(mem, addr, type);
+    if (ptr == NULL && type == MEM_WRITE && entry != NULL) {
+        // The lock was dropped to copy the page, and another thread may have
+        // forked meanwhile, making it copy-on-write again: copy it again
+        // instead of failing the write.
+        entry = mem_pt(mem, page);
+        if (entry != NULL && (entry->flags & P_COW))
+            goto have_entry;
+    }
 #ifndef NDEBUG
     assert(old_ptr == NULL || old_ptr == ptr || type == MEM_WRITE_PTRACE);
 #endif
@@ -998,4 +1038,116 @@ void mem_coredump(struct mem *mem, const char *file) {
     }
     printk("dumped %d pages\n", pages);
     close(fd);
+}
+
+// madvise(MADV_DONTNEED / MADV_FREE): the pages must read as zero afterwards, and their
+// memory should go back to the host. Zeroing them with memset did the opposite: it dirtied
+// every page of the range, including pages the guest never touched, and V8 discards large
+// ranges all the time (VS Code: 5.4 GB footprint).
+//  - Copy-on-write pages (shared with a forked process) get fresh zero mappings, one per run,
+//    instead of being copied first and then cleared.
+//  - Host pages (16 KB on Apple silicon, four guest pages) whose guest pages are all being
+//    discarded, or no longer use them, are replaced with fresh zero pages, a run at a time.
+//  - What is left (part of a host page still in use, private file mappings) is cleared in
+//    place. Shared mappings are left alone.
+// One write lock for the whole range, like munmap: other threads stop once, not per page.
+static void discard_host_run(struct mem *mem, char *host, size_t size, page_t first, pages_t count) {
+    if (size == 0)
+        return;
+    if (mmap(host, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == MAP_FAILED)
+        memset(host, 0, size);
+    for (pages_t i = 0; i < count; i++)
+        asbestos_invalidate_page(mem->mmu.asbestos, first + i);
+}
+
+void mem_discard(struct mem *mem, page_t start, pages_t pages) {
+    pages_t per_host = real_page_size / PAGE_SIZE;
+    page_t end = start + pages;
+    write_wrlock(&mem->lock);
+    // A pending run of whole host pages, contiguous in host memory.
+    char *run_host = NULL;
+    size_t run_size = 0;
+    page_t run_first = 0;
+    pages_t run_pages = 0;
+    for (page_t page = start; page < end; ) {
+        struct pt_entry *entry = mem_pt(mem, page);
+        if (entry == NULL) {
+            page++;
+            continue;
+        }
+        unsigned flags = entry->flags;
+        // Shared mappings keep their contents (Linux drops only the page
+        // cache reference), and read-only pages can't hold anything but what
+        // they were mapped with.
+        if (!(flags & P_WRITE) || (flags & P_SHARED)) {
+            page++;
+            continue;
+        }
+        if ((flags & P_COW) && (flags & P_ANONYMOUS)) {
+            pages_t count = 1;
+            while (page + count < end) {
+                struct pt_entry *next = mem_pt(mem, page + count);
+                if (next == NULL || next->flags != flags)
+                    break;
+                count++;
+            }
+#if ANON_MMAP_LIMIT_PAGES > 0
+            atomic_fetch_add(&anon_page_count, (long) count);
+#endif
+            if (pt_map_nothing(mem, page, count, flags & ~P_COW) < 0) {
+#if ANON_MMAP_LIMIT_PAGES > 0
+                atomic_fetch_sub(&anon_page_count, (long) count);
+#endif
+            }
+            page += count;
+            continue;
+        }
+        struct data *data = entry->data;
+        char *host = (char *) data->data + entry->offset;
+        if (per_host > 1 && (flags & P_ANONYMOUS) && !(flags & P_SHARED)) {
+            char *host_page = (char *) ((uintptr_t) host & ~(real_page_size - 1));
+            size_t first_offset = entry->offset - (size_t) (host - host_page);
+            page_t first_page = page - (page_t) ((host - host_page) / PAGE_SIZE);
+            bool whole = (uintptr_t) data->data % real_page_size == 0 &&
+                first_offset + real_page_size <= data->size;
+            for (pages_t i = 0; whole && i < per_host; i++) {
+                page_t sibling = first_page + i;
+                struct pt_entry *other = mem_pt(mem, sibling);
+                bool here = other != NULL && other->data == data && other->offset == first_offset + i * PAGE_SIZE;
+                if (sibling >= start && sibling < end)
+                    // Being discarded too, but it must live in this host page and not
+                    // be shared: anything else is handled on its own.
+                    whole = other == NULL || (here && other->flags == flags);
+                else
+                    whole = !here;
+            }
+            if (whole) {
+                if (run_host != NULL && run_host + run_size == host_page && run_first + run_pages == first_page) {
+                    run_size += real_page_size;
+                    run_pages += per_host;
+                } else {
+                    discard_host_run(mem, run_host, run_size, run_first, run_pages);
+                    run_host = host_page;
+                    run_size = real_page_size;
+                    run_first = first_page;
+                    run_pages = per_host;
+                }
+                page = first_page + per_host;
+                continue;
+            }
+        }
+        if (flags & P_COW) {
+            // A private file page still shared with a forked process: Linux
+            // would show the file's contents again, which it still has
+            // unless it was written before the fork. Leave it.
+            page++;
+            continue;
+        }
+        memset(host, 0, PAGE_SIZE);
+        asbestos_invalidate_page(mem->mmu.asbestos, page);
+        page++;
+    }
+    discard_host_run(mem, run_host, run_size, run_first, run_pages);
+    mem_changed(mem);
+    write_wrunlock(&mem->lock);
 }

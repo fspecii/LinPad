@@ -2,6 +2,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include "kernel/calls.h"
+#include "kernel/inotify.h"
 #include "kernel/errno.h"
 #include "kernel/task.h"
 #include "kernel/fs.h"
@@ -97,6 +98,10 @@ dword_t sys_readlinkat(fd_t at_f, addr_t path_addr, addr_t buf_addr, dword_t buf
     struct fd *at = at_fd(at_f);
     if (at == NULL)
         return _EBADF;
+    if ((int_t) bufsize <= 0)
+        return _EINVAL;
+    if (bufsize > MAX_PATH)
+        bufsize = MAX_PATH;
     char buf[bufsize];
     ssize_t size = generic_readlinkat(at, path, buf, bufsize);
     if (size >= 0) {
@@ -942,11 +947,17 @@ dword_t sys_statfs64(addr_t path_addr, dword_t buf_size, addr_t buf_addr) {
 }
 
 dword_t sys_fstatfs(fd_t f, addr_t buf_addr) {
-    return statfs_mount(f_get(f)->mount, buf_addr);
+    struct fd *fd = f_get(f);
+    if (fd == NULL)
+        return _EBADF;
+    return statfs_mount(fd->mount, buf_addr);
 }
 
 dword_t sys_fstatfs64(fd_t f, addr_t buf_addr) {
-    return statfs64_mount(f_get(f)->mount, buf_addr);
+    struct fd *fd = f_get(f);
+    if (fd == NULL)
+        return _EBADF;
+    return statfs64_mount(fd->mount, buf_addr);
 }
 
 #if defined(GUEST_ARM64)
@@ -1079,7 +1090,10 @@ dword_t sys_utime(addr_t path_addr, addr_t times_addr) {
 static int generic_fsetattr(struct fd *fd, struct attr attr) {
     if (fd->mount->fs->fsetattr == NULL)
         return _EPERM;
-    return fd->mount->fs->fsetattr(fd, attr);
+    int err = fd->mount->fs->fsetattr(fd, attr);
+    if (err >= 0 && inotify_watch_count != 0)
+        fsnotify_fd(fd, attr.type == attr_size ? IN_MODIFY_ : IN_ATTRIB_);
+    return err;
 }
 
 dword_t sys_fchmod(fd_t f, dword_t mode) {
@@ -1445,13 +1459,27 @@ dword_t sys_fadvise64(fd_t f, uint64_t offset, uint64_t len, dword_t advice) {
 
 // ARM64: mincore (syscall 232)
 // Determines which pages of a memory mapping are currently in RAM.
-// For our emulator, we just pretend all pages are in memory.
+// Mapped pages are reported resident. Unmapped ones must fail with ENOMEM:
+// Mesa's EGL probes pointers this way (_eglPointerIsDereferenceable) and
+// dereferences small integers otherwise.
 dword_t sys_mincore(addr_t addr, dword_t length, addr_t vec_addr) {
     STRACE("mincore(%#x, %u, %#x)", addr, length, vec_addr);
 
     // Page size is 4096
     size_t page_size = 4096;
     size_t pages = (length + page_size - 1) / page_size;
+    if (PGOFFSET(addr) != 0)
+        return _EINVAL;
+
+    read_wrlock(&current->mem->lock);
+    for (size_t i = 0; i < pages; i++) {
+        page_t page = PAGE(addr) + i;
+        if (mem_pt(current->mem, page) == NULL && mem_find_reservation(current->mem, page) == NULL) {
+            read_wrunlock(&current->mem->lock);
+            return _ENOMEM;
+        }
+    }
+    read_wrunlock(&current->mem->lock);
 
     // Write 1 (page in memory) for each page
     for (size_t i = 0; i < pages; i++) {

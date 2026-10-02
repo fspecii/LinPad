@@ -1,6 +1,7 @@
 #ifndef SIGNAL_H
 #define SIGNAL_H
 
+#include <stddef.h>
 #include "misc.h"
 #include "util/list.h"
 #include "util/sync.h"
@@ -13,6 +14,7 @@ typedef qword_t sigset_t_;
 #define SIG_IGN_ 1
 
 #define SA_SIGINFO_ 4
+#define SA_ONSTACK_ 0x08000000
 #define SA_NODEFER_ 0x40000000
 #define SA_RESETHAND_ 0x80000000
 
@@ -62,6 +64,13 @@ struct sigaction_ {
 #define SI_TIMER_ -2
 #define SI_TKILL_ -6
 #define SI_KERNEL_ 128
+// si_code values for SIGCHLD / waitid
+#define CLD_EXITED_ 1
+#define CLD_KILLED_ 2
+#define CLD_DUMPED_ 3
+#define CLD_TRAPPED_ 4
+#define CLD_STOPPED_ 5
+#define CLD_CONTINUED_ 6
 #define TRAP_TRACE_ 2
 #define SEGV_MAPERR_ 1
 #define SEGV_ACCERR_ 2
@@ -148,8 +157,6 @@ void sigmask_set_temp(sigset_t_ mask);
 struct sighand {
     atomic_uint refcount;
     struct sigaction_ action[NUM_SIGS];
-    addr_t altstack;
-    dword_t altstack_size;
     lock_t lock;
 };
 struct sighand *sighand_new(void);
@@ -170,6 +177,8 @@ int_t sys_rt_sigpending(addr_t set_addr, dword_t size);
 
 int sigset_size_valid(dword_t size);
 int user_get_sigset(addr_t addr, dword_t size, sigset_t_ *out);
+// wake pollers of signalfds that watch sig for task's thread group
+void signalfd_notify(struct task *task, int sig);
 int user_put_sigset(addr_t addr, dword_t size, sigset_t_ set);
 
 static inline sigset_t_ sig_mask(int sig) {
@@ -238,16 +247,12 @@ struct sigcontext_ {
     uint64_t sp;
     uint64_t pc;
     uint64_t pstate;
-    // Extension area for FPSIMD state
-    // NOTE: Do NOT use __attribute__((aligned(16))) here — it forces the
-    // entire sigcontext_ struct to 16-byte alignment, which inserts 8 bytes
-    // of padding before mcontext in ucontext_, shifting mcontext from the
-    // Linux-standard offset 168 to 176. Go's runtime reads mcontext at a
-    // fixed offset (168) from the ucontext pointer, so this misalignment
-    // causes Go's async preemption (SIGURG) to corrupt the signal frame.
-    // The field is naturally 16-byte aligned in practice (offset 448 from
-    // the start of ucontext).
-    uint8_t __reserved[4096];
+    // Extension area for FPSIMD state. Linux declares it aligned(16), which
+    // makes the whole sigcontext 16-byte aligned: __reserved sits at offset
+    // 288 and uc_mcontext at offset 176 of the ucontext. musl's and glibc's
+    // ucontext_t and Go's runtime all use those offsets, so handlers that
+    // read or edit the context depend on them.
+    uint8_t __reserved[4096] __attribute__((aligned(16)));
 };
 
 struct ucontext_ {
@@ -258,6 +263,8 @@ struct ucontext_ {
     uint8_t __padding[128 - sizeof(sigset_t_)];  // Pad to fixed offset
     struct sigcontext_ mcontext;
 };
+_Static_assert(offsetof(struct sigcontext_, __reserved) == 288, "arm64 sigcontext layout");
+_Static_assert(offsetof(struct ucontext_, mcontext) == 176, "arm64 ucontext layout");
 
 struct sigframe_ {
     addr_t restorer;

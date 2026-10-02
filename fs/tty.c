@@ -445,8 +445,14 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
     lock(&pids_lock);
     lock(&tty->lock);
     if (tty->hung_up || pty_is_half_closed_master(tty)) {
-        unlock(&pids_lock);
-        goto error;
+        // Like Linux, a master keeps the closed slave's last output readable
+        // and reports EIO once it has been drained.
+        if (tty->driver != &pty_master || tty->bufsize == 0) {
+            unlock(&pids_lock);
+            if (tty->driver == &pty_master)
+                err = _EIO;
+            goto error;
+        }
     }
 
     pid_t_ current_pgid = current->group->pgid;
@@ -506,8 +512,11 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
 
         while (tty->bufsize < min) {
             err = _EIO;
-            if (pty_is_half_closed_master(tty))
+            if (tty->hung_up || pty_is_half_closed_master(tty)) {
+                if (tty->bufsize > 0)
+                    break;
                 goto error;
+            }
             err = _EAGAIN;
             if (fd->flags & O_NONBLOCK_)
                 goto error;

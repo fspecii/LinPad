@@ -25,6 +25,13 @@ struct fakefs_db {
         sqlite3_stmt *try_cleanup_inode;
     } stmt;
     sqlite3_mutex *lock;
+
+    // Cache of path_read_stat results, so path walks and stats don't run
+    // sqlite for every component (see fake-db.c).
+    struct stat_cache *stat_cache;
+    int wal_fd; // meta.db-wal: other processes' commits change its mtime/size
+    _Atomic uint64_t write_gen; // bumped when this process changes the db
+    int64_t txn_changes; // sqlite3_total_changes64 at transaction start
 };
 
 int fake_db_init(struct fakefs_db *fs, const char *db_path, int root_fd);
@@ -50,6 +57,9 @@ typedef uint64_t inode_t;
 
 inode_t path_get_inode(struct fakefs_db *fs, const char *path);
 bool path_read_stat(struct fakefs_db *fs, const char *path, struct ish_stat *stat, uint64_t *inode);
+// path_read_stat from the cache, without a transaction: 1 if the path exists,
+// 0 if it doesn't, -1 if the cache can't tell
+int path_read_stat_cached(struct fakefs_db *fs, const char *path, struct ish_stat *stat, uint64_t *inode);
 inode_t path_create(struct fakefs_db *fs, const char *path, struct ish_stat *stat);
 
 bool inode_read_stat_if_exist(struct fakefs_db *fs, inode_t inode, struct ish_stat *stat);

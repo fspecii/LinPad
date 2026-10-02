@@ -43,8 +43,12 @@ static void crash_handler(int sig, siginfo_t *info, void *ctx) {
     if ((sig == SIGSEGV || sig == SIGBUS) && in_jit) {
         ucontext_t *uc = (ucontext_t *)ctx;
 
-        // _cpu is in x1 — pointer to cpu_state within fiber_frame
-        uint64_t cpu_ptr = uc->uc_mcontext->__ss.__x[1];
+        // The running fiber's frame (cpu_state is at offset 0). Not x1: the
+        // fault may be inside a C helper called from a gadget.
+        extern __thread struct fiber_frame *volatile jit_saved_frame;
+        uint64_t cpu_ptr = (uint64_t) jit_saved_frame;
+        if (cpu_ptr == 0)
+            cpu_ptr = uc->uc_mcontext->__ss.__x[1];
 
         // Reconstruct guest segfault_addr from registers.
         // x7 = _addr (host pointer = data_minus_addr + guest_addr)

@@ -1,6 +1,7 @@
 #ifndef SYS_SOCK_H
 #define SYS_SOCK_H
 
+#include <stdatomic.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -70,22 +71,35 @@ struct msghdr64_ {
 };
 #endif
 
+// cmsg_len is a size_t, so 64-bit guests have a 16-byte header and 8-byte
+// alignment, 32-bit guests a 12-byte header and 4-byte alignment.
+#ifdef GUEST_ARM64
+typedef uint64_t cmsg_len_t_;
+#else
+typedef dword_t cmsg_len_t_;
+#endif
 struct cmsghdr_ {
-    dword_t len;
+    cmsg_len_t_ len;
     int_t level;
     int_t type;
     uint8_t data[];
 };
 #define SCM_RIGHTS_ 1
+#define SCM_CREDENTIALS_ 2
 // copied and ported from musl
-#define CMSG_LEN_(cmsg) (((cmsg)->len + sizeof(dword_t) - 1) & ~(dword_t)(sizeof(dword_t) - 1))
+#define CMSG_ALIGN_(len) (((len) + sizeof(cmsg_len_t_) - 1) & ~(cmsg_len_t_)(sizeof(cmsg_len_t_) - 1))
+#define CMSG_LEN_(cmsg) CMSG_ALIGN_((cmsg)->len)
 #define CMSG_NEXT_(cmsg) ((uint8_t *)(cmsg) + CMSG_LEN_(cmsg))
 #define CMSG_NXTHDR_(cmsg, mhdr_end) ((cmsg)->len < sizeof (struct cmsghdr_) || \
         CMSG_LEN_(cmsg) + sizeof(struct cmsghdr_) >= (size_t) (mhdr_end - (uint8_t *)(cmsg)) \
         ? NULL : (struct cmsghdr_ *)CMSG_NEXT_(cmsg))
 
 struct scm {
+    // linked (not list_null) while queued on a socket; whoever unlinks it
+    // takes over the queue's reference
     struct list queue;
+    // the sender's and the queue's; the last one closes the fds
+    atomic_int refs;
     unsigned num_fds;
     struct fd *fds[];
 };
@@ -205,6 +219,7 @@ static inline int sock_flags_from_real(int real) {
 #define SO_KEEPALIVE_ 9
 #define SO_LINGER_ 13
 #define SO_REUSEPORT_ 15
+#define SO_PASSCRED_ 16
 #define SO_PEERCRED_ 17
 #define SO_TIMESTAMP_ 29
 #define SO_PROTOCOL_ 38
@@ -218,6 +233,8 @@ static inline int sock_flags_from_real(int real) {
 #define IP_MTU_DISCOVER_ 10
 #define IP_RECVTTL_ 12
 #define IP_RECVTOS_ 13
+#define IP_RECVERR_ 11
+#define IPV6_RECVERR_ 25
 #define TCP_NODELAY_ 1
 #define TCP_KEEPIDLE_ 4
 #define TCP_KEEPINTVL_ 5
@@ -268,11 +285,13 @@ static inline int sock_opt_to_real(int fake, int level) {
             case IP_RETOPTS_: return IP_RETOPTS;
             case IP_RECVTTL_: return IP_RECVTTL;
             case IP_RECVTOS_: return IP_RECVTOS;
+            case IP_RECVERR_: return 0; // no error queue on Darwin; accept and ignore
         } break;
         case IPPROTO_IPV6: switch (fake) {
             case IPV6_UNICAST_HOPS_: return IPV6_UNICAST_HOPS;
             case IPV6_TCLASS_: return IPV6_TCLASS;
             case IPV6_V6ONLY_: return IPV6_V6ONLY;
+            case IPV6_RECVERR_: return 0; // as IP_RECVERR
         } break;
     }
     return -1;

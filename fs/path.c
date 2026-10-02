@@ -177,11 +177,16 @@ static int __path_normalize(const char *at_path, const char *path, char *out, in
                 mount_release(mount);
                 if (levels >= 5)
                     return _ELOOP;
+                // a target that fills the whole buffer was truncated
+                if (res >= MAX_PATH - (c - out))
+                    return _ENAMETOOLONG;
                 // readlink does not null terminate
                 c[res] = '\0';
                 // if we should restart from the root, copy down
                 if (*c == '/')
                     memmove(out, c, strlen(c) + 1);
+                if (strlen(out) + 1 + strlen(p) >= MAX_PATH)
+                    return _ENAMETOOLONG;
                 char *expanded_path = possible_symlink;
                 strcpy(expanded_path, out);
                 if (strcmp(p, "") != 0) {
@@ -195,7 +200,9 @@ static int __path_normalize(const char *at_path, const char *path, char *out, in
             // exists, it's a directory and that we have execute perms on it
             if (*(p - 1) == '/') {
                 struct statbuf stat;
-                int err = mount->fs->stat(mount, possible_symlink, &stat);
+                int err = mount->fs->stat_mode ?
+                    mount->fs->stat_mode(mount, possible_symlink, &stat) :
+                    mount->fs->stat(mount, possible_symlink, &stat);
                 mount_release(mount);
                 if (err >= 0) {
                     if (!S_ISDIR(stat.mode))

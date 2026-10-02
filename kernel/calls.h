@@ -21,6 +21,9 @@ int must_check user_write(addr_t addr, const void *buf, size_t count);
 int must_check user_read_task(struct task *task, addr_t addr, void *buf, size_t count);
 int must_check user_write_task(struct task *task, addr_t addr, const void *buf, size_t count);
 int must_check user_write_task_ptrace(struct task *task, addr_t addr, const void *buf, size_t count);
+// the same on an address space the caller holds a reference to
+int must_check user_read_mem(struct mem *mem, addr_t addr, void *buf, size_t count);
+int must_check user_write_mem_ptrace(struct mem *mem, addr_t addr, const void *buf, size_t count);
 int must_check user_read_string(addr_t addr, char *buf, size_t max);
 int must_check user_write_string(addr_t addr, const char *buf);
 #define user_get(addr, var) user_read(addr, &(var), sizeof(var))
@@ -37,6 +40,7 @@ int do_execve(const char *file, size_t argc, const char *argv, const char *envp)
 dword_t sys_exit(dword_t status);
 noreturn void do_exit(int status);
 noreturn void do_exit_group(int status);
+void de_thread(void);
 dword_t sys_exit_group(dword_t status);
 dword_t sys_wait4(pid_t_ pid, addr_t status_addr, dword_t options, addr_t rusage_addr);
 dword_t sys_waitid(int_t idtype, pid_t_ id, addr_t info_addr, int_t options);
@@ -131,6 +135,8 @@ int_t sys_epoll_wait(fd_t epoll, addr_t events_addr, int_t max_events, int_t tim
 int_t sys_epoll_pwait(fd_t epoll_f, addr_t events_addr, int_t max_events, int_t timeout, addr_t sigmask_addr, dword_t sigsetsize);
 
 int_t sys_eventfd2(uint_t initval, int_t flags);
+fd_t sys_memfd_create(addr_t name_addr, uint_t flags);
+fd_t sys_signalfd4(fd_t f, addr_t mask_addr, uint_t mask_size, int_t flags);
 int_t sys_eventfd(uint_t initval);
 
 fd_t sys_inotify_init1(int_t flags);

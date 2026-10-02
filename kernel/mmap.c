@@ -1,3 +1,7 @@
+#if __APPLE__
+#include <sys/sysctl.h>
+#endif
+#include <unistd.h>
 #include <string.h>
 #include <stdatomic.h>
 #include "debug.h"
@@ -10,6 +14,22 @@
 
 #if ANON_MMAP_LIMIT_PAGES > 0
 _Atomic long anon_page_count;
+
+long anon_page_limit(void) {
+    static long limit;
+    if (limit == 0) {
+        uint64_t ram = 0;
+#if __APPLE__
+        size_t len = sizeof(ram);
+        sysctlbyname("hw.memsize", &ram, &len, NULL, 0);
+#else
+        ram = (uint64_t) sysconf(_SC_PHYS_PAGES) * (uint64_t) sysconf(_SC_PAGESIZE);
+#endif
+        long pages = (long) (ram * 2 / PAGE_SIZE);
+        limit = pages > ANON_MMAP_LIMIT_PAGES ? pages : ANON_MMAP_LIMIT_PAGES;
+    }
+    return limit;
+}
 #endif
 
 struct mm *mm_new() {
@@ -85,6 +105,18 @@ static addr_t do_mmap(addr_t addr, uint64_t len, dword_t prot, dword_t flags, fd
                 addr = 0;
                 page = 0;
             }
+            // Keep hints out of the main stack's growth area (RLIMIT_STACK
+            // below the stack top, at most 128 MB), as Linux keeps mmap_base
+            // below it. A hinted mapping placed just under the stack stops
+            // the stack from growing past it (Chromium's extension host
+            // segfaulted ~290 KB down).
+            rlim_t_ stack_limit = rlimit(RLIMIT_STACK_);
+            pages_t stack_gap = stack_limit == RLIM_INFINITY_ || stack_limit > (128ull << 20) ?
+                (128ull << 20) / PAGE_SIZE : stack_limit / PAGE_SIZE;
+            if (page != 0 && !(flags & MMAP_FIXED) && page + pages > STACK_TOP_PAGE - stack_gap) {
+                addr = 0;
+                page = 0;
+            }
         } else {
             if (page + pages > USER_ADDR_MAX_PAGE) {
                 if (flags & MMAP_FIXED)
@@ -145,11 +177,16 @@ static addr_t do_mmap(addr_t addr, uint64_t len, dword_t prot, dword_t flags, fd
         bool is_prot_none = !(prot & P_READ) && !(prot & P_WRITE) && !(prot & P_EXEC);
 #ifdef GUEST_ARM64
         if ((flags & MMAP_NORESERVE) && pages > 0x10000) {
-            pages_t align_pages = pages;
-            if (align_pages > 0x40000) align_pages = 0x40000;
-            page_t aligned = (page / align_pages) * align_pages;
-            if (aligned >= MMAP_HOLE_END && pt_is_hole(current->mem, aligned, pages))
-                page = aligned;
+            if (flags & MMAP_FIXED) {
+                // MAP_FIXED replaces whatever was there, reservations included
+                pt_unmap_always(current->mem, page, pages);
+            } else {
+                pages_t align_pages = pages;
+                if (align_pages > 0x40000) align_pages = 0x40000;
+                page_t aligned = (page / align_pages) * align_pages;
+                if (aligned >= MMAP_HOLE_END && pt_is_hole(current->mem, aligned, pages))
+                    page = aligned;
+            }
             if ((err = pt_map_lazy(current->mem, page, pages, prot)) < 0)
                 return err;
             return page << PAGE_BITS;
@@ -169,7 +206,7 @@ static addr_t do_mmap(addr_t addr, uint64_t len, dword_t prot, dword_t flags, fd
         }
 #endif
 #if ANON_MMAP_LIMIT_PAGES > 0
-        if (!is_prot_none && atomic_load(&anon_page_count) + (long)pages > ANON_MMAP_LIMIT_PAGES)
+        if (!is_prot_none && atomic_load(&anon_page_count) + (long)pages > anon_page_limit())
             return _ENOMEM;
         if (!is_prot_none)
             atomic_fetch_add(&anon_page_count, (long)pages);
@@ -270,6 +307,68 @@ int_t sys_munmap(addr_t addr, addr_t len) {
 #define MREMAP_MAYMOVE_ 1
 #define MREMAP_FIXED_ 2
 
+// Map [start, start + pages) from the same file as the mapping at src_entry,
+// continuing at file offset file_off.
+static int mremap_map_file(struct pt_entry *src_entry, page_t start, pages_t pages, size_t file_off) {
+    struct fd *fd = src_entry->data->fd;
+    unsigned prot = src_entry->flags & (P_RWX | P_SHARED);
+    int mmap_flags = src_entry->flags & P_SHARED ? MMAP_SHARED : MMAP_PRIVATE;
+    int err = fd->ops->mmap(fd, current->mem, start, pages, file_off, prot, mmap_flags);
+    if (err < 0)
+        return err;
+    mem_pt(current->mem, start)->data->fd = fd_retain(fd);
+    mem_pt(current->mem, start)->data->file_offset = file_off;
+    return 0;
+}
+
+static addr_t do_mremap_grow(addr_t addr, pages_t old_pages, pages_t new_pages, dword_t flags) {
+    struct pt_entry *entry = mem_pt(current->mem, PAGE(addr));
+    if (entry == NULL)
+        return _EFAULT;
+    dword_t pt_flags = entry->flags;
+    for (page_t page = PAGE(addr); page < PAGE(addr) + old_pages; page++) {
+        struct pt_entry *e = mem_pt(current->mem, page);
+        if (e == NULL || e->flags != pt_flags)
+            return _EFAULT;
+    }
+    page_t extra_start = PAGE(addr) + old_pages;
+    pages_t extra_pages = new_pages - old_pages;
+    bool in_place = pt_is_hole(current->mem, extra_start, extra_pages);
+
+    if (pt_flags & P_ANONYMOUS) {
+        if (!in_place)
+            return _ENOMEM;
+        int err = pt_map_nothing(current->mem, extra_start, extra_pages, pt_flags);
+        if (err < 0)
+            return err;
+        return addr;
+    }
+
+    // File mapping: extend (or re-create) it from the backing file.
+    struct data *data = entry->data;
+    if (data->fd == NULL || data->fd->ops->mmap == NULL)
+        return _EFAULT;
+    // pt offsets are relative to the host-page-aligned start of the file mapping
+    size_t file_off = data->file_offset - data->file_offset % real_page_size + entry->offset;
+    if (in_place) {
+        int err = mremap_map_file(entry, extra_start, extra_pages, file_off + (old_pages << PAGE_BITS));
+        if (err < 0)
+            return err;
+        return addr;
+    }
+    // Moving a private file mapping would drop its private modifications.
+    if (!(flags & MREMAP_MAYMOVE_) || !(pt_flags & P_SHARED))
+        return _ENOMEM;
+    page_t new_start = pt_find_hole(current->mem, new_pages);
+    if (new_start == BAD_PAGE)
+        return _ENOMEM;
+    int err = mremap_map_file(entry, new_start, new_pages, file_off);
+    if (err < 0)
+        return err;
+    pt_unmap_always(current->mem, PAGE(addr), old_pages);
+    return new_start << PAGE_BITS;
+}
+
 addr_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags) {
     STRACE("mremap(%#x, %#x, %#x, %d)", addr, old_len, new_len, flags);
     if (PGOFFSET(addr) != 0)
@@ -291,27 +390,10 @@ addr_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags) 
         return addr;
     }
 
-    struct pt_entry *entry = mem_pt(current->mem, PAGE(addr));
-    if (entry == NULL)
-        return _EFAULT;
-    dword_t pt_flags = entry->flags;
-    for (page_t page = PAGE(addr); page < PAGE(addr) + old_pages; page++) {
-        entry = mem_pt(current->mem, page);
-        if (entry == NULL && entry->flags != pt_flags)
-            return _EFAULT;
-    }
-    if (!(pt_flags & P_ANONYMOUS)) {
-        FIXME("mremap grow on file mappings");
-        return _EFAULT;
-    }
-    page_t extra_start = PAGE(addr) + old_pages;
-    pages_t extra_pages = new_pages - old_pages;
-    if (!pt_is_hole(current->mem, extra_start, extra_pages))
-        return _ENOMEM;
-    int err = pt_map_nothing(current->mem, extra_start, extra_pages, pt_flags);
-    if (err < 0)
-        return err;
-    return addr;
+    write_wrlock(&current->mem->lock);
+    addr_t res = do_mremap_grow(addr, old_pages, new_pages, flags);
+    write_wrunlock(&current->mem->lock);
+    return res;
 }
 
 int_t sys_mprotect(addr_t addr, addr_t len, int_t prot) {
@@ -337,22 +419,8 @@ int_t sys_mprotect(addr_t addr, addr_t len, int_t prot) {
 
 dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice) {
     STRACE("madvise(0x%llx, 0x%x, %d)", (unsigned long long)addr, len, advice);
-    if (advice == 4 /* MADV_DONTNEED */ || advice == 8 /* MADV_FREE */) {
-        addr_t end = addr + len;
-        for (addr_t p = addr; p < end; p += PAGE_SIZE) {
-            read_wrlock(&current->mem->lock);
-#ifdef GUEST_ARM64
-            if (mem_pt(current->mem, PAGE(p)) == NULL) {
-                read_wrunlock(&current->mem->lock);
-                continue;
-            }
-#endif
-            void *ptr = mem_ptr(current->mem, p, MEM_WRITE);
-            read_wrunlock(&current->mem->lock);
-            if (ptr != NULL)
-                memset(ptr, 0, PAGE_SIZE);
-        }
-    }
+    if ((advice == 4 /* MADV_DONTNEED */ || advice == 8 /* MADV_FREE */) && len > 0)
+        mem_discard(current->mem, PAGE(addr), PAGE(addr + len - 1) - PAGE(addr) + 1);
     return 0;
 }
 
@@ -386,7 +454,7 @@ addr_t sys_brk(addr_t new_brk) {
         if (!pt_is_hole(&mm->mem, start, size))
             goto out;
 #if ANON_MMAP_LIMIT_PAGES > 0
-        if (atomic_load(&anon_page_count) + (long)size > ANON_MMAP_LIMIT_PAGES)
+        if (atomic_load(&anon_page_count) + (long)size > anon_page_limit())
             goto out;
         atomic_fetch_add(&anon_page_count, (long)size);
 #endif

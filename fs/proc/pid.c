@@ -1,8 +1,10 @@
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include "kernel/memory.h"
 #include "kernel/calls.h"
 #include "fs/proc.h"
+#include "kernel/mm.h"
 #include "fs/fd.h"
 #include "fs/tty.h"
 #include "kernel/fs.h"
@@ -27,10 +29,109 @@ static void proc_put_task(struct task *UNUSED(task)) {
     unlock(&pids_lock);
 }
 
-static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
+// The task's mm, with a reference. Guest memory locks are never taken under
+// pids_lock: a thread waiting for one (behind a page fault or a stuck
+// process) would then block every kill, exit, wait and fork in the system.
+// So the mm is looked up under pids_lock, and read after dropping it.
+// *gone is set if the task doesn't exist (as opposed to having no mm).
+static struct mm *proc_get_mm_or_gone(struct proc_entry *entry, bool *gone) {
+    struct task *task = proc_get_task(entry);
+    *gone = task == NULL;
+    if (task == NULL)
+        return NULL;
+    lock(&task->general_lock);
+    struct mm *mm = task->mm;
+    if (mm != NULL)
+        mm_retain(mm);
+    unlock(&task->general_lock);
+    proc_put_task(task);
+    return mm;
+}
+
+static struct mm *proc_get_mm(struct proc_entry *entry) {
+    bool gone;
+    return proc_get_mm_or_gone(entry, &gone);
+}
+
+// Page counts of an address space.
+struct vm_counts {
+    uint64_t size;   // mapped + reserved pages (VmSize)
+    uint64_t rss;    // pages backed by host memory (VmRSS)
+    uint64_t shared; // file-backed pages (RssFile)
+    uint64_t anon;   // anonymous pages (RssAnon)
+};
+static struct vm_counts mm_vm_counts(struct mm *mm) {
+    struct vm_counts c = {};
+    if (mm == NULL)
+        return c;
+    struct mem *mem = &mm->mem;
+    read_wrlock(&mem->lock);
+    for (page_t page = 0; page < MEM_PAGES; mem_next_page(mem, &page)) {
+        struct pt_entry *pt = mem_pt(mem, page);
+        if (pt == NULL)
+            continue;
+        c.rss++;
+        if (pt->flags & P_ANONYMOUS)
+            c.anon++;
+        else
+            c.shared++;
+    }
+    c.size = c.rss;
+    for (struct mem_reservation *r = mem->reservations; r; r = r->next)
+        c.size += r->pages;
+    read_wrunlock(&mem->lock);
+    return c;
+}
+
+static struct vm_counts proc_vm_counts(struct proc_entry *entry) {
+    struct mm *mm = proc_get_mm(entry);
+    struct vm_counts c = mm_vm_counts(mm);
+    if (mm != NULL)
+        mm_release(mm);
+    return c;
+}
+
+static int proc_pid_status_show(struct proc_entry *entry, struct proc_data *buf) {
+    struct vm_counts vm = proc_vm_counts(entry);
     struct task *task = proc_get_task(entry);
     if (task == NULL)
         return _ESRCH;
+    lock(&task->group->lock);
+    char state = task->zombie ? 'Z' : task->group->stopped ? 'T' : 'S';
+    long threads = list_size(&task->group->threads);
+    unlock(&task->group->lock);
+    unsigned long kb = PAGE_SIZE / 1024;
+    proc_printf(buf, "Name:\t%.16s\n", task->comm);
+    proc_printf(buf, "State:\t%c\n", state);
+    proc_printf(buf, "Tgid:\t%d\n", task->tgid);
+    proc_printf(buf, "Pid:\t%d\n", task->pid);
+    proc_printf(buf, "PPid:\t%d\n", task->parent ? task->parent->pid : 0);
+    proc_printf(buf, "Uid:\t%d\t%d\t%d\t%d\n", task->uid, task->euid, task->suid, task->euid);
+    proc_printf(buf, "Gid:\t%d\t%d\t%d\t%d\n", task->gid, task->egid, task->sgid, task->egid);
+    proc_printf(buf, "VmPeak:\t%8llu kB\n", (unsigned long long) (vm.size * kb));
+    proc_printf(buf, "VmSize:\t%8llu kB\n", (unsigned long long) (vm.size * kb));
+    proc_printf(buf, "VmHWM:\t%8llu kB\n", (unsigned long long) (vm.rss * kb));
+    proc_printf(buf, "VmRSS:\t%8llu kB\n", (unsigned long long) (vm.rss * kb));
+    proc_printf(buf, "RssAnon:\t%8llu kB\n", (unsigned long long) (vm.anon * kb));
+    proc_printf(buf, "RssFile:\t%8llu kB\n", (unsigned long long) (vm.shared * kb));
+    proc_printf(buf, "RssShmem:\t%8llu kB\n", 0ull);
+    proc_printf(buf, "VmData:\t%8llu kB\n", (unsigned long long) (vm.anon * kb));
+    proc_printf(buf, "VmSwap:\t%8llu kB\n", 0ull);
+    proc_printf(buf, "Threads:\t%ld\n", threads);
+    proc_put_task(task);
+    return 0;
+}
+
+static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
+    struct vm_counts vm = proc_vm_counts(entry);
+    struct task *task = proc_get_task(entry);
+    if (task == NULL)
+        return _ESRCH;
+    // host CPU time of the process's threads (pids_lock is held)
+    struct rusage_ ru = rusage_get_group(task->group);
+    lock(&task->group->lock);
+    struct rusage_ cru = task->group->children_rusage;
+    unlock(&task->group->lock);
     lock(&task->general_lock);
     lock(&task->group->lock);
     lock(&task->sighand->lock);
@@ -57,10 +158,12 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
 
     // values that would be returned from getrusage
     // finding these for a given process isn't too easy
-    proc_printf(buf, "%lu ", 0l); // user time
-    proc_printf(buf, "%lu ", 0l); // system time
-    proc_printf(buf, "%ld ", 0l); // children user time
-    proc_printf(buf, "%ld ", 0l); // children system time
+#define RU_TICKS(tv) ((long) (tv).sec * 100 + (long) (tv).usec / 10000) // clock ticks (100 Hz)
+    proc_printf(buf, "%lu ", RU_TICKS(ru.utime)); // user time
+    proc_printf(buf, "%lu ", RU_TICKS(ru.stime)); // system time
+    proc_printf(buf, "%ld ", RU_TICKS(cru.utime)); // children user time
+    proc_printf(buf, "%ld ", RU_TICKS(cru.stime)); // children system time
+#undef RU_TICKS
 
     proc_printf(buf, "%ld ", 20l); // priority (not adjustable)
     proc_printf(buf, "%ld ", 0l); // nice (also not adjustable)
@@ -68,8 +171,8 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     proc_printf(buf, "%ld ", 0l); // itimer value (deprecated, always 0)
     proc_printf(buf, "%lld ", 0ll); // jiffies on process start
 
-    proc_printf(buf, "%lu ", 0l); // vsize
-    proc_printf(buf, "%ld ", 0l); // rss
+    proc_printf(buf, "%llu ", (unsigned long long) (vm.size * PAGE_SIZE)); // vsize
+    proc_printf(buf, "%lld ", (long long) vm.rss); // rss
     proc_printf(buf, "%lu ", 0l); // rss limit
 
     // bunch of shit that can only be accessed by a debugger
@@ -108,17 +211,18 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
 }
 
 static int proc_pid_statm_show(struct proc_entry *entry, struct proc_data *buf) {
+    struct vm_counts vm = proc_vm_counts(entry);
     struct task *task = proc_get_task(entry);
     if (task == NULL)
         return _ESRCH;
 
-    proc_printf(buf, "%lu ", 0); // total vm size
-    proc_printf(buf, "%lu ", 0); // vm resident size
-    proc_printf(buf, "%lu ", 0); // resident shared
-    proc_printf(buf, "%lu ", 0); // text
-    proc_printf(buf, "%lu ", 0); // lib (always 0 since linux 2.6)
-    proc_printf(buf, "%lu ", 0); // data + stack
-    proc_printf(buf, "%lu ", 0); // dirty (always 0 since linux 2.6)
+    proc_printf(buf, "%llu ", (unsigned long long) vm.size); // total vm size
+    proc_printf(buf, "%llu ", (unsigned long long) vm.rss); // vm resident size
+    proc_printf(buf, "%llu ", (unsigned long long) vm.shared); // resident shared
+    proc_printf(buf, "%lu ", 0ul); // text
+    proc_printf(buf, "%lu ", 0ul); // lib (always 0 since linux 2.6)
+    proc_printf(buf, "%llu ", (unsigned long long) vm.anon); // data + stack
+    proc_printf(buf, "%lu ", 0ul); // dirty (always 0 since linux 2.6)
     proc_printf(buf, "\n");
 
     proc_put_task(task);
@@ -126,59 +230,44 @@ static int proc_pid_statm_show(struct proc_entry *entry, struct proc_data *buf) 
 }
 
 static int proc_pid_auxv_show(struct proc_entry *entry, struct proc_data *buf) {
-    struct task *task = proc_get_task(entry);
-    if (task == NULL)
-        return _ESRCH;
+    bool gone;
+    struct mm *mm = proc_get_mm_or_gone(entry, &gone);
+    if (mm == NULL)
+        return gone ? _ESRCH : 0;
     int err = 0;
-    lock(&task->general_lock);
-    if (task->mm == NULL)
-        goto out_free_task;
-
-    size_t size = task->mm->auxv_end - task->mm->auxv_start;
+    size_t size = mm->auxv_end - mm->auxv_start;
     char *data = malloc(size);
     if (data == NULL) {
         err = _ENOMEM;
-        goto out_free_task;
+    } else {
+        if (user_read_mem(&mm->mem, mm->auxv_start, data, size) == 0)
+            proc_buf_append(buf, data, size);
+        free(data);
     }
-    if (user_read_task(task, task->mm->auxv_start, data, size) == 0)
-        proc_buf_append(buf, data, size);
-    free(data);
-
-out_free_task:
-    unlock(&task->general_lock);
-    proc_put_task(task);
+    mm_release(mm);
     return err;
 }
 
 static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf) {
-    struct task *task = proc_get_task(entry);
-    if (task == NULL)
-        return _ESRCH;
+    bool gone;
+    struct mm *mm = proc_get_mm_or_gone(entry, &gone);
+    if (mm == NULL)
+        return gone ? _ESRCH : 0;
     int err = 0;
-    lock(&task->general_lock);
-    if (task->mm == NULL)
-        goto out_free_task;
-
-    size_t size = task->mm->argv_end - task->mm->argv_start;
+    size_t size = mm->argv_end - mm->argv_start;
     char *data = malloc(size);
     if (data == NULL) {
         err = _ENOMEM;
-        goto out_free_task;
+    } else {
+        if (user_read_mem(&mm->mem, mm->argv_start, data, size) == 0)
+            proc_buf_append(buf, data, size);
+        free(data);
     }
-    if (user_read_task(task, task->mm->argv_start, data, size) == 0)
-        proc_buf_append(buf, data, size);
-    free(data);
-
-out_free_task:
-    unlock(&task->general_lock);
-    proc_put_task(task);
+    mm_release(mm);
     return err;
 }
 
-void proc_maps_dump(struct task *task, struct proc_data *buf) {
-    struct mem *mem = task->mem;
-    if (mem == NULL)
-        return;
+static void proc_maps_dump_mem(struct mem *mem, struct proc_data *buf) {
 
     read_wrlock(&mem->lock);
     page_t page = 0;
@@ -235,33 +324,100 @@ void proc_maps_dump(struct task *task, struct proc_data *buf) {
     read_wrunlock(&mem->lock);
 }
 
+// for the current task (which keeps its mm)
+void proc_maps_dump(struct task *task, struct proc_data *buf) {
+    if (task->mem != NULL)
+        proc_maps_dump_mem(task->mem, buf);
+}
+
 static int proc_pid_maps_show(struct proc_entry *entry, struct proc_data *buf) {
-    struct task *task = proc_get_task(entry);
-    if (task == NULL)
-        return _ESRCH;
-    proc_maps_dump(task, buf);
-    proc_put_task(task);
+    struct mm *mm = proc_get_mm(entry);
+    if (mm != NULL) {
+        proc_maps_dump_mem(&mm->mem, buf);
+        mm_release(mm);
+    }
     return 0;
 }
 
 static ssize_t proc_pid_mem_pread(struct proc_entry *entry, struct proc_data *buf, off_t offset) {
-    struct task *task = proc_get_task(entry);
-    if (task == NULL)
-        return _ESRCH;
-    int result = user_read_task(task, (addr_t)offset, buf->data, buf->size);
-    proc_put_task(task);
+    struct mm *mm = proc_get_mm(entry);
+    if (mm == NULL)
+        return -1;
+    int result = user_read_mem(&mm->mem, (addr_t)offset, buf->data, buf->size);
+    mm_release(mm);
     return result ? -1 : buf->size;
 }
 
 static ssize_t proc_pid_mem_pwrite(struct proc_entry *entry, struct proc_data *buf, off_t offset) {
-    struct task *task = proc_get_task(entry);
-    if (task == NULL)
-        return _ESRCH;
-    int result = user_write_task_ptrace(task, (addr_t)offset, buf->data, buf->size);
-    proc_put_task(task);
+    struct mm *mm = proc_get_mm(entry);
+    if (mm == NULL)
+        return -1;
+    int result = user_write_mem_ptrace(&mm->mem, (addr_t)offset, buf->data, buf->size);
+    mm_release(mm);
     return result ? -1 : buf->size;
 }
 
+
+// OOM score files: Chromium and systemd-style launchers write them for their
+// children. There is no OOM killer to steer, so the value is only kept for
+// reading back.
+static int proc_pid_oom_score_show(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    proc_printf(buf, "0\n");
+    return 0;
+}
+
+static int proc_oom_read(struct proc_entry *entry, int *value) {
+    struct task *task = proc_get_task(entry);
+    if (task == NULL)
+        return _ESRCH;
+    *value = task->group->oom_score_adj;
+    proc_put_task(task);
+    return 0;
+}
+
+static int proc_oom_write(struct proc_entry *entry, struct proc_data *data, int min, int max, int scale_num, int scale_den) {
+    char text[16];
+    size_t n = data->size < sizeof(text) - 1 ? data->size : sizeof(text) - 1;
+    memcpy(text, data->data, n);
+    text[n] = '\0';
+    char *end;
+    long value = strtol(text, &end, 10);
+    if (end == text || value < min || value > max)
+        return _EINVAL;
+    struct task *task = proc_get_task(entry);
+    if (task == NULL)
+        return _ESRCH;
+    task->group->oom_score_adj = (int) (value * scale_num / scale_den);
+    proc_put_task(task);
+    return 0;
+}
+
+static int proc_pid_oom_score_adj_show(struct proc_entry *entry, struct proc_data *buf) {
+    int value;
+    int err = proc_oom_read(entry, &value);
+    if (err < 0)
+        return err;
+    proc_printf(buf, "%d\n", value);
+    return 0;
+}
+
+static int proc_pid_oom_score_adj_update(struct proc_entry *entry, struct proc_data *data) {
+    return proc_oom_write(entry, data, -1000, 1000, 1, 1);
+}
+
+// the old interface, -17..15, scaled like Linux does
+static int proc_pid_oom_adj_show(struct proc_entry *entry, struct proc_data *buf) {
+    int value;
+    int err = proc_oom_read(entry, &value);
+    if (err < 0)
+        return err;
+    proc_printf(buf, "%d\n", value == 1000 ? 15 : value * 17 / 1000);
+    return 0;
+}
+
+static int proc_pid_oom_adj_update(struct proc_entry *entry, struct proc_data *data) {
+    return proc_oom_write(entry, data, -17, 15, 1000, 17);
+}
 
 static struct proc_dir_entry proc_pid_fd;
 
@@ -288,10 +444,16 @@ static int proc_pid_fd_readlink(struct proc_entry *entry, char *buf) {
     struct task *task = proc_get_task(entry);
     if (task == NULL)
         return _ESRCH;
-    lock(&task->files->lock);
-    struct fd *fd = fdtable_get(task->files, entry->fd);
-    int err = generic_getpath(fd, buf);
-    unlock(&task->files->lock);
+    int err = _ENOENT;
+    lock(&task->general_lock);
+    if (task->files != NULL) {
+        lock(&task->files->lock);
+        struct fd *fd = fdtable_get(task->files, entry->fd);
+        if (fd != NULL)
+            err = generic_getpath(fd, buf);
+        unlock(&task->files->lock);
+    }
+    unlock(&task->general_lock);
     proc_put_task(task);
     return err;
 }
@@ -323,18 +485,40 @@ static int proc_pid_task_readlink(struct proc_entry *entry, char *buf) {
 static struct proc_dir_entry proc_pid_task;
 
 static bool proc_pid_task_readdir(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    // TODO: Expose all threads
-    *next_entry = (struct proc_entry) {&proc_pid_task, .pid = entry->pid};
-    return !(*index)++;
+    // One entry per thread of the process (each links to /proc/<tid>)
+    lock(&pids_lock);
+    struct task *task = pid_get_task(entry->pid);
+    pid_t_ tid = 0;
+    if (task != NULL && task->group != NULL) {
+        unsigned long i = 0;
+        struct task *thread;
+        list_for_each_entry(&task->group->threads, thread, group_links) {
+            if (i++ == *index) {
+                tid = thread->pid;
+                break;
+            }
+        }
+    }
+    unlock(&pids_lock);
+    if (tid == 0)
+        return false;
+    *next_entry = (struct proc_entry) {&proc_pid_task, .pid = tid};
+    (*index)++;
+    return true;
 }
 
 static int proc_pid_cwd_readlink(struct proc_entry *entry, char *buf) {
     struct task *task = proc_get_task(entry);
     if (task == NULL)
         return _ESRCH;
-    lock(&task->fs->lock);
-    int err = generic_getpath(task->fs->pwd, buf);
-    unlock(&task->fs->lock);
+    int err = _ENOENT;
+    lock(&task->general_lock);
+    if (task->fs != NULL) {
+        lock(&task->fs->lock);
+        err = generic_getpath(task->fs->pwd, buf);
+        unlock(&task->fs->lock);
+    }
+    unlock(&task->general_lock);
     proc_put_task(task);
     return err;
 }
@@ -348,8 +532,12 @@ struct proc_children proc_pid_children = PROC_CHILDREN({
     {"fd", S_IFDIR, .readdir = proc_pid_fd_readdir},
     {"maps", .show = proc_pid_maps_show},
     {"mem", .pread = proc_pid_mem_pread, .pwrite = proc_pid_mem_pwrite},
+    {"oom_adj", 0644, .show = proc_pid_oom_adj_show, .update = proc_pid_oom_adj_update},
+    {"oom_score", .show = proc_pid_oom_score_show},
+    {"oom_score_adj", 0644, .show = proc_pid_oom_score_adj_show, .update = proc_pid_oom_score_adj_update},
     {"stat", .show = proc_pid_stat_show},
     {"statm", .show = proc_pid_statm_show},
+    {"status", .show = proc_pid_status_show},
     {"task", S_IFDIR, .readdir = proc_pid_task_readdir},
 });
 

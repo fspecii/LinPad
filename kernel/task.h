@@ -76,6 +76,9 @@ struct task {
 
     addr_t clear_tid;
     addr_t robust_list;
+    // sigaltstack is per thread, as on Linux
+    addr_t altstack;
+    dword_t altstack_size;
 
     // locked by pids_lock
     dword_t exit_code;
@@ -177,6 +180,7 @@ struct tgroup {
     // group. The process is about to BRK anyway — further output is noise.
     // Cleared on execve (new program state).
     bool v8_aborting;
+    int oom_score_adj; // /proc/<pid>/oom_score_adj; stored, has no effect
 
     struct rusage_ children_rusage;
     cond_t child_exit;

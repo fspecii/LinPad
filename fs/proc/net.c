@@ -1,23 +1,12 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include "fs/proc.h"
+#include "fs/netlink.h"
 
 // /proc/net/dev - network device statistics
 // Format: Interface|Receive|Transmit
 static int proc_show_net_dev(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
-    // Header
-    proc_printf(buf, "Inter-|   Receive                                                |  Transmit\n");
-    proc_printf(buf, " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n");
-
-    // For iSH emulator, we report minimal network stats
-    // lo (loopback) interface
-    proc_printf(buf, "    lo:       0       0    0    0    0     0          0         0");
-    proc_printf(buf, "        0       0    0    0    0     0       0          0\n");
-
-    // eth0 (dummy ethernet) - some programs expect this
-    proc_printf(buf, "  eth0:       0       0    0    0    0     0          0         0");
-    proc_printf(buf, "        0       0    0    0    0     0       0          0\n");
-
+    netlink_proc_net_dev(buf);
     return 0;
 }
 

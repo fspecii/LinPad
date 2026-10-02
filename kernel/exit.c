@@ -77,6 +77,7 @@ noreturn void do_exit(int status) {
     }
 
     // has to happen before mm_release
+    futex_exit_robust_list();
     addr_t clear_tid = current->clear_tid;
     if (clear_tid) {
         pid_t_ zero = 0;
@@ -85,18 +86,22 @@ noreturn void do_exit(int status) {
     }
 
     // release all our resources (may already be NULL if force-released by do_exit_group)
-    if (current->mm != NULL) {
-        mm_release(current->mm);
-        current->mm = NULL;
-    }
-    if (current->files != NULL) {
-        fdtable_release(current->files);
-        current->files = NULL;
-    }
-    if (current->fs != NULL) {
-        fs_info_release(current->fs);
-        current->fs = NULL;
-    }
+    // Detach them under general_lock so procfs readers (/proc/pid/exe, fd/,
+    // cwd), which hold that lock while using them, never see freed objects.
+    lock(&current->general_lock);
+    struct mm *mm = current->mm;
+    struct fdtable *files = current->files;
+    struct fs_info *fs = current->fs;
+    current->mm = NULL;
+    current->files = NULL;
+    current->fs = NULL;
+    unlock(&current->general_lock);
+    if (mm != NULL)
+        mm_release(mm);
+    if (files != NULL)
+        fdtable_release(files);
+    if (fs != NULL)
+        fs_info_release(fs);
     // Close per-thread futex wakeup pipe
     if (current->futex_pipe[0] != -1) {
         close(current->futex_pipe[0]);
@@ -364,38 +369,137 @@ noreturn void do_exit_group(int status) {
     do_exit(status);
 }
 
-// always called from init process
+// Kill every other thread in the group before an exec replaces the image, as
+// Linux's de_thread does. The dying threads go through the same group-exit
+// path as exit_group; the flag is cleared once they are gone so the execing
+// thread carries on. Unlike Linux, an exec from a non-leader thread keeps its
+// own tid instead of taking over the leader's.
+void de_thread(void) {
+    struct tgroup *group = current->group;
+    lock(&pids_lock);
+    lock(&group->lock);
+    if (group->doing_group_exit) {
+        int status = group->group_exit_code;
+        unlock(&group->lock);
+        unlock(&pids_lock);
+        do_exit(status);
+    }
+    struct task *task;
+    int others = 0;
+    list_for_each_entry(&group->threads, task, group_links) {
+        if (task != current)
+            others++;
+    }
+    if (others == 0) {
+        unlock(&group->lock);
+        unlock(&pids_lock);
+        return;
+    }
+    group->doing_group_exit = true;
+    group->group_exit_code = 0;
+    list_for_each_entry(&group->threads, task, group_links) {
+        if (task == current)
+            continue;
+        deliver_signal(task, SIGKILL_, SIGINFO_NIL);
+        group->stopped = false;
+        notify(&group->stopped_cond);
+    }
+    unlock(&group->lock);
+    unlock(&pids_lock);
+
+    for (int waited_ms = 0; others > 0; waited_ms++) {
+        lock(&pids_lock);
+        others = 0;
+        struct task *tmp;
+        list_for_each_entry_safe(&group->threads, task, tmp, group_links) {
+            if (task == current || task->exiting)
+                continue;
+            if (waited_ms < 5000) {
+                others++;
+                if (waited_ms % 50 == 49) {
+                    cpu_poke(&task->cpu);
+                    if (task->thread)
+                        pthread_kill(task->thread, SIGUSR1);
+                }
+                continue;
+            }
+            // Stuck in an uninterruptible host call: detach it the way
+            // do_exit_group's safety valve does.
+            task->exiting = true;
+            list_remove(&task->group_links);
+            if (task->sighand != NULL) {
+                sighand_release(task->sighand);
+                task->sighand = NULL;
+            }
+            if (task->mm != NULL) {
+                mm_release(task->mm);
+                task->mm = NULL;
+                task->mem = NULL;
+            }
+            if (task->files != NULL) {
+                fdtable_release(task->files);
+                task->files = NULL;
+            }
+            if (task->fs != NULL) {
+                fs_info_release(task->fs);
+                task->fs = NULL;
+            }
+        }
+        unlock(&pids_lock);
+        if (others > 0) {
+            struct timespec ts = {0, 1000000L};
+            nanosleep(&ts, NULL);
+        }
+    }
+
+    lock(&pids_lock);
+    lock(&group->lock);
+    group->doing_group_exit = false;
+    group->group_exit_code = 0;
+    unlock(&group->lock);
+    // the dying threads' exit path re-sends SIGKILL to the whole group
+    lock(&current->sighand->lock);
+    struct sigqueue *sigqueue, *sigqueue_tmp;
+    list_for_each_entry_safe(&current->queue, sigqueue, sigqueue_tmp, queue) {
+        if (sigqueue->info.sig == SIGKILL_) {
+            list_remove(&sigqueue->queue);
+            free(sigqueue);
+        }
+    }
+    sigset_del(&current->pending, SIGKILL_);
+    unlock(&current->sighand->lock);
+    unlock(&pids_lock);
+}
+
+// always called from init process, with pids_lock held; never returns
 static void halt_system(void) {
-    int max_iterations = 10; // Timeout: wait maximum 10 seconds
-    for (int state = 0; state < 3; state++) {
+    // Ask the remaining processes to exit (SIGTERM, then SIGKILL), giving
+    // each round a second. Zombies no longer run and nobody will reap them
+    // once init is gone, so they don't count. Host threads that never
+    // respond are left to the _exit below; sending them a host SIGTERM (as
+    // this used to) kills the emulator with status 143 instead.
+    //
+    // pids_lock is only held for one task at a time, and not while waiting:
+    // the tasks being stopped need it to exit, and holding it across every
+    // delivery let one busy target stall the whole shutdown.
+    int exit_code = current->exit_code;
+    unlock(&pids_lock);
+    for (int state = 0; state < 2; state++) {
         int tasks_found = 0;
         for (int i = 2; i < MAX_PID; i++) {
+            lock(&pids_lock);
             struct task *task = pid_get_task(i);
-            if (task != NULL) {
+            if (task != NULL && !task->zombie && !task->exiting) {
                 tasks_found++;
-                switch (state) {
-                case 0:
-                    deliver_signal(task, SIGTERM_, SIGINFO_NIL);
-                    break;
-                case 1:
-                    deliver_signal(task, SIGKILL_, SIGINFO_NIL);
-                    break;
-                case 2:
-                    pthread_kill(task->thread, SIGTERM);
-                }
+                deliver_signal(task, state == 0 ? SIGTERM_ : SIGKILL_, SIGINFO_NIL);
             }
+            unlock(&pids_lock);
         }
         if (tasks_found == 0)
             break;
-        if (state != 2) {
-            sleep(1);
-            // Timeout protection: if we've waited too long, force exit
-            if (--max_iterations <= 0) {
-                printk("halt_system: timeout after 10 seconds, %d tasks remaining\n", tasks_found);
-                break;
-            }
-        }
+        sleep(1);
     }
+    lock(&pids_lock);
 
     // unmount all filesystems
     lock(&mounts_lock);
@@ -415,8 +519,11 @@ static void halt_system(void) {
     // Force exit the entire host process. Orphaned guest threads
     // (stuck in JIT loops after do_exit_group force cleanup) keep
     // the host process alive indefinitely. _exit is safe here since
-    // init dying means we're shutting down completely.
-    _exit(0);
+    // init dying means we're shutting down completely. Report init's exit
+    // status like a shell would (128 + signal for a killed init).
+    if (exit_code & 0x7f)
+        _exit(128 + (exit_code & 0x7f));
+    _exit((exit_code >> 8) & 0xff);
 }
 
 dword_t sys_exit(dword_t status) {
@@ -577,8 +684,8 @@ retry:
     current->blocking = true;
     {
         struct timespec waitpid_timeout = {.tv_sec = 1, .tv_nsec = 0};
-        if (wait_for(&current->group->child_exit, &pids_lock, &waitpid_timeout)) {
-            // Signal received during wait
+        if (wait_for(&current->group->child_exit, &pids_lock, &waitpid_timeout) == _EINTR) {
+            // Signal received during wait (the bounded timeout is not one)
             got_signal = true;
         }
     }
@@ -610,8 +717,30 @@ dword_t sys_waitid(int_t idtype, pid_t_ id, addr_t info_addr, int_t options) {
     STRACE("waitid(%d, %d, %#x, %#x)", idtype, id, info_addr, options);
     struct siginfo_ info = {};
     int_t res = do_wait(idtype, id, &info, NULL, options);
-    if (res < 0 || (res == 0 && info.child.pid == 0))
+    if (res < 0)
         return res;
+    if (res == 0 && info.child.pid == 0) {
+        // WNOHANG and nothing to report: Linux clears the siginfo
+        struct siginfo_ empty = {};
+        if (info_addr != 0 && user_put(info_addr, empty))
+            return _EFAULT;
+        return res;
+    }
+    // do_wait reports a wait(2)-style status; waitid wants si_code + si_status
+    int_t wstatus = info.child.status;
+    if ((wstatus & 0x7f) == 0) {
+        info.code = CLD_EXITED_;
+        info.child.status = (wstatus >> 8) & 0xff;
+    } else if (wstatus == 0xffff) {
+        info.code = CLD_CONTINUED_;
+        info.child.status = SIGCONT_;
+    } else if ((wstatus & 0xff) == 0x7f) {
+        info.code = CLD_STOPPED_;
+        info.child.status = (wstatus >> 8) & 0xff;
+    } else {
+        info.code = wstatus & 0x80 ? CLD_DUMPED_ : CLD_KILLED_;
+        info.child.status = wstatus & 0x7f;
+    }
     if (info_addr != 0 && user_put(info_addr, info))
         return _EFAULT;
     return 0;

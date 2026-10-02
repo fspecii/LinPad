@@ -7,13 +7,19 @@
 
 // Maximum anonymous mmap pages across ALL processes (host memory cap).
 // Prevents iOS app from being killed by jetsam.
-// 0 = no limit. Non-zero = hard limit in pages (4KB each).
+// 0 = no limit. Non-zero = the minimum limit in pages (4KB each); see
+// anon_page_limit().
 // Go runtime alone needs ~1.1GB for page summary reservations (PROT_NONE).
 // 524288 pages = 2GB.
 #define ANON_MMAP_LIMIT_PAGES 1048576
 
 #if ANON_MMAP_LIMIT_PAGES > 0
 extern _Atomic long anon_page_count;
+// The cap actually used: twice the host's physical memory, and at least
+// ANON_MMAP_LIMIT_PAGES. It counts mapped, not resident, memory (jetsam goes
+// by footprint), so a fixed 4 GB starved large workloads on 8-16 GB iPads:
+// VS Code plus Firefox hit it and Chromium's renderer died.
+long anon_page_limit(void);
 #endif
 
 // uses mem.lock instead of having a lock of its own

@@ -34,6 +34,18 @@ int proc_entry_stat(struct proc_entry *entry, struct statbuf *stat) {
     unlock(&pids_lock);
 
     stat->inode = entry->meta->inode | entry->pid << 16 | (uint64_t) entry->fd << 48;
+    // Directories: 2 + entries, as Linux reports 2 + subdirectories (and
+    // 2 + threads for /proc/<pid>/task, which Chromium checks).
+    stat->nlink = 1;
+    if (S_ISDIR(stat->mode)) {
+        stat->nlink = 2;
+        unsigned long index = 0;
+        struct proc_entry child = {0};
+        while (proc_dir_read(entry, &index, &child)) {
+            stat->nlink++;
+            proc_entry_cleanup(&child);
+        }
+    }
     return 0;
 }
 

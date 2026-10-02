@@ -174,5 +174,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type);
 int mem_segv_reason(struct mem *mem, addr_t addr);
 
 extern size_t real_page_size;
+// madvise(MADV_DONTNEED/MADV_FREE): zero the pages and give their memory back to the host.
+void mem_discard(struct mem *mem, page_t start, pages_t pages);
 
 #endif

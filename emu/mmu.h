@@ -32,7 +32,12 @@ struct mmu {
     struct mmu_ops *ops;
     struct asbestos *asbestos;
     uint64_t changes;
+    // Unique per address space, never reused. A freed mm's memory (and so
+    // this struct's address) can be reused by the next execve, so caches
+    // must not identify an address space by pointer alone.
+    uint64_t id;
 };
+uint64_t mmu_new_id(void);
 
 #define MEM_READ 0
 #define MEM_WRITE 1

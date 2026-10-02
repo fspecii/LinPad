@@ -35,6 +35,7 @@ struct tlb {
 
     // Persistent fiber_frame (avoids malloc/free + ret_cache zeroing per syscall)
     struct fiber_frame *frame;
+    uint64_t mmu_id; // mmu->id the caches above belong to
 };
 
 #define TLB_INDEX(addr) ((((addr >> PAGE_BITS) ^ (addr >> (PAGE_BITS + TLB_BITS))) & (TLB_SIZE - 1)))

@@ -1063,8 +1063,9 @@ static inline int fast_fstat64(struct cpu_state *cpu) {
     if (fd == NULL)
         return -1;  // Fall back to slow path
 
-    // Fast path condition: fd is realfs (not adhoc, not procfs, etc.)
-    if (fd->ops != &realfs_fdops)
+    // Fast path condition: fd is realfs (not adhoc, not procfs, etc.).
+    // Pipes use realfs_fdops too, but their stat lives in the adhoc fd.
+    if (fd->ops != &realfs_fdops || is_adhoc_fd(fd))
         return -1;  // Fall back to slow path
 
     // Direct host fstat call (bypass generic layers)
@@ -1127,6 +1128,17 @@ static inline int fast_fstat64(struct cpu_state *cpu) {
     return 0;  // Success
 }
 
+// Retry a host EINTR only when it was not the SIGUSR1 wakeup for a guest
+// signal; otherwise a thread blocked on a pipe never runs its handler.
+static bool fast_io_signal_pending(void) {
+    if (current->sighand == NULL)
+        return false;
+    lock(&current->sighand->lock);
+    bool pending = !!(current->pending & ~current->blocked);
+    unlock(&current->sighand->lock);
+    return pending;
+}
+
 // Fast path for read (syscall 63) - small buffers only
 static inline int fast_read(struct cpu_state *cpu) {
     fd_t fd_no = (fd_t)cpu->regs[0];
@@ -1146,7 +1158,7 @@ static inline int fast_read(struct cpu_state *cpu) {
     ssize_t res;
     do {
         res = read(fd->real_fd, buf, size);
-    } while (res < 0 && errno == EINTR);
+    } while (res < 0 && errno == EINTR && !fast_io_signal_pending());
 
     if (res < 0)
         return errno_map();
@@ -1181,7 +1193,7 @@ static inline int fast_write(struct cpu_state *cpu) {
     ssize_t res;
     do {
         res = write(fd->real_fd, buf, size);
-    } while (res < 0 && errno == EINTR);
+    } while (res < 0 && errno == EINTR && !fast_io_signal_pending());
 
     if (res < 0)
         return errno_map();

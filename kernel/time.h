@@ -7,6 +7,7 @@ dword_t sys_stime(addr_t time);
 #define CLOCK_REALTIME_ 0
 #define CLOCK_MONOTONIC_ 1
 #define CLOCK_PROCESS_CPUTIME_ID_ 2
+#define CLOCK_THREAD_CPUTIME_ID_ 3
 #define CLOCK_MONOTONIC_RAW_ 4
 #define CLOCK_REALTIME_COARSE_ 5
 #define CLOCK_MONOTONIC_COARSE_ 6

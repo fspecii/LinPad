@@ -14,7 +14,15 @@ static int proc_show_version(struct proc_entry *UNUSED(entry), struct proc_data 
 
 static int proc_show_stat(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     struct cpu_usage usage = get_cpu_usage();
-    proc_printf(buf, "cpu  %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64"\n", usage.user_ticks, usage.nice_ticks, usage.system_ticks, usage.idle_ticks);
+    proc_printf(buf, "cpu  %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" 0 0 0 0 0 0\n", usage.user_ticks, usage.nice_ticks, usage.system_ticks, usage.idle_ticks);
+    // Per-CPU lines: libuv (os.cpus(), and so Node's worker pools) and
+    // others count CPUs here. The host gives one total, split evenly.
+    unsigned cpus = sysconf(_SC_NPROCESSORS_ONLN);
+    if (cpus < 1)
+        cpus = 1;
+    for (unsigned i = 0; i < cpus; i++)
+        proc_printf(buf, "cpu%u %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" 0 0 0 0 0 0\n", i,
+                usage.user_ticks / cpus, usage.nice_ticks / cpus, usage.system_ticks / cpus, usage.idle_ticks / cpus);
 
     // calculate btime (boot time in seconds since epoch) by subtracting uptime from current time
     struct uptime_info uptime = get_uptime();
@@ -49,35 +57,58 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
 }
 
 static void show_kb(struct proc_data *buf, const char *name, uint64_t value) {
-    proc_printf(buf, "%s%8"PRIu64" kB\n", name, value / 1000);
+    proc_printf(buf, "%s%8"PRIu64" kB\n", name, value / 1024);
 }
 
 static int proc_show_meminfo(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    // Real numbers: memory-pressure logic in browsers (WebKit's
+    // MemoryPressureMonitor, Firefox) and allocators size themselves from
+    // MemTotal/MemAvailable. On iOS MemAvailable is this app's remaining
+    // jetsam headroom, which is what actually limits the guest.
     struct mem_usage usage = get_mem_usage();
-#if defined(GUEST_ARM64)
-    // Cap reported memory to match sys_sysinfo limit.
-    // Reporting full host RAM (e.g. 24GB) causes V8 to set heap_size_limit=4GB
-    // which exhausts the emulator's limited address space.
-    #define MEMINFO_MAX_RAM (4ULL * 1024 * 1024 * 1024)
-    if (usage.total > MEMINFO_MAX_RAM)
-        usage.total = MEMINFO_MAX_RAM;
-    if (usage.free > MEMINFO_MAX_RAM)
-        usage.free = MEMINFO_MAX_RAM;
-#endif
+    uint64_t available = usage.available;
+    uint64_t cached = usage.cached < available ? usage.cached : available;
+    uint64_t free = usage.free < available ? usage.free : available;
     show_kb(buf, "MemTotal:       ", usage.total);
-    show_kb(buf, "MemFree:        ", usage.free);
-    show_kb(buf, "MemShared:      ", usage.free);
-    // a bunch of crap busybox top needs to see or else it gets stack garbage
-    show_kb(buf, "Shmem:          ", 0);
+    show_kb(buf, "MemFree:        ", free);
+    show_kb(buf, "MemAvailable:   ", available);
     show_kb(buf, "Buffers:        ", 0);
-    show_kb(buf, "Cached:         ", 0);
+    show_kb(buf, "Cached:         ", cached);
+    show_kb(buf, "SwapCached:     ", 0);
+    show_kb(buf, "Active:         ", usage.active);
+    show_kb(buf, "Inactive:       ", usage.inactive);
+    show_kb(buf, "Active(anon):   ", usage.active);
+    show_kb(buf, "Inactive(anon): ", 0);
+    show_kb(buf, "Active(file):   ", 0);
+    show_kb(buf, "Inactive(file): ", cached);
     show_kb(buf, "SwapTotal:      ", 0);
     show_kb(buf, "SwapFree:       ", 0);
     show_kb(buf, "Dirty:          ", 0);
     show_kb(buf, "Writeback:      ", 0);
-    show_kb(buf, "AnonPages:      ", 0);
+    show_kb(buf, "AnonPages:      ", usage.active);
     show_kb(buf, "Mapped:         ", 0);
+    show_kb(buf, "Shmem:          ", 0);
     show_kb(buf, "Slab:           ", 0);
+    show_kb(buf, "SReclaimable:   ", 0);
+    show_kb(buf, "SUnreclaim:     ", 0);
+    show_kb(buf, "CommitLimit:    ", usage.total);
+    return 0;
+}
+
+// Minimal zoneinfo: WebKit's MemoryPressureMonitor reads the low watermark.
+static int proc_show_zoneinfo(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    struct mem_usage usage = get_mem_usage();
+    uint64_t page = 4096;
+    uint64_t total = usage.total / page;
+    uint64_t low = total / 200; // ~0.5%, in line with Linux defaults
+    proc_printf(buf, "Node 0, zone   Normal\n");
+    proc_printf(buf, "  pages free     %"PRIu64"\n", usage.free / page);
+    proc_printf(buf, "        min      %"PRIu64"\n", low * 4 / 5);
+    proc_printf(buf, "        low      %"PRIu64"\n", low);
+    proc_printf(buf, "        high     %"PRIu64"\n", low * 6 / 5);
+    proc_printf(buf, "        spanned  %"PRIu64"\n", total);
+    proc_printf(buf, "        present  %"PRIu64"\n", total);
+    proc_printf(buf, "        managed  %"PRIu64"\n", total);
     return 0;
 }
 
@@ -138,6 +169,7 @@ static int proc_show_mounts(struct proc_entry *UNUSED(entry), struct proc_data *
 
 // Forward declaration for /proc/net
 extern struct proc_children proc_net_children;
+extern struct proc_children proc_sys_children;
 
 // in alphabetical order
 struct proc_dir_entry proc_root_entries[] = {
@@ -148,8 +180,10 @@ struct proc_dir_entry proc_root_entries[] = {
     {"net", S_IFDIR, .children = &proc_net_children},
     {"self", S_IFLNK, .readlink = proc_readlink_self},
     {"stat", .show = proc_show_stat},
+    {"sys", S_IFDIR, .children = &proc_sys_children},
     {"uptime", .show = proc_show_uptime},
     {"version", .show = proc_show_version},
+    {"zoneinfo", .show = proc_show_zoneinfo},
 };
 #define PROC_ROOT_LEN sizeof(proc_root_entries)/sizeof(proc_root_entries[0])
 

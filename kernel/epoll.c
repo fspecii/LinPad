@@ -9,12 +9,17 @@ fd_t sys_epoll_create(int_t flags) {
         return _EINVAL;
 
     struct fd *fd = adhoc_fd_create(&epoll_ops);
+    if (fd != NULL)
+        fd->anon_name = "[eventpoll]";
     if (fd == NULL)
         return _ENOMEM;
     struct poll *poll = poll_create();
     if (IS_ERR(poll))
         return PTR_ERR(poll);
     fd->epollfd.poll = poll;
+    // the set's host kqueue/epoll: lets the set be watched from another set
+    fd->real_fd = poll->real.fd;
+    poll->owner = fd;
     return f_install(fd, flags);
 }
 fd_t sys_epoll_create0() {
@@ -132,10 +137,14 @@ int_t sys_epoll_pwait(fd_t epoll_f, addr_t events_addr, int_t max_events, int_t 
 }
 
 static int epoll_close(struct fd *fd) {
+    lock(&fd->epollfd.poll->lock);
+    fd->epollfd.poll->owner = NULL;
+    unlock(&fd->epollfd.poll->lock);
     poll_destroy(fd->epollfd.poll);
     return 0;
 }
 
 static struct fd_ops epoll_ops = {
+    .poll = epoll_fd_poll,
     .close = epoll_close,
 };

@@ -1,4 +1,10 @@
+#include <fcntl.h>
+#include <limits.h>
+#include <stdio.h>
+#include <pthread.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include "kernel/errno.h"
@@ -79,21 +85,164 @@ void db_exec_reset(struct fakefs_db *fs, sqlite3_stmt *stmt) {
     db_reset(fs, stmt);
 }
 
+// A transaction that changed anything invalidates the stat cache. Statements
+// can write inside a "read" transaction too, so compare the change counter.
+static void db_note_changes(struct fakefs_db *fs) {
+    if (sqlite3_total_changes64(fs->db) != fs->txn_changes)
+        fs->write_gen++;
+}
+
 void db_begin_read(struct fakefs_db *fs) {
     sqlite3_mutex_enter(fs->lock);
+    fs->txn_changes = sqlite3_total_changes64(fs->db);
     db_exec_reset(fs, fs->stmt.begin_deferred);
 }
 void db_begin_write(struct fakefs_db *fs) {
     sqlite3_mutex_enter(fs->lock);
+    fs->txn_changes = sqlite3_total_changes64(fs->db);
+    fs->write_gen++;
     db_exec_reset(fs, fs->stmt.begin_immediate);
 }
 void db_commit(struct fakefs_db *fs) {
     db_exec_reset(fs, fs->stmt.commit);
+    db_note_changes(fs);
     sqlite3_mutex_leave(fs->lock);
 }
 void db_rollback(struct fakefs_db *fs) {
     db_exec_reset(fs, fs->stmt.rollback);
+    db_note_changes(fs);
     sqlite3_mutex_leave(fs->lock);
+}
+
+// === stat cache ===
+// path -> (inode, ish_stat) or "doesn't exist", direct-mapped by path hash.
+// An entry is valid while the db is unchanged: this process's own changes
+// bump write_gen, and a commit by another process (the iOS File Provider
+// opens the same meta.db) rewrites meta.db-wal, changing its mtime or size.
+// The token is taken before the SELECT, so a commit racing the fill leaves
+// an entry that is already stale by token, never a stale one that looks
+// valid.
+
+#define STAT_CACHE_SIZE 8192
+
+struct stat_cache_token {
+    uint64_t write_gen;
+    int64_t wal_mtime_ns;
+    int64_t wal_size;
+};
+
+struct stat_cache_entry {
+    char *path;
+    uint32_t hash;
+    bool exists;
+    inode_t inode;
+    struct ish_stat stat;
+    struct stat_cache_token token;
+};
+
+struct stat_cache {
+    pthread_mutex_t lock;
+    // last look at meta.db-wal
+    bool wal_valid;
+    int64_t wal_checked_ns;
+    int64_t wal_mtime_ns;
+    int64_t wal_size;
+    struct stat_cache_entry entries[STAT_CACHE_SIZE];
+};
+
+static uint32_t stat_cache_hash(const char *path) {
+    uint32_t hash = 2166136261u;
+    for (const char *c = path; *c != '\0'; c++)
+        hash = (hash ^ (uint8_t) *c) * 16777619u;
+    return hash;
+}
+
+// Another process's commit is noticed within this long; checking the wal on
+// every lookup would cost about as much as the lookup saves.
+#define WAL_CHECK_INTERVAL_NS 1000000
+
+static int64_t monotonic_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t) ts.tv_sec * 1000000000 + ts.tv_nsec;
+}
+
+static bool stat_cache_token(struct fakefs_db *fs, struct stat_cache_token *token) {
+    struct stat_cache *cache = fs->stat_cache;
+    if (cache == NULL || fs->wal_fd < 0)
+        return false;
+    int64_t now = monotonic_ns();
+    pthread_mutex_lock(&cache->lock);
+    bool fresh = cache->wal_valid && now - cache->wal_checked_ns < WAL_CHECK_INTERVAL_NS;
+    int64_t mtime = cache->wal_mtime_ns, size = cache->wal_size;
+    pthread_mutex_unlock(&cache->lock);
+    if (!fresh) {
+        struct stat wal;
+        if (fstat(fs->wal_fd, &wal) < 0 || wal.st_nlink == 0)
+            return false;
+#if __APPLE__
+        mtime = (int64_t) wal.st_mtimespec.tv_sec * 1000000000 + wal.st_mtimespec.tv_nsec;
+#else
+        mtime = (int64_t) wal.st_mtim.tv_sec * 1000000000 + wal.st_mtim.tv_nsec;
+#endif
+        size = wal.st_size;
+        pthread_mutex_lock(&cache->lock);
+        cache->wal_mtime_ns = mtime;
+        cache->wal_size = size;
+        cache->wal_checked_ns = now;
+        cache->wal_valid = true;
+        pthread_mutex_unlock(&cache->lock);
+    }
+    token->write_gen = fs->write_gen;
+    token->wal_mtime_ns = mtime;
+    token->wal_size = size;
+    return true;
+}
+
+static bool stat_cache_token_eq(const struct stat_cache_token *a, const struct stat_cache_token *b) {
+    return a->write_gen == b->write_gen && a->wal_mtime_ns == b->wal_mtime_ns && a->wal_size == b->wal_size;
+}
+
+int path_read_stat_cached(struct fakefs_db *fs, const char *path, struct ish_stat *stat, inode_t *inode) {
+    struct stat_cache_token now;
+    if (!stat_cache_token(fs, &now))
+        return -1;
+    uint32_t hash = stat_cache_hash(path);
+    struct stat_cache_entry *e = &fs->stat_cache->entries[hash % STAT_CACHE_SIZE];
+    int res = -1;
+    pthread_mutex_lock(&fs->stat_cache->lock);
+    if (e->path != NULL && e->hash == hash && stat_cache_token_eq(&e->token, &now) &&
+            strcmp(e->path, path) == 0) {
+        res = e->exists;
+        if (e->exists) {
+            if (stat)
+                *stat = e->stat;
+            if (inode)
+                *inode = e->inode;
+        }
+    }
+    pthread_mutex_unlock(&fs->stat_cache->lock);
+    return res;
+}
+
+static void stat_cache_fill(struct fakefs_db *fs, const char *path, const struct stat_cache_token *token,
+        bool exists, inode_t inode, const struct ish_stat *stat) {
+    uint32_t hash = stat_cache_hash(path);
+    struct stat_cache_entry *e = &fs->stat_cache->entries[hash % STAT_CACHE_SIZE];
+    char *copy = strdup(path);
+    if (copy == NULL)
+        return;
+    pthread_mutex_lock(&fs->stat_cache->lock);
+    char *old = e->path;
+    e->path = copy;
+    e->hash = hash;
+    e->exists = exists;
+    e->inode = inode;
+    if (exists)
+        e->stat = *stat;
+    e->token = *token;
+    pthread_mutex_unlock(&fs->stat_cache->lock);
+    free(old);
 }
 
 static void bind_path(sqlite3_stmt *stmt, int i, const char *path) {
@@ -110,16 +259,33 @@ inode_t path_get_inode(struct fakefs_db *fs, const char *path) {
     return inode;
 }
 bool path_read_stat(struct fakefs_db *fs, const char *path, struct ish_stat *stat, inode_t *inode) {
+    // Inside a write transaction the db may already differ from what any
+    // cached entry says, so skip the cache there.
+    bool cacheable = sqlite3_total_changes64(fs->db) == fs->txn_changes;
+    struct stat_cache_token token;
+    if (cacheable && !stat_cache_token(fs, &token))
+        cacheable = false;
+    if (cacheable) {
+        int cached = path_read_stat_cached(fs, path, stat, inode);
+        if (cached >= 0)
+            return cached;
+    }
     // select inode, stat from stats natural join paths where path = ?
     bind_path(fs->stmt.path_read_stat, 1, path);
     bool exists = db_exec(fs, fs->stmt.path_read_stat);
+    inode_t found_inode = 0;
+    struct ish_stat found_stat = {0};
     if (exists) {
+        found_inode = sqlite3_column_int64(fs->stmt.path_read_stat, 0);
+        found_stat = *(struct ish_stat *) sqlite3_column_blob(fs->stmt.path_read_stat, 1);
         if (inode)
-            *inode = sqlite3_column_int64(fs->stmt.path_read_stat, 0);
+            *inode = found_inode;
         if (stat)
-            *stat = *(struct ish_stat *) sqlite3_column_blob(fs->stmt.path_read_stat, 1);
+            *stat = found_stat;
     }
     db_reset(fs, fs->stmt.path_read_stat);
+    if (cacheable)
+        stat_cache_fill(fs, path, &token, exists, found_inode, &found_stat);
     return exists;
 }
 inode_t path_create(struct fakefs_db *fs, const char *path, struct ish_stat *stat) {
@@ -219,6 +385,8 @@ extern int fakefs_rebuild(struct fakefs_db *fs, int root_fd);
 extern int fakefs_migrate(struct fakefs_db *fs, int root_fd);
 
 int fake_db_init(struct fakefs_db *fs, const char *db_path, int root_fd) {
+    fs->stat_cache = NULL;
+    fs->wal_fd = -1;
     int err = sqlite3_open_v2(db_path, &fs->db, SQLITE_OPEN_READWRITE, NULL);
     if (err != SQLITE_OK) {
         printk("error opening database: %s\n", sqlite3_errmsg(fs->db));
@@ -315,6 +483,14 @@ int fake_db_init(struct fakefs_db *fs, const char *db_path, int root_fd) {
     sqlite3_finalize(statement);
 
     fs->lock = sqlite3_mutex_alloc(SQLITE_MUTEX_FAST);
+    fs->write_gen = 0;
+    fs->txn_changes = 0;
+    char wal_path[PATH_MAX];
+    snprintf(wal_path, sizeof(wal_path), "%s-wal", db_path);
+    fs->wal_fd = open(wal_path, O_RDONLY | O_CLOEXEC);
+    fs->stat_cache = calloc(1, sizeof(struct stat_cache));
+    if (fs->stat_cache != NULL)
+        pthread_mutex_init(&fs->stat_cache->lock, NULL);
     fs->stmt.begin_deferred = db_prepare(fs, "begin deferred");
     fs->stmt.begin_immediate = db_prepare(fs, "begin immediate");
     fs->stmt.commit = db_prepare(fs, "commit");
@@ -351,6 +527,16 @@ int fake_db_deinit(struct fakefs_db *fs) {
         sqlite3_finalize(fs->stmt.path_rename);
         sqlite3_finalize(fs->stmt.path_from_inode);
         sqlite3_finalize(fs->stmt.try_cleanup_inode);
+        if (fs->stat_cache != NULL) {
+            for (int i = 0; i < STAT_CACHE_SIZE; i++)
+                free(fs->stat_cache->entries[i].path);
+            pthread_mutex_destroy(&fs->stat_cache->lock);
+            free(fs->stat_cache);
+            fs->stat_cache = NULL;
+        }
+        if (fs->wal_fd >= 0)
+            close(fs->wal_fd);
+        fs->wal_fd = -1;
         return sqlite3_close(fs->db);
     }
     return SQLITE_OK;

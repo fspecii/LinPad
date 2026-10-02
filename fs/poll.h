@@ -27,6 +27,11 @@ struct poll {
     // instead move them to a freelist where they can be reused.
     struct list pollfd_freelist;
 
+    // The epoll fd this poll backs, or NULL for a temporary poll()/select()
+    // set. Wakeups of member fds are forwarded to it so that pollers of the
+    // epoll fd itself (nested epoll, poll() on an epoll fd) wake up too.
+    struct fd *owner;
+
     lock_t lock;
 };
 
@@ -86,6 +91,9 @@ int poll_wait(struct poll *poll, poll_callback_t callback, void *context, struct
 // does not lock the poll because lock ordering, you must ensure no other
 // thread will add or remove fds from this poll
 void poll_destroy(struct poll *poll);
+// Readiness of an epoll fd: POLL_READ if any member is ready. This is the
+// epoll fd's poll fd-op; its fd->real_fd is the host kqueue/epoll of the set.
+int epoll_fd_poll(struct fd *fd);
 
 // for fd_close
 void poll_cleanup_fd(struct fd *fd);
