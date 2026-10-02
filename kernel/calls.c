@@ -60,7 +60,7 @@ void handle_interrupt(int interrupt) {
             cpu->eax = _ENOSYS;
         } else {
             if (syscall_table[syscall_num] == (syscall_t) syscall_stub) {
-                printk("%d(%s) stub syscall %d\n", current->pid, current->comm, syscall_num);
+                if (ish_log_enabled()) printk("%d(%s) stub syscall %d\n", current->pid, current->comm, syscall_num);
             }
             STRACE("%d call %-3d ", current->pid, syscall_num);
             int result = syscall_table[syscall_num](cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp);
@@ -113,7 +113,7 @@ void handle_interrupt(int interrupt) {
                 cpu->regs[0] = (uint64_t)(int64_t)(int32_t)_ENOSYS;
             } else {
                 if (syscall_table[syscall_num] == (syscall_t) syscall_stub) {
-                    printk("%d(%s) stub syscall %d\n", current->pid, current->comm, syscall_num);
+                    if (ish_log_enabled()) printk("%d(%s) stub syscall %d\n", current->pid, current->comm, syscall_num);
                 }
                 STRACE("%d call %-3d ", current->pid, syscall_num);
                 int64_t result = syscall_table[syscall_num](
@@ -889,11 +889,16 @@ void handle_interrupt(int interrupt) {
                     break;
                 ill_insn |= (uint32_t)b << (i * 8);
             }
-            printk("%d illegal instruction at 0x%llx: insn=0x%08x\n", current->pid, (unsigned long long)cpu->pc, ill_insn);
+            // SIGILL is delivered either way; runtimes probe with traps on
+            // purpose (the MSVC CRT reads CurrentEL), so only log on request
+            if (ish_log_enabled())
+                printk("%d illegal instruction at 0x%llx: insn=0x%08x\n", current->pid, (unsigned long long)cpu->pc, ill_insn);
         }
 #endif
-        printk("\n");
-        dump_stack(8);
+        if (ish_log_enabled()) {
+            printk("\n");
+            dump_stack(8);
+        }
         struct siginfo_ info = {
             .code = SI_KERNEL_,
 #if defined(GUEST_X86) || !defined(GUEST_ARM64)

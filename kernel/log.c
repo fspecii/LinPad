@@ -128,6 +128,15 @@ void ish_vprintk(const char *msg, va_list args) {
     unlock(&log_lock);
     memmove(buf, b, strlen(b) + 1);
 }
+bool ish_log_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char *env = getenv("ISH_LOG");
+        enabled = env != NULL && *env != '\0' && strcmp(env, "0") != 0;
+    }
+    return enabled;
+}
+
 void ish_printk(const char *msg, ...) {
     va_list args;
     va_start(args, msg);

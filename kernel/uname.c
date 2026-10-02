@@ -92,7 +92,7 @@ static void sysinfo_specific(struct sys_info *info) {
 dword_t sys_sysinfo(addr_t info_addr) {
     struct sys_info info = {0};
     struct uptime_info uptime = get_uptime();
-    info.uptime = uptime.uptime_ticks;
+    info.uptime = uptime.uptime_ticks / 100; // seconds
     info.loads[0] = uptime.load_1m;
     info.loads[1] = uptime.load_5m;
     info.loads[2] = uptime.load_15m;

@@ -1,9 +1,13 @@
 #ifndef UTIL_DEBUG_H
 #define UTIL_DEBUG_H
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 void ish_printk(const char *msg, ...);
+// ISH_LOG=1 in the environment enables diagnostic messages that are noise in
+// normal use (NETDIAG socket waits, stub syscalls, illegal-instruction dumps)
+bool ish_log_enabled(void);
 void ish_vprintk(const char *msg, va_list args);
 #undef printk
 #define printk ish_printk

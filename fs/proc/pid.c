@@ -4,6 +4,7 @@
 #include "kernel/memory.h"
 #include "kernel/calls.h"
 #include "fs/proc.h"
+#include "platform/platform.h"
 #include "kernel/mm.h"
 #include "fs/fd.h"
 #include "fs/tty.h"
@@ -169,7 +170,16 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     proc_printf(buf, "%ld ", 0l); // nice (also not adjustable)
     proc_printf(buf, "%ld ", list_size(&task->group->threads));
     proc_printf(buf, "%ld ", 0l); // itimer value (deprecated, always 0)
-    proc_printf(buf, "%lld ", 0ll); // jiffies on process start
+    // starttime: clock ticks after boot, matching /proc/uptime and btime
+    {
+        struct uptime_info uptime = get_uptime();
+        struct timespec now;
+        clock_gettime(CLOCK_REALTIME, &now);
+        int64_t now_ticks = (int64_t) now.tv_sec * 100 + now.tv_nsec / 10000000;
+        int64_t boot_ticks = now_ticks - (int64_t) uptime.uptime_ticks;
+        int64_t start_ticks = (int64_t) (task->group->leader->start_realtime_ns / 10000000) - boot_ticks;
+        proc_printf(buf, "%lld ", (long long) (start_ticks > 0 ? start_ticks : 0));
+    }
 
     proc_printf(buf, "%llu ", (unsigned long long) (vm.size * PAGE_SIZE)); // vsize
     proc_printf(buf, "%lld ", (long long) vm.rss); // rss

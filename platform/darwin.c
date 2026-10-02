@@ -79,7 +79,9 @@ struct uptime_info get_uptime() {
     }
 
     struct uptime_info uptime = {
-        .uptime_ticks = now.tv_sec - kern_boottime[0],
+        // in clock ticks (1/100 s), as the name says and /proc/uptime expects
+        .uptime_ticks = ((uint64_t) now.tv_sec * 1000000 + now.tv_usec -
+                         (kern_boottime[0] * 1000000 + (uint32_t) kern_boottime[1])) / 10000,
         .load_1m = vm_loadavg.ldavg[0],
         .load_5m = vm_loadavg.ldavg[1],
         .load_15m = vm_loadavg.ldavg[2],

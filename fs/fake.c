@@ -722,10 +722,6 @@ retry:
     char entry_path[MAX_PATH + 1];
     realfs_getpath(fd, entry_path);
 
-    /* Debug: log readdir for bind-mounted paths */
-    if (strstr(entry_path, "minis") != NULL || strstr(entry_path, "Library/MinisChat") != NULL)
-        fprintf(stderr, "fakefs_readdir: getpath=\"%s\" entry=\"%s\"\n", entry_path, entry->name);
-
     if (strcmp(entry->name, "..") == 0) {
         if (strcmp(entry_path, "") != 0) {
             *strrchr(entry_path, '/') = '\0';

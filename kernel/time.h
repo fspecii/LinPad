@@ -71,11 +71,17 @@ struct itimerspec_ {
     struct timespec_ value;
 };
 
+// clock_t is a long: 64-bit on ARM64 guests
+#ifdef GUEST_ARM64
+typedef sqword_t tms_clock_t_;
+#else
+typedef clock_t_ tms_clock_t_;
+#endif
 struct tms_ {
-    clock_t_ tms_utime;  /* user time */
-    clock_t_ tms_stime;  /* system time */
-    clock_t_ tms_cutime; /* user time of children */
-    clock_t_ tms_cstime; /* system time of children */
+    tms_clock_t_ tms_utime;  /* user time */
+    tms_clock_t_ tms_stime;  /* system time */
+    tms_clock_t_ tms_cutime; /* user time of children */
+    tms_clock_t_ tms_cstime; /* system time of children */
 };
 
 int_t sys_setitimer(int_t which, addr_t new_val, addr_t old_val);

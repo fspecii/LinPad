@@ -275,12 +275,18 @@ dword_t sys_times(addr_t tbuf) {
         struct rusage_ rusage = rusage_get_current();
         tmp.tms_utime = clock_from_timeval(rusage.utime);
         tmp.tms_stime = clock_from_timeval(rusage.stime);
-        tmp.tms_cutime = tmp.tms_utime;
-        tmp.tms_cstime = tmp.tms_stime;
+        lock(&current->group->lock);
+        struct rusage_ children = current->group->children_rusage;
+        unlock(&current->group->lock);
+        tmp.tms_cutime = clock_from_timeval(children.utime);
+        tmp.tms_cstime = clock_from_timeval(children.stime);
         if (user_put(tbuf, tmp))
             return _EFAULT;
     }
-    return 0;
+    // elapsed clock ticks since an arbitrary point, as Linux returns
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (dword_t) ((uint64_t) now.tv_sec * 100 + now.tv_nsec / 10000000);
 }
 
 dword_t sys_gettimeofday(addr_t tv, addr_t tz) {

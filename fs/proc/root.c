@@ -26,7 +26,7 @@ static int proc_show_stat(struct proc_entry *UNUSED(entry), struct proc_data *bu
 
     // calculate btime (boot time in seconds since epoch) by subtracting uptime from current time
     struct uptime_info uptime = get_uptime();
-    struct timespec uptime_ts = {.tv_sec = uptime.uptime_ticks / 100, .tv_nsec = uptime.uptime_ticks % 100};
+    struct timespec uptime_ts = {.tv_sec = uptime.uptime_ticks / 100, .tv_nsec = (uptime.uptime_ticks % 100) * 10000000};
     struct timespec boot_time = timespec_subtract(timespec_now(CLOCK_REALTIME), uptime_ts);
     proc_printf(buf, "btime %ld\n", boot_time.tv_sec);
 

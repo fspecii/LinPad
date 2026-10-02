@@ -20,6 +20,7 @@ struct task {
     struct mem *mem; // pointer to mm.mem, for convenience
     pthread_t thread;
     uint64_t threadid;
+    uint64_t start_realtime_ns; // when the task was created, for /proc/<pid>/stat starttime
 
     struct tgroup *group; // immutable
     struct list group_links;

@@ -75,6 +75,8 @@ struct task *task_create_(struct task *parent) {
         struct timespec _ts;
         clock_gettime(CLOCK_MONOTONIC, &_ts);
         task->last_unblocked_ns = (uint64_t)_ts.tv_sec * 1000000000ULL + _ts.tv_nsec;
+        clock_gettime(CLOCK_REALTIME, &_ts);
+        task->start_realtime_ns = (uint64_t)_ts.tv_sec * 1000000000ULL + _ts.tv_nsec;
     }
     list_init(&task->children);
     list_init(&task->siblings);
