@@ -21,3 +21,32 @@ e2e_out/
 
 # Legacy bench scripts (replaced by benchmark/)
 bench/
+
+# LinPad build outputs and large local artifacts (rebuilt by scripts)
+/build-*/
+/*.tar.gz
+/alpine-arm64-fakefs/
+/perf/
+release/out/
+gpu/build/
+gpu/downloads/
+gpu/pkgs/
+gpu/prefix-*/
+gpu/third_party/
+gpu/*.tar.gz
+themes/kylin/src/
+themes/kylin/ref/
+.build/
+.swiftpm/
+*.xcresult/
+/gpu/tests/guest/drmtest
+/gpu/tests/guest/glbench
+/gpu/tests/guest/glwin
+/gpu/tests/guest/hello
+/gpu/tests/guest/libsegv.so
+/gpu/tests/guest/tm
+/gpu/tests/guest/vkbench
+/gpu/tests/guest/vkenum
+/gpu/tests/host_smoke
+/gpu/tests/mvk_import
+/gpu/tests/mvk_noimport
