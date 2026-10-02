@@ -160,8 +160,6 @@ final class WallpaperStoreTests: XCTestCase {
                                  attribution: "Wallpaper by someone on Wallhaven", id: "wallhaven-abc")
         store.set(.image(item.id), target: .dark, workspace: 0)
         XCTAssertEqual(store.activeSource(workspace: 0, isDark: true), .image("wallhaven-abc"))
-        store.remapWorkspaces([0: 0, 1: 1, 2: 5])
-        XCTAssertEqual(store.activeSource(workspace: 5, isDark: true), .color(0x112233), "a workspace's wallpaper moves with it")
         XCTAssertEqual(store.activeSource(workspace: 0, isDark: false), .default)
         store.set(.color(0x112233), target: .currentWorkspace, workspace: 2)
         XCTAssertEqual(store.activeSource(workspace: 2, isDark: true), .color(0x112233))
@@ -179,6 +177,8 @@ final class WallpaperStoreTests: XCTestCase {
         undo?()
         XCTAssertEqual(store.activeSource(workspace: 2, isDark: true), .color(0x112233), "undo restores it")
         XCTAssertEqual(store.activeSource(workspace: 0, isDark: true), .image("wallhaven-abc"))
+        store.remapWorkspaces([0: 0, 1: 1, 2: 5])
+        XCTAssertEqual(store.activeSource(workspace: 5, isDark: true), .color(0x112233), "a workspace's wallpaper moves with it")
         XCTAssertEqual(reloaded.item("wallhaven-abc")?.attribution, "Wallpaper by someone on Wallhaven")
 
         store.remove("wallhaven-abc")

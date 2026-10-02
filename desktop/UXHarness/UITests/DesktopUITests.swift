@@ -123,6 +123,30 @@ class DesktopUITests: XCTestCase {
         }
     }
 
+    func testToastSwipesAwayAndWorkspacesAreAddedReorderedAndDeleted() {
+        openFromLauncher("settings", search: "Sett")
+        let aurora = app.buttons["wallpaper.gradient.aurora"]
+        XCTAssertTrue(aurora.waitForExistence(timeout: 5))
+        aurora.tap()
+        let toast = app.descendants(matching: .any)["desktop.toast"].firstMatch
+        XCTAssertTrue(toast.waitForExistence(timeout: 5))
+        let start = toast.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 220, dy: 0)), withVelocity: .fast, thenHoldForDuration: 0)
+        waitFor("toast swiped away") { !toast.exists }
+
+        app.typeKey("n", modifierFlags: windowKeys)
+        let fifth = app.buttons["desktop.workspace.5"]
+        XCTAssertTrue(fifth.waitForExistence(timeout: 5), "⌃⌥N adds a workspace")
+        XCTAssertTrue(fifth.isSelected, "and switches to it")
+        app.buttons["desktop.workspace.add"].tap()
+        XCTAssertTrue(app.buttons["desktop.workspace.6"].waitForExistence(timeout: 5), "the + pill adds one")
+        app.buttons["desktop.workspace.6"].press(forDuration: 1.0)
+        let delete = app.buttons["Delete Workspace"].firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        delete.tap()
+        waitFor("empty workspace deleted without asking") { !app.buttons["desktop.workspace.6"].exists }
+    }
+
     func testLauncherIsKeyboardNavigable() {
         app.typeKey("a", modifierFlags: windowKeys)
         let field = app.textFields["desktop.launcher.search"]

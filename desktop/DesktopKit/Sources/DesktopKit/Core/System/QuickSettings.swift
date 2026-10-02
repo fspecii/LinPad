@@ -329,8 +329,10 @@ struct NotificationCenterPanel: View {
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(theme.primaryText.opacity(0.06)))
+        .background(theme.panelBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("desktop.notification")
+        .noticeSwipeToDismiss { withAnimation(DesktopMotion.quick) { notifications.remove(notice.id) } }
     }
 }
 

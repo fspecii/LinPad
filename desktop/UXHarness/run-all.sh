@@ -7,7 +7,7 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 SIM=${SIM:-518E05EE-26E1-4302-B4D9-90537588D271}
 LOGS=${LOGS:-${TMPDIR:-/tmp}/desktop-ux-tests}
-DERIVED=${DERIVED:-${TMPDIR:-/tmp}/desktop-ux-derived}
+DERIVED=${DERIVED:-/Volumes/ExternalHD/Dev/ish-arm64/build-sim-ux/desktop-ux-derived}
 DESTINATION="platform=iOS Simulator,id=$SIM"
 SHARDS=("$@")
 [ ${#SHARDS[@]} -eq 0 ] && SHARDS=(unit ish windows macos ubuntu kylin)

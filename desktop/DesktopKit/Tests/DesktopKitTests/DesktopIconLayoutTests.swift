@@ -86,3 +86,23 @@ final class DesktopIconLayoutTests: XCTestCase {
         XCTAssertEqual(layout.rows(in: size), 2)
     }
 }
+
+final class SwipeDismissalTests: XCTestCase {
+    func testToastsLeaveRightOrUpByDistanceOrFling() {
+        XCTAssertTrue(SwipeDismissal.dismissesToast(translation: CGSize(width: 120, height: 0), predictedEnd: CGSize(width: 130, height: 0)))
+        XCTAssertTrue(SwipeDismissal.dismissesToast(translation: CGSize(width: 0, height: -100), predictedEnd: CGSize(width: 0, height: -110)))
+        XCTAssertTrue(SwipeDismissal.dismissesToast(translation: CGSize(width: 30, height: 0), predictedEnd: CGSize(width: 260, height: 0)),
+                      "a quick flick is enough")
+        XCTAssertFalse(SwipeDismissal.dismissesToast(translation: CGSize(width: 40, height: 0), predictedEnd: CGSize(width: 50, height: 0)))
+        XCTAssertFalse(SwipeDismissal.dismissesToast(translation: CGSize(width: -150, height: 0), predictedEnd: CGSize(width: -300, height: 0)),
+                       "leftward only rubber-bands")
+        XCTAssertLessThan(abs(SwipeDismissal.rubberBand(-100)), 100)
+    }
+
+    func testNoticeRowsRevealThenDismiss() {
+        XCTAssertEqual(SwipeDismissal.rowOutcome(translation: -20, predictedEnd: -25, rowWidth: 340), .close)
+        XCTAssertEqual(SwipeDismissal.rowOutcome(translation: -60, predictedEnd: -70, rowWidth: 340), .reveal)
+        XCTAssertEqual(SwipeDismissal.rowOutcome(translation: -230, predictedEnd: -240, rowWidth: 340), .dismiss)
+        XCTAssertEqual(SwipeDismissal.rowOutcome(translation: -80, predictedEnd: -400, rowWidth: 340), .dismiss, "a fling dismisses")
+    }
+}

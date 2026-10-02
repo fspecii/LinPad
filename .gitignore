@@ -50,3 +50,4 @@ themes/kylin/ref/
 /gpu/tests/host_smoke
 /gpu/tests/mvk_import
 /gpu/tests/mvk_noimport
+.DS_Store

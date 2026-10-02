@@ -42,10 +42,12 @@ struct ToastStack: View {
                         .strokeBorder(theme.separator, lineWidth: 1)
                 }
                 .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+                .toastSwipeToDismiss { controller.dismissToast(toast.id) }
                 .onTapGesture { controller.dismissToast(toast.id) }
                 .transition(.move(edge: .trailing).combined(with: .opacity))
                 .accessibilityAddTraits(.isStaticText)
                 .accessibilityAction(named: "Dismiss") { controller.dismissToast(toast.id) }
+                .accessibilityIdentifier("desktop.toast")
             }
         }
         .padding(12)
