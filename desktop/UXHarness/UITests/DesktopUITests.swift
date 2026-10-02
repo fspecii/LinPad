@@ -15,7 +15,7 @@ class DesktopUITests: XCTestCase {
         // An empty argument-domain value starts every workspace untiled, whatever a previous run saved.
         app.launchArguments = ["-desktop.resetSession", "YES", "-desktop.autostart", "", "-desktop.style", style,
                                "-desktop.tiling", "", "-desktop.onboarded", "YES", "-wallhaven.mock", "YES",
-                               "-desktop.wallpaper", "", "-desktop.resetIcons", "YES"]
+                               "-desktop.wallpaper", "", "-desktop.resetIcons", "YES", "-desktop.colorTheme", ""]
         app.launch()
         XCTAssertTrue(app.buttons["desktop.panel.applications"].waitForExistence(timeout: 10))
         waitFor("boot splash gone", timeout: 15) { !app.descendants(matching: .any)["desktop.bootSplash"].exists }
@@ -145,6 +145,25 @@ class DesktopUITests: XCTestCase {
         XCTAssertTrue(delete.waitForExistence(timeout: 5))
         delete.tap()
         waitFor("empty workspace deleted without asking") { !app.buttons["desktop.workspace.6"].exists }
+    }
+
+    func testColorThemePickerPreviewsAndApplies() {
+        app.typeKey(XCUIKeyboardKey.space.rawValue, modifierFlags: [.control, .option, .shift])
+        let title = app.staticTexts["themePicker.title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5), "⌃⌥⇧Space opens the picker")
+        XCTAssertEqual(title.label, "Style Colors")
+        app.typeKey(XCUIKeyboardKey.rightArrow.rawValue, modifierFlags: [])
+        waitFor("arrow previews the next theme") { title.label != "Style Colors" }
+        let chosen = title.label
+        app.buttons["themePicker.apply"].tap()
+        waitFor("picker closed") { !title.exists }
+        app.typeKey(XCUIKeyboardKey.space.rawValue, modifierFlags: [.control, .option, .shift])
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        XCTAssertEqual(title.label, chosen, "the applied theme is the current one")
+        XCTAssertTrue(app.buttons["themePicker.card.none"].exists)
+        app.buttons["themePicker.card.none"].tap()
+        app.buttons["themePicker.apply"].tap()
+        waitFor("back to the style's colours") { !title.exists }
     }
 
     func testLauncherIsKeyboardNavigable() {
@@ -406,8 +425,8 @@ class DesktopUITests: XCTestCase {
         app.typeKey("t", modifierFlags: [.control, .option, .shift])
         waitFor("tiled side by side: \(files.frame) \(terminal.frame)") {
             files.frame.intersection(terminal.frame).width < 1
-                && abs(files.frame.minY - (area.minY + 8)) < 2 && abs(terminal.frame.minY - (area.minY + 8)) < 2
-                && abs(max(files.frame.maxX, terminal.frame.maxX) - (area.maxX - 8)) < 2
+                && abs(files.frame.minY - (area.minY + 10)) < 2 && abs(terminal.frame.minY - (area.minY + 10)) < 2
+                && abs(max(files.frame.maxX, terminal.frame.maxX) - (area.maxX - 10)) < 2
         }
         XCTAssertEqual(files.frame.maxY, area.maxY, accuracy: 10, "tiles fill the height, less the gap")
 

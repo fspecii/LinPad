@@ -281,6 +281,80 @@ final class DragDropUITests: XCTestCase {
         XCTAssertTrue(state.contains("c-mousepad.txt - Mousepad"), "Mousepad opened the dropped file: \(state)")
     }
 
+    /// macOS-style Quick Look from the hardware keyboard: Space opens it on the selected file,
+    /// the arrow keys move to the next file while it is open, Esc closes it.
+    func testSpaceQuickLookWithArrowsAndEscape() {
+        launch(autostart: "")
+        XCTAssertTrue(element("desktop.surface").waitForExistence(timeout: 60))
+        sleep(3)
+        let folder = "/root/quicklook-\(stamp)"
+        automate("sh|mkdir -p \(folder) && echo alpha > \(folder)/a.txt && echo bravo > \(folder)/b.txt", wait: 4)
+        automate("open|files|path=\(folder)", wait: 1)
+        requireWindow("files")
+        automate("frame|app:files|20|40|640|520", wait: 2)
+        XCTAssertTrue(entry("a.txt").waitForExistence(timeout: 20))
+        entry("a.txt").tap()
+        sleep(1)
+
+        app.typeKey(" ", modifierFlags: [])
+        // Quick Look titles the file without its extension on iPadOS 26.
+        func preview(_ name: String) -> XCUIElement {
+            app.navigationBars.matching(NSPredicate(format: "identifier == %@ OR identifier == %@", name, name + ".txt")).firstMatch
+        }
+        let first = preview("a")
+        XCTAssertTrue(first.waitForExistence(timeout: 30), "Space opened Quick Look on a.txt")
+        save("dnd-quicklook-a")
+
+        app.typeKey(XCUIKeyboardKey.downArrow.rawValue, modifierFlags: [])
+        XCTAssertTrue(preview("b").waitForExistence(timeout: 30), "↓ moved the preview to b.txt")
+        save("dnd-quicklook-b")
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        waitFor("Esc closed Quick Look", timeout: 10) { !preview("b").exists }
+        XCTAssertTrue(entry("b.txt").exists, "back in Files, with b.txt selected")
+    }
+
+    /// An iPad folder mounted into the guest (the picker is bypassed through the automation
+    /// hook; the mount is the real iOSFS one): Linux sees its files, writes reach the iPad
+    /// side, the sidebar lists it under iPad, and Eject unmounts it. Also checks the Photos
+    /// place is there.
+    func testIPadFolderMountAndPhotosPlace() throws {
+        launch(autostart: "")
+        XCTAssertTrue(element("desktop.surface").waitForExistence(timeout: 60))
+        sleep(3)
+        let hostFolder = URL(fileURLWithPath: "/tmp/ipad-folder-\(stamp)")
+        try FileManager.default.createDirectory(at: hostFolder, withIntermediateDirectories: true)
+        try Data("from the iPad".utf8).write(to: hostFolder.appendingPathComponent("ipad-note.txt"))
+
+        let mounted = automate("mount|\(hostFolder.path)", wait: 6)
+        XCTAssertTrue(mounted.contains("mounted /mnt/ipad/"), mounted)
+        let point = "/mnt/ipad/ipad-folder-\(stamp)"
+        XCTAssertTrue(waitForGuest("cat \(point)/ipad-note.txt", contains: "from the iPad"), "Linux reads the iPad folder")
+        automate("sh|echo from-linux > \(point)/linux-note.txt; ls -l ~/iPad", wait: 3)
+        XCTAssertEqual(try? String(contentsOf: hostFolder.appendingPathComponent("linux-note.txt"), encoding: .utf8),
+                       "from-linux\n", "Linux writes reach the iPad folder")
+
+        automate("open|files|path=\(point)", wait: 1)
+        requireWindow("files")
+        automate("frame|app:files|20|40|700|560", wait: 2)
+        let place = element("files.place.ipad.ipad-folder-\(stamp)")
+        XCTAssertTrue(place.waitForExistence(timeout: 20), "the sidebar lists the iPad folder")
+        XCTAssertTrue(entry("ipad-note.txt").waitForExistence(timeout: 20))
+        XCTAssertTrue(element("files.place.Photos").exists && element("files.add-ipad-folder").exists)
+        save("dnd-ipad-folder")
+
+        place.press(forDuration: 1.2)
+        XCTAssertTrue(menuItem("Eject").waitForExistence(timeout: 10))
+        menuItem("Eject").tap()
+        waitFor("the place went away", timeout: 20) { !place.exists }
+        XCTAssertFalse(automate("sh|ls \(point) 2>&1; echo done", wait: 3).contains("ipad-note.txt"), "unmounted")
+
+        element("files.place.Photos").tap()
+        XCTAssertTrue(app.buttons["photos.allow"].waitForExistence(timeout: 10) || element("photos.album").waitForExistence(timeout: 5),
+                      "the Photos place asks for access or shows the library")
+        save("dnd-photos-place")
+    }
+
     /// Text dragged from the Text Editor into Mousepad.
     func testTextFromEditorToMousepad() {
         launch(autostart: "editor")

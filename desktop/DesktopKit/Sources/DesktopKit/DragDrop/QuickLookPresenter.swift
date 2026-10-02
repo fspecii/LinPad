@@ -1,3 +1,4 @@
+import GameController
 import QuickLook
 import SwiftUI
 import UIKit
@@ -39,6 +40,7 @@ final class QuickLookPresenter: NSObject, QLPreviewControllerDataSource, QLPrevi
         controller.onKey = { [weak self] key in self?.handle(key) }
         presented = controller
         top.present(controller, animated: true)
+        watchHardwareKeys(true)
     }
 
     /// Shows other files in the open preview (the selection moved).
@@ -53,13 +55,35 @@ final class QuickLookPresenter: NSObject, QLPreviewControllerDataSource, QLPrevi
     }
 
     func dismiss() {
+        watchHardwareKeys(false)
         presented?.dismiss(animated: true)
         presented = nil
         onStep = nil
     }
 
+    /// The preview's own views (a text or web view) take the first responder once a file
+    /// is shown, and with it Esc, Space and the arrows; the hardware keyboard is therefore
+    /// also watched directly. Both paths call `handle`, which ignores the echo.
+    private func watchHardwareKeys(_ on: Bool) {
+        guard let input = GCKeyboard.coalesced?.keyboardInput else { return }
+        let keys: [(GCKeyCode, KeyedPreviewController.Key)] = [
+            (.escape, .close), (.spacebar, .close), (.leftArrow, .previous), (.rightArrow, .next),
+            (.upArrow, .up), (.downArrow, .down),
+        ]
+        for (code, key) in keys {
+            input.button(forKeyCode: code)?.pressedChangedHandler = on ? { [weak self] _, _, pressed in
+                guard pressed else { return }
+                Task { @MainActor in self?.handle(key) }
+            } : nil
+        }
+    }
+
+    private var lastKey: (KeyedPreviewController.Key, Date)?
+
     private func handle(_ key: KeyedPreviewController.Key) {
         guard let presented else { return }
+        if let (previous, time) = lastKey, previous == key, Date().timeIntervalSince(time) < 0.15 { return }
+        lastKey = (key, Date())
         switch key {
         case .close:
             dismiss()
@@ -101,6 +125,7 @@ final class QuickLookPresenter: NSObject, QLPreviewControllerDataSource, QLPrevi
 
     nonisolated func previewControllerDidDismiss(_ controller: QLPreviewController) {
         MainActor.assumeIsolated {
+            watchHardwareKeys(false)
             presented = nil
             onStep = nil
         }
