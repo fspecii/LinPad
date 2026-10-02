@@ -18,7 +18,9 @@ else
     echo "Installing Visual Studio Code (Microsoft's official linux-arm64 build)."
     echo "About 250 MB is downloaded; this takes several minutes."
     echo
-    if sh "$installer"; then
+    # The desktop session preloads musl helpers (libishwl-scm.so); the glibc side of the
+    # installer must not inherit them.
+    if env -u LD_PRELOAD sh "$installer"; then
         rm -f /usr/share/applications/ish-install-vscode.desktop
         # The installer adds vscode.png to /usr/share/pixmaps; cache it for every style
         # that already has a cache, the active one last.
