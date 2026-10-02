@@ -319,3 +319,29 @@ extension ISHLinuxHost: HostDirectoryMounting {
         Set(iosfs_mount_bookmarks().keys)
     }
 }
+
+/// Linux system updates downloaded from GitHub releases (Settings › Updates) go through
+/// Roots like the app's bundled system: installed at the next launch, user data kept.
+extension ISHLinuxHost: LinuxSystemUpdating {
+    var installedSystemVersion: String? {
+        Roots.instance().installedRootVersion
+    }
+
+    var installableSystemVersion: String? {
+        Roots.instance().availableUpdate
+    }
+
+    var scheduledSystemUpdate: String? {
+        Roots.instance().pendingUpdate
+    }
+
+    func installDownloadedSystem(at archive: URL, version: String) throws {
+        let roots = Roots.instance()
+        try roots.storeDownloadedRootArchive(archive, version: version)
+        roots.pendingUpdate = roots.availableUpdate
+    }
+
+    func backgroundDownloadEventsFinished() {
+        AppDelegate.finishBackgroundURLSessionEvents()
+    }
+}

@@ -27,6 +27,7 @@
   <a href="#-features">Features</a> •
   <a href="#-how-it-works">How it works</a> •
   <a href="#-quick-start">Quick start</a> •
+  <a href="#-install--updates">Install & updates</a> •
   <a href="#-keyboard--trackpad">Shortcuts</a> •
   <a href="#-roadmap">Roadmap</a>
 </p>
@@ -194,6 +195,31 @@ ideviceinstaller install "build-ios-release/Release-iphoneos/iSH ARM64.app"
 Full guide: **[release/INSTALL-DEVICE.md](release/INSTALL-DEVICE.md)**
 
 > Visual Studio Code is Microsoft's proprietary build. It is downloaded on your iPad when you choose to install it and is never redistributed by this project.
+
+---
+
+## 📲 Install & updates
+
+LinPad is sideloaded with your own Apple ID. Each [release](https://github.com/fspecii/LinPad/releases) has an IPA, and SideStore and AltStore can follow the LinPad source:
+
+```
+https://raw.githubusercontent.com/fspecii/LinPad/main/release/source.json
+```
+
+| Sideloader | Install | Updates |
+|------------|---------|---------|
+| **[SideStore](https://sidestore.io)** / **[AltStore](https://altstore.io)** | Add the source above, then install LinPad | Offered by the sideloader, or **Settings › Updates › Update via SideStore** |
+| **[iloader](https://github.com/nab138/iloader)**, Sideloadly, Xcode | Download `LinPad-<version>.ipa` from the release | Install the new IPA with the same Apple ID; your Linux system and files are kept |
+
+| Inside LinPad | What it does |
+|---------------|--------------|
+| **App updates** | Checks GitHub at launch and every 6 hours (never on Low Data Mode), shows the release notes and opens your sideloader |
+| **Linux system updates** | Downloads the new system in the background, verifies its SHA-256 and installs it at the next launch — `/root`, `/home` and your packages are kept |
+| **Linux packages** | `apk upgrade` with one tap, weekly check |
+
+Cutting a release: **[release/RELEASING.md](release/RELEASING.md)**
+
+> Releases contain only redistributable software. Visual Studio Code and Claude Code are installed on your iPad from **Settings › Apps** when you choose them.
 
 ---
 

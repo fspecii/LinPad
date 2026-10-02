@@ -1,0 +1,12 @@
+{
+  "name": "LinPad",
+  "identifier": "io.github.fspecii.linpad",
+  "subtitle": "Linux for iPad",
+  "description": "Official source for LinPad releases from github.com/fspecii/LinPad.",
+  "iconURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/app/Assets.xcassets/AppIcon.appiconset/App%20Store.png",
+  "website": "https://github.com/fspecii/LinPad",
+  "tintColor": "#0A84FF",
+  "featuredApps": [],
+  "apps": [],
+  "news": []
+}

@@ -24,6 +24,11 @@
 #   ISH=path          ish CLI (default: a private copy of build-arm64-release/ish, so a
 #                     concurrent rebuild of that directory cannot change it mid-run)
 #   DEMO=0            no demo project in /root/projects
+#   PUBLIC=1          an image that may be published (release/publish.sh): no VS Code binary
+#                     (VSCODE=1 is refused), Claude Code removed (it is proprietary; the
+#                     "Claude Code" catalog item installs it on the iPad), no Kylin logos;
+#                     release/check-public-rootfs.sh verifies the result.
+#                     Default output release/out/linpad-rootfs-arm64.tar.gz.
 # Needs network (Alpine CDN, npm, GitHub and the Ubuntu/Debian archives for the themes).
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -32,9 +37,16 @@ SCRATCH=/Volumes/ExternalHD/Dev/ipad-jit/release-work
 WORK=${WORK:-$SCRATCH/stages}
 VSCODE=${VSCODE:-0}
 DEMO=${DEMO:-1}
+PUBLIC=${PUBLIC:-0}
+if [ "$PUBLIC" = 1 ] && [ "$VSCODE" = 1 ]; then
+    echo "PUBLIC=1 cannot include VS Code (VSCODE=1): Microsoft's binary is not redistributable" >&2
+    exit 1
+fi
 ROOTFS_VERSION=${ROOTFS_VERSION:-$(date -u +%Y%m%d%H%M)}
 if [ "$VSCODE" = 1 ]; then
     OUT=${OUT:-$SCRATCH/ish-linux-rootfs-vscode-arm64.tar.gz}
+elif [ "$PUBLIC" = 1 ]; then
+    OUT=${OUT:-$HERE/out/linpad-rootfs-arm64.tar.gz}
 else
     OUT=${OUT:-$HERE/out/ish-linux-rootfs-arm64.tar.gz}
 fi
@@ -74,7 +86,7 @@ guest_tar_export() {
 }
 
 T0=$(date +%s)
-say "rootfs $ROOTFS_VERSION, VSCODE=$VSCODE, ish $ISH, work $WORK"
+say "rootfs $ROOTFS_VERSION, VSCODE=$VSCODE, PUBLIC=$PUBLIC, ish $ISH, work $WORK"
 
 # 1. GUI base -----------------------------------------------------------------------
 S1=$WORK/01-base.tar.gz
@@ -157,7 +169,7 @@ COPYFILE_DISABLE=1 tar --no-xattrs -cf - -C "$HERE/guest" . -C "$ROOT/wl-bridge/
     "$ISH" -f "$FS" /bin/sh -c '
         set -e
         rm -rf /tmp/ish-release && mkdir -p /tmp/ish-release && tar -xo -f - -C /tmp/ish-release'
-"$ISH" -f "$FS" /bin/sh -c "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
+"$ISH" -f "$FS" /bin/sh -c "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root LINPAD_PUBLIC=$PUBLIC
     sh /tmp/ish-release/finalize.sh '$ROOTFS_VERSION'" </dev/null 2>&1 | tee -a "$LOG"
 guest_tar_export "$FS" "$OUT.tmp"
 "$ISH" -f "$FS" /bin/sh -c 'du -sk / 2>/dev/null | cut -f1; find / -xdev 2>/dev/null | wc -l' </dev/null > "$WORK/final-stats.txt" || true
@@ -165,6 +177,7 @@ rm -rf "$FS"
 mv "$OUT.tmp" "$OUT"
 printf '%s\n' "$ROOTFS_VERSION" > "${OUT%.tar.gz}.version"
 record "5 final" "$OUT"
+[ "$PUBLIC" != 1 ] || "$HERE/check-public-rootfs.sh" "$OUT" | tee -a "$LOG"
 
 # Case collisions in the shipped archive itself (names that differ only in case).
 collisions=$(tar -tzf "$OUT" | sed 's|/$||' | awk '{ k = tolower($0); if (k in s) print s[k] " <> " $0; else s[k] = $0 }')

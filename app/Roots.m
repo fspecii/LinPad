@@ -34,6 +34,11 @@ static NSURL *StagingDir(void) {
     return [ContainerURL() URLByAppendingPathComponent:@"roots-staging"];
 }
 
+/// A rootfs downloaded from a release: root.tar.gz and root.version, like the bundle's.
+static NSURL *DownloadedRootDir(void) {
+    return [ContainerURL() URLByAppendingPathComponent:@"system-update"];
+}
+
 static NSString *kDefaultRoot = @"Default Root";
 static NSString *kPendingUpdate = @"linux.pendingSystemUpdate";
 
@@ -69,6 +74,7 @@ static NSString *kPendingUpdate = @"linux.pendingSystemUpdate";
 
         if ((!self.defaultRoot || ![self.roots containsObject:self.defaultRoot]) && self.roots.count)
             self.defaultRoot = self.roots.firstObject;
+        [self discardStaleDownloadedRoot];
     }
     return self;
 }
@@ -270,14 +276,68 @@ static NSString *ReadVersion(NSURL *url) {
     return YES;
 }
 
+- (NSURL *)downloadedRootArchive {
+    NSURL *archive = [DownloadedRootDir() URLByAppendingPathComponent:@"root.tar.gz"];
+    return [NSFileManager.defaultManager fileExistsAtPath:archive.path] && self.downloadedRootVersion ? archive : nil;
+}
+
+- (NSString *)downloadedRootVersion {
+    return ReadVersion([DownloadedRootDir() URLByAppendingPathComponent:@"root.version"]);
+}
+
+- (BOOL)storeDownloadedRootArchive:(NSURL *)archive version:(NSString *)version error:(NSError **)error {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSURL *dir = DownloadedRootDir();
+    [fm removeItemAtURL:dir error:nil];
+    if (![fm createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:nil error:error])
+        return NO;
+    // The version goes in last: without it the archive does not count.
+    if (![fm moveItemAtURL:archive toURL:[dir URLByAppendingPathComponent:@"root.tar.gz"] error:error] ||
+        ![[version stringByAppendingString:@"\n"] writeToURL:[dir URLByAppendingPathComponent:@"root.version"]
+                                                  atomically:YES encoding:NSUTF8StringEncoding error:error]) {
+        [fm removeItemAtURL:dir error:nil];
+        return NO;
+    }
+    return YES;
+}
+
+/// A downloaded system no newer than the bundled or the installed one is never used again.
+- (void)discardStaleDownloadedRoot {
+    NSString *downloaded = self.downloadedRootVersion;
+    if (downloaded == nil) {
+        [NSFileManager.defaultManager removeItemAtURL:DownloadedRootDir() error:nil];
+        return;
+    }
+    NSString *bundled = self.bundledRootVersion, *installed = self.installedRootVersion;
+    if ((bundled && downloaded.longLongValue <= bundled.longLongValue) ||
+        (installed && downloaded.longLongValue <= installed.longLongValue))
+        [NSFileManager.defaultManager removeItemAtURL:DownloadedRootDir() error:nil];
+}
+
+- (BOOL)prefersDownloadedRoot {
+    NSString *downloaded = self.downloadedRootVersion;
+    if (downloaded == nil || self.downloadedRootArchive == nil)
+        return NO;
+    NSString *bundled = self.bundledRootArchive ? self.bundledRootVersion : nil;
+    return bundled == nil || downloaded.longLongValue > bundled.longLongValue;
+}
+
+- (NSURL *)updateRootArchive {
+    return self.prefersDownloadedRoot ? self.downloadedRootArchive : self.bundledRootArchive;
+}
+
+- (NSString *)updateRootVersion {
+    return self.prefersDownloadedRoot ? self.downloadedRootVersion : (self.bundledRootArchive ? self.bundledRootVersion : nil);
+}
+
 - (NSString *)availableUpdate {
-    NSString *bundled = self.bundledRootVersion;
-    if (bundled == nil || self.needsDefaultRoot || self.bundledRootArchive == nil)
+    NSString *candidate = self.updateRootVersion;
+    if (candidate == nil || self.needsDefaultRoot || self.updateRootArchive == nil)
         return nil;
     NSString *installed = self.installedRootVersion;
-    if (installed != nil && bundled.longLongValue <= installed.longLongValue)
+    if (installed != nil && candidate.longLongValue <= installed.longLongValue)
         return nil;
-    return bundled;
+    return candidate;
 }
 
 - (NSString *)pendingUpdate {
@@ -458,7 +518,8 @@ static void ListPackagesToReinstall(NSURL *old, NSURL *new) {
 
 - (BOOL)updateDefaultRootWithProgress:(id<ProgressReporter>)progress error:(NSError **)error {
     NSString *name = self.defaultRoot;
-    NSURL *archive = self.bundledRootArchive;
+    NSURL *archive = self.updateRootArchive;
+    BOOL fromDownload = self.prefersDownloadedRoot;
     if (name == nil || archive == nil || self.needsDefaultRoot) {
         *error = [NSError errorWithDomain:@"iSH" code:ENOENT userInfo:@{NSLocalizedDescriptionKey: @"Nothing to update"}];
         return NO;
@@ -507,6 +568,8 @@ static void ListPackagesToReinstall(NSURL *old, NSURL *new) {
         dispatch_sync(dispatch_get_main_queue(), addRoot);
     else
         addRoot();
+    if (fromDownload)
+        [fm removeItemAtURL:DownloadedRootDir() error:nil];
     return YES;
 }
 

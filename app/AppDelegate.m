@@ -654,7 +654,7 @@ static BOOL DesktopEnabled(void) {
         [app endBackgroundTask:task];
         task = UIBackgroundTaskInvalid;
     }];
-    RootImportProgress *progress = [[RootImportProgress alloc] initWithArchive:roots.bundledRootArchive title:title];
+    RootImportProgress *progress = [[RootImportProgress alloc] initWithArchive:import ? roots.bundledRootArchive : roots.updateRootArchive title:title];
     CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSError *error;
@@ -714,6 +714,19 @@ static BOOL DesktopEnabled(void) {
         [vc presentViewController:alert animated:YES completion:nil];
     }
     [NSUserDefaults.standardUserDefaults setInteger:1 forKey:kSkipStartupMessage];
+}
+
+static void (^backgroundURLSessionCompletion)(void);
+
+- (void)application:(UIApplication *)application handleEventsForBackgroundURLSession:(NSString *)identifier completionHandler:(void (^)(void))completionHandler {
+    backgroundURLSessionCompletion = completionHandler;
+}
+
++ (void)finishBackgroundURLSessionEvents {
+    void (^completion)(void) = backgroundURLSessionCompletion;
+    backgroundURLSessionCompletion = nil;
+    if (completion)
+        completion();
 }
 
 - (BOOL)application:(UIApplication *)application willFinishLaunchingWithOptions:(NSDictionary<UIApplicationLaunchOptionsKey,id> *)launchOptions {

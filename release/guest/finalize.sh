@@ -123,6 +123,17 @@ if [ -e /usr/lib/libgallium-26.2.3.so ]; then
         libdrm libxcb wayland-libs-client
 fi
 
+# A published image (build-rootfs.sh PUBLIC=1) carries nothing LinPad may not redistribute:
+# Claude Code is proprietary (the "Claude Code" catalog item installs it from npm on the
+# iPad) and the Kylin logos are trademarks. release/check-public-rootfs.sh verifies.
+if [ "${LINPAD_PUBLIC:-0}" = 1 ]; then
+    echo "finalize: public image"
+    npm uninstall -g --no-audit --no-fund @anthropic-ai/claude-code >/dev/null 2>&1 || true
+    rm -rf /usr/local/lib/node_modules/@anthropic-ai/claude-code /usr/local/bin/claude /root/.claude /root/.claude.json
+    find /usr/share/icons /usr/share/pixmaps /usr/share/ish \( -iname 'distributor-logo-kylin*' \
+        -o -iname 'kylin-startmenu*' -o -iname 'openkylin*.png' -o -iname 'openkylin*.svg' \) -exec rm -f {} + 2>/dev/null || true
+fi
+
 echo "finalize: icon caches"
 current=$(ish-apply-style --current 2>/dev/null || echo ish)
 for style in windows macos ubuntu kylin ish; do
@@ -147,7 +158,7 @@ rm -rf /root/.cache /root/.npm/_cacache /root/.dbus /root/fixt /root/gt /root/t 
 echo "finalize: sanity"
 missing=
 for cmd in ishwl ishwl-session ish-terminal foot fastfetch firefox-esr thunar mousepad node npm \
-        claude git curl ish-apply-style ishaudio-session vulkaninfo ish-firstrun linpad-apps \
+        git curl ish-apply-style ishaudio-session vulkaninfo ish-firstrun linpad-apps \
         ish-install-vscode; do
     command -v "$cmd" >/dev/null || missing="$missing $cmd"
 done
@@ -156,6 +167,7 @@ for f in /etc/profile.d/gpu.sh /usr/local/share/devtools/install-vscode.sh \
         /usr/lib/firefox-esr/defaults/pref/ishwl.js /root/Videos/ish-test-720p.mp4; do
     [ -e "$f" ] || missing="$missing $f"
 done
+[ "${LINPAD_PUBLIC:-0}" = 1 ] || command -v claude >/dev/null || missing="$missing claude"
 if [ -n "$missing" ]; then
     echo "finalize: MISSING:$missing" >&2
     exit 1
@@ -170,5 +182,5 @@ for lib in /usr/lib/libgallium-26.2.3.so /usr/lib/libEGL.so.1 /usr/lib/vlc/plugi
     fi
 done
 grep -q '^ID=linuxforipad' "$(readlink -f /etc/os-release)" || { echo "finalize: os-release not branded" >&2; exit 1; }
-echo "finalize: claude $(timeout 120 claude --version 2>&1 | head -n1)"
+if command -v claude >/dev/null; then echo "finalize: claude $(timeout 120 claude --version 2>&1 | head -n1)"; fi
 echo "finalize: ok ($(cat /etc/alpine-release), $(du -sh / 2>/dev/null | cut -f1) apparent)"
