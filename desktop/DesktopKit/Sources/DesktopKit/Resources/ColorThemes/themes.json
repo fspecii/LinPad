@@ -1,0 +1,1022 @@
+[
+ {
+  "id": "catppuccin",
+  "name": "Catppuccin",
+  "source": "builtin",
+  "appearance": "dark",
+  "accent": "#89b4fa",
+  "background": "#1e1e2e",
+  "foreground": "#cdd6f4",
+  "selection": "#45475a",
+  "selectionForeground": "#cdd6f4",
+  "cursor": "#cdd6f4",
+  "muted": "#585b70",
+  "darkBackground": "#161622",
+  "darkerBackground": "#101019",
+  "lighterBackground": "#313244",
+  "brightForeground": "#cdd6f4",
+  "red": "#f38ba8",
+  "ansi": [
+   "#1e1e2e",
+   "#f38ba8",
+   "#a6e3a1",
+   "#f9e2af",
+   "#89b4fa",
+   "#f5c2e7",
+   "#94e2d5",
+   "#cdd6f4",
+   "#585b70",
+   "#f38ba8",
+   "#a6e3a1",
+   "#f9e2af",
+   "#89b4fa",
+   "#f5c2e7",
+   "#94e2d5",
+   "#cdd6f4"
+  ],
+  "iconTheme": "Tela-circle",
+  "vscode": {
+   "name": "Catppuccin Mocha",
+   "extension": "catppuccin.catppuccin-vsc"
+  },
+  "wallhaven": {
+   "q": "pastel",
+   "colors": [
+    "424153",
+    "66cccc"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "catppuccin-latte",
+  "name": "Catppuccin Latte",
+  "source": "builtin",
+  "appearance": "light",
+  "accent": "#1e66f5",
+  "background": "#eff1f5",
+  "foreground": "#4c4f69",
+  "selection": "#ccd0da",
+  "selectionForeground": "#4c4f69",
+  "cursor": "#4c4f69",
+  "muted": "#acb0be",
+  "darkBackground": "#e3e4e8",
+  "darkerBackground": "#d7d8dc",
+  "lighterBackground": "#dce0e8",
+  "brightForeground": "#4c4f69",
+  "red": "#d20f39",
+  "ansi": [
+   "#eff1f5",
+   "#d20f39",
+   "#40a02b",
+   "#df8e1d",
+   "#1e66f5",
+   "#ea76cb",
+   "#179299",
+   "#4c4f69",
+   "#acb0be",
+   "#d20f39",
+   "#40a02b",
+   "#df8e1d",
+   "#1e66f5",
+   "#ea76cb",
+   "#179299",
+   "#4c4f69"
+  ],
+  "iconTheme": "Papirus",
+  "vscode": {
+   "name": "Catppuccin Latte",
+   "extension": "catppuccin.catppuccin-vsc"
+  },
+  "wallhaven": {
+   "q": "pastel",
+   "colors": [
+    "ffffff",
+    "0066cc"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "ethereal",
+  "name": "Ethereal",
+  "source": "builtin",
+  "appearance": "dark",
+  "accent": "#7d82d9",
+  "background": "#060B1E",
+  "foreground": "#ffcead",
+  "selection": "#252e56",
+  "selectionForeground": "#ffcead",
+  "cursor": "#ffcead",
+  "muted": "#6d7db6",
+  "darkBackground": "#040816",
+  "darkerBackground": "#030610",
+  "lighterBackground": "#131a3a",
+  "brightForeground": "#ffcead",
+  "red": "#ED5B5A",
+  "ansi": [
+   "#060B1E",
+   "#ED5B5A",
+   "#92a593",
+   "#E9BB4F",
+   "#7d82d9",
+   "#c89dc1",
+   "#a3bfd1",
+   "#ffcead",
+   "#6d7db6",
+   "#faaaa9",
+   "#c4cfc4",
+   "#f7dc9c",
+   "#c2c4f0",
+   "#ead7e7",
+   "#dfeaf0",
+   "#ffcead"
+  ],
+  "iconTheme": "Papirus",
+  "vscode": {
+   "name": "generated",
+   "extension": ""
+  },
+  "wallhaven": {
+   "q": "space",
+   "colors": [
+    "000000",
+    "999999"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "everforest",
+  "name": "Everforest",
+  "source": "builtin",
+  "appearance": "dark",
+  "accent": "#7fbbb3",
+  "background": "#2d353b",
+  "foreground": "#d3c6aa",
+  "selection": "#3d484d",
+  "selectionForeground": "#d3c6aa",
+  "cursor": "#d3c6aa",
+  "muted": "#475258",
+  "darkBackground": "#21272c",
+  "darkerBackground": "#181d20",
+  "lighterBackground": "#343f44",
+  "brightForeground": "#d3c6aa",
+  "red": "#e67e80",
+  "ansi": [
+   "#2d353b",
+   "#e67e80",
+   "#a7c080",
+   "#dbbc7f",
+   "#7fbbb3",
+   "#d699b6",
+   "#83c092",
+   "#d3c6aa",
+   "#475258",
+   "#e67e80",
+   "#a7c080",
+   "#dbbc7f",
+   "#7fbbb3",
+   "#d699b6",
+   "#83c092",
+   "#d3c6aa"
+  ],
+  "iconTheme": "Qogir",
+  "vscode": {
+   "name": "generated",
+   "extension": ""
+  },
+  "wallhaven": {
+   "q": "forest",
+   "colors": [
+    "424153",
+    "66cccc"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "flexoki-light",
+  "name": "Flexoki Light",
+  "source": "builtin",
+  "appearance": "light",
+  "accent": "#205EA6",
+  "background": "#FFFCF0",
+  "foreground": "#100F0F",
+  "selection": "#CECDC3",
+  "selectionForeground": "#100F0F",
+  "cursor": "#100F0F",
+  "muted": "#B7B5AC",
+  "darkBackground": "#f2efe4",
+  "darkerBackground": "#e5e2d8",
+  "lighterBackground": "#E6E4D9",
+  "brightForeground": "#100F0F",
+  "red": "#D14D41",
+  "ansi": [
+   "#FFFCF0",
+   "#D14D41",
+   "#879A39",
+   "#D0A215",
+   "#205EA6",
+   "#CE5D97",
+   "#3AA99F",
+   "#100F0F",
+   "#B7B5AC",
+   "#D14D41",
+   "#879A39",
+   "#D0A215",
+   "#4385BE",
+   "#CE5D97",
+   "#3AA99F",
+   "#100F0F"
+  ],
+  "iconTheme": "Papirus",
+  "vscode": {
+   "name": "generated",
+   "extension": ""
+  },
+  "wallhaven": {
+   "q": "abstract",
+   "colors": [
+    "ffffff",
+    "333399"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "gruvbox",
+  "name": "Gruvbox",
+  "source": "builtin",
+  "appearance": "dark",
+  "accent": "#7daea3",
+  "background": "#282828",
+  "foreground": "#d4be98",
+  "selection": "#504945",
+  "selectionForeground": "#d4be98",
+  "cursor": "#d4be98",
+  "muted": "#665c54",
+  "darkBackground": "#1e1e1e",
+  "darkerBackground": "#161616",
+  "lighterBackground": "#3c3836",
+  "brightForeground": "#d4be98",
+  "red": "#ea6962",
+  "ansi": [
+   "#282828",
+   "#ea6962",
+   "#a9b665",
+   "#d8a657",
+   "#7daea3",
+   "#d3869b",
+   "#89b482",
+   "#d4be98",
+   "#665c54",
+   "#ea6962",
+   "#a9b665",
+   "#d8a657",
+   "#7daea3",
+   "#d3869b",
+   "#89b482",
+   "#d4be98"
+  ],
+  "iconTheme": "Qogir",
+  "vscode": {
+   "name": "Gruvbox Dark Medium",
+   "extension": "jdinhlife.gruvbox"
+  },
+  "wallhaven": {
+   "q": "landscape painting",
+   "colors": [
+    "424153",
+    "999999"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "hackerman",
+  "name": "Hackerman",
+  "source": "builtin",
+  "appearance": "dark",
+  "accent": "#82FB9C",
+  "background": "#0B0C16",
+  "foreground": "#ddf7ff",
+  "selection": "#1f253a",
+  "selectionForeground": "#ddf7ff",
+  "cursor": "#ddf7ff",
+  "muted": "#2d3450",
+  "darkBackground": "#080910",
+  "darkerBackground": "#06060c",
+  "lighterBackground": "#151828",
+  "brightForeground": "#ddf7ff",
+  "red": "#50f872",
+  "ansi": [
+   "#0B0C16",
+   "#50f872",
+   "#4fe88f",
+   "#50f7d4",
+   "#829dd4",
+   "#86a7df",
+   "#7cf8f7",
+   "#ddf7ff",
+   "#2d3450",
+   "#85ff9d",
+   "#9cf7c2",
+   "#a4ffec",
+   "#c4d2ed",
+   "#cddbf4",
+   "#d1fffe",
+   "#ddf7ff"
+  ],
+  "iconTheme": "Papirus",
+  "vscode": {
+   "name": "generated",
+   "extension": ""
+  },
+  "wallhaven": {
+   "q": "cyberpunk",
+   "colors": [
+    "000000",
+    "66cccc"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "kanagawa",
+  "name": "Kanagawa",
+  "source": "builtin",
+  "appearance": "dark",
+  "accent": "#dcd7ba",
+  "background": "#1f1f28",
+  "foreground": "#dcd7ba",
+  "selection": "#363646",
+  "selectionForeground": "#dcd7ba",
+  "cursor": "#dcd7ba",
+  "muted": "#54546D",
+  "darkBackground": "#17171e",
+  "darkerBackground": "#111116",
+  "lighterBackground": "#223249",
+  "brightForeground": "#dcd7ba",
+  "red": "#c34043",
+  "ansi": [
+   "#1f1f28",
+   "#c34043",
+   "#76946a",
+   "#c0a36e",
+   "#7e9cd8",
+   "#957fb8",
+   "#6a9589",
+   "#dcd7ba",
+   "#54546D",
+   "#e82424",
+   "#98bb6c",
+   "#e6c384",
+   "#7fb4ca",
+   "#938aa9",
+   "#7aa89f",
+   "#dcd7ba"
+  ],
+  "iconTheme": "Papirus",
+  "vscode": {
+   "name": "generated",
+   "extension": ""
+  },
+  "wallhaven": {
+   "q": "japanese art",
+   "colors": [
+    "000000",
+    "cccccc"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "last-horizon",
+  "name": "Last Horizon",
+  "source": "builtin",
+  "appearance": "dark",
+  "accent": "#b59790",
+  "background": "#0c0b0c",
+  "foreground": "#FAFCFB",
+  "selection": "#584e51",
+  "selectionForeground": "#e2dddc",
+  "cursor": "#e2dddc",
+  "muted": "#584e51",
+  "darkBackground": "#090809",
+  "darkerBackground": "#060606",
+  "lighterBackground": "#0c0b0c",
+  "brightForeground": "#e2dddc",
+  "red": "#c38b7b",
+  "ansi": [
+   "#0c0b0c",
+   "#c38b7b",
+   "#87a9b0",
+   "#6B5E73",
+   "#b59790",
+   "#c4d8e2",
+   "#a5a0b6",
+   "#FAFCFB",
+   "#584e51",
+   "#c38b7b",
+   "#87a9b0",
+   "#6B5E73",
+   "#b59790",
+   "#c4d8e2",
+   "#a5a0b6",
+   "#e2dddc"
+  ],
+  "iconTheme": "Tela-circle",
+  "vscode": {
+   "name": "Ship at Sea",
+   "extension": "rikkarth.ship-at-sea"
+  },
+  "wallhaven": {
+   "q": "ocean",
+   "colors": [
+    "000000",
+    "999999"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "lupine",
+  "name": "Lupine",
+  "source": "builtin",
+  "appearance": "light",
+  "accent": "#3264eb",
+  "background": "#fafafa",
+  "foreground": "#212121",
+  "selection": "#d0d0d0",
+  "selectionForeground": "#000000",
+  "cursor": "#000000",
+  "muted": "#9e9e9e",
+  "darkBackground": "#ececec",
+  "darkerBackground": "#dedede",
+  "lighterBackground": "#f5f5f5",
+  "brightForeground": "#000000",
+  "red": "#c900c4",
+  "ansi": [
+   "#fafafa",
+   "#c900c4",
+   "#4a2fd0",
+   "#026fde",
+   "#3264eb",
+   "#8a4ad7",
+   "#0c67de",
+   "#212121",
+   "#9e9e9e",
+   "#f930fb",
+   "#9f85e0",
+   "#358fff",
+   "#5482ff",
+   "#b363ff",
+   "#3986ff",
+   "#000000"
+  ],
+  "iconTheme": "Tela-circle",
+  "vscode": {
+   "name": "generated",
+   "extension": ""
+  },
+  "wallhaven": {
+   "q": "flowers",
+   "colors": [
+    "ffffff",
+    "0066cc"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "matte-black",
+  "name": "Matte Black",
+  "source": "builtin",
+  "appearance": "dark",
+  "accent": "#e68e0d",
+  "background": "#121212",
+  "foreground": "#bebebe",
+  "selection": "#2a2a2a",
+  "selectionForeground": "#bebebe",
+  "cursor": "#bebebe",
+  "muted": "#333333",
+  "darkBackground": "#0d0d0d",
+  "darkerBackground": "#090909",
+  "lighterBackground": "#1e1e1e",
+  "brightForeground": "#bebebe",
+  "red": "#D35F5F",
+  "ansi": [
+   "#121212",
+   "#D35F5F",
+   "#FFC107",
+   "#b91c1c",
+   "#e68e0d",
+   "#D35F5F",
+   "#bebebe",
+   "#bebebe",
+   "#333333",
+   "#B91C1C",
+   "#FFC107",
+   "#b90a0a",
+   "#f59e0b",
+   "#B91C1C",
+   "#eaeaea",
+   "#bebebe"
+  ],
+  "iconTheme": "Colloid",
+  "vscode": {
+   "name": "Matte Black",
+   "extension": "TahaYVR.matteblack"
+  },
+  "wallhaven": {
+   "q": "minimalist dark",
+   "colors": [
+    "000000",
+    "ff9900"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "miasma",
+  "name": "Miasma",
+  "source": "builtin",
+  "appearance": "dark",
+  "accent": "#78824b",
+  "background": "#222222",
+  "foreground": "#c2c2b0",
+  "selection": "#383838",
+  "selectionForeground": "#c2c2b0",
+  "cursor": "#c2c2b0",
+  "muted": "#666666",
+  "darkBackground": "#191919",
+  "darkerBackground": "#121212",
+  "lighterBackground": "#2c2c2c",
+  "brightForeground": "#c2c2b0",
+  "red": "#685742",
+  "ansi": [
+   "#222222",
+   "#685742",
+   "#5f875f",
+   "#b36d43",
+   "#78824b",
+   "#bb7744",
+   "#c9a554",
+   "#c2c2b0",
+   "#666666",
+   "#685742",
+   "#5f875f",
+   "#b36d43",
+   "#78824b",
+   "#bb7744",
+   "#c9a554",
+   "#c2c2b0"
+  ],
+  "iconTheme": "kora",
+  "vscode": {
+   "name": "generated",
+   "extension": ""
+  },
+  "wallhaven": {
+   "q": "dark forest",
+   "colors": [
+    "000000",
+    "996633"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "nord",
+  "name": "Nord",
+  "source": "builtin",
+  "appearance": "dark",
+  "accent": "#81a1c1",
+  "background": "#2e3440",
+  "foreground": "#d8dee9",
+  "selection": "#434c5e",
+  "selectionForeground": "#d8dee9",
+  "cursor": "#d8dee9",
+  "muted": "#4c566a",
+  "darkBackground": "#222730",
+  "darkerBackground": "#191c23",
+  "lighterBackground": "#3b4252",
+  "brightForeground": "#d8dee9",
+  "red": "#bf616a",
+  "ansi": [
+   "#2e3440",
+   "#bf616a",
+   "#a3be8c",
+   "#ebcb8b",
+   "#81a1c1",
+   "#b48ead",
+   "#88c0d0",
+   "#d8dee9",
+   "#4c566a",
+   "#bf616a",
+   "#a3be8c",
+   "#ebcb8b",
+   "#81a1c1",
+   "#b48ead",
+   "#8fbcbb",
+   "#d8dee9"
+  ],
+  "iconTheme": "Papirus",
+  "vscode": {
+   "name": "Nord",
+   "extension": "arcticicestudio.nord-visual-studio-code"
+  },
+  "wallhaven": {
+   "q": "nordic landscape",
+   "colors": [
+    "424153",
+    "999999"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "osaka-jade",
+  "name": "Osaka Jade",
+  "source": "builtin",
+  "appearance": "dark",
+  "accent": "#509475",
+  "background": "#111c18",
+  "foreground": "#C1C497",
+  "selection": "#32473B",
+  "selectionForeground": "#F7E8B2",
+  "cursor": "#F7E8B2",
+  "muted": "#53685B",
+  "darkBackground": "#0c1512",
+  "darkerBackground": "#090f0d",
+  "lighterBackground": "#23372B",
+  "brightForeground": "#F7E8B2",
+  "red": "#FF5345",
+  "ansi": [
+   "#111c18",
+   "#FF5345",
+   "#549e6a",
+   "#459451",
+   "#509475",
+   "#D2689C",
+   "#2DD5B7",
+   "#C1C497",
+   "#53685B",
+   "#db9f9c",
+   "#63b07a",
+   "#E5C736",
+   "#ACD4CF",
+   "#75bbb3",
+   "#8CD3CB",
+   "#F7E8B2"
+  ],
+  "iconTheme": "Qogir",
+  "vscode": {
+   "name": "generated",
+   "extension": ""
+  },
+  "wallhaven": {
+   "q": "japan night",
+   "colors": [
+    "000000",
+    "999999"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "retro-82",
+  "name": "Retro 82",
+  "source": "builtin",
+  "appearance": "dark",
+  "accent": "#faa968",
+  "background": "#05182e",
+  "foreground": "#f6dcac",
+  "selection": "#134e5a",
+  "selectionForeground": "#f6dcac",
+  "cursor": "#f6dcac",
+  "muted": "#2a6b78",
+  "darkBackground": "#031222",
+  "darkerBackground": "#020c17",
+  "lighterBackground": "#0a2540",
+  "brightForeground": "#f6dcac",
+  "red": "#f85525",
+  "ansi": [
+   "#05182e",
+   "#f85525",
+   "#028391",
+   "#e97b3c",
+   "#3f8f8a",
+   "#3f8f8a",
+   "#8cbfb8",
+   "#f6dcac",
+   "#2a6b78",
+   "#f85525",
+   "#028391",
+   "#e97b3c",
+   "#faa968",
+   "#3f8f8a",
+   "#8cbfb8",
+   "#f6dcac"
+  ],
+  "iconTheme": "kora",
+  "vscode": {
+   "name": "generated",
+   "extension": ""
+  },
+  "wallhaven": {
+   "q": "synthwave",
+   "colors": [
+    "000000",
+    "ffcc33"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "rose-pine",
+  "name": "Ros\u00e9 Pine Dawn",
+  "source": "builtin",
+  "appearance": "light",
+  "accent": "#56949f",
+  "background": "#faf4ed",
+  "foreground": "#575279",
+  "selection": "#dfdad9",
+  "selectionForeground": "#575279",
+  "cursor": "#575279",
+  "muted": "#cecacd",
+  "darkBackground": "#ede7e1",
+  "darkerBackground": "#e1dbd5",
+  "lighterBackground": "#f2e9e1",
+  "brightForeground": "#575279",
+  "red": "#b4637a",
+  "ansi": [
+   "#faf4ed",
+   "#b4637a",
+   "#286983",
+   "#ea9d34",
+   "#56949f",
+   "#907aa9",
+   "#d7827e",
+   "#575279",
+   "#cecacd",
+   "#b4637a",
+   "#286983",
+   "#ea9d34",
+   "#56949f",
+   "#907aa9",
+   "#d7827e",
+   "#575279"
+  ],
+  "iconTheme": "Papirus",
+  "vscode": {
+   "name": "Ros\u00e9 Pine Dawn",
+   "extension": "mvllow.rose-pine"
+  },
+  "wallhaven": {
+   "q": "minimalist",
+   "colors": [
+    "ffffff",
+    "999999"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "solitude",
+  "name": "Solitude",
+  "source": "builtin",
+  "appearance": "dark",
+  "accent": "#798186",
+  "background": "#101315",
+  "foreground": "#cacccc",
+  "selection": "#343d41",
+  "selectionForeground": "#a5aeb4",
+  "cursor": "#a5aeb4",
+  "muted": "#4b4e55",
+  "darkBackground": "#0c0e10",
+  "darkerBackground": "#080a0b",
+  "lighterBackground": "#101315",
+  "brightForeground": "#a5aeb4",
+  "red": "#565d60",
+  "ansi": [
+   "#101315",
+   "#565d60",
+   "#9fa5a9",
+   "#d9dbdc",
+   "#798186",
+   "#aeaeae",
+   "#707070",
+   "#cacccc",
+   "#4b4e55",
+   "#de6145",
+   "#343d41",
+   "#c9c2b4",
+   "#5d6367",
+   "#9a9a9a",
+   "#707070",
+   "#a5aeb4"
+  ],
+  "iconTheme": "Qogir",
+  "vscode": {
+   "name": "generated",
+   "extension": ""
+  },
+  "wallhaven": {
+   "q": "minimalist",
+   "colors": [
+    "000000",
+    "999999"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "tokyo-night",
+  "name": "Tokyo Night",
+  "source": "builtin",
+  "appearance": "dark",
+  "accent": "#7aa2f7",
+  "background": "#1a1b26",
+  "foreground": "#a9b1d6",
+  "selection": "#292e42",
+  "selectionForeground": "#c0caf5",
+  "cursor": "#c0caf5",
+  "muted": "#414868",
+  "darkBackground": "#13141c",
+  "darkerBackground": "#0e0e14",
+  "lighterBackground": "#24283b",
+  "brightForeground": "#c0caf5",
+  "red": "#f7768e",
+  "ansi": [
+   "#1a1b26",
+   "#f7768e",
+   "#9ece6a",
+   "#e0af68",
+   "#7aa2f7",
+   "#ad8ee6",
+   "#449dab",
+   "#a9b1d6",
+   "#414868",
+   "#ff7a93",
+   "#b9f27c",
+   "#ff9e64",
+   "#7da6ff",
+   "#bb9af7",
+   "#0db9d7",
+   "#c0caf5"
+  ],
+  "iconTheme": "Tela-circle",
+  "vscode": {
+   "name": "Tokyo Night",
+   "extension": "enkia.tokyo-night"
+  },
+  "wallhaven": {
+   "q": "city night",
+   "colors": [
+    "000000",
+    "66cccc"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "vantablack",
+  "name": "Vantablack",
+  "source": "builtin",
+  "appearance": "dark",
+  "accent": "#8d8d8d",
+  "background": "#000000",
+  "foreground": "#ffffff",
+  "selection": "#1a1a1a",
+  "selectionForeground": "#ffffff",
+  "cursor": "#ffffff",
+  "muted": "#7a7a7a",
+  "darkBackground": "#090909",
+  "darkerBackground": "#070707",
+  "lighterBackground": "#1a1a1a",
+  "brightForeground": "#ffffff",
+  "red": "#a4a4a4",
+  "ansi": [
+   "#000000",
+   "#a4a4a4",
+   "#b6b6b6",
+   "#cecece",
+   "#8d8d8d",
+   "#9b9b9b",
+   "#b0b0b0",
+   "#ffffff",
+   "#7a7a7a",
+   "#a4a4a4",
+   "#b6b6b6",
+   "#cecece",
+   "#8d8d8d",
+   "#9b9b9b",
+   "#b0b0b0",
+   "#ffffff"
+  ],
+  "iconTheme": "Numix-Circle",
+  "vscode": {
+   "name": "generated",
+   "extension": ""
+  },
+  "wallhaven": {
+   "q": "black minimalist",
+   "colors": [
+    "000000",
+    "999999"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ },
+ {
+  "id": "white",
+  "name": "White",
+  "source": "builtin",
+  "appearance": "light",
+  "accent": "#6e6e6e",
+  "background": "#ffffff",
+  "foreground": "#000000",
+  "selection": "#c0c0c0",
+  "selectionForeground": "#000000",
+  "cursor": "#000000",
+  "muted": "#808080",
+  "darkBackground": "#f5f5f5",
+  "darkerBackground": "#e8e8e8",
+  "lighterBackground": "#c0c0c0",
+  "brightForeground": "#000000",
+  "red": "#2a2a2a",
+  "ansi": [
+   "#ffffff",
+   "#2a2a2a",
+   "#3a3a3a",
+   "#4a4a4a",
+   "#1a1a1a",
+   "#2e2e2e",
+   "#3e3e3e",
+   "#000000",
+   "#808080",
+   "#2a2a2a",
+   "#3a3a3a",
+   "#4a4a4a",
+   "#1a1a1a",
+   "#2e2e2e",
+   "#3e3e3e",
+   "#000000"
+  ],
+  "iconTheme": "Numix-Circle",
+  "vscode": {
+   "name": "generated",
+   "extension": ""
+  },
+  "wallhaven": {
+   "q": "white minimalist",
+   "colors": [
+    "ffffff",
+    "424153"
+   ],
+   "categories": "100",
+   "purity": "100",
+   "sorting": "toplist"
+  }
+ }
+]
