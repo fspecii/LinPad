@@ -275,6 +275,8 @@ fi
 
 log "styles"
 put 755 "$SRC/ish-apply-style" /usr/local/bin/ish-apply-style
+put 755 "$SRC/ish-icon-packs" /usr/local/bin/ish-icon-packs
+put 644 "$SRC/upstream-env.bash" "$SHARE/themes/upstream-env.bash"
 mkdir -p "$SHARE/themes/styles"
 cp "$SRC"/styles/*.conf "$SHARE/themes/styles/"
 put 644 "$SRC/MANIFEST.md" "$SHARE/themes/MANIFEST.md"
@@ -286,8 +288,18 @@ if apk info -e thunar >/dev/null 2>&1 && [ ! -x /usr/bin/thunar ]; then
     apk fix -q thunar
 fi
 
+# Icon packs for Settings › Icons. The rest of the catalogue (ish-icon-packs list) is
+# installed on demand by the picker's "Get More Icon Packs…".
+log "icon packs: $BASE_ICON_PACKS"
+for p in $BASE_ICON_PACKS; do
+    if ! ish-icon-packs list | awk -F'\t' -v p="$p" '$1 == p && $3 == 1 { found = 1 } END { exit !found }'; then
+        ish-icon-packs install "$p"
+    fi
+done
+
 rm -rf "$WORK" /var/cache/apk/*
 ish-apply-style "$DEFAULT_STYLE"
+ish-apply-style --icon-previews
 # Previews for the shell's icon pack picker, so it opens without a wait.
 ish-apply-style --icon-previews
 log "done"

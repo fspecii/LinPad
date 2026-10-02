@@ -19,14 +19,16 @@ catalogue() {
     cat <<'EOF'
 adwaita|Adwaita|apk:adwaita-icon-theme|-|-|Adwaita|14|LGPL-3.0 / CC-BY-SA-3.0
 papirus|Papirus|apk:papirus-icon-theme|-|-|Papirus Papirus-Dark Papirus-Light|154|GPL-3.0
-breeze|Breeze|apk:breeze-icons|-|-|breeze breeze-dark|PACK_MB_breeze|LGPL-3.0
-tela-circle|Tela Circle|github:vinceliuice/Tela-circle-icon-theme|2026-07-07|0a8aee6e95f19ff96cc497d804c75e2af4271a5e6472c55891fb8ac5b099b59b|Tela-circle Tela-circle-light Tela-circle-dark Tela-circle-purple Tela-circle-purple-light Tela-circle-purple-dark Tela-circle-green Tela-circle-green-light Tela-circle-green-dark|PACK_MB_tela-circle|GPL-3.0
-qogir|Qogir|github:vinceliuice/Qogir-icon-theme|2025-02-15|b0d07cad5601e0341a53a62df0ed111823b75fc38741d435486620a59fb239ee|Qogir Qogir-Light Qogir-Dark|PACK_MB_qogir|GPL-3.0
-colloid|Colloid|github:vinceliuice/Colloid-icon-theme|2026-08-10|367c3ce3ab85721e41ca9aa4fccd1761ec236d1b8cd7daf65f5e9ec88c1a8a15|Colloid Colloid-Light Colloid-Dark|PACK_MB_colloid|GPL-3.0
-numix-circle|Numix Circle|apk:numix-icon-theme-circle numix-icon-theme-circle-light numix-icon-theme-light|-|-|Numix-Circle Numix-Circle-Light Numix Numix-Light|PACK_MB_numix-circle|GPL-3.0
-kora|Kora|github:bikass/kora|v2.0.6|159bdb7a09409a12e54a71136ec8889c51b0bf7c145c8b20e3509dc1e90089bd|kora kora-pgrey|PACK_MB_kora|GPL-3.0
-candy|Candy|github:EliverLara/candy-icons|83512fbcadcb7e1015ebbe1729a1894946b021be|1de25126c50da4edf4b49623993c1ca5f626d5be1020e5bd1b1c683cd724721b|candy-icons|PACK_MB_candy|GPL-3.0
-reversal|Reversal|github:yeyushengfan258/Reversal-icon-theme|2c8122287e3bad5a6bf860ddd8c7e3b78cf4d451|3053cef3034a424be0dc5a81a70550c6f9653e8839b1a1bdc13fbd19fb11c344|Reversal Reversal-dark|PACK_MB_reversal|GPL-3.0
+breeze|Breeze|apk:breeze-icons|-|-|breeze breeze-dark|69|LGPL-3.0
+tela-circle|Tela Circle|github:vinceliuice/Tela-circle-icon-theme|2026-07-07|0a8aee6e95f19ff96cc497d804c75e2af4271a5e6472c55891fb8ac5b099b59b|Tela-circle Tela-circle-light Tela-circle-dark|42|GPL-3.0
+tela-circle-purple|Tela Circle Purple|github:vinceliuice/Tela-circle-icon-theme|2026-07-07|0a8aee6e95f19ff96cc497d804c75e2af4271a5e6472c55891fb8ac5b099b59b|Tela-circle-purple Tela-circle-purple-light Tela-circle-purple-dark|42|GPL-3.0
+tela-circle-green|Tela Circle Green|github:vinceliuice/Tela-circle-icon-theme|2026-07-07|0a8aee6e95f19ff96cc497d804c75e2af4271a5e6472c55891fb8ac5b099b59b|Tela-circle-green Tela-circle-green-light Tela-circle-green-dark|42|GPL-3.0
+qogir|Qogir|github:vinceliuice/Qogir-icon-theme|2025-02-15|b0d07cad5601e0341a53a62df0ed111823b75fc38741d435486620a59fb239ee|Qogir Qogir-Light Qogir-Dark|57|GPL-3.0
+colloid|Colloid|github:vinceliuice/Colloid-icon-theme|2026-08-10|367c3ce3ab85721e41ca9aa4fccd1761ec236d1b8cd7daf65f5e9ec88c1a8a15|Colloid Colloid-Light Colloid-Dark|52|GPL-3.0
+numix-circle|Numix Circle|apk:numix-icon-theme-circle numix-icon-theme-circle-light numix-icon-theme-light|-|-|Numix-Circle Numix-Circle-Light Numix Numix-Light|55|GPL-3.0
+kora|Kora|github:bikass/kora|v2.0.6|159bdb7a09409a12e54a71136ec8889c51b0bf7c145c8b20e3509dc1e90089bd|kora kora-pgrey|27|GPL-3.0
+candy|Candy|github:EliverLara/candy-icons|83512fbcadcb7e1015ebbe1729a1894946b021be|1de25126c50da4edf4b49623993c1ca5f626d5be1020e5bd1b1c683cd724721b|candy-icons|7|GPL-3.0
+reversal|Reversal|github:yeyushengfan258/Reversal-icon-theme|2c8122287e3bad5a6bf860ddd8c7e3b78cf4d451|3053cef3034a424be0dc5a81a70550c6f9653e8839b1a1bdc13fbd19fb11c344|Reversal Reversal-dark|51|GPL-3.0
 whitesur|WhiteSur|style|-|-|WhiteSur WhiteSur-light WhiteSur-dark|41|GPL-3.0
 fluent|Fluent|style|-|-|Fluent Fluent-light Fluent-dark|43|GPL-3.0
 yaru|Yaru|style|-|-|Yaru Yaru-dark|25|CC-BY-SA-4.0 / GPL-3.0
@@ -76,10 +78,11 @@ upstream() { # dir script args...
 
 install_github() { # id dir
     case $1 in
-    tela-circle) upstream "$2" ./install.sh -c -d "$ICONS" standard purple green ;;
+    tela-circle) upstream "$2" ./install.sh -c -d "$ICONS" standard ;;
+    tela-circle-*) upstream "$2" ./install.sh -c -d "$ICONS" "${1#tela-circle-}" ;;
     qogir) upstream "$2" ./install.sh -d "$ICONS" -t default -c all ;;
     colloid) upstream "$2" ./install.sh -d "$ICONS" -t default -s default ;;
-    reversal) upstream "$2" ./install.sh -d "$ICONS" -t default ;;
+    reversal) upstream "$2" ./install.sh -d "$ICONS" ;;
     kora)
         for t in kora kora-pgrey; do
             rm -rf "${ICONS:?}/$t"
@@ -102,7 +105,12 @@ install_pack() { # id
     echo "progress: installing $1"
     case $src in
     style) die "$1 comes with its desktop style and is always installed" ;;
-    apk:*) apk add -q ${src#apk:} ;;
+    apk:*)
+        apk add -q ${src#apk:}
+        # Files deleted after an earlier install (pruning) are restored by a reinstall.
+        is_installed "$e" || apk fix -q ${src#apk:}
+        # Papirus also ships ePapirus (elementary OS variants), which the picker does not offer.
+        if [ "$1" = papirus ]; then rm -rf "$ICONS/ePapirus" "$ICONS/ePapirus-Dark"; fi ;;
     github:*)
         dir=$(fetch_github "${src#github:}" "$(field "$e" 4)" "$(field "$e" 5)")
         install_github "$1" "$dir"

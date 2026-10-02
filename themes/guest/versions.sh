@@ -14,3 +14,5 @@ VLC_REF=3.0.21
 VLC_QT_SHA256=46be20c0e4f2404655ac26a8b86241367020c528226ad824c7fe5d35a3467922
 DEBIAN_POOL=https://deb.debian.org/debian/pool/main
 UKUI_THEMES_VERSION=4.0.0.1-1
+# Icon packs installed into the image (ish-icon-packs ids); the others stay on demand.
+BASE_ICON_PACKS="adwaita papirus breeze tela-circle colloid qogir numix-circle kora"

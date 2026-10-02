@@ -51,6 +51,22 @@ Linux apps that are already running keep their old look (no XSETTINGS on Wayland
 the session's GSettings backend is `memory`); apps started afterwards use the new one.
 The shell may offer to restart open Linux windows.
 
+### More icon packs ("Get More Icon Packs…")
+
+```
+ish-icon-packs list              # id \t name \t installed(0|1) \t approx MB \t theme ids (space-separated) \t licence
+ish-icon-packs install <id>...   # needs network; prints "progress: installing <id>" / "progress: installed <id>"
+ish-icon-packs remove <id>...    # packs owned by a desktop style (whitesur, fluent, yaru, ukui) are refused
+```
+
+Exit status 0 means done; on failure the last stderr line says why. `install` ends by
+running `ish-apply-style --icon-previews`, so new themes have previews once it returns.
+Installing a pack can take minutes under emulation (Tela Circle about 9 min, Candy about
+30 s on an M4 host), so run it in the background and show the progress lines. After that,
+`ish-apply-style --icons <theme id>` selects one of the pack's themes. Packs in the image
+by default: adwaita, papirus, breeze, tela-circle, colloid, qogir, numix-circle, kora;
+candy, reversal, tela-circle-purple and tela-circle-green install on demand.
+
 ## Files
 
 ```
