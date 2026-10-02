@@ -29,12 +29,13 @@ echo "unpacking $IN"
 
 echo "staging the installer"
 COPYFILE_DISABLE=1 tar --no-xattrs -C "$HERE" -cf - \
-        install-vscode.sh debfetch.mjs vscode-launch vscode-forward.mjs vscode-settings.json |
+        install-vscode.sh install-wine.sh debfetch.mjs vscode-launch vscode-forward.mjs vscode-settings.json |
     "$ISH" -f "$WORK/fs" /bin/sh -c '
         set -e
         mkdir -p /usr/local/share/devtools
         tar -xo -f - -C /usr/local/share/devtools
-        chmod 755 /usr/local/share/devtools/install-vscode.sh /usr/local/share/devtools/vscode-launch'
+        chmod 755 /usr/local/share/devtools/install-vscode.sh /usr/local/share/devtools/install-wine.sh \
+            /usr/local/share/devtools/vscode-launch'
 
 if [ "${VSCODE:-1}" = 1 ]; then
     "$ISH" -f "$WORK/fs" /bin/sh -c 'sh /usr/local/share/devtools/install-vscode.sh' </dev/null

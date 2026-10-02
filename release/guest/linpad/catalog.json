@@ -138,6 +138,34 @@
       "recommended": false
     },
     {
+      "id": "wine",
+      "name": "Windows apps (Wine)",
+      "description": "Runs Windows programs built for ARM64 (Notepad++, 7-Zip, PuTTY, Wine's own Notepad, Minesweeper and settings) in one Windows desktop window. Wine 10 from Debian, downloaded on this iPad. Direct3D 9 can draw on the iPad's GPU; Direct3D 10/11/12 games do not run (no DXVK or Proton on this GPU). About 600 MB, plus about 540 MB for the Windows folder the first program creates.",
+      "category": "Utilities",
+      "sizeMB": 1100,
+      "installer": "sh /usr/local/share/devtools/install-wine.sh",
+      "uninstaller": "/usr/local/share/linpad/packs/wine-uninstall.sh",
+      "check": "/usr/lib/wine/wine64",
+      "desktop": "wine-explorer.desktop",
+      "icon": "user-desktop",
+      "launch": "ishwl-launch 'wine explorer'",
+      "recommended": false,
+      "experimental": true
+    },
+    {
+      "id": "wine-x86",
+      "name": "Windows x86 apps (Wine + Box64)",
+      "description": "Adds 32- and 64-bit Intel Windows programs to Wine through the Box64 translator (installs Windows apps (Wine) too). Usable speed needs fast mode (native JIT); a few programs take 1.5-2 GB of memory. No DXVK or Proton, so modern 3D games do not run. About 1.1 GB more, plus a second Windows folder.",
+      "category": "Utilities",
+      "sizeMB": 1150,
+      "installer": "BOX64=1 sh /usr/local/share/devtools/install-wine.sh",
+      "uninstaller": "/usr/local/share/linpad/packs/wine-uninstall.sh --x86",
+      "check": "/opt/wine-x64/bin/wine",
+      "launch": "ishwl-launch 'wine-x64 explorer'",
+      "recommended": false,
+      "experimental": true
+    },
+    {
       "id": "multimedia",
       "name": "VLC media player",
       "description": "Plays video and audio files, with LinPad's native video window and sound.",

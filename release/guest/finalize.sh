@@ -46,7 +46,8 @@ install -D -m 644 "$src/linpad/catalog.json" /usr/share/linpad/catalog.json
 install -D -m 755 "$src/linpad/linpad-apps" /usr/local/bin/linpad-apps
 mkdir -p /usr/local/share/linpad/packs/vlc
 install -m 644 "$src/linpad/sample.pdf" "$src/ish-install-vscode.desktop" /usr/local/share/linpad/
-install -m 755 "$src/linpad/packs/vscode-uninstall.sh" "$src/linpad/packs/x11-rule.sh" /usr/local/share/linpad/packs/
+install -m 755 "$src/linpad/packs/vscode-uninstall.sh" "$src/linpad/packs/x11-rule.sh" \
+    "$src/linpad/packs/wine-uninstall.sh" "$src/linpad/packs/glibc-island.sh" /usr/local/share/linpad/packs/
 install -m 755 "$src/linpad/packs/vlc/postinstall.sh" "$src/linpad/packs/vlc/postremove.sh" \
     /usr/local/share/linpad/packs/vlc/
 # VLC came in with the themes stage, which also compiled LinPad's Wayland plugins for it.

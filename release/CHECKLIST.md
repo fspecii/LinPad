@@ -91,6 +91,20 @@ rootfs; `ReleaseHarness` `test5AppCatalog` passes; screenshots `release-shots/60
 - Settings › Apps showed "Installing Image viewer (Ristretto)", then a Remove button.
 - `linpad-apps list` in the guest agreed. Remove brought the Install button back.
 
+**Wine** (`wine`, `wine-x86`; both experimental):
+- Backed by `devtools/install-wine.sh`, staged in `/usr/local/share/devtools` by
+  `rootfs-add-devtools.sh`. Details in `ipad-jit/wine-report.md`.
+- `packs/wine-uninstall.sh [--x86]` removes only Wine and Box64 files. Windows prefixes
+  stay.
+- The glibc libraries that VS Code and Wine share (`/usr/lib/aarch64-linux-gnu` and the
+  loader) are now refcounted by `packs/glibc-island.sh prune`. They are deleted only when
+  no VS Code, Wine or x86-Wine is installed; before this, the VS Code uninstaller always
+  deleted them.
+- Round trip on a clone of the Wine test fakefs (release emulator):
+  - remove wine-x86 → remove wine (libraries kept, VS Code still links) → VS Code uninstall
+    (libraries removed) → `linpad-apps install wine` (182 s, cached .debs, `wine --version`
+    ok) → remove wine (libraries removed).
+
 Notes:
 - **Emulator bug: node output to a pipe can be lost in the app.** Under the app's process
   launcher, `node -e 'console.log(1)'` printed nothing to the desktop, while
