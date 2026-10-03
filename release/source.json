@@ -6,7 +6,95 @@
   "iconURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/app/Assets.xcassets/AppIcon.appiconset/App%20Store.png",
   "website": "https://github.com/fspecii/LinPad",
   "tintColor": "#0A84FF",
-  "featuredApps": [],
-  "apps": [],
+  "featuredApps": [
+    "com.valentinneagu.ish.arm64"
+  ],
+  "apps": [
+    {
+      "name": "LinPad",
+      "bundleIdentifier": "com.valentinneagu.ish.arm64",
+      "developerName": "LinPad Project",
+      "subtitle": "A real Linux desktop on your iPad.",
+      "localizedDescription": "LinPad turns an Apple Silicon iPad into a Linux computer: a windowed desktop with tiling and workspaces, and real Alpine Linux apps (Firefox, Thunar, foot, Node, git) as native windows. No VM, no jailbreak. Optional apps such as VS Code and Claude Code install from Settings › Apps.\n\nFast mode (native JIT) needs StikDebug; the Linux system updates itself from Settings › Updates.",
+      "iconURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/app/Assets.xcassets/AppIcon.appiconset/App%20Store.png",
+      "tintColor": "#0A84FF",
+      "category": "developer",
+      "screenshotURLs": [
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00a-desktop.jpg",
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00b-firefox-wikipedia.jpg",
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00c-linpad-store.jpg",
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00d-themes.jpg",
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00e-look-aero.jpg",
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00f-look-aqua.jpg",
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00g-look-luna.jpg",
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00h-look-platinum.jpg",
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/02-firefox.jpg",
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/03-foot-fastfetch.jpg",
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/04-vscode.jpg",
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/05-style-macos.jpg",
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/06-style-windows.jpg",
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/07-style-ubuntu-overview.jpg",
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/08-style-kylin.jpg",
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/09-wallhaven.jpg",
+        "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/10-thunar-native-window.jpg"
+      ],
+      "screenshots": {
+        "ipad": [
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00a-desktop.jpg",
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00b-firefox-wikipedia.jpg",
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00c-linpad-store.jpg",
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00d-themes.jpg",
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00e-look-aero.jpg",
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00f-look-aqua.jpg",
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00g-look-luna.jpg",
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00h-look-platinum.jpg",
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/02-firefox.jpg",
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/03-foot-fastfetch.jpg",
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/04-vscode.jpg",
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/05-style-macos.jpg",
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/06-style-windows.jpg",
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/07-style-ubuntu-overview.jpg",
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/08-style-kylin.jpg",
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/09-wallhaven.jpg",
+          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/10-thunar-native-window.jpg"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.5.0",
+          "buildVersion": "4428",
+          "date": "2026-10-03T18:11:28Z",
+          "localizedDescription": "LinPad 1.5.0\n\n- Repair kit 2026100316 (theme icon cleanup, lifecycle hook); new store screenshots (48bafe32)\n- No file locks held at suspension (fixes 0xDEAD10CC kills): guest flock in memory, correct fcntl/lockf/OFD locks on arm64, meta.db parked while suspended; background-task caps (ec710915)\n- In-app icon picker: new default LinPad icon (08b22ccc)\n- New LinPad app icon (light/dark/tinted); website: real home-screen → tap → launch → first-run → desktop hero, Download/Install/Fast mode pages, fresh screenshots (e42ef202)\n- Mesa 26.2.4 (edge dropped 26.2.3); version-agnostic GL checks that fail loudly; repair relaxes exact Mesa pins to floors; repair kit 2026100315 (6f3452b2)\n- Website redesign: scroll-driven iPad boot hero, Apple-style sections, Omarchy-style theme switcher, self-hosted fonts, author Vali Neagu (2dc19290)\n- Lifecycle: survive lock, app switching and termination without losing work (grace-task flush, session restore, recovered editor text, autosave defaults for VS Code/Firefox/LibreOffice/Mousepad, torn fakefs entries healed, timers catch up after sleep, background modes); Memory panel polish (a6e0672e)\n- README: author name Vali Neagu (66e6b4c9)\n- README: author links (valineagu.com, @AmbsdOP, fspecii) and linpados.com (f86e9eb4)\n- Website: linpados.com (f38b99ec)\n- Low memory: in-kernel OOM policy that closes the right process before iOS kills the app, pressure files, Memory settings panel, lazy per-thread TLB, lean guest defaults; JIT: guest NULL calls raise SIGSEGV instead of crashing the emulator; swap-file prototype (off) (93b0bd91)\n- Ignore Python bytecode caches (283b6608)\n- apk: floor every edge package in /etc/apk/world so no transaction downgrades Mesa's stack; repair kit 2026100312 (b3ce0d7d)\n- finalize: install the linpad command; repair kit 2026100311 (0425c614)\n- Screensaver and idle lock, clipboard history, sectioned command menu, linpad update and system rollback; backup/restore and diagnostics; low-memory policy in progress (22b3a2d6)\n- VS Code: report directory types so the file watcher sees subfolders (Source Control refreshes); faster mmap hint checks, /proc/PID/maps snapshots and cached interface lists; VS Code cycle benchmark (d30487f9)\n- fifo: correct FIFO_LAST reads after the ring wraps (garbled dmesg); clamp syslog reads; diagnostics log ring (25487909)\n- finalize: stop installing the removed Audacity shim library (01881f7a)\n- Kernel: System V IPC (shm, sem, msg) and membarrier; Audacity runs without workarounds; X11 MIT-SHM works (c109177d)\n- LinPad Store: Play/App Store-style frontend for ~800 Alpine GUI apps with real apk progress, collections, search, updates; backup/restore and diagnostics in progress (c4f66d27)\n- Sockets: fix TCP Fast Open style connects (VLC https streams); camera, scanner, recorder, notes and calcurse packs; VLC radio playlist (32f375f7)\n- Firefox fullscreen works and renders at scale 1 (half the CPU for fullscreen video); cache /proc page counts; benchmark kit (eba75a12)\n- arm64-insn fuzz: correct load/store-pair mask (5b96e5f5)\n- Themes: Looks and paired light/dark themes apply reliably, grouped style picker, era bevels and era app chrome; interpreter matches ARM64 on the conformance suite with host-derived HWCAPs; wallpaper matching; memory footprint cuts for Firefox video; store (e0d7bd19)\n- epoll: a peer close is readable (fixes Firefox sandboxed audio after a stream ends); front camera is /dev/video0; repair kit 2026100307 (0b7e9e40)\n- Shortcuts bar no longer covers the dock;",
+          "downloadURL": "https://github.com/fspecii/LinPad/releases/download/v1.5.0/LinPad-1.5.0.ipa",
+          "size": 637006026,
+          "sha256": "9e79e12a109a52131177c20caa69180d5b23c989690b80b0670d33125402e3b2",
+          "minOSVersion": "17.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [
+          "com.apple.developer.user-fonts",
+          "com.apple.security.application-groups",
+          "get-task-allow"
+        ],
+        "privacy": {
+          "NSCalendarsFullAccessUsageDescription": "Show and edit the events from your iPad's calendars in the desktop's Calendar, clock and widgets.",
+          "NSCameraUsageDescription": "Linux apps you run can use the camera, for example for video calls or to take pictures. The camera is only on while an app captures.",
+          "NSLocalNetworkUsageDescription": "This is required for connecting to localhost and using the ping command.",
+          "NSLocationAlwaysAndWhenInUseUsageDescription": "Programs running in iSH will be allowed to track your location in the background.",
+          "NSLocationAlwaysUsageDescription": "Programs running in iSH will be allowed to track your location in the background.",
+          "NSLocationWhenInUseUsageDescription": "With Settings › Background set to “Always”, location updates keep Linux running while LinPad is in the background; LinPad does not keep or share where you are. Linux programs that read /dev/location can also see your location.",
+          "NSMicrophoneUsageDescription": "Linux apps you run can record from the microphone, for example for calls or voice notes, and screen recordings can include your voice when you turn the microphone on. The microphone is only on while an app records.",
+          "NSPhotoLibraryAddUsageDescription": "Save wallpapers, images and videos from Linux apps to your photo library.",
+          "NSPhotoLibraryUsageDescription": "Browse your photos in Files and open them in Linux apps."
+        }
+      },
+      "version": "1.5.0",
+      "versionDate": "2026-10-03T18:11:28Z",
+      "versionDescription": "LinPad 1.5.0\n\n- Repair kit 2026100316 (theme icon cleanup, lifecycle hook); new store screenshots (48bafe32)\n- No file locks held at suspension (fixes 0xDEAD10CC kills): guest flock in memory, correct fcntl/lockf/OFD locks on arm64, meta.db parked while suspended; background-task caps (ec710915)\n- In-app icon picker: new default LinPad icon (08b22ccc)\n- New LinPad app icon (light/dark/tinted); website: real home-screen → tap → launch → first-run → desktop hero, Download/Install/Fast mode pages, fresh screenshots (e42ef202)\n- Mesa 26.2.4 (edge dropped 26.2.3); version-agnostic GL checks that fail loudly; repair relaxes exact Mesa pins to floors; repair kit 2026100315 (6f3452b2)\n- Website redesign: scroll-driven iPad boot hero, Apple-style sections, Omarchy-style theme switcher, self-hosted fonts, author Vali Neagu (2dc19290)\n- Lifecycle: survive lock, app switching and termination without losing work (grace-task flush, session restore, recovered editor text, autosave defaults for VS Code/Firefox/LibreOffice/Mousepad, torn fakefs entries healed, timers catch up after sleep, background modes); Memory panel polish (a6e0672e)\n- README: author name Vali Neagu (66e6b4c9)\n- README: author links (valineagu.com, @AmbsdOP, fspecii) and linpados.com (f86e9eb4)\n- Website: linpados.com (f38b99ec)\n- Low memory: in-kernel OOM policy that closes the right process before iOS kills the app, pressure files, Memory settings panel, lazy per-thread TLB, lean guest defaults; JIT: guest NULL calls raise SIGSEGV instead of crashing the emulator; swap-file prototype (off) (93b0bd91)\n- Ignore Python bytecode caches (283b6608)\n- apk: floor every edge package in /etc/apk/world so no transaction downgrades Mesa's stack; repair kit 2026100312 (b3ce0d7d)\n- finalize: install the linpad command; repair kit 2026100311 (0425c614)\n- Screensaver and idle lock, clipboard history, sectioned command menu, linpad update and system rollback; backup/restore and diagnostics; low-memory policy in progress (22b3a2d6)\n- VS Code: report directory types so the file watcher sees subfolders (Source Control refreshes); faster mmap hint checks, /proc/PID/maps snapshots and cached interface lists; VS Code cycle benchmark (d30487f9)\n- fifo: correct FIFO_LAST reads after the ring wraps (garbled dmesg); clamp syslog reads; diagnostics log ring (25487909)\n- finalize: stop installing the removed Audacity shim library (01881f7a)\n- Kernel: System V IPC (shm, sem, msg) and membarrier; Audacity runs without workarounds; X11 MIT-SHM works (c109177d)\n- LinPad Store: Play/App Store-style frontend for ~800 Alpine GUI apps with real apk progress, collections, search, updates; backup/restore and diagnostics in progress (c4f66d27)\n- Sockets: fix TCP Fast Open style connects (VLC https streams); camera, scanner, recorder, notes and calcurse packs; VLC radio playlist (32f375f7)\n- Firefox fullscreen works and renders at scale 1 (half the CPU for fullscreen video); cache /proc page counts; benchmark kit (eba75a12)\n- arm64-insn fuzz: correct load/store-pair mask (5b96e5f5)\n- Themes: Looks and paired light/dark themes apply reliably, grouped style picker, era bevels and era app chrome; interpreter matches ARM64 on the conformance suite with host-derived HWCAPs; wallpaper matching; memory footprint cuts for Firefox video; store (e0d7bd19)\n- epoll: a peer close is readable (fixes Firefox sandboxed audio after a stream ends); front camera is /dev/video0; repair kit 2026100307 (0b7e9e40)\n- Shortcuts bar no longer covers the dock;",
+      "downloadURL": "https://github.com/fspecii/LinPad/releases/download/v1.5.0/LinPad-1.5.0.ipa",
+      "size": 637006026
+    }
+  ],
   "news": []
 }
