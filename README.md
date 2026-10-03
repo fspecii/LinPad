@@ -273,7 +273,7 @@ Cutting a release: **[release/RELEASING.md](release/RELEASING.md)**
 
 ## 👤 About the Author
 
-LinPad is built and maintained by **Vali** ([valineagu.com](https://valineagu.com) · [@AmbsdOP](https://x.com/AmbsdOP) on X · [fspecii](https://github.com/fspecii) on GitHub).
+LinPad is built and maintained by **Vali Neagu** ([valineagu.com](https://valineagu.com) · [@AmbsdOP](https://x.com/AmbsdOP) on X · [fspecii](https://github.com/fspecii) on GitHub).
 
 I bought an iPad Air M3, attached a Logitech keyboard with a trackpad, and realised I owned a laptop-class machine that couldn't run a terminal, an editor or a real browser. LinPad is the fix.
 
