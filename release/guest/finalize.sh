@@ -66,7 +66,7 @@ install -D -m 644 "$src/linpad/store/curation.json" /usr/share/linpad/store-cura
 install -D -m 644 "$src/linpad/store/store-icons.txt" /usr/share/linpad/store-icons.txt
 install -D -m 644 "$src/linpad/store/linpad-store-index.mjs" /usr/local/share/linpad/store/linpad-store-index.mjs
 mkdir -p /usr/local/share/linpad/store/fixups
-install -m 755 "$src"/linpad/store/fixups/*.sh "$src"/linpad/store/fixups/*.so /usr/local/share/linpad/store/fixups/
+install -m 755 "$src"/linpad/store/fixups/*.sh /usr/local/share/linpad/store/fixups/
 # VLC came in with the themes stage, which also compiled LinPad's Wayland plugins for it.
 # Keep those (a few hundred KB) for the Multimedia pack and take VLC itself out.
 if apk info -e vlc >/dev/null 2>&1 && [ -f /usr/local/bin/ish-vlc ]; then
