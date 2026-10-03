@@ -7,9 +7,11 @@
 #
 # Each package whose installed version is newer than anything the configured repositories
 # offer gets a version floor in /etc/apk/world ("libdrm>=2.4.134-r0"), so apk's own
-# solver keeps it; nothing has to re-pin after the fact. Packages world already constrains
-# (Mesa's "=26.2.3-r1") are left as they are. Run at image build (finalize.sh) and by
-# linpad-repair; running it again only adds floors for packages that need one.
+# solver keeps it; nothing has to re-pin after the fact. An exact pin of such a package
+# ("mesa-gl=<version>", which the gpu stage and older systems have) becomes a floor too:
+# edge drops old builds, and an exact pin would stop apk from ever moving to the next
+# Mesa. Run at image build (finalize.sh) and by linpad-repair; running it again only
+# adds floors for packages that need one.
 #   linpad-pin-edge            add the missing floors
 #   linpad-pin-edge --list     print "name installed newest-in-repositories" for the
 #                              packages that are newer than the repositories
@@ -48,11 +50,12 @@ if [ "${1:-}" = --list ]; then
     exit 0
 fi
 
-constrained=$(tr ' ' '\n' < "$WORLD" | sed -n 's/^\([^<>=~@]*\)[<>=~].*/\1/p')
+# A floor at the installed version is kept; exact pins, plain names and floors below the
+# installed version (a newer Mesa came in) get one at the installed version.
+world=" $(tr '\n' ' ' < "$WORLD") "
 floors=
 for entry in $(newer_than_repositories | awk '{ print $1 ">=" $2 }'); do
-    name=${entry%%>=*}
-    case " $(echo $constrained) " in *" $name "*) continue ;; esac
+    case $world in *" $entry "*) continue ;; esac
     floors="$floors $entry"
 done
 [ -n "$floors" ] || exit 0

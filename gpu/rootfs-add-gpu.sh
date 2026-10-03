@@ -15,7 +15,7 @@ FAKEFSIFY=${FAKEFSIFY:-$(dirname "$ISH")/tools/fakefsify}
 EDGE=https://dl-cdn.alpinelinux.org/alpine/edge/main
 # Venus first shipped for aarch64 in edge; 3.21's Mesa 24.2 has neither the ICD nor a
 # zink that accepts a renderer without dma-buf. Pinned so every rootfs gets the same stack.
-MESA=26.2.3-r1
+MESA=26.2.4-r0
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/rootfs-gpu.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT

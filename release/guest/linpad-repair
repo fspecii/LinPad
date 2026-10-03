@@ -286,9 +286,18 @@ missing=${missing# }
 thunar_broken=0
 [ -e /usr/bin/thunar ] && ! head -c 4 /usr/bin/thunar 2>/dev/null | grep -q ELF && thunar_broken=1
 mesa_broken=0
-if [ -e /usr/lib/libgallium-26.2.3.so ] && ldd /usr/lib/libEGL.so.1 2>&1 | grep -q "Error relocating"; then
+gallium=$(ls /usr/lib/libgallium-*.so 2>/dev/null | head -1)
+if [ -z "$gallium" ] || ! apk info -e mesa-gbm >/dev/null 2>&1; then
+    # Every LinPad system has Mesa (the image's gpu stage); without it no GL, Qt or
+    # Xwayland app runs, and the repair kit cannot fetch it back by itself.
+    fail "Mesa is missing (no /usr/lib/libgallium-*.so or mesa-gbm): GL, Qt and Xwayland apps cannot run. Reset Linux from Settings › Maintenance."
+elif ldd /usr/lib/libEGL.so.1 2>&1 | grep -q "Error relocating"; then
     mesa_broken=1
 fi
+# Systems from before linpad-pin-edge have exact Mesa pins and no version floors; adding
+# them needs fresh package indexes, so it is done online, with the package repairs.
+floors_missing=0
+[ -n "$gallium" ] && ! tr ' ' '\n' < /etc/apk/world | grep -q '^mesa-gbm>=' && floors_missing=1
 
 online() {
     [ "$OFFLINE" = 1 ] && return 1
@@ -301,12 +310,13 @@ online() {
     fi
 }
 
-if [ -z "$missing" ] && [ $thunar_broken = 0 ] && [ $mesa_broken = 0 ]; then
+if [ -z "$missing" ] && [ $thunar_broken = 0 ] && [ $mesa_broken = 0 ] && [ $floors_missing = 0 ]; then
     echo "  all base packages are installed"
 elif ! online; then
     todo=$missing
     [ $thunar_broken = 1 ] && todo="$todo thunar"
     [ $mesa_broken = 1 ] && todo="$todo libdrm libxcb wayland-libs-client"
+    [ $floors_missing = 1 ] && todo="$todo (edge-package-version-floors)"
     echo "@@skipped-packages-offline ${todo# }"
 else
     if ! apk update -q; then
@@ -331,8 +341,10 @@ else
         fi
         # Version floors in /etc/apk/world for the packages LinPad took from Alpine edge (Mesa 26,
         # libdrm, libxcb, wayland-libs-client, musl, ...), so no apk transaction can move them back
-        # to v3.21's builds. Uses the indexes apk update just fetched; a no-op once the floors are there.
-        if [ -e /usr/lib/libgallium-26.2.3.so ] && ! ldd /usr/lib/libEGL.so.1 2>&1 | grep -q "Error relocating"; then
+        # to v3.21's builds. Older systems' exact Mesa pins ("mesa-gl=26.2.3-r1", a version
+        # edge has since dropped) become floors too, so a newer Mesa can replace them. Uses
+        # the indexes apk update just fetched; a no-op once the floors are there.
+        if [ -n "$gallium" ] && ! ldd /usr/lib/libEGL.so.1 2>&1 | grep -q "Error relocating"; then
             pins_before=$(cat /etc/apk/world)
             if sh "$G/linpad-pin-edge" >/dev/null 2>&1; then
                 [ "$pins_before" = "$(cat /etc/apk/world)" ] || changed "edge package version floors"

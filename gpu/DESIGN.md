@@ -106,7 +106,8 @@ MoltenVK -> Metal -> Apple GPU
     both are stripped again before vkCreateDevice reaches MoltenVK.
   - iOS: `os_create_anonymous_file` falls back to an unlinked file in `$TMPDIR` when
     `shm_open` is refused by the sandbox.
-* **Guest Mesa from edge** (26.2.3): venus ICD + zink/EGL/GBM/GLES. 3.21's zink 24.2.8 dies
+* **Guest Mesa from edge** (26.2.3 when this was written; the image pins whatever
+  `rootfs-add-gpu.sh` names): venus ICD + zink/EGL/GBM/GLES. 3.21's zink 24.2.8 dies
   silently in `zink_drm_create_screen` for the same KHR_external_memory_fd reason.
 * **mincore** (kernel/fs.c): returned success for unmapped pages. Mesa EGL's
   `_eglPointerIsDereferenceable` then took `wl_egl_window->version` (3) for a wl_surface
@@ -143,7 +144,8 @@ MoltenVK -> Metal -> Apple GPU
 ## Guest userspace
 
 `gpu/rootfs-add-gpu.sh IN.tar.gz OUT.tar.gz` (fakefsify, `apk add` inside the emulator,
-unfakefsify; about a minute) adds the pinned edge Mesa 26.2.3 (venus ICD, zink in
+unfakefsify; about a minute) adds the pinned edge Mesa (`MESA=` in the script; 26.2.4-r0
+since edge dropped 26.2.3-r1 on 2026-10-03) (venus ICD, zink in
 mesa-dri-gallium, EGL/GLES/GL/GBM), upgrades libxcb and wayland-libs-client from edge (Mesa 26
 needs newer symbols; musl cannot express that, so apk would not), vulkan-loader and
 vulkan-tools, and `/etc/profile.d/gpu.sh`:

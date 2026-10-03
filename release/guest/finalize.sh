@@ -148,18 +148,20 @@ sh "$src/fix-thunar.sh"
 # interfaces) stops loading. Put them back here, at the end of the build; the load check
 # below enforces it.
 echo "finalize: edge libraries for Mesa 26"
-if [ -e /usr/lib/libgallium-26.2.3.so ]; then
-    apk update -q
-    apk add -q --upgrade --repository https://dl-cdn.alpinelinux.org/alpine/edge/main \
-        libdrm libxcb wayland-libs-client
+# Every image has the gpu stage's Mesa; without it GL, Qt and Xwayland apps cannot run.
+gallium=$(ls /usr/lib/libgallium-*.so 2>/dev/null | head -1)
+if [ -z "$gallium" ] || ! apk info -e mesa-gbm >/dev/null 2>&1; then
+    echo "finalize: Mesa (gpu stage) is missing: no /usr/lib/libgallium-*.so or mesa-gbm" >&2
+    exit 1
 fi
+apk update -q
+apk add -q --upgrade --repository https://dl-cdn.alpinelinux.org/alpine/edge/main \
+    libdrm libxcb wayland-libs-client
 # From here on apk itself keeps them: every package newer than the v3.21 repositories
 # (the edge stack) gets a version floor in /etc/apk/world. Users' `apk add`, `apk upgrade`
 # (-a) and the Store then never move them back, with no re-pin after the fact.
 install -D -m 755 "$src/linpad-pin-edge" /usr/local/sbin/linpad-pin-edge
-if [ -e /usr/lib/libgallium-26.2.3.so ]; then
-    /usr/local/sbin/linpad-pin-edge
-fi
+/usr/local/sbin/linpad-pin-edge
 
 # A published image (build-rootfs.sh PUBLIC=1) carries nothing LinPad may not redistribute:
 # Claude Code is proprietary (the "Claude Code" catalog item installs it from npm on the
@@ -213,7 +215,7 @@ if [ -n "$missing" ]; then
     echo "finalize: MISSING:$missing" >&2
     exit 1
 fi
-for lib in /usr/lib/libgallium-26.2.3.so /usr/lib/libEGL.so.1 /usr/lib/vlc/plugins/gui/libqt_plugin.so \
+for lib in "$gallium" /usr/lib/libEGL.so.1 /usr/lib/vlc/plugins/gui/libqt_plugin.so \
         /usr/lib/libQt5Gui.so.5 /usr/lib/libQt6Gui.so.6 /usr/lib/firefox-esr/libxul.so; do
     [ -e "$lib" ] || continue
     if ldd "$lib" 2>&1 | grep -q "Error relocating\|not found"; then
