@@ -155,6 +155,7 @@ load_style() { # style variant
     fi
     # A pack the user picked outlives style switches, as long as it is still installed.
     override=$(cat "$ICON_OVERRIDE" 2>/dev/null || true)
+    case $override in WhiteSur|WhiteSur-*) override= ;; esac
     if [ -n "$override" ] && theme_dir "$override" >/dev/null; then ICON_THEME=$override; fi
 }
 
@@ -189,6 +190,8 @@ list_icon_themes() {
             grep -q '^Directories=' "$index" || continue
             id=${index%/index.theme}; id=${id##*/}
             [ "$id" = hicolor ] && continue
+            # WhiteSur's icons imitate Apple's Finder, App Store and Safari icons; not offered.
+            case $id in WhiteSur|WhiteSur-*) continue ;; esac
             name=$(sed -n 's/^Name=//p' "$index" | head -n1)
             printf '%s\t%s\n' "$id" "${name:-$id}"
         done

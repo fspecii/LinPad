@@ -10,7 +10,6 @@ replaced by Noto Sans and Inter.
 | Fluent-icon-theme (Fluent, Fluent-light, Fluent-dark) + Fluent cursors | windows | https://github.com/vinceliuice/Fluent-icon-theme | tag 2026-07-27 | GPL-3.0 |
 | Fluent Kvantum theme | windows (Qt) | https://github.com/vinceliuice/Fluent-kde | 44794f29c89de994b0179aebabd2f5776c90d236 | GPL-3.0 |
 | WhiteSur-gtk-theme (WhiteSur-Light, WhiteSur-Dark; prebuilt release tarballs) | macos | https://github.com/vinceliuice/WhiteSur-gtk-theme/tree/2026-09-10/release | tag 2026-09-10 | MIT |
-| WhiteSur-icon-theme (WhiteSur, WhiteSur-light, WhiteSur-dark) | macos | https://github.com/vinceliuice/WhiteSur-icon-theme | tag 2026-09-10 | GPL-3.0 |
 | WhiteSur-cursors | macos | https://github.com/vinceliuice/WhiteSur-cursors | e190baf618ed95ee217d2fd45589bd309b37672b | GPL-3.0 |
 | WhiteSur Kvantum theme | macos (Qt) | https://github.com/vinceliuice/WhiteSur-kde | cf4df59ce91004f7ea39358b1b8ff917d5c329f7 | GPL-3.0 |
 | Yaru GTK theme (Yaru, Yaru-dark; from `yaru-theme-gtk_24.04.2-0ubuntu1_all.deb`) | ubuntu | http://archive.ubuntu.com/ubuntu/pool/main/y/yaru-theme/ | 24.04.2-0ubuntu1 | GPL-3.0 (themes), CC-BY-SA-4.0 (assets); `licenses/yaru-theme-gtk.copyright` |
@@ -47,7 +46,7 @@ vendor artwork (its menu glyph is a vendor logo).
 | `aqua` | LinPad-Aqua | https://github.com/B00merang-Project/Mac-OS-X-Cheetah | f0bf2e2e66e45cab6890fb05bd0cbb0633baf22a / 42f6569b2243248d2e9b744f748726229abfb9014acbffd81aebd581a32417ba | GPL-3.0 |
 
 The desktop themes' fonts are packages already in the image (DejaVu, Noto, Inter); their
-icon packs are Papirus, Fluent, WhiteSur, Qogir and kora (see below).
+icon packs are Papirus, Fluent, Qogir and kora (WhiteSur's icon theme is not installed or offered: it imitates Apple's Finder, App Store and Safari icons) (see below).
 
 ## Icon packs (Settings › Icons)
 

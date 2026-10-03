@@ -10,6 +10,7 @@
 #include "fs/path.h"
 #include "fs/dev.h"
 #include "fs/real.h"
+#include "fs/inode.h"
 
 static struct fd *at_fd(fd_t f) {
     if (f == AT_FDCWD_)
@@ -1014,9 +1015,13 @@ dword_t sys_flock(fd_t f, dword_t operation) {
     struct fd *fd = f_get(f);
     if (fd == NULL)
         return _EBADF;
+    // Files are locked in memory (fs/lock.c fd_flock): a host flock on a file in the app's
+    // shared container gets the suspended app killed by iPadOS (0xDEAD10CC).
+    if (fd->inode != NULL)
+        return fd_flock(fd, operation);
     // TODO: POSIX doesn't allow flock to fail in this way. The check is here
     // because a segfault is worse.
-    if (fd->mount->fs->flock == NULL)
+    if (fd->mount == NULL || fd->mount->fs->flock == NULL)
         return _EBADF;
     return fd->mount->fs->flock(fd, operation);
 }

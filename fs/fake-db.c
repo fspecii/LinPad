@@ -92,13 +92,19 @@ static void db_note_changes(struct fakefs_db *fs) {
         fs->write_gen++;
 }
 
+static void db_ensure_open(struct fakefs_db *fs);
+static int db_close_connection(struct fakefs_db *fs);
+bool fake_db_is_parked(void);
+
 void db_begin_read(struct fakefs_db *fs) {
     sqlite3_mutex_enter(fs->lock);
+    db_ensure_open(fs);
     fs->txn_changes = sqlite3_total_changes64(fs->db);
     db_exec_reset(fs, fs->stmt.begin_deferred);
 }
 void db_begin_write(struct fakefs_db *fs) {
     sqlite3_mutex_enter(fs->lock);
+    db_ensure_open(fs);
     fs->txn_changes = sqlite3_total_changes64(fs->db);
     fs->write_gen++;
     db_exec_reset(fs, fs->stmt.begin_immediate);
@@ -106,11 +112,16 @@ void db_begin_write(struct fakefs_db *fs) {
 void db_commit(struct fakefs_db *fs) {
     db_exec_reset(fs, fs->stmt.commit);
     db_note_changes(fs);
+    // Parked: a host thread reopened the connection for this transaction; close it again.
+    if (fake_db_is_parked())
+        db_close_connection(fs);
     sqlite3_mutex_leave(fs->lock);
 }
 void db_rollback(struct fakefs_db *fs) {
     db_exec_reset(fs, fs->stmt.rollback);
     db_note_changes(fs);
+    if (fake_db_is_parked())
+        db_close_connection(fs);
     sqlite3_mutex_leave(fs->lock);
 }
 
@@ -384,13 +395,14 @@ static void sqlite_func_change_prefix(sqlite3_context *context, int argc, sqlite
 extern int fakefs_rebuild(struct fakefs_db *fs, int root_fd);
 extern int fakefs_migrate(struct fakefs_db *fs, int root_fd);
 
-int fake_db_init(struct fakefs_db *fs, const char *db_path, int root_fd) {
-    fs->stat_cache = NULL;
-    fs->wal_fd = -1;
+// Opens the connection with the settings every connection needs. The maintenance that
+// only the first open does (migration, rebuild, orphan cleanup) is in fake_db_init.
+static int db_open_connection(struct fakefs_db *fs, const char *db_path) {
     int err = sqlite3_open_v2(db_path, &fs->db, SQLITE_OPEN_READWRITE, NULL);
     if (err != SQLITE_OK) {
         printk("error opening database: %s\n", sqlite3_errmsg(fs->db));
         sqlite3_close(fs->db);
+        fs->db = NULL;
         return _EINVAL;
     }
     sqlite3_busy_timeout(fs->db, 5000);
@@ -441,6 +453,60 @@ int fake_db_init(struct fakefs_db *fs, const char *db_path, int root_fd) {
 #if DEBUG_sql
     sqlite3_trace_v2(mount->db, SQLITE_TRACE_STMT, trace_callback, NULL);
 #endif
+    return 0;
+}
+
+static void db_prepare_statements(struct fakefs_db *fs) {
+    char wal_path[PATH_MAX];
+    snprintf(wal_path, sizeof(wal_path), "%s-wal", fs->db_path);
+    fs->wal_fd = open(wal_path, O_RDONLY | O_CLOEXEC);
+    fs->stmt.begin_deferred = db_prepare(fs, "begin deferred");
+    fs->stmt.begin_immediate = db_prepare(fs, "begin immediate");
+    fs->stmt.commit = db_prepare(fs, "commit");
+    fs->stmt.rollback = db_prepare(fs, "rollback");
+    fs->stmt.path_get_inode = db_prepare(fs, "select inode from paths where path = ?");
+    fs->stmt.path_read_stat = db_prepare(fs, "select inode, stat from stats natural join paths where path = ?");
+    fs->stmt.path_create_stat = db_prepare(fs, "insert into stats (stat) values (?)");
+    fs->stmt.path_create_path = db_prepare(fs, "insert or replace into paths values (?, last_insert_rowid())");
+    fs->stmt.inode_read_stat = db_prepare(fs, "select stat from stats where inode = ?");
+    fs->stmt.inode_write_stat = db_prepare(fs, "update stats set stat = ? where inode = ?");
+    fs->stmt.path_link = db_prepare(fs, "insert or replace into paths (path, inode) values (?, ?)");
+    fs->stmt.path_unlink = db_prepare(fs, "delete from paths where path = ?");
+    fs->stmt.path_rename = db_prepare(fs, "update or replace paths set path = change_prefix(path, ?, ?) "
+            "where (path >= ? and path < ?) or path = ?");
+    fs->stmt.path_from_inode = db_prepare(fs, "select path from paths where inode = ?");
+    fs->stmt.try_cleanup_inode = db_prepare(fs, "delete from stats where inode = ? and not exists (select 1 from paths where inode = stats.inode)");
+}
+
+// Finalizes the statements and closes the connection, which releases every lock SQLite
+// holds on meta.db and meta.db-shm. Called with fs->lock held (or before it exists).
+static int db_close_connection(struct fakefs_db *fs) {
+    if (fs->db == NULL)
+        return SQLITE_OK;
+    sqlite3_stmt **statements = (sqlite3_stmt **) &fs->stmt;
+    for (size_t i = 0; i < sizeof(fs->stmt) / sizeof(sqlite3_stmt *); i++) {
+        sqlite3_finalize(statements[i]);
+        statements[i] = NULL;
+    }
+    if (fs->wal_fd >= 0)
+        close(fs->wal_fd);
+    fs->wal_fd = -1;
+    int err = sqlite3_close(fs->db);
+    if (err != SQLITE_OK)
+        printk("WARNING: closing meta.db: %d\n", err);
+    fs->db = NULL;
+    return err;
+}
+
+int fake_db_init(struct fakefs_db *fs, const char *db_path, int root_fd) {
+    fs->stat_cache = NULL;
+    fs->wal_fd = -1;
+    fs->db = NULL;
+    fs->db_path = strdup(db_path);
+    int err = db_open_connection(fs, db_path);
+    if (err < 0)
+        return err;
+    sqlite3_stmt *statement;
 
     err = fakefs_migrate(fs, root_fd);
     if (err < 0)
@@ -485,59 +551,87 @@ int fake_db_init(struct fakefs_db *fs, const char *db_path, int root_fd) {
     fs->lock = sqlite3_mutex_alloc(SQLITE_MUTEX_FAST);
     fs->write_gen = 0;
     fs->txn_changes = 0;
-    char wal_path[PATH_MAX];
-    snprintf(wal_path, sizeof(wal_path), "%s-wal", db_path);
-    fs->wal_fd = open(wal_path, O_RDONLY | O_CLOEXEC);
     fs->stat_cache = calloc(1, sizeof(struct stat_cache));
     if (fs->stat_cache != NULL)
         pthread_mutex_init(&fs->stat_cache->lock, NULL);
-    fs->stmt.begin_deferred = db_prepare(fs, "begin deferred");
-    fs->stmt.begin_immediate = db_prepare(fs, "begin immediate");
-    fs->stmt.commit = db_prepare(fs, "commit");
-    fs->stmt.rollback = db_prepare(fs, "rollback");
-    fs->stmt.path_get_inode = db_prepare(fs, "select inode from paths where path = ?");
-    fs->stmt.path_read_stat = db_prepare(fs, "select inode, stat from stats natural join paths where path = ?");
-    fs->stmt.path_create_stat = db_prepare(fs, "insert into stats (stat) values (?)");
-    fs->stmt.path_create_path = db_prepare(fs, "insert or replace into paths values (?, last_insert_rowid())");
-    fs->stmt.inode_read_stat = db_prepare(fs, "select stat from stats where inode = ?");
-    fs->stmt.inode_write_stat = db_prepare(fs, "update stats set stat = ? where inode = ?");
-    fs->stmt.path_link = db_prepare(fs, "insert or replace into paths (path, inode) values (?, ?)");
-    fs->stmt.path_unlink = db_prepare(fs, "delete from paths where path = ?");
-    fs->stmt.path_rename = db_prepare(fs, "update or replace paths set path = change_prefix(path, ?, ?) "
-            "where (path >= ? and path < ?) or path = ?");
-    fs->stmt.path_from_inode = db_prepare(fs, "select path from paths where inode = ?");
-    fs->stmt.try_cleanup_inode = db_prepare(fs, "delete from stats where inode = ? and not exists (select 1 from paths where inode = stats.inode)");
+    db_prepare_statements(fs);
     return 0;
 }
 
 int fake_db_deinit(struct fakefs_db *fs) {
-    if (fs->db) {
-        sqlite3_finalize(fs->stmt.begin_deferred);
-        sqlite3_finalize(fs->stmt.begin_immediate);
-        sqlite3_finalize(fs->stmt.commit);
-        sqlite3_finalize(fs->stmt.rollback);
-        sqlite3_finalize(fs->stmt.path_get_inode);
-        sqlite3_finalize(fs->stmt.path_read_stat);
-        sqlite3_finalize(fs->stmt.path_create_stat);
-        sqlite3_finalize(fs->stmt.path_create_path);
-        sqlite3_finalize(fs->stmt.inode_read_stat);
-        sqlite3_finalize(fs->stmt.inode_write_stat);
-        sqlite3_finalize(fs->stmt.path_link);
-        sqlite3_finalize(fs->stmt.path_unlink);
-        sqlite3_finalize(fs->stmt.path_rename);
-        sqlite3_finalize(fs->stmt.path_from_inode);
-        sqlite3_finalize(fs->stmt.try_cleanup_inode);
-        if (fs->stat_cache != NULL) {
-            for (int i = 0; i < STAT_CACHE_SIZE; i++)
-                free(fs->stat_cache->entries[i].path);
-            pthread_mutex_destroy(&fs->stat_cache->lock);
-            free(fs->stat_cache);
-            fs->stat_cache = NULL;
-        }
-        if (fs->wal_fd >= 0)
-            close(fs->wal_fd);
-        fs->wal_fd = -1;
-        return sqlite3_close(fs->db);
+    if (fs->stat_cache != NULL) {
+        for (int i = 0; i < STAT_CACHE_SIZE; i++)
+            free(fs->stat_cache->entries[i].path);
+        pthread_mutex_destroy(&fs->stat_cache->lock);
+        free(fs->stat_cache);
+        fs->stat_cache = NULL;
     }
-    return SQLITE_OK;
+    int err = db_close_connection(fs);
+    free(fs->db_path);
+    fs->db_path = NULL;
+    return err;
+}
+
+// === parking (fs/fake-flush.h) ===
+// iPadOS ends a suspended app that holds a lock on a file in its shared container
+// (0xDEAD10CC), and an open WAL connection always holds one on meta.db-shm. Before
+// LinPad is suspended the connections are closed ("parked"). While parked, guest tasks
+// wait at their next system call entry (fake_db_wait_while_parked, called from the
+// syscall dispatcher, where they hold no kernel lock) until LinPad is in front again;
+// they would be frozen by the suspension anyway. Anything already inside a system call,
+// and the app's own threads, reopen the connection for one transaction and it is closed
+// again at its end, so no lock outlives a transaction.
+
+static pthread_mutex_t park_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t park_cond = PTHREAD_COND_INITIALIZER;
+static _Atomic bool parked;
+
+void fake_db_set_parked(bool park) {
+    pthread_mutex_lock(&park_lock);
+    parked = park;
+    if (!park)
+        pthread_cond_broadcast(&park_cond);
+    pthread_mutex_unlock(&park_lock);
+}
+
+bool fake_db_is_parked(void) {
+    return parked;
+}
+
+void fake_db_wait_while_parked(void) {
+    if (!parked)
+        return;
+    pthread_mutex_lock(&park_lock);
+    while (parked)
+        pthread_cond_wait(&park_cond, &park_lock);
+    pthread_mutex_unlock(&park_lock);
+}
+
+// With fs->lock held: the connection is open when this returns.
+static void db_ensure_open(struct fakefs_db *fs) {
+    if (fs->db != NULL)
+        return;
+    if (db_open_connection(fs, fs->db_path) < 0)
+        die("could not reopen %s", fs->db_path);
+    db_prepare_statements(fs);
+    // Another process (the File Provider) may have changed the db meanwhile.
+    fs->write_gen++;
+}
+
+void fake_db_park(struct fakefs_db *fs) {
+    sqlite3_mutex_enter(fs->lock);
+    if (fs->db != NULL) {
+        int log_frames = 0, checkpointed = 0;
+        sqlite3_wal_checkpoint_v2(fs->db, NULL, SQLITE_CHECKPOINT_PASSIVE, &log_frames, &checkpointed);
+        db_close_connection(fs);
+    }
+    fs->write_gen++;
+    sqlite3_mutex_leave(fs->lock);
+}
+
+bool fake_db_is_open(struct fakefs_db *fs) {
+    sqlite3_mutex_enter(fs->lock);
+    bool open = fs->db != NULL;
+    sqlite3_mutex_leave(fs->lock);
+    return open;
 }

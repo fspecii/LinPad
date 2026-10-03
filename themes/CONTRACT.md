@@ -12,7 +12,7 @@ guest).
 | id | look | GTK theme (light / dark) | icon theme | cursor | font | Kvantum (Qt) |
 |---|---|---|---|---|---|---|
 | `windows` | Windows 11 | Fluent-Light / Fluent-Dark | Fluent / Fluent-dark | Fluent-cursors | Noto Sans 10 | Fluent / FluentDark |
-| `macos` | macOS | WhiteSur-Light / WhiteSur-Dark | WhiteSur / WhiteSur-dark | WhiteSur-cursors | Inter 10 | WhiteSur / WhiteSur-Dark |
+| `macos` | macOS | WhiteSur-Light / WhiteSur-Dark | Qogir / Qogir-Dark | WhiteSur-cursors | Inter 10 | WhiteSur / WhiteSur-Dark |
 | `ubuntu` | Ubuntu 24.04 | Yaru / Yaru-dark | Yaru / Yaru-dark | Adwaita | Ubuntu 11 | KvYaru / KvGnomeDark |
 | `kylin` | Kylin / UKUI 4 | ukui-white / ukui-black | ukui-icon-theme-default | dark-sense | Noto Sans 10 | KvUKUI / KvUKUIDark |
 | `ish` (default) | iSH dark | Adwaita (dark) | Papirus / Papirus-Dark | Adwaita | Cantarell 11 | KvGnomeDark |
@@ -22,7 +22,7 @@ guest).
 | `aeronight` | desktop theme Aero Night (Vista era) | LinPad-AeroNight* / Adwaita | Fluent / Fluent-dark | Fluent-cursors | Noto Sans 9 | Fluent / FluentDark |
 | `classic` | desktop theme Classic 98 | LinPad-Classic* | Papirus | Adwaita | DejaVu Sans 9 | KvYaru |
 | `platinum` | desktop theme Platinum (classic Mac era) | LinPad-Platinum* | Qogir (else Papirus) | Adwaita | DejaVu Sans Condensed 9 | KvYaru |
-| `aqua` | desktop theme Aqua (early OS X) | LinPad-Aqua* / WhiteSur-Dark | WhiteSur / WhiteSur-dark | WhiteSur-cursors | DejaVu Sans 9 | WhiteSur |
+| `aqua` | desktop theme Aqua (early OS X) | LinPad-Aqua* / WhiteSur-Dark | Qogir / Qogir-Dark | WhiteSur-cursors | DejaVu Sans 9 | WhiteSur |
 | `berry` | desktop theme Berry (dark) | Adwaita (recoloured) | Papirus-Dark | Adwaita | Noto Sans 10 | KvGnomeDark |
 | `dotmatrix` | desktop theme Dot Matrix | Adwaita (recoloured) | kora-pgrey (else Papirus) | Adwaita | Noto Sans Mono 10 | KvUKUI / KvUKUIDark |
 

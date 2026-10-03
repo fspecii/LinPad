@@ -131,7 +131,7 @@ struct UpdatesSettingsSection: View {
             }
             .accessibilityIdentifier("settings.updates.via.\(loader.rawValue)")
         }
-        ToolbarTextButton(title: "Open Release on GitHub", symbol: "safari") { service.openReleasePage() }
+        ToolbarTextButton(title: "Open Release on GitHub", symbol: "globe") { service.openReleasePage() }
             .accessibilityIdentifier("settings.updates.openRelease")
         ToolbarTextButton(title: showsIloaderHelp ? "Hide iloader steps" : "Using iloader?", symbol: "questionmark.circle") {
             showsIloaderHelp.toggle()

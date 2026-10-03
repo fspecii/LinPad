@@ -91,11 +91,8 @@ if ! installed whitesur-gtk; then
     done
     mark whitesur-gtk "$WHITESUR_GTK_REF"
 fi
-if ! installed whitesur-icons; then
-    github_tarball vinceliuice/WhiteSur-icon-theme "$WHITESUR_ICONS_REF" whitesur-icons
-    run_upstream "$ICONS/WhiteSur/index.theme" "$WORK/whitesur-icons" bash ./install.sh -d "$ICONS" -t default
-    mark whitesur-icons "$WHITESUR_ICONS_REF"
-fi
+# WhiteSur's icon theme is not installed: it imitates Apple's Finder, App Store and Safari
+# icons. The macos and aqua styles use Qogir icons (a base icon pack).
 if ! installed whitesur-cursors; then
     github_tarball vinceliuice/WhiteSur-cursors "$WHITESUR_CURSORS_REF" whitesur-cursors
     cp -R "$WORK/whitesur-cursors/dist" "$ICONS/WhiteSur-cursors"
@@ -240,7 +237,7 @@ fi
 apk del -q .ish-themes-build
 
 log "icon theme caches"
-for t in WhiteSur WhiteSur-light WhiteSur-dark Fluent Fluent-light Fluent-dark Yaru Yaru-dark ukui-icon-theme-default; do
+for t in Fluent Fluent-light Fluent-dark Yaru Yaru-dark ukui-icon-theme-default; do
     [ -f "$ICONS/$t/index.theme" ] && gtk-update-icon-cache -qf "$ICONS/$t" 2>/dev/null || true
 done
 

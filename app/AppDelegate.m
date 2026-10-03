@@ -138,6 +138,82 @@ static BOOL ContainerIsCaseSensitive(void) {
     return sensitive;
 }
 
+#pragma mark - Background grace for long work
+
+// Work that can take minutes (unpacking the 2-3 GB Linux system) must not hold one
+// background task for its whole length: iPadOS warns once a task is 30 s old and may end
+// the app for it. This holds a task only while the app is in the background, ends it after
+// 25 s (or in its expiration handler, or when the work finishes), and takes a new one the
+// next time the app leaves the screen. Main thread only.
+static const NSTimeInterval kGraceTaskBudget = 25;
+
+@interface ISHGraceTask : NSObject
+- (instancetype)initWithName:(NSString *)name;
+- (void)finish;
+@end
+
+@implementation ISHGraceTask {
+    NSString *_name;
+    UIBackgroundTaskIdentifier _task;
+    NSUInteger _generation;
+    NSArray<id> *_observers;
+    BOOL _finished;
+}
+
+- (instancetype)initWithName:(NSString *)name {
+    if (self = [super init]) {
+        _name = name;
+        _task = UIBackgroundTaskInvalid;
+        __weak ISHGraceTask *weakSelf = self;
+        NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+        _observers = @[
+            [center addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil queue:NSOperationQueue.mainQueue
+                            usingBlock:^(NSNotification *note) { [weakSelf begin]; }],
+            [center addObserverForName:UIApplicationWillEnterForegroundNotification object:nil queue:NSOperationQueue.mainQueue
+                            usingBlock:^(NSNotification *note) { [weakSelf end]; }],
+        ];
+        if (UIApplication.sharedApplication.applicationState == UIApplicationStateBackground)
+            [self begin];
+    }
+    return self;
+}
+
+- (void)begin {
+    if (_finished || _task != UIBackgroundTaskInvalid)
+        return;
+    __weak ISHGraceTask *weakSelf = self;
+    _task = [UIApplication.sharedApplication beginBackgroundTaskWithName:_name expirationHandler:^{
+        [weakSelf end];
+    }];
+    NSUInteger generation = ++_generation;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t) (kGraceTaskBudget * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        ISHGraceTask *strongSelf = weakSelf;
+        if (strongSelf == nil || strongSelf->_generation != generation || strongSelf->_task == UIBackgroundTaskInvalid)
+            return;
+        NSLog(@"[bgtask] %@ still open after %.0f s in the background; ending it", strongSelf->_name, kGraceTaskBudget);
+        [strongSelf end];
+    });
+}
+
+- (void)end {
+    if (_task == UIBackgroundTaskInvalid)
+        return;
+    UIBackgroundTaskIdentifier task = _task;
+    _task = UIBackgroundTaskInvalid;
+    _generation++;
+    [UIApplication.sharedApplication endBackgroundTask:task];
+}
+
+- (void)finish {
+    _finished = YES;
+    [self end];
+    for (id observer in _observers)
+        [NSNotificationCenter.defaultCenter removeObserver:observer];
+    _observers = nil;
+}
+
+@end
+
 #pragma mark - Fast mode (native JIT via StikDebug)
 
 // The app never debugs itself: it asks the user-installed StikDebug app, through its
@@ -738,11 +814,7 @@ static NSString *TakeFactoryResetRequest(Roots *roots) {
                             : rollback ? @"Rolling back Linux…"
                             : import ? @"Unpacking Linux…" : @"Updating Linux…";
     SetBootState(ISHBootPhaseUnpacking, 0, title, @"");
-    UIApplication *app = UIApplication.sharedApplication;
-    __block UIBackgroundTaskIdentifier task = [app beginBackgroundTaskWithName:@"Unpack Linux" expirationHandler:^{
-        [app endBackgroundTask:task];
-        task = UIBackgroundTaskInvalid;
-    }];
+    ISHGraceTask *task = [[ISHGraceTask alloc] initWithName:@"Unpack Linux"];
     RootImportProgress *progress = [[RootImportProgress alloc] initWithArchive:rollback ? nil : import ? roots.bundledRootArchive : roots.updateRootArchive title:title];
     CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
@@ -753,10 +825,7 @@ static NSString *TakeFactoryResetRequest(Roots *roots) {
                          : [roots updateDefaultRootWithProgress:progress error:&error];
         CFAbsoluteTime unpacked = CFAbsoluteTimeGetCurrent();
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (task != UIBackgroundTaskInvalid) {
-                [app endBackgroundTask:task];
-                task = UIBackgroundTaskInvalid;
-            }
+            [task finish];
             RecordBootStat(reset ? @"reset_seconds" : rollback ? @"rollback_seconds" : import ? @"import_seconds" : @"update_seconds",
                            [NSString stringWithFormat:@"%.2f%@", unpacked - start, ok ? @"" : @" (failed)"]);
             if (!import)

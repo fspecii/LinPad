@@ -259,8 +259,50 @@ static void microbench_signal_dump(int sig) {
     _exit(0);
 }
 
+// tests/lifecycle/park.sh: ISH_PARK_CONTROL=FILE makes the emulator watch FILE and park
+// ("park": flush and close every meta.db, as the app does before iPadOS suspends it) or
+// unpark ("unpark") the fakefs; FILE.status gets the number of open db connections.
+#include "fs/fake-flush.h"
+static void *park_control_thread(void *path_arg) {
+    const char *path = path_arg;
+    char status_path[4096];
+    snprintf(status_path, sizeof(status_path), "%s.status", path);
+    char last[16] = "";
+    for (;;) {
+        char command[16] = "";
+        FILE *f = fopen(path, "r");
+        if (f != NULL) {
+            if (fgets(command, sizeof(command), f) == NULL)
+                command[0] = '\0';
+            fclose(f);
+        }
+        command[strcspn(command, "\n")] = '\0';
+        if (strcmp(command, last) != 0) {
+            if (strcmp(command, "park") == 0) {
+                ish_fakefs_flush();
+                ish_fakefs_park();
+            } else if (strcmp(command, "unpark") == 0) {
+                ish_fakefs_unpark();
+            }
+            snprintf(last, sizeof(last), "%s", command);
+        }
+        FILE *status = fopen(status_path, "w");
+        if (status != NULL) {
+            fprintf(status, "%s open=%d\n", last, ish_fakefs_open_connections());
+            fclose(status);
+        }
+        usleep(100000);
+    }
+    return NULL;
+}
+
 int main(int argc, char *const argv[]) {
     ish_signpost_init();
+    if (getenv("ISH_PARK_CONTROL")) {
+        pthread_t thread;
+        pthread_create(&thread, NULL, park_control_thread, strdup(getenv("ISH_PARK_CONTROL")));
+        pthread_detach(thread);
+    }
     atexit(dump_pc_hist);
 
     // Microbench helper: on SIGTERM/SIGINT, dump stats then _exit. This

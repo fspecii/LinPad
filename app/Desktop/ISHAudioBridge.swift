@@ -37,6 +37,11 @@ final class ISHAudioBridge: @unchecked Sendable {
         set { lock.withLockUnchecked { volumeValue = max(0, min(1, newValue)) } }
     }
 
+    /// The audio session is playing Linux sound (which keeps LinPad running in the background).
+    var isOutputActive: Bool {
+        lock.withLockUnchecked { engine != nil }
+    }
+
     var isMuted: Bool {
         get { lock.withLockUnchecked { mutedValue } }
         set { lock.withLockUnchecked { mutedValue = newValue } }
@@ -294,6 +299,10 @@ final class ISHAudioBridge: @unchecked Sendable {
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
         log.info("stopped")
+        // In the background, nothing keeps LinPad running now: let go of file locks first.
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { ISHBackgroundKeeper.shared.audioStoppedInBackground() }
+        }
     }
 
     /// PulseAudio suspends an idle sink after a few seconds, so the FIFO goes quiet when

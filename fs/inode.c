@@ -35,12 +35,24 @@ struct inode_data *inode_get_unlocked(struct mount *mount, ino_t ino) {
         inode->socket_id = 0;
         cond_init(&inode->posix_unlock);
         list_init(&inode->posix_locks);
+        cond_init(&inode->flock_unlock);
+        list_init(&inode->flocks);
         list_init(&inode->chain);
         lock_init(&inode->lock);
         list_add(&inodes_hash[ino % INODES_HASH_SIZE], &inode->chain);
     }
 
     inode_retain(inode);
+    return inode;
+}
+
+// The inode if some open file holds it, retained; NULL otherwise. Never creates one.
+struct inode_data *inode_lookup(struct mount *mount, ino_t ino) {
+    lock(&inodes_lock);
+    struct inode_data *inode = inode_get_data(mount, ino);
+    if (inode != NULL)
+        inode_retain(inode);
+    unlock(&inodes_lock);
     return inode;
 }
 

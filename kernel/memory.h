@@ -123,11 +123,12 @@ struct data {
     addr_t dest;
 #endif
 };
+// 24 bytes, 512 to a 12 KB L3 array (the gadget engine keeps its per-page
+// block lists in asbestos.c's own page table).
 struct pt_entry {
     struct data *data;
     size_t offset;
     unsigned flags;
-    struct list blocks[2];
 };
 // page flags
 // P_READ and P_EXEC are ignored for now

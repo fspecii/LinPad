@@ -1254,6 +1254,10 @@ struct jit_block *jit_translate(struct jit_mm *mm, struct jit_ctx *ctx, addr_t p
     // | (tier 1) 8-byte counter-address literal.
     uint32_t nhot = t.b[HOT].n, ncode = nhot + t.b[COLD].n;
     uint32_t lit = (ncode + 1) & ~1u, total = lit + (counted ? 4 : 2);
+    if (total > JIT_MAX_BLOCK_WORDS) {   // the map's host_off is 16 bits: leave it to the gadget engine
+        tr_free(&t);
+        return NULL;
+    }
     static __thread uint32_t *img_words, *img_reloc;
     static __thread struct jit_map_entry *img_map;
     static __thread uint32_t img_cap, img_rcap, img_mcap;
@@ -1342,6 +1346,8 @@ struct jit_block *jit_translate(struct jit_mm *mm, struct jit_ctx *ctx, addr_t p
 // (struct jit_block *) -1: the code changed meanwhile, translate again.
 // (struct jit_block *) -2: out of code or host memory now; the caller reclaims
 // and retries, then falls back to the gadget engine.
+uint32_t jit_never_counter = 0xffffffffu;   // out of counters: never promote
+
 struct jit_block *jit_install_image(struct jit_mm *mm, addr_t pc, const struct jit_image *img, uint64_t gen) {
     struct jit_block *b = mem_host_alloc_fails() ? NULL : calloc(1, sizeof(*b));
     size_t map_size = img->nmap * sizeof(*b->map);
@@ -1352,7 +1358,6 @@ struct jit_block *jit_install_image(struct jit_mm *mm, addr_t pc, const struct j
         return (struct jit_block *) -2;
     }
     b->pc = pc;
-    b->end = pc + 4 * img->ninsn;
     b->nwords = img->nwords;
 
     pthread_mutex_lock(&mm->lock);
@@ -1372,13 +1377,15 @@ struct jit_block *jit_install_image(struct jit_mm *mm, addr_t pc, const struct j
         return (struct jit_block *) -2;   // no code memory now; caller reclaims and retries
     }
     uint32_t *counter = NULL;
+    b->counter = JIT_NO_COUNTER;
     if (img->cnt_lit) {
         if (mm->ncounters < JIT_COUNTERS) {
-            counter = &mm->counters[mm->ncounters++];
+            b->counter = mm->ncounters++;
+            counter = &mm->counters[b->counter];
             *counter = jit_promote_after;
         } else {
-            static uint32_t never = 0xffffffffu;   // out of counters: never promote
-            counter = &never;
+            b->counter = JIT_NEVER_COUNTER;
+            counter = &jit_never_counter;
         }
     }
     // A newer translation of the same pc (tier 2, or a racing thread)
@@ -1402,8 +1409,7 @@ struct jit_block *jit_install_image(struct jit_mm *mm, addr_t pc, const struct j
     jit_write_end(rx, img->nwords * 4);
 
     b->rx = rx;
-    b->reentry = rx + img->reentry;
-    b->counter = img->cnt_lit ? counter : NULL;
+    b->reentry = img->reentry;
     b->nmap = img->nmap;
     b->map = map;
     memcpy(b->map, img->map, img->nmap * sizeof(*b->map));

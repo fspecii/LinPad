@@ -76,12 +76,32 @@ cmd "state"
 cmd "lifecycle|editors"
 sleep 3
 shot lc-1-apps
+# The container holding the Linux system (roots/): the app group on an iPad, the app's
+# own container in the simulator (no app group without signing). Found while meta.db is open.
+APP_PID=$(pgrep -f "Devices/$SIM/.*iSH ARM64.app/iSH ARM64" | head -1)
+META=$(lsof -p "$APP_PID" -Fn 2>/dev/null | sed -n 's/^n//p' | grep '/roots/.*/meta.db$' | head -1)
+GROUP=${META%%/roots/*}
+if [ -n "$GROUP" ]; then
+    python3 "$ROOT/tests/lifecycle/lockscan.py" "$APP_PID" "$GROUP" > "$OUT/lockscan-running.txt" || true
+    echo "lock scan while running: $(tail -1 "$OUT/lockscan-running.txt")"
+fi
 
 foreground_other
 sleep 12
 shot lc-2-background
+# What iPadOS checks at suspension (0xDEAD10CC): no lock on any file in the shared container.
+if [ -n "$APP_PID" ] && [ -n "$GROUP" ]; then
+    python3 "$ROOT/tests/lifecycle/lockscan.py" "$APP_PID" "$GROUP" > "$OUT/lockscan-background.txt" || true
+    echo "lock scan in the background: $(tail -1 "$OUT/lockscan-background.txt") ($(head -1 "$OUT/lockscan-background.txt"))"
+else
+    echo "lock scan skipped (pid '$APP_PID', group '$GROUP')"
+fi
 xcrun simctl launch "$SIM" "$BUNDLE_ID" "${ARGS[@]}" >/dev/null
 sleep 6
+if [ -n "${APP_PID:-}" ] && [ -n "${GROUP:-}" ]; then
+    python3 "$ROOT/tests/lifecycle/lockscan.py" "$APP_PID" "$GROUP" > "$OUT/lockscan-foreground.txt" || true
+    echo "lock scan back in front: $(tail -1 "$OUT/lockscan-foreground.txt") (same pid: $(pgrep -f "Devices/$SIM/.*iSH ARM64.app/iSH ARM64" | head -1))"
+fi
 cmd "lifecycle|report"
 cmd "lifecycle|editor-text|Draft typed before the lock\\nsecond line\\nthird line after resume"
 cmd "state"

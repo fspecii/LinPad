@@ -5,6 +5,7 @@
 #include <time.h>
 #include "debug.h"
 #include "kernel/calls.h"
+#include "fs/fake-flush.h"
 #include "emu/interrupt.h"
 #include "util/signpost.h"
 #include "kernel/memory.h"
@@ -70,6 +71,9 @@ void handle_interrupt(int interrupt) {
         if (current->group->doing_group_exit)
             do_exit(current->group->group_exit_code);
 #elif defined(GUEST_ARM64)
+        // The app is about to be suspended and has closed the file system's database
+        // (fs/fake-flush.h): wait here, holding no kernel lock, until it is in front again.
+        fakefs_park_gate();
         // ARM64: syscall number in x8, args in x0-x5, return in x0
         unsigned syscall_num = cpu->regs[8];
         uint64_t syscall_arg0 = cpu->regs[0];

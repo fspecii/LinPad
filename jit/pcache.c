@@ -31,7 +31,7 @@
 #include "jit/jit_internal.h"
 #include "kernel/memory.h"
 
-#define PCACHE_VERSION 3
+#define PCACHE_VERSION 4   // 4: 8-byte map entries
 #define REC_MAGIC 0x3143525054494a49ull   // "IJITPRC1"
 #define IDX_SLOTS (1u << 20)
 #define IDX_PROBE 16

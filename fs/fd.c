@@ -50,8 +50,10 @@ int fd_close(struct fd *fd) {
                 err = new_err;
         }
 
-        if (fd->inode)
+        if (fd->inode) {
+            file_locks_release_description(fd);
             inode_release(fd->inode);
+        }
         if (fd->mount)
             mount_release(fd->mount);
         free(fd);
@@ -256,6 +258,48 @@ void fdtable_do_cloexec(struct fdtable *table) {
 #define F_SETLKW64_ 14
 
 #define F_DUPFD_CLOEXEC_ 1030
+#define F_OFD_GETLK_ 36
+#define F_OFD_SETLK_ 37
+#define F_OFD_SETLKW_ 38
+
+// aarch64's struct flock: natural alignment, 64-bit start and len.
+struct flock_arm64_ {
+    word_t type;
+    word_t whence;
+    uint32_t pad0;
+    sqword_t start;
+    sqword_t len;
+    pid_t_ pid;
+    uint32_t pad1;
+};
+
+static int fcntl_lock_arm64(struct fd *fd, dword_t cmd, addr_t arg) {
+    struct flock_arm64_ user;
+    if (user_read(arg, &user, sizeof(user)))
+        return _EFAULT;
+    struct flock_ flock = {.type = user.type, .whence = user.whence, .start = user.start,
+                           .len = user.len, .pid = user.pid};
+    int err;
+    switch (cmd) {
+        case F_GETLK_: err = fcntl_getlk(fd, &flock); break;
+        case F_OFD_GETLK_: err = fcntl_ofd_getlk(fd, &flock); break;
+        case F_SETLK_: case F_SETLKW_:
+            return fcntl_setlk(fd, &flock, cmd == F_SETLKW_);
+        case F_OFD_SETLK_: case F_OFD_SETLKW_:
+            return fcntl_ofd_setlk(fd, &flock, cmd == F_OFD_SETLKW_);
+        default: return _EINVAL;
+    }
+    if (err >= 0) {
+        user.type = flock.type;
+        user.whence = flock.whence;
+        user.start = flock.start;
+        user.len = flock.len;
+        user.pid = flock.pid;
+        if (user_write(arg, &user, sizeof(user)))
+            return _EFAULT;
+    }
+    return err;
+}
 
 dword_t sys_dup(fd_t f) {
     STRACE("dup(%d)", f);
@@ -306,10 +350,12 @@ dword_t sys_fcntl(fd_t f, dword_t cmd, addr_t arg) {
     struct fd *fd = f_get(f);
     if (fd == NULL)
         return _EBADF;
+#ifndef GUEST_ARM64
     struct flock32_ flock32;
     struct flock_ flock;
-    fd_t new_f;
     int err;
+#endif
+    fd_t new_f;
     switch (cmd) {
         case F_DUPFD_:
             STRACE("fcntl(%d, F_DUPFD, %d)", f, arg);
@@ -341,6 +387,16 @@ dword_t sys_fcntl(fd_t f, dword_t cmd, addr_t arg) {
             STRACE("fcntl(%d, F_SETFL, %#x)", f, arg);
             return fd_setflags(fd, arg);
 
+#ifdef GUEST_ARM64
+        case F_GETLK_:
+        case F_SETLK_:
+        case F_SETLKW_:
+        case F_OFD_GETLK_:
+        case F_OFD_SETLK_:
+        case F_OFD_SETLKW_:
+            STRACE("fcntl(%d, lock %d, %#x)", f, cmd, arg);
+            return fcntl_lock_arm64(fd, cmd, arg);
+#else
         case F_GETLK_:
             STRACE("fcntl(%d, F_GETLK, %#x)", f, arg);
             if (user_read(arg, &flock32, sizeof(flock32)))
@@ -382,14 +438,15 @@ dword_t sys_fcntl(fd_t f, dword_t cmd, addr_t arg) {
             flock.start = flock32.start;
             flock.len = flock32.len;
             flock.pid = flock32.pid;
-            return fcntl_setlk(fd, &flock, cmd == F_SETLKW64_);
+            return fcntl_setlk(fd, &flock, cmd == F_SETLKW_);
 
         case F_SETLK64_:
         case F_SETLKW64_:
-            STRACE("fcntl(%d, F_SETLK%*s64, %#x)", f, cmd == F_SETLKW_, "W", arg);
+            STRACE("fcntl(%d, F_SETLK%*s64, %#x)", f, cmd == F_SETLKW64_, "W", arg);
             if (user_read(arg, &flock, sizeof(flock)))
                 return _EFAULT;
-            return fcntl_setlk(fd, &flock, cmd == F_SETLKW_);
+            return fcntl_setlk(fd, &flock, cmd == F_SETLKW64_);
+#endif
 
         default:
             STRACE("fcntl(%d, %d)", f, cmd);

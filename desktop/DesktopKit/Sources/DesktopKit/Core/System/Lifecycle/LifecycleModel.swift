@@ -67,8 +67,13 @@ public protocol LinuxLifecycleHosting: AnyObject {
     /// Shows iPadOS's location prompt. Only ever called from the user's choice in Settings.
     func requestBackgroundLocationAccess() async -> BackgroundLocationAccess
     /// LinPad is in front again after being in the background: restart what iPadOS may
-    /// have stopped meanwhile (the audio session).
+    /// have stopped meanwhile (the audio session), and undo `releaseFileLocksIfSuspending`.
     func resumeAfterBackground()
+    /// The last step before the grace period ends: when nothing will keep LinPad running
+    /// (no audio playing, no location keep-alive), give up every lock on files in the
+    /// shared container, since iPadOS ends a suspended app that holds one (0xDEAD10CC).
+    /// Returns whether it did.
+    func releaseFileLocksIfSuspending() -> Bool
 }
 
 /// UserDefaults keys for the rest of the lifecycle behaviour.
@@ -87,7 +92,7 @@ enum LifecycleSettings {
 /// (release/guest/linpad-lifecycle) runs the hooks in /etc/linpad/lifecycle.d and the
 /// signals configured in /etc/linpad/lifecycle.conf. Images without it just sync.
 enum GuestLifecycleCommand {
-    static let suspendTimeout: TimeInterval = 8
+    static let suspendTimeout: TimeInterval = 6
     static let resumeTimeout: TimeInterval = 10
 
     static let suspend = """
@@ -151,6 +156,8 @@ struct LifecycleFlushReport: Equatable {
     var appsSaved = 0
     var guestHookFinished = false
     var filesystemFlushed = false
+    /// The file system's locks were given up because LinPad was about to be suspended.
+    var locksReleased = false
     var seconds: TimeInterval = 0
 }
 

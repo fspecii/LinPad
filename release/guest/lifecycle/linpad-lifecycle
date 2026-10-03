@@ -5,7 +5,7 @@
 #   linpad-lifecycle resume    LinPad is in front again
 # suspend asks running apps to save (the signals in /etc/linpad/lifecycle.conf), runs the
 # hooks in /etc/linpad/lifecycle.d and ~/.config/linpad/lifecycle.d with the event as $1,
-# and syncs. The app gives it 8 seconds and then writes the file system through to flash
+# and syncs. The app gives it 6 seconds and then writes the file system through to flash
 # itself, so a hook that hangs costs time but nothing else. Each hook runs with a 5 s limit.
 set -u
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

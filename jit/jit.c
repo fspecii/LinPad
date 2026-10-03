@@ -1,5 +1,6 @@
 // JIT runtime: dispatcher, block cache, invalidation, slow-path helpers,
 // trampolines, host fault handling and the periodic exit ticker.
+#include <sched.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,6 +51,70 @@ static void *ticker_main(void *arg);
 // ---------------------------------------------------------------------------
 // Init / per-thread context
 // ---------------------------------------------------------------------------
+enum { CTX_ACTIVE, CTX_IDLE, CTX_TRIMMING, CTX_TRIMMED };
+#define CTX_IDLE_TRIM_NS (10ull * 1000000000)
+
+static size_t ctx_map_size(void) {
+    size_t page = (size_t) getpagesize();
+    return (sizeof(struct jit_ctx) + page - 1) & ~(page - 1);
+}
+
+// The whole pages of the TLB, lookup cache and filled list (everything after the header).
+static void ctx_trim_range(struct jit_ctx *ctx, uintptr_t *start, size_t *len) {
+    uintptr_t page = (uintptr_t) getpagesize();
+    uintptr_t lo = ((uintptr_t) ctx->tlbe + page - 1) & ~(page - 1);
+    uintptr_t hi = ((uintptr_t) ctx + sizeof(*ctx)) & ~(page - 1);
+    *start = lo;
+    *len = hi > lo ? hi - lo : 0;
+}
+
+// Threads that have not run guest code for CTX_IDLE_TRIM_NS (or any idle thread,
+// for min_idle_ns 0) give their TLB and lookup cache back; jit_run rebuilds them.
+// A browser keeps 100+ threads that mostly sleep in futex waits.
+static void trim_idle_ctxs(uint64_t min_idle_ns) {
+    uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    pthread_mutex_lock(&reg_lock);
+    for (struct jit_ctx *c = reg_head; c; c = c->reg_next) {
+        uint32_t idle = CTX_IDLE;
+        if (__atomic_load_n(&c->trim_state, __ATOMIC_ACQUIRE) != CTX_IDLE ||
+                now - __atomic_load_n(&c->idle_since, __ATOMIC_RELAXED) < min_idle_ns ||
+                !__atomic_compare_exchange_n(&c->trim_state, &idle, CTX_TRIMMING, false,
+                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            continue;
+        uintptr_t start;
+        size_t len;
+        ctx_trim_range(c, &start, &len);
+        if (len)
+            madvise((void *) start, len, MADV_FREE_REUSABLE);
+        __atomic_store_n(&c->trim_state, CTX_TRIMMED, __ATOMIC_RELEASE);
+    }
+    pthread_mutex_unlock(&reg_lock);
+}
+
+// Entering jit_run: wait out a trim in progress; after one, start from a clean state.
+static void ctx_activate(struct jit_ctx *ctx) {
+    uint32_t st = __atomic_load_n(&ctx->trim_state, __ATOMIC_ACQUIRE);
+    for (;;) {
+        if (st == CTX_TRIMMING) {
+            sched_yield();
+            st = __atomic_load_n(&ctx->trim_state, __ATOMIC_ACQUIRE);
+            continue;
+        }
+        if (__atomic_compare_exchange_n(&ctx->trim_state, &st, CTX_ACTIVE, false,
+                                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            break;
+    }
+    if (st == CTX_TRIMMED) {
+        uintptr_t start;
+        size_t len;
+        ctx_trim_range(ctx, &start, &len);
+        if (len)
+            madvise((void *) start, len, MADV_FREE_REUSE);
+        ctx->nfilled = JIT_FILLED_MAX + 1;   // full TLB reset
+        ctx->mm = NULL;                       // and the lookup cache (jit_run's switch path)
+    }
+}
+
 static void ctx_destroy(void *p) {
     struct jit_ctx *ctx = p;
     pthread_mutex_lock(&reg_lock);
@@ -61,7 +126,7 @@ static void ctx_destroy(void *p) {
         ctx->reg_next->reg_prev = ctx->reg_prev;
     pthread_mutex_unlock(&reg_lock);
     free(ctx->frame);
-    free(ctx);
+    munmap(ctx, ctx_map_size());
 }
 
 // The ish_jit_* fast mode entry points are found by the app with dlsym, so
@@ -179,12 +244,14 @@ static struct jit_ctx *get_ctx(void) {
     struct jit_ctx *ctx = tls_ctx;
     if (ctx)
         return ctx;
-    if (posix_memalign((void **) &ctx, 64, sizeof(*ctx)) != 0)
+    // its own mapping (zero-filled), so the TLB and lookup cache of an idle
+    // thread can be handed back to the host page by page (trim_idle_ctxs)
+    ctx = mmap(NULL, ctx_map_size(), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (ctx == MAP_FAILED)
         return NULL;
-    memset(ctx, 0, sizeof(*ctx));
     ctx->frame = calloc(1, sizeof(struct fiber_frame));
     if (ctx->frame == NULL) {
-        free(ctx);
+        munmap(ctx, ctx_map_size());
         return NULL;
     }
     ctx->nfilled = JIT_FILLED_MAX + 1;   // force a full initialization
@@ -223,11 +290,14 @@ static void *ticker_main(void *arg) {
     // test hook: simulate memory-pressure events
     const char *te = getenv("ISH_JIT_TRIM_EVERY_MS");
     uint64_t trim_every = te ? (uint64_t) atol(te) * 1000 : 0, since_trim = 0, since_flush = 0;
+    unsigned sweeps = 0;
     for (;;) {
         usleep(tick_us);
         if ((since_flush += tick_us) >= 1000000) {
             since_flush = 0;
             jit_pcache_tick();
+            if (++sweeps % 2 == 0)
+                trim_idle_ctxs(CTX_IDLE_TRIM_NS);
         }
         if (trim_every && (since_trim += tick_us) >= trim_every) {
             since_trim = 0;
@@ -331,6 +401,7 @@ struct jit_block_ext {
 
 static void block_free(struct jit_block *b);
 static void free_dead(struct jit_block *b, struct ss_entry *e);
+static void free_tables(struct jit_htpub *h);
 static void chunk_destroy(struct jit_chunk *c);
 
 void jit_mm_free(struct jit_mm *mm) {
@@ -369,7 +440,8 @@ void jit_mm_free(struct jit_mm *mm) {
             nlive += c->nblocks;
             for (size_t i = 0; i < c->nblocks; i++) {
                 ninvalid += c->blocks[i]->invalid;
-                map_bytes += c->blocks[i]->nmap * sizeof(struct jit_map_entry) + sizeof(struct jit_block_ext);
+                if (c->blocks[i]->map)
+                    map_bytes += c->blocks[i]->nmap * sizeof(struct jit_map_entry) + sizeof(struct jit_block_ext);
             }
         }
         fprintf(stderr, "[jit]   at exit: %zu blocks in %zu chunks (%zu invalidated), maps %zu KB, %zu dead negative entries and "
@@ -419,12 +491,9 @@ void jit_mm_free(struct jit_mm *mm) {
     free_dead(mm->dead_pending, mm->ss_pending);
     free(mm->ss_hash);
     free(mm->itab);
-    for (struct jit_htpub *h = mm->htpub; h;) {
-        struct jit_htpub *o = h->older;
-        free(h->tab);   // the newest one is mm->hash
-        free(h);
-        h = o;
-    }
+    free_tables(mm->htpub);   // its table is mm->hash
+    free_tables(mm->ht_old);
+    free_tables(mm->ht_old_pending);
     munmap(mm->counters, JIT_COUNTERS * sizeof(uint32_t));
     free(mm->page_hash);
     free(mm->bucket_page);
@@ -470,12 +539,13 @@ static void hash_insert(struct jit_mm *mm, struct jit_block *b) {
                 x = n;
             }
         }
-        // Lock-free readers may still walk the old table: keep it until the
-        // mm is freed (nodes are relinked, so a reader may miss: it then
-        // takes the locked path).
+        // Lock-free readers may still walk the old table: reclaim frees it once
+        // none can (nodes are relinked, so a reader may miss: it then takes
+        // the locked path).
         pub->tab = nh;
         pub->size = ns;
-        pub->older = mm->htpub;
+        mm->htpub->older = mm->ht_old;
+        mm->ht_old = mm->htpub;
         mm->hash = nh;
         mm->hash_size = ns;
         __atomic_store_n(&mm->htpub, pub, __ATOMIC_RELEASE);
@@ -515,7 +585,7 @@ static struct jit_block_ext *block_ext(struct jit_block *b) {
 }
 
 static void block_free(struct jit_block *b) {
-    if (b->rx)
+    if (b->rx && b->map)
         free(block_ext(b)->in_slots);
     free(b->map);
     free(b);
@@ -547,7 +617,7 @@ static void insert_negative(struct jit_mm *mm, addr_t pc) {
     if (b == NULL)
         return;   // no negative entry: the lookup just misses again
     b->pc = pc;
-    b->end = pc + 4;
+    b->counter = JIT_NO_COUNTER;
     hash_insert(mm, b);
 }
 
@@ -573,7 +643,7 @@ static void retire_all_locked(struct jit_mm *mm) {
             if (!b->invalid) {
                 hash_remove(mm, b);
                 b->invalid = true;
-                jit_patch_branch(b->rx, b->reentry);
+                jit_patch_branch(b->rx, b->rx + b->reentry);
             }
         }
     }
@@ -607,6 +677,7 @@ static void retire_all_locked(struct jit_mm *mm) {
     mm->chunks = NULL;
     mm->nchunks = 0;
     mm->cur = mm->cur_end = NULL;
+    mm->strip = mm->strip_pending = NULL;   // freed with their chunks
     mm->retired_epoch = atomic_fetch_add(&global_epoch, 1) + 1;
     atomic_fetch_add(&mm->gen, 1);
     mm->stats_flush++;
@@ -636,7 +707,7 @@ static void retire_chunk_locked(struct jit_mm *mm, struct jit_chunk *old) {
     for (struct jit_chunk *c = mm->chunks; c; c = c->next) {
         for (size_t i = 0; i < c->nblocks; i++) {
             struct jit_block *b = c->blocks[i];
-            if (!b->rx)
+            if (!b->rx || !b->map)
                 continue;
             struct jit_block_ext *x = block_ext(b);
             uint32_t k = 0;
@@ -644,6 +715,16 @@ static void retire_chunk_locked(struct jit_mm *mm, struct jit_chunk *old) {
                 if (x->in_slots[j] < lo || x->in_slots[j] >= hi)
                     x->in_slots[k++] = x->in_slots[j];
             x->nin = k;
+        }
+    }
+    // its blocks are freed with it
+    for (int list = 0; list < 2; list++) {
+        struct jit_block **pp = list ? &mm->strip_pending : &mm->strip;
+        while (*pp) {
+            if ((*pp)->rx >= lo && (*pp)->rx < hi)
+                *pp = (*pp)->dead_next;
+            else
+                pp = &(*pp)->dead_next;
         }
     }
     old->next = mm->retired;
@@ -683,6 +764,15 @@ static bool mm_busy(struct jit_mm *mm, uint64_t epoch) {
     return busy;
 }
 
+static void free_tables(struct jit_htpub *h) {
+    while (h) {
+        struct jit_htpub *o = h->older;
+        free(h->tab);
+        free(h);
+        h = o;
+    }
+}
+
 static void free_dead(struct jit_block *b, struct ss_entry *e) {
     while (b) {
         struct jit_block *n = b->dead_next;
@@ -701,14 +791,26 @@ static void free_dead(struct jit_block *b, struct ss_entry *e) {
 // thread of this mm can still be using them. Dead entries go through a pending
 // list stamped with an epoch, so the ones that keep coming don't hold back the
 // ones that are already safe to free.
+// An invalidated block keeps only what block_at needs (rx, nwords): its map and
+// incoming-chain list go once no thread can still be inside it.
+static void strip_block(struct jit_block *b) {
+    free(block_ext(b)->in_slots);
+    free(b->map);
+    b->map = NULL;
+    b->nmap = 0;
+}
+
 static void reclaim(struct jit_mm *mm) {
     pthread_mutex_lock(&mm->lock);
     uint64_t retired_epoch = mm->retired_epoch, dead_epoch = mm->dead_epoch;
-    bool retired = mm->retired != NULL, pending = mm->dead_pending != NULL || mm->ss_pending != NULL;
+    bool retired = mm->retired != NULL,
+         pending = mm->dead_pending != NULL || mm->ss_pending != NULL || mm->strip_pending != NULL ||
+                   mm->ht_old_pending != NULL;
     pthread_mutex_unlock(&mm->lock);
     struct jit_chunk *c = NULL;
     struct jit_block *dead = NULL;
     struct ss_entry *ss = NULL;
+    struct jit_htpub *tables = NULL;
     if (retired && !mm_busy(mm, retired_epoch)) {
         pthread_mutex_lock(&mm->lock);
         // a chunk retired meanwhile has a newer epoch: wait for the next pass
@@ -718,22 +820,31 @@ static void reclaim(struct jit_mm *mm) {
         }
         pthread_mutex_unlock(&mm->lock);
     }
-    if (pending && !mm_busy(mm, dead_epoch)) {
-        pthread_mutex_lock(&mm->lock);
-        if (mm->dead_epoch == dead_epoch) {
-            dead = mm->dead_pending;
-            ss = mm->ss_pending;
-            mm->dead_pending = NULL;
-            mm->ss_pending = NULL;
-        }
-        pthread_mutex_unlock(&mm->lock);
-    }
+    bool safe = pending && !mm_busy(mm, dead_epoch);
     pthread_mutex_lock(&mm->lock);
-    if (mm->dead_pending == NULL && mm->ss_pending == NULL && (mm->dead != NULL || mm->ss_jetsam != NULL)) {
+    if (safe && mm->dead_epoch == dead_epoch) {
+        dead = mm->dead_pending;
+        ss = mm->ss_pending;
+        tables = mm->ht_old_pending;
+        mm->dead_pending = NULL;
+        mm->ss_pending = NULL;
+        mm->ht_old_pending = NULL;
+        // under the lock: a chunk retired meanwhile takes its blocks off these lists
+        for (struct jit_block *b = mm->strip_pending; b; b = b->dead_next)
+            strip_block(b);
+        mm->strip_pending = NULL;
+    }
+    if (mm->dead_pending == NULL && mm->ss_pending == NULL && mm->strip_pending == NULL &&
+            mm->ht_old_pending == NULL &&
+            (mm->dead != NULL || mm->ss_jetsam != NULL || mm->strip != NULL || mm->ht_old != NULL)) {
         mm->dead_pending = mm->dead;
         mm->ss_pending = mm->ss_jetsam;
+        mm->strip_pending = mm->strip;
+        mm->ht_old_pending = mm->ht_old;
         mm->dead = NULL;
         mm->ss_jetsam = NULL;
+        mm->strip = NULL;
+        mm->ht_old = NULL;
         mm->dead_epoch = atomic_fetch_add(&global_epoch, 1) + 1;
     }
     pthread_mutex_unlock(&mm->lock);
@@ -743,6 +854,7 @@ static void reclaim(struct jit_mm *mm) {
         c = n;
     }
     free_dead(dead, ss);
+    free_tables(tables);
 }
 
 // The arena is full: retire the oldest chunk of the address space that ran
@@ -873,7 +985,7 @@ static void invalidate_block_nosync(struct jit_mm *mm, struct jit_block *b) {
     if (e->pc == b->pc)
         itab_clear(e);
     if (b->rx) {
-        int64_t woff = b->reentry - b->rx;
+        int64_t woff = b->reentry;
         patch_word_nosync(b->rx, e_b((int32_t) woff));
         struct jit_block_ext *x = block_ext(b);
         for (uint32_t i = 0; i < x->nin; i++)
@@ -881,6 +993,8 @@ static void invalidate_block_nosync(struct jit_mm *mm, struct jit_block *b) {
         mm->stats_inval_blocks++;
         mm->stats_inval_slots += x->nin;
         x->nin = 0;
+        b->dead_next = mm->strip;
+        mm->strip = b;
     } else {
         b->dead_next = mm->dead;   // negative entry: freed by reclaim (lock-free readers)
         mm->dead = b;
@@ -894,7 +1008,7 @@ static void invalidate_block_locked(struct jit_mm *mm, struct jit_block *b) {
     if (e->pc == b->pc)
         itab_clear(e);
     if (b->rx) {
-        jit_patch_branch(b->rx, b->reentry);
+        jit_patch_branch(b->rx, b->rx + b->reentry);
         struct jit_block_ext *x = block_ext(b);
         for (uint32_t i = 0; i < x->nin; i++) {
             jit_write_begin();
@@ -902,6 +1016,8 @@ static void invalidate_block_locked(struct jit_mm *mm, struct jit_block *b) {
             jit_write_end(x->in_slots[i], 4);
         }
         x->nin = 0;
+        b->dead_next = mm->strip;
+        mm->strip = b;
     } else {
         b->dead_next = mm->dead;   // negative entry: freed by reclaim (lock-free readers)
         mm->dead = b;
@@ -1404,7 +1520,12 @@ int jit_fetch_code(struct jit_ctx *ctx, addr_t pc, const uint32_t **code, int ma
 // ---------------------------------------------------------------------------
 // Gadget single-step fallback
 // ---------------------------------------------------------------------------
-static struct fiber_block *ss_get(struct jit_mm *mm, addr_t pc, struct tlb *tlb) {
+// keep: cache the block for this pc. A step taken only because there was no code
+// memory (the pc is translatable) is cached only while the cache is small: the
+// rest go to the jetsam list right away, or the cache would grow by one block per
+// pc run while the arena was full.
+#define SS_NOMEM_CACHED 8192
+static struct fiber_block *ss_get(struct jit_mm *mm, addr_t pc, struct tlb *tlb, bool keep) {
     size_t h = pc_hash(pc, mm->ss_size);
     pthread_mutex_lock(&mm->lock);
     for (struct ss_entry *e = mm->ss_hash[h]; e; e = e->next) {
@@ -1435,7 +1556,7 @@ static struct fiber_block *ss_get(struct jit_mm *mm, addr_t pc, struct tlb *tlb)
     }
     e->pc = pc;
     e->block = block;
-    if (atomic_load(&mm->gen) == gen) {
+    if ((keep || mm->ss_count < SS_NOMEM_CACHED) && atomic_load(&mm->gen) == gen) {
         e->next = mm->ss_hash[h];
         mm->ss_hash[h] = e;
         mm->ss_count++;
@@ -1449,13 +1570,13 @@ static struct fiber_block *ss_get(struct jit_mm *mm, addr_t pc, struct tlb *tlb)
     return block;
 }
 
-static int gadget_step(struct jit_ctx *ctx, struct tlb *tlb) {
+static int gadget_step(struct jit_ctx *ctx, struct tlb *tlb, bool keep) {
     struct jit_mm *mm = ctx->mm;
     struct fiber_frame *frame = ctx->frame;
     for (int tries = 0; tries < 16; tries++) {
         if (tlb->mem_changes != __atomic_load_n(&tlb->mmu->changes, __ATOMIC_ACQUIRE))
             tlb_flush(tlb);
-        struct fiber_block *block = ss_get(mm, ctx->cpu.pc, tlb);
+        struct fiber_block *block = ss_get(mm, ctx->cpu.pc, tlb, keep);
         frame->cpu = ctx->cpu;
         frame->last_block = NULL;
         jit_saved_pc = ctx->cpu.pc;
@@ -1633,6 +1754,7 @@ int jit_run(struct cpu_state *cpu, struct tlb *tlb, struct jit_mm *mm) {
         cpu->segfault_was_write = 0;
         return INT_GPF;
     }
+    ctx_activate(ctx);
     if (ctx->mm != mm || ctx->mmu_id != mm->mmu->id) {
         tlb_flush_ctx(ctx);
         ctx->mem_changes = __atomic_load_n(&mm->mmu->changes, __ATOMIC_ACQUIRE);
@@ -1660,7 +1782,8 @@ int jit_run(struct cpu_state *cpu, struct tlb *tlb, struct jit_mm *mm) {
     while (interrupt == INT_NONE) {
         ctx->epoch = atomic_load(&global_epoch);
         if (mm->retired || ((++reclaim_tick & 1023) == 0 &&
-                (mm->dead || mm->ss_jetsam || mm->dead_pending || mm->ss_pending)))
+                (mm->dead || mm->ss_jetsam || mm->strip || mm->ht_old ||
+                 mm->dead_pending || mm->ss_pending || mm->strip_pending || mm->ht_old_pending)))
             reclaim(mm);
         check_changes(ctx);
         if (ctx->exitflag) {
@@ -1679,7 +1802,7 @@ int jit_run(struct cpu_state *cpu, struct tlb *tlb, struct jit_mm *mm) {
         struct jit_block *b = get_block(ctx, pc);
         if (b == NULL || b->rx == NULL) {
             pending_slot = NULL;
-            interrupt = gadget_step(ctx, tlb);
+            interrupt = gadget_step(ctx, tlb, b != NULL);
             continue;
         }
         if (pending_slot) {
@@ -1723,7 +1846,7 @@ int jit_run(struct cpu_state *cpu, struct tlb *tlb, struct jit_mm *mm) {
                 break;
             }
             case JR_FALLBACK:
-                interrupt = gadget_step(ctx, tlb);
+                interrupt = gadget_step(ctx, tlb, true);
                 break;
             case JR_SYSCALL:
                 interrupt = INT_SYSCALL;
@@ -1735,7 +1858,7 @@ int jit_run(struct cpu_state *cpu, struct tlb *tlb, struct jit_mm *mm) {
                 // hot tier-1 block: retranslate with inline TLB lookups; the
                 // new block replaces the old one (chains are redone)
                 struct jit_block *ob = lookup_lockfree(mm, ctx->cpu.pc);   // the block whose counter ran out
-                uint32_t *cnt = ob ? ob->counter : NULL;
+                uint32_t *cnt = ob ? jit_block_counter(mm, ob) : NULL;
                 pthread_mutex_lock(&mm->lock);
                 uint64_t gen = atomic_load(&mm->gen);
                 pthread_mutex_unlock(&mm->lock);
@@ -1786,6 +1909,8 @@ int jit_run(struct cpu_state *cpu, struct tlb *tlb, struct jit_mm *mm) {
         __atomic_store_n(&cpu->_poked, true, __ATOMIC_SEQ_CST);
     ctx->cpu.poked_ptr = &cpu->_poked;
     memcpy(cpu, &ctx->cpu, offsetof(struct cpu_state, _poked));
+    __atomic_store_n(&ctx->idle_since, clock_gettime_nsec_np(CLOCK_UPTIME_RAW), __ATOMIC_RELAXED);
+    __atomic_store_n(&ctx->trim_state, CTX_IDLE, __ATOMIC_RELEASE);
     return interrupt;
 }
 
@@ -1796,6 +1921,7 @@ void ish_jit_trim(void) {
     if (jit_state != 1)
         return;
     size_t over = jit_codemem_trim();
+    trim_idle_ctxs(0);
     pthread_mutex_lock(&mm_list_lock);
     for (struct jit_mm *mm = mm_list; mm; mm = mm->list_next) {
         pthread_mutex_lock(&mm->lock);

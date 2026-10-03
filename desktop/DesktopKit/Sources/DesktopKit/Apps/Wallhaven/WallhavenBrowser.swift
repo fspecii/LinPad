@@ -443,7 +443,7 @@ struct WallpapersAppView: View {
             }
             Button(model.favorites.contains(wallpaper) ? "Remove from Favorites" : "Add to Favorites",
                    systemImage: "heart") { model.favorites.toggle(wallpaper) }
-            Button("Open on Wallhaven", systemImage: "safari") { UIApplication.shared.open(wallpaper.url) }
+            Button("Open on Wallhaven", systemImage: "globe") { UIApplication.shared.open(wallpaper.url) }
         }
         .accessibilityLabel("Wallpaper \(wallpaper.resolution)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])

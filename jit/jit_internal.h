@@ -98,6 +98,8 @@ struct jit_ctx {
     uint32_t guest_fpcr_masked;
     uint32_t crash_count;
     uint64_t crash_pc;
+    uint32_t trim_state;           // CTX_*: an idle thread's TLB and lookup cache go back to the host
+    uint64_t idle_since;           // CLOCK_UPTIME_RAW ns when it left jit_run
    };
    char hdr_raw[JIT_TLB_OFF];
   };
@@ -117,7 +119,9 @@ _Static_assert(offsetof(struct jit_ctx, tlbe) == JIT_TLB_OFF, "tlb offset");
 // Relocatable translation: what the translator produces, what the persistent
 // translation cache stores, and what jit_install_image places into a chunk.
 // ---------------------------------------------------------------------------
-struct jit_map_entry { uint32_t host_off, guest_idx, borrow; };
+// 8 bytes (about ten per block): host_off < JIT_MAX_BLOCK_WORDS, guest_idx < MAX_INSNS + 1.
+struct jit_map_entry { uint16_t host_off; uint8_t guest_idx, pad; uint32_t borrow; };
+#define JIT_MAX_BLOCK_WORDS 0xffffu
 // Relocations: B/BL to a chunk trampoline or a TLB-lookup stub (JREL_STUB + variant).
 enum { JREL_CHAIN = 1, JREL_PC = 2, JREL_HELPER = 3, JREL_STUB = 16 };
 #define JREL(idx, kind) ((idx) | ((uint32_t) (kind) << 20))
@@ -144,20 +148,25 @@ struct jit_image {
 // ---------------------------------------------------------------------------
 // Translated blocks and the per-address-space state.
 // ---------------------------------------------------------------------------
+// 64 bytes: there are about a million of these in a browser session.
 struct jit_block {
     addr_t pc;               // guest start
-    addr_t end;              // guest end (exclusive)
     uint32_t *rx;            // executable entry
+    struct jit_map_entry *map;   // sorted by host_off; NULL once an invalidated block is stripped
+    struct jit_block *hash_next;
+    union {
+        struct jit_block *page_next;   // while in the page lists
+        struct jit_block *dead_next;   // after: awaiting reclaim (negative entries, stripping)
+    };
     uint32_t nwords;         // code size in words
     uint32_t nmap;
-    struct jit_map_entry *map;   // sorted by host_off
-    uint32_t *reentry;       // RX address of the "redispatch at pc" stub
-    uint32_t *counter;       // tier 1: execution countdown (promotion at 0), else NULL
+    uint32_t reentry;        // word index of the "redispatch at pc" stub
+    uint32_t counter;        // tier 1: index of its execution countdown, or JIT_NO_COUNTER
     bool invalid;
-    struct jit_block *hash_next;
-    struct jit_block *page_next;
-    struct jit_block *dead_next;   // negative entries awaiting free (lock-free readers)
 };
+_Static_assert(sizeof(struct jit_block) <= 64, "jit_block grew past the 64-byte malloc class");
+#define JIT_NO_COUNTER 0xffffffffu
+#define JIT_NEVER_COUNTER 0xfffffffeu   // out of counters: points at a counter that never runs out
 
 #define JIT_ITAB_BITS 16
 struct jit_itab_entry { uint64_t pc; uint64_t host; };
@@ -172,7 +181,7 @@ struct jit_mm {
     pthread_mutex_t lock;
     struct jit_block **hash;
     size_t hash_size, nblocks;
-    struct jit_htpub *htpub;          // {hash, hash_size} for lock-free lookups; old ones kept
+    struct jit_htpub *htpub;          // {hash, hash_size} for lock-free lookups
     struct jit_block *dead;           // invalidated negative entries (lock-free readers): see reclaim
     struct jit_block *dead_pending;   // the previous batch, freed once no thread is older than dead_epoch
     uint64_t dead_epoch;
@@ -195,6 +204,8 @@ struct jit_mm {
     uint64_t ss_bloom;                // bit (page & 63) set for pages with single-step blocks
     void *ss_jetsam;                  // invalidated single-step blocks: see reclaim
     void *ss_pending;                 // with dead_pending
+    struct jit_block *strip, *strip_pending;   // invalidated blocks whose map and chain list reclaim frees
+    struct jit_htpub *ht_old, *ht_old_pending;   // replaced hash tables (lock-free readers), freed by reclaim
     uint64_t stats_blocks, stats_insns, stats_hot, stats_words, stats_fallback, stats_inval, stats_flush;
     uint64_t stats_veneer_retire;      // exits routed through far_chain (veneers used up)
     uint64_t stats_exits[16];
@@ -202,6 +213,13 @@ struct jit_mm {
     uint64_t stats_tlb_miss, stats_bounce, stats_tlb_flush;
     struct { uint32_t insn; uint64_t n; } stats_fb[32];   // most frequent fallback encodings
 };
+
+extern uint32_t jit_never_counter;
+static inline uint32_t *jit_block_counter(struct jit_mm *mm, const struct jit_block *b) {
+    if (b->counter == JIT_NO_COUNTER)
+        return NULL;
+    return b->counter == JIT_NEVER_COUNTER ? &jit_never_counter : &mm->counters[b->counter];
+}
 
 // ---------------------------------------------------------------------------
 // Code memory (codemem.c)

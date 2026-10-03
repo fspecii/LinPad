@@ -2,6 +2,8 @@
 #include "kernel/calls.h"
 #include "kernel/fs.h"
 #include "fs/inode.h"
+#include "fs/guest-locks.h"
+#include <string.h>
 
 static bool file_locks_overlap(struct file_lock *a, struct file_lock *b) {
     return a->end >= b->start && b->end >= a->start;
@@ -181,6 +183,16 @@ static int file_lock_from_flock(struct fd *fd, struct flock_ *flock, struct file
     return 0;
 }
 
+// An OFD lock belongs to the open file description and reports pid -1 (F_OFD_GETLK).
+static int file_lock_from_ofd_flock(struct fd *fd, struct flock_ *flock, struct file_lock *lock) {
+    if (flock->pid != 0)
+        return _EINVAL;
+    int err = file_lock_from_flock(fd, flock, lock);
+    lock->owner = fd;
+    lock->pid = -1;
+    return err;
+}
+
 static int flock_from_file_lock(struct file_lock *lock, struct flock_ *flock) {
     flock->type = lock->type;
     flock->whence = LSEEK_SET;
@@ -193,14 +205,16 @@ static int flock_from_file_lock(struct file_lock *lock, struct flock_ *flock) {
     return 0;
 }
 
-int fcntl_getlk(struct fd *fd, struct flock_ *flock) {
+static int getlk(struct fd *fd, struct flock_ *flock, bool ofd) {
     if (flock->type != F_RDLCK_ && flock->type != F_WRLCK_)
         return _EINVAL;
     struct inode_data *inode = fd->inode;
+    if (inode == NULL)
+        return _EBADF;
     lock(&inode->lock);
 
     struct file_lock request;
-    int err = file_lock_from_flock(fd, flock, &request);
+    int err = ofd ? file_lock_from_ofd_flock(fd, flock, &request) : file_lock_from_flock(fd, flock, &request);
     if (err < 0)
         goto out;
     struct file_lock *lock = file_lock_test(inode, &request);
@@ -214,7 +228,7 @@ out:
     return err;
 }
 
-int fcntl_setlk(struct fd *fd, struct flock_ *flock, bool blocking) {
+static int setlk(struct fd *fd, struct flock_ *flock, bool blocking, bool ofd) {
     if (flock->type != F_RDLCK_ && flock->type != F_WRLCK_ && flock->type != F_UNLCK_)
         return _EINVAL;
     int fd_mode = fd_getflags(fd) & O_ACCMODE_;
@@ -224,10 +238,12 @@ int fcntl_setlk(struct fd *fd, struct flock_ *flock, bool blocking) {
         return _EBADF;
 
     struct inode_data *inode = fd->inode;
+    if (inode == NULL)
+        return _EBADF;
     lock(&inode->lock);
 
     struct file_lock request;
-    int err = file_lock_from_flock(fd, flock, &request);
+    int err = ofd ? file_lock_from_ofd_flock(fd, flock, &request) : file_lock_from_flock(fd, flock, &request);
     if (err < 0)
         goto out;
     while ((err = file_lock_acquire(inode, &request)) == _EAGAIN) {
@@ -242,13 +258,154 @@ out:
     return err;
 }
 
+int fcntl_getlk(struct fd *fd, struct flock_ *flock) {
+    return getlk(fd, flock, false);
+}
+
+int fcntl_setlk(struct fd *fd, struct flock_ *flock, bool blocking) {
+    return setlk(fd, flock, blocking, false);
+}
+
+int fcntl_ofd_getlk(struct fd *fd, struct flock_ *flock) {
+    return getlk(fd, flock, true);
+}
+
+int fcntl_ofd_setlk(struct fd *fd, struct flock_ *flock, bool blocking) {
+    return setlk(fd, flock, blocking, true);
+}
+
 void file_lock_remove_owned_by(struct fd *fd, void *owner) {
     struct inode_data *inode = fd->inode;
     lock(&inode->lock);
     struct file_lock *lock, *tmp;
+    bool removed = false;
     list_for_each_entry_safe(&inode->posix_locks, lock, tmp, locks) {
-        if (lock->owner == owner)
+        if (lock->owner == owner) {
             file_lock_delete(lock);
+            removed = true;
+        }
+    }
+    // A process blocked in F_SETLKW on these locks can go ahead now.
+    if (removed)
+        notify(&inode->posix_unlock);
+    unlock(&inode->lock);
+}
+
+// === flock(2) ===
+
+struct flock_holder {
+    struct fd *owner;
+    bool exclusive;
+    struct list link;
+};
+
+static struct flock_holder *flock_holder_of(struct inode_data *inode, struct fd *fd) {
+    struct flock_holder *holder;
+    list_for_each_entry(&inode->flocks, holder, link) {
+        if (holder->owner == fd)
+            return holder;
+    }
+    return NULL;
+}
+
+static bool flock_conflicts(struct inode_data *inode, struct fd *fd, bool exclusive) {
+    struct flock_holder *holder;
+    list_for_each_entry(&inode->flocks, holder, link) {
+        if (holder->owner != fd && (exclusive || holder->exclusive))
+            return true;
+    }
+    return false;
+}
+
+static void flock_holder_remove(struct inode_data *inode, struct flock_holder *holder) {
+    list_remove(&holder->link);
+    free(holder);
+    notify(&inode->flock_unlock);
+}
+
+int fd_flock(struct fd *fd, int operation) {
+    struct inode_data *inode = fd->inode;
+    if (inode == NULL)
+        return _EBADF;
+    bool nonblocking = operation & LOCK_NB_;
+    int kind = operation & ~LOCK_NB_;
+    if (kind != LOCK_SH_ && kind != LOCK_EX_ && kind != LOCK_UN_)
+        return _EINVAL;
+    bool exclusive = kind == LOCK_EX_;
+
+    lock(&inode->lock);
+    struct flock_holder *mine = flock_holder_of(inode, fd);
+    if (kind == LOCK_UN_) {
+        if (mine != NULL)
+            flock_holder_remove(inode, mine);
+        unlock(&inode->lock);
+        return 0;
+    }
+    if (mine != NULL && mine->exclusive == exclusive) {
+        unlock(&inode->lock);
+        return 0;
+    }
+    // Converting is not atomic on Linux either: the old lock goes first.
+    if (mine != NULL)
+        flock_holder_remove(inode, mine);
+    int err = 0;
+    while (flock_conflicts(inode, fd, exclusive)) {
+        if (nonblocking) {
+            err = _EAGAIN; // EWOULDBLOCK
+            break;
+        }
+        err = wait_for(&inode->flock_unlock, &inode->lock, NULL);
+        if (err < 0)
+            break;
+    }
+    if (err == 0) {
+        struct flock_holder *holder = malloc(sizeof(*holder));
+        if (holder == NULL) {
+            err = _ENOMEM;
+        } else {
+            holder->owner = fd;
+            holder->exclusive = exclusive;
+            list_add(&inode->flocks, &holder->link);
+        }
     }
     unlock(&inode->lock);
+    return err;
+}
+
+void file_locks_release_description(struct fd *fd) {
+    struct inode_data *inode = fd->inode;
+    if (inode == NULL)
+        return;
+    lock(&inode->lock);
+    struct flock_holder *holder = flock_holder_of(inode, fd);
+    if (holder != NULL)
+        flock_holder_remove(inode, holder);
+    unlock(&inode->lock);
+    file_lock_remove_owned_by(fd, fd);
+}
+
+// fs/guest-locks.h
+bool ish_guest_path_flocked(const char *path) {
+    lock(&mounts_lock);
+    bool booted = !list_empty(&mounts);
+    unlock(&mounts_lock);
+    if (!booted || path[0] != '/')
+        return false;
+    struct mount *mount = mount_find((char *) path);
+    if (mount == NULL)
+        return false;
+    const char *relative = path + strlen(mount->point);
+    struct statbuf stat;
+    bool held = false;
+    if (mount->fs->stat != NULL && mount->fs->stat(mount, relative, &stat) == 0) {
+        struct inode_data *inode = inode_lookup(mount, stat.inode);
+        if (inode != NULL) {
+            lock(&inode->lock);
+            held = !list_empty(&inode->flocks);
+            unlock(&inode->lock);
+            inode_release(inode);
+        }
+    }
+    mount_release(mount);
+    return held;
 }

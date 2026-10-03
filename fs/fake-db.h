@@ -30,12 +30,21 @@ struct fakefs_db {
     // sqlite for every component (see fake-db.c).
     struct stat_cache *stat_cache;
     int wal_fd; // meta.db-wal: other processes' commits change its mtime/size
+    char *db_path;
     _Atomic uint64_t write_gen; // bumped when this process changes the db
     int64_t txn_changes; // sqlite3_total_changes64 at transaction start
 };
 
 int fake_db_init(struct fakefs_db *fs, const char *db_path, int root_fd);
 int fake_db_deinit(struct fakefs_db *fs);
+
+// Parking (see fake-db.c): closes the connection so no lock is held on the db files.
+// While parked, a connection reopened for a transaction is closed again at its end.
+void fake_db_set_parked(bool parked);
+bool fake_db_is_parked(void);
+void fake_db_park(struct fakefs_db *fs);
+bool fake_db_is_open(struct fakefs_db *fs);
+void fake_db_wait_while_parked(void);
 
 void db_begin_read(struct fakefs_db *fs);
 void db_begin_write(struct fakefs_db *fs);

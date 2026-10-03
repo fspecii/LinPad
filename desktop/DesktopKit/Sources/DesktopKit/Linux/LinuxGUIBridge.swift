@@ -162,7 +162,7 @@ final class LinuxGUIBridge {
             state = .failed("The Linux filesystem is not reachable from the app")
             return
         }
-        if !Self.isSessionAlive(runtimeURL) {
+        if !isSessionAlive(runtimeURL) {
             // Liveness comes from ishwl's flock, not pidof: scanning /proc/*/exe can crash
             // the emulator (proc_pid_exe_readlink on a task without an exe file).
             let dir = Self.guestRuntimeDirectory
@@ -180,13 +180,13 @@ final class LinuxGUIBridge {
 
         let notifyPath = runtimeURL.appendingPathComponent("notify").path
         let eventsPath = runtimeURL.appendingPathComponent("events").path
-        for _ in 0..<150 where !(Self.isSessionAlive(runtimeURL) && Self.isFIFO(notifyPath) && Self.isFIFO(eventsPath)) {
+        for _ in 0..<150 where !(isSessionAlive(runtimeURL) && Self.isFIFO(notifyPath) && Self.isFIFO(eventsPath)) {
             try? await Task.sleep(for: .milliseconds(100))
         }
         // O_RDWR on both: opening never blocks waiting for the other side.
         let notifyFD = open(notifyPath, O_RDWR | O_CLOEXEC)
         eventsFD = open(eventsPath, O_RDWR | O_NONBLOCK | O_CLOEXEC)
-        guard notifyFD >= 0, eventsFD >= 0, Self.isSessionAlive(runtimeURL) else {
+        guard notifyFD >= 0, eventsFD >= 0, isSessionAlive(runtimeURL) else {
             state = .failed("ishwl did not start (see /tmp/ishwl.log)")
             if notifyFD >= 0 { close(notifyFD) }
             if eventsFD >= 0 { close(eventsFD) }
@@ -207,9 +207,18 @@ final class LinuxGUIBridge {
         await loadApplications()
     }
 
-    /// ishwl holds an exclusive flock on `alive` for its lifetime; a guest flock is a host
-    /// flock in iSH, so being able to take it means ishwl is gone.
-    private static func isSessionAlive(_ runtimeURL: URL) -> Bool {
+    /// ishwl holds an exclusive flock on `alive` for its lifetime. iSH keeps guest locks
+    /// in memory (a host lock in the shared container gets a suspended app killed), so
+    /// the host is asked; a host that maps guest locks to host locks is probed instead:
+    /// being able to take the lock means ishwl is gone.
+    private func isSessionAlive(_ runtimeURL: URL) -> Bool {
+        if let held = host.guestHoldsFileLock(Self.guestRuntimeDirectory + "/alive") {
+            return held
+        }
+        return Self.hostLockProbe(runtimeURL)
+    }
+
+    private static func hostLockProbe(_ runtimeURL: URL) -> Bool {
         let fd = open(runtimeURL.appendingPathComponent("alive").path, O_RDONLY | O_CLOEXEC)
         guard fd >= 0 else { return false }
         defer { close(fd) }
@@ -226,7 +235,7 @@ final class LinuxGUIBridge {
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.healthCheckInterval)
                 guard let self, self.state == .running else { return }
-                if !Self.isSessionAlive(runtimeURL) {
+                if !isSessionAlive(runtimeURL) {
                     self.sessionEnded()
                     return
                 }
@@ -240,7 +249,7 @@ final class LinuxGUIBridge {
     /// redraw it in full, which also clears any frame it was still holding for an ack.
     func resumeAfterBackground() {
         guard state == .running, let runtimeURL else { return }
-        guard Self.isSessionAlive(runtimeURL) else {
+        guard isSessionAlive(runtimeURL) else {
             sessionEnded()
             return
         }
@@ -270,7 +279,7 @@ final class LinuxGUIBridge {
         if state == .running { send("quit") }
         if let runtimeURL {
             let deadline = ContinuousClock.now + .seconds(5)
-            while Self.isSessionAlive(runtimeURL), ContinuousClock.now < deadline {
+            while isSessionAlive(runtimeURL), ContinuousClock.now < deadline {
                 try? await Task.sleep(for: .milliseconds(100))
             }
         }

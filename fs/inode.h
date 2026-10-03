@@ -15,6 +15,10 @@ struct inode_data {
 
     struct list posix_locks;
     cond_t posix_unlock;
+    // flock() locks, emulated (see fs/lock.c): struct flock_holder, one per open file
+    // description that holds one
+    struct list flocks;
+    cond_t flock_unlock;
 
     uint32_t socket_id;
 
@@ -22,6 +26,7 @@ struct inode_data {
 };
 
 struct inode_data *inode_get(struct mount *mount, ino_t inode);
+struct inode_data *inode_lookup(struct mount *mount, ino_t inode);
 void inode_retain(struct inode_data *inode);
 void inode_release(struct inode_data *inode);
 
@@ -74,5 +79,18 @@ int fcntl_setlk(struct fd *fd, struct flock_ *flock, bool block);
 
 // locks the inode internally
 void file_lock_remove_owned_by(struct fd *fd, void *owner);
+
+// Open file description (OFD) locks: owned by the struct fd, not the process.
+int fcntl_ofd_getlk(struct fd *fd, struct flock_ *flock);
+int fcntl_ofd_setlk(struct fd *fd, struct flock_ *flock, bool block);
+
+// flock(2), emulated in memory: every guest process lives in this one host process, so
+// an in-process table has Linux's semantics (locks belong to the open file description,
+// shared by dup and fork, dropped at its last close), and no host lock is ever taken on
+// a file in the app's shared container (iPadOS ends a suspended app holding one,
+// 0xDEAD10CC). operation is LOCK_SH_/LOCK_EX_/LOCK_UN_, optionally | LOCK_NB_.
+int fd_flock(struct fd *fd, int operation);
+// The open file description is going away: drop its flock and OFD locks.
+void file_locks_release_description(struct fd *fd);
 
 #endif

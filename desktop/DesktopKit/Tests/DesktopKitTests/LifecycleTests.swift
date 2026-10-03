@@ -52,6 +52,12 @@ private final class LifecycleTestHost: LinuxHost, LinuxLifecycleHosting {
 
     func resumeAfterBackground() {
         resumed += 1
+        events.append("resume")
+    }
+
+    func releaseFileLocksIfSuspending() -> Bool {
+        events.append("release-locks")
+        return true
     }
 }
 
@@ -254,14 +260,17 @@ final class LifecycleTests: XCTestCase {
         XCTAssertEqual(tasks.begun.count, 1, "the grace period starts at once")
         XCTAssertEqual(host.inBackground, true)
         try await waitUntil { tasks.ended == tasks.begun }
-        XCTAssertEqual(host.events, ["app-save", "guest-suspend", "flush"])
+        XCTAssertEqual(host.events, ["app-save", "guest-suspend", "flush", "release-locks"],
+                       "the locks go last, after everything that needs the file system")
         let report = try XCTUnwrap(coordinator.lastFlush)
         XCTAssertEqual(report.appsSaved, 1)
         XCTAssertTrue(report.guestHookFinished)
         XCTAssertTrue(report.filesystemFlushed)
+        XCTAssertTrue(report.locksReleased)
 
         coordinator.willEnterForeground()
         XCTAssertEqual(host.resumed, 1)
+        XCTAssertEqual(host.events.suffix(1).first, "resume", "the file system comes back first")
         XCTAssertEqual(host.inBackground, false)
         try await waitUntil { host.events.last == "guest-resume" }
     }
@@ -285,6 +294,30 @@ final class LifecycleTests: XCTestCase {
         XCTAssertTrue(report.filesystemFlushed)
         XCTAssertLessThan(elapsed, LifecycleCoordinator.saveTimeout + GuestLifecycleCommand.suspendTimeout + 3)
         XCTAssertLessThan(elapsed, 25, "well within iPadOS's ~30 s")
+    }
+
+    func testTheWholeFlushFitsTheBackgroundTaskBudget() {
+        XCTAssertEqual(BackgroundTaskBudget.seconds, 25)
+        XCTAssertLessThan(LifecycleCoordinator.saveTimeout + GuestLifecycleCommand.suspendTimeout
+                          + LifecycleCoordinator.flushTimeout, BackgroundTaskBudget.seconds,
+                          "iPadOS warns about tasks open for 30 s")
+    }
+
+    func testDocumentsSaveTogetherUnderOneTimeout() async {
+        let host = LifecycleTestHost()
+        let savers = LifecycleSavers()
+        let hung = (0..<3).map { _ in RecordingSaver(host: host) }
+        for saver in hung {
+            saver.hangs = true
+            savers.register(saver)
+        }
+        let coordinator = LifecycleCoordinator(controller: nil, host: host, tasks: FakeBackgroundTasks(), defaults: defaults,
+                                               savers: savers, observesApplication: false)
+        let start = Date()
+        _ = await coordinator.flushForSuspension()
+        XCTAssertEqual(host.events.filter { $0 == "app-save" }.count, 3)
+        XCTAssertLessThan(Date().timeIntervalSince(start), LifecycleCoordinator.saveTimeout + 2,
+                          "three hung documents cost one timeout, not three")
     }
 
     func testExpiredGracePeriodEndsTheTaskOnce() async throws {

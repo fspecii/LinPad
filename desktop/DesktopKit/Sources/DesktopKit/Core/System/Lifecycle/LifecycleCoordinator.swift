@@ -40,20 +40,45 @@ protocol BackgroundTaskRunning {
     func end(_ token: Int)
 }
 
+/// iPadOS starts warning about (and may end the app over) a background task that is
+/// still open 30 s after it began. Every task LinPad begins is ended on completion, in
+/// its expiration handler, and at the latest after this budget, whichever comes first.
+enum BackgroundTaskBudget {
+    static let seconds: TimeInterval = 25
+    static let logger = Logger(subsystem: "DesktopKit", category: "BackgroundTask")
+}
+
+/// UIKit's background tasks with the 25 s budget: a task still open when the budget runs
+/// out is logged as a fault and ended through its own expiration path, so the owner's
+/// bookkeeping stays consistent.
 @MainActor
-struct UIKitBackgroundTasks: BackgroundTaskRunning {
+final class UIKitBackgroundTasks: BackgroundTaskRunning {
+    private var budgets: [Int: DispatchWorkItem] = [:]
+
     func begin(name: String, expiration: @escaping @MainActor () -> Void) -> Int {
         var identifier = UIBackgroundTaskIdentifier.invalid
         identifier = UIApplication.shared.beginBackgroundTask(withName: name) {
             MainActor.assumeIsolated { expiration() }
         }
-        return identifier.rawValue
+        let token = identifier.rawValue
+        guard identifier != .invalid else { return token }
+        let budget = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard self?.budgets[token] != nil else { return }
+                BackgroundTaskBudget.logger.fault("background task \(name, privacy: .public) still open after \(BackgroundTaskBudget.seconds, format: .fixed(precision: 0)) s; ending it")
+                expiration()
+                self?.end(token)
+            }
+        }
+        budgets[token] = budget
+        DispatchQueue.main.asyncAfter(deadline: .now() + BackgroundTaskBudget.seconds, execute: budget)
+        return token
     }
 
     func end(_ token: Int) {
-        let identifier = UIBackgroundTaskIdentifier(rawValue: token)
-        guard identifier != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(identifier)
+        guard let budget = budgets.removeValue(forKey: token) else { return }
+        budget.cancel()
+        UIApplication.shared.endBackgroundTask(UIBackgroundTaskIdentifier(rawValue: token))
     }
 }
 
@@ -69,8 +94,10 @@ struct UIKitBackgroundTasks: BackgroundTaskRunning {
 @MainActor
 final class LifecycleCoordinator {
     private static let logger = Logger(subsystem: "DesktopKit", category: "Lifecycle")
-    static let saveTimeout: TimeInterval = 5
-    static let flushTimeout: TimeInterval = 15
+    /// All documents together; with the guest hook (6 s) and the flush (10 s) the whole
+    /// sequence stays under BackgroundTaskBudget.seconds.
+    static let saveTimeout: TimeInterval = 4
+    static let flushTimeout: TimeInterval = 10
 
     private weak var controller: DesktopController?
     private let host: any LinuxHost
@@ -196,10 +223,17 @@ final class LifecycleCoordinator {
             controller.session.saveNow()
             report.savedSession = true
         }
-        for saver in savers.all {
-            if await withLifecycleTimeout(Self.saveTimeout, { await saver.saveBeforeSuspension(); return true }) == true {
-                report.appsSaved += 1
+        let documents = savers.all
+        if !documents.isEmpty {
+            let saved = await withLifecycleTimeout(Self.saveTimeout) {
+                await withTaskGroup(of: Void.self) { group in
+                    for saver in documents {
+                        group.addTask { @MainActor in await saver.saveBeforeSuspension() }
+                    }
+                }
+                return true
             }
+            if saved == true { report.appsSaved = documents.count }
         }
         let host = self.host
         report.guestHookFinished = await withLifecycleTimeout(GuestLifecycleCommand.suspendTimeout) {
@@ -210,6 +244,9 @@ final class LifecycleCoordinator {
                 await lifecycleHost.flushFilesystem()
                 return true
             } ?? false
+            if isInBackground {
+                report.locksReleased = lifecycleHost.releaseFileLocksIfSuspending()
+            }
         }
         report.seconds = Date().timeIntervalSince(start)
         return report

@@ -78,7 +78,7 @@ final class BrowserWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     var navigationMenu: (() -> UIMenu)?
 
-    /// Links get Open, Open in Safari and Copy Link above the page's navigation items.
+    /// Links get Open, Open in Default Browser and Copy Link above the page's navigation items.
     func webView(_ webView: WKWebView, contextMenuConfigurationFor elementInfo: WKContextMenuElementInfo) async -> UIContextMenuConfiguration? {
         guard let url = elementInfo.linkURL else { return nil }
         let navigation = navigationMenu
@@ -87,7 +87,7 @@ final class BrowserWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
                 UIAction(title: "Open Link", image: UIImage.themed(systemName: "arrow.up.right.square")) { _ in
                     webView.load(URLRequest(url: url))
                 },
-                UIAction(title: "Open in Safari", image: UIImage.themed(systemName: "safari")) { _ in
+                UIAction(title: "Open in Default Browser", image: UIImage.themed(systemName: "globe")) { _ in
                     UIApplication.shared.open(url)
                 },
                 UIAction(title: "Copy Link", image: UIImage.themed(systemName: "link")) { _ in
@@ -167,7 +167,7 @@ final class BrowserModel {
     func goBack() { webView.goBack() }
     func goForward() { webView.goForward() }
 
-    /// Back, Forward, Reload, Open in Safari and Copy Link for the page itself.
+    /// Back, Forward, Reload, Open in Default Browser and Copy Link for the page itself.
     func navigationMenu() -> UIMenu {
         let page = webView.url
         return UIMenu(options: .displayInline, children: [
@@ -179,7 +179,7 @@ final class BrowserModel {
                 self?.webView.reload()
             },
             UIMenu(options: .displayInline, children: [
-                UIAction(title: "Open in Safari", image: UIImage.themed(systemName: "safari"),
+                UIAction(title: "Open in Default Browser", image: UIImage.themed(systemName: "globe"),
                          attributes: page?.scheme?.hasPrefix("http") == true ? [] : .disabled) { _ in
                     if let page { UIApplication.shared.open(page) }
                 },

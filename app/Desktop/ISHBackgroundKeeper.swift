@@ -83,9 +83,56 @@ final class ISHBackgroundKeeper: NSObject, CLLocationManagerDelegate {
         }
     }
 
+    /// Whether something keeps LinPad running in the background right now: Linux audio
+    /// playing (unless the setting is Off) or location updates (Always).
+    var keepsRunning: Bool {
+        if mode == .always && isUpdating { return true }
+        return mode != .off && (ISHAudioBridge.shared.isOutputActive || ISHMicBridge.shared.isCapturing)
+    }
+
+    /// The Linux file system's locks (meta.db): given up just before iPadOS can suspend
+    /// LinPad, taken back when it is in front. iPadOS ends a suspended app holding a lock
+    /// on a file in its shared container (0xDEAD10CC), and the Linux files live there.
+    private(set) var locksReleased = false
+
+    /// The lifecycle flush of this background stint has run (it ends by asking for the
+    /// locks); until then it still needs the guest, so audio stopping must not park.
+    private var flushedThisStint = false
+
+    @discardableResult
+    func releaseFileLocksIfSuspending() -> Bool {
+        flushedThisStint = true
+        guard inBackground, !keepsRunning else { return false }
+        if !locksReleased {
+            locksReleased = true
+            let started = Date()
+            let parked = ish_fakefs_park()
+            log.info("file system parked (\(parked) db) in \(Date().timeIntervalSince(started), format: .fixed(precision: 3)) s")
+        }
+        return true
+    }
+
+    func reacquireFileLocks() {
+        guard locksReleased else { return }
+        locksReleased = false
+        ish_fakefs_unpark()
+        log.info("file system unparked")
+    }
+
+    /// Linux audio stopped (or was interrupted) while LinPad is in the background: nothing
+    /// keeps it running any more, so iPadOS suspends it within seconds.
+    func audioStoppedInBackground() {
+        guard inBackground, flushedThisStint else { return }
+        releaseFileLocksIfSuspending()
+    }
+
     func apply(_ mode: BackgroundExecution, inBackground: Bool) {
         self.mode = mode
         self.inBackground = inBackground
+        if !inBackground {
+            flushedThisStint = false
+            reacquireFileLocks()
+        }
         // Off: give the audio session up when leaving the screen, so iPadOS suspends LinPad.
         ISHAudioBridge.shared.setBackgroundPlaybackAllowed(mode != .off, inBackground: inBackground)
         updateLocation()
@@ -151,7 +198,16 @@ extension ISHLinuxHost: LinuxLifecycleHosting {
     }
 
     func resumeAfterBackground() {
+        ISHBackgroundKeeper.shared.reacquireFileLocks()
         ISHAudioBridge.shared.resumeAfterBackground()
         ISHMicBridge.shared.resumeAfterBackground()
+    }
+
+    func releaseFileLocksIfSuspending() -> Bool {
+        ISHBackgroundKeeper.shared.releaseFileLocksIfSuspending()
+    }
+
+    func guestHoldsFileLock(_ guestPath: String) -> Bool? {
+        ish_guest_path_flocked(guestPath)
     }
 }

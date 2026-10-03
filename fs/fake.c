@@ -1336,6 +1336,11 @@ uint64_t fakefs_change_dropped_count(void) {
 // to the background.
 static void fakefs_flush_db(struct fakefs_db *fs) {
     sqlite3_mutex_enter(fs->lock);
+    if (fs->db == NULL) {
+        // parked: closing it checkpointed it already
+        sqlite3_mutex_leave(fs->lock);
+        return;
+    }
     int log_frames = 0, checkpointed = 0;
     int err = sqlite3_wal_checkpoint_v2(fs->db, NULL, SQLITE_CHECKPOINT_PASSIVE, &log_frames, &checkpointed);
     const char *path = sqlite3_db_filename(fs->db, "main");
@@ -1362,6 +1367,46 @@ static void fakefs_flush_db(struct fakefs_db *fs) {
     }
 }
 
+static int fakefs_collect(struct fakefs_db **dbs, int max) {
+    int count = 0;
+    lock(&mounts_lock);
+    struct mount *mount;
+    list_for_each_entry(&mounts, mount, mounts) {
+        if (mount->fs == &fakefs && count < max) {
+            mount->refcount++; // mount_retain, which takes mounts_lock itself
+            dbs[count++] = &mount->fakefs;
+        }
+    }
+    unlock(&mounts_lock);
+    return count;
+}
+
+int ish_fakefs_park(void) {
+    fake_db_set_parked(true);
+    struct fakefs_db *dbs[16];
+    int count = fakefs_collect(dbs, 16);
+    for (int i = 0; i < count; i++) {
+        fake_db_park(dbs[i]);
+        mount_release(container_of(dbs[i], struct mount, fakefs));
+    }
+    return count;
+}
+
+void ish_fakefs_unpark(void) {
+    fake_db_set_parked(false);
+}
+
+int ish_fakefs_open_connections(void) {
+    struct fakefs_db *dbs[16];
+    int count = fakefs_collect(dbs, 16), open = 0;
+    for (int i = 0; i < count; i++) {
+        if (fake_db_is_open(dbs[i]))
+            open++;
+        mount_release(container_of(dbs[i], struct mount, fakefs));
+    }
+    return open;
+}
+
 int ish_fakefs_flush(void) {
     sync();
     struct fakefs_db *dbs[16];
@@ -1380,4 +1425,8 @@ int ish_fakefs_flush(void) {
         mount_release(container_of(dbs[i], struct mount, fakefs));
     }
     return count;
+}
+
+void fakefs_park_gate(void) {
+    fake_db_wait_while_parked();
 }

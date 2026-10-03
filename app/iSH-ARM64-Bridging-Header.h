@@ -7,3 +7,4 @@
 #include "fs/dev_video.h"
 #include "kernel/log_tail.h"
 #include "fs/fake-flush.h"
+#include "fs/guest-locks.h"

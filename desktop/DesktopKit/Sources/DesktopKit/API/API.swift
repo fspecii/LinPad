@@ -92,6 +92,14 @@ public extension LinuxHost {
 public protocol LinuxGraphicsHost: LinuxHost {
     /// Where the guest's "/" lives on the host filesystem, or nil when unavailable.
     var guestRootURL: URL? { get }
+    /// Whether a guest program holds a flock() lock on the file at this guest path (a
+    /// program's "I am running" lock). nil: the host maps guest locks to host locks, so
+    /// probing the host file with flock answers it.
+    func guestHoldsFileLock(_ guestPath: String) -> Bool?
+}
+
+public extension LinuxGraphicsHost {
+    func guestHoldsFileLock(_ guestPath: String) -> Bool? { nil }
 }
 
 /// Hosts that have to prepare the Linux system before it can boot, such as unpacking
