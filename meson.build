@@ -183,6 +183,8 @@ if get_option('kernel') == 'ish'
         'kernel/inotify.c',
         'kernel/ipc.c',
         'kernel/membarrier.c',
+        'kernel/oom.c',
+        'kernel/swapfile.c',
         'kernel/ptrace.c',
         'kernel/native_offload.c',
 

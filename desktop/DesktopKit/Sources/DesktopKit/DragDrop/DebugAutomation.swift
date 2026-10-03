@@ -68,6 +68,42 @@ final class DebugAutomation {
         busy = false
     }
 
+    /// maintenance|backup-sheet, backup-now, restore-sheet, restore-latest, restore-merge,
+    /// restore-replace, diagnostics, dismiss:
+    /// Settings › Maintenance's sheets and actions without taps (screenshots).
+    private func maintenance(_ action: String, controller: DesktopController) async {
+        let backup = BackupService.shared(for: controller.host)
+        switch action {
+        case "backup-sheet": backup.isBackupSheetRequested = true
+        case "backup-now":
+            backup.isBackupSheetRequested = true
+            let record = await backup.backUp()
+            log("backup: \(record?.url.path ?? String(describing: backup.state))")
+        case "restore-sheet": backup.isRestoreSheetRequested = true
+        case "restore-latest":
+            backup.refreshBackups()
+            if let latest = backup.backups.first { backup.inspect(latest.url) }
+            backup.isRestoreSheetRequested = true
+            log("restore: \(backup.restoreState)")
+        case "restore-merge", "restore-replace":
+            backup.refreshBackups()
+            guard let latest = backup.backups.first else { return log("no backup") }
+            backup.inspect(latest.url)
+            backup.isRestoreSheetRequested = true
+            await backup.restore(from: latest.url, options: .init(mode: action == "restore-merge" ? .merge : .replace,
+                                                                   reinstallApps: false, restoreDesktopSettings: true))
+            log("restore: \(backup.restoreState)")
+        case "diagnostics": DiagnosticsCenter.shared.isExportSheetRequested = true
+        case "dismiss":
+            backup.isBackupSheetRequested = false
+            backup.isRestoreSheetRequested = false
+            DiagnosticsCenter.shared.isExportSheetRequested = false
+        default: return log("unknown maintenance action")
+        }
+        controller.showMaintenanceSettings()
+        log("ok")
+    }
+
     private func log(_ line: String) {
         let url = Self.root.appendingPathComponent("log")
         let data = Data((line + "\n").utf8)
@@ -96,6 +132,8 @@ final class DebugAutomation {
             for window in controller.windowManager.windows {
                 log("window \(window.appID)|\(window.title)|\(controller.windowManager.displayFrame(for: window))")
             }
+        case "maintenance" where fields.count > 1:
+            await maintenance(fields[1], controller: controller)
         case "open" where fields.count > 1:
             var arguments: [String: String] = [:]
             for pair in fields.dropFirst(2) {

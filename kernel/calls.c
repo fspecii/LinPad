@@ -72,6 +72,7 @@ void handle_interrupt(int interrupt) {
 #elif defined(GUEST_ARM64)
         // ARM64: syscall number in x8, args in x0-x5, return in x0
         unsigned syscall_num = cpu->regs[8];
+        uint64_t syscall_arg0 = cpu->regs[0];
 
         // === FAST PATH: Hot syscalls ===
         int fast_result = -1;  // -1 means fast path not taken
@@ -145,6 +146,12 @@ void handle_interrupt(int interrupt) {
                     }
                 }
             }
+        }
+        {
+            unsigned slot = current->recent_syscall_pos++ % 16;
+            current->recent_syscalls[slot].nr = syscall_num;
+            current->recent_syscalls[slot].arg0 = syscall_arg0;
+            current->recent_syscalls[slot].result = (int64_t) cpu->regs[0];
         }
         // Update deadlock detection state.
         atomic_fetch_add(&current->group->syscall_count, 1);

@@ -315,7 +315,7 @@ async function stage(id, steps) {
     return true;
 }
 
-/** "wrap audacity --sysvipc" -> fixups/wrap.sh install audacity --sysvipc */
+/** "wrap audacity --wayland" -> fixups/wrap.sh install audacity --wayland */
 function runFixup(fixup, action) {
     const [script, ...args] = fixup.split(/\s+/).filter(Boolean);
     if (!/^[a-z0-9-]+$/.test(script) || !args.every(a => /^[A-Za-z0-9+._-]+$/.test(a))) return false;

@@ -1624,6 +1624,8 @@ int jit_run(struct cpu_state *cpu, struct tlb *tlb, struct jit_mm *mm) {
             __atomic_fetch_add(&mm->stats_exits[reason], 1, __ATOMIC_RELAXED);
             if (reason == JR_FALLBACK) {
                 uint32_t insn = 0;
+                if (tlb->mem_changes != __atomic_load_n(&tlb->mmu->changes, __ATOMIC_ACQUIRE))
+                    tlb_flush(tlb);
                 tlb_read(tlb, ctx->cpu.pc, &insn, 4);
                 pthread_mutex_lock(&mm->lock);
                 int slot = -1;

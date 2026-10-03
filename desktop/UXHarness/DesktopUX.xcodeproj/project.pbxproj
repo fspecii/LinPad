@@ -8,7 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		196D84E45CA7F4DABF4F5438 /* StoreUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10F8CF5AC46056D919F8A5 /* StoreUITests.swift */; };
+		1F016E4B8B7332451F4F62EC /* HarnessRollback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 643A95B5DC729B076E2DC829 /* HarnessRollback.swift */; };
 		2B33A885D10821ABEBCCE783 /* StyleScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8EB04400C7FF26AA9C17D3 /* StyleScreenshots.swift */; };
+		2C25592E0612BA5A8F0834C4 /* IdleClipboardMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F060C6CF07F4FC662A494E5E /* IdleClipboardMenuUITests.swift */; };
 		2CAA187C22A74C4D6D805DE0 /* DesktopUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA42D54ACE41A9C571FC4AB /* DesktopUITests.swift */; };
 		2CF0767EF677E45DD338B6D5 /* HarnessApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE2A2A78AF0D7C4142E4F4D2 /* HarnessApp.swift */; };
 		36098F4958FA1BEC0AB2F7F5 /* OnboardingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E49C199BBB023D15AB1DE /* OnboardingUITests.swift */; };
@@ -38,6 +40,7 @@
 /* Begin PBXFileReference section */
 		2D53A07B448DDFEFE0982BD2 /* DesktopHarness.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = DesktopHarness.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		38DE4AC7D1BB2AFB38216E07 /* WidgetsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetsUITests.swift; sourceTree = "<group>"; };
+		643A95B5DC729B076E2DC829 /* HarnessRollback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessRollback.swift; sourceTree = "<group>"; };
 		6A6AA220E11DB730546C126D /* DockTapUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockTapUITests.swift; sourceTree = "<group>"; };
 		717FEA742F25D083F27BEC8B /* RealAppScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealAppScreenshots.swift; sourceTree = "<group>"; };
 		774B3726C143C053A03833F3 /* DesktopKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DesktopKit; path = ../DesktopKit; sourceTree = SOURCE_ROOT; };
@@ -51,6 +54,7 @@
 		DF55FC3FC5F50DCCCB810FD8 /* WallpaperMatchScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WallpaperMatchScreenshots.swift; sourceTree = "<group>"; };
 		E739007D988ACB2BF6F0357E /* HarnessGraphicsHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessGraphicsHost.swift; sourceTree = "<group>"; };
 		EA8EB04400C7FF26AA9C17D3 /* StyleScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StyleScreenshots.swift; sourceTree = "<group>"; };
+		F060C6CF07F4FC662A494E5E /* IdleClipboardMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleClipboardMenuUITests.swift; sourceTree = "<group>"; };
 		F11E49C199BBB023D15AB1DE /* OnboardingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingUITests.swift; sourceTree = "<group>"; };
 		F3C1DCBD79251B0B9A13A772 /* IconPackScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IconPackScreenshots.swift; sourceTree = "<group>"; };
 		FFA42D54ACE41A9C571FC4AB /* DesktopUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopUITests.swift; sourceTree = "<group>"; };
@@ -74,6 +78,7 @@
 				FFA42D54ACE41A9C571FC4AB /* DesktopUITests.swift */,
 				6A6AA220E11DB730546C126D /* DockTapUITests.swift */,
 				F3C1DCBD79251B0B9A13A772 /* IconPackScreenshots.swift */,
+				F060C6CF07F4FC662A494E5E /* IdleClipboardMenuUITests.swift */,
 				BEFD8C64C5D38CD32548624A /* KeyboardChromeUITests.swift */,
 				8B1A430120A572ABD1A0BD75 /* LiveWallhavenScreenshots.swift */,
 				F11E49C199BBB023D15AB1DE /* OnboardingUITests.swift */,
@@ -109,6 +114,7 @@
 			children = (
 				AE2A2A78AF0D7C4142E4F4D2 /* HarnessApp.swift */,
 				E739007D988ACB2BF6F0357E /* HarnessGraphicsHost.swift */,
+				643A95B5DC729B076E2DC829 /* HarnessRollback.swift */,
 				7DB023E128CCE8B0AD6797B2 /* KeyboardFrameProbe.swift */,
 			);
 			path = Harness;
@@ -208,6 +214,7 @@
 			files = (
 				2CF0767EF677E45DD338B6D5 /* HarnessApp.swift in Sources */,
 				D2ECC9FBA3BA11E5B4E7AF4E /* HarnessGraphicsHost.swift in Sources */,
+				1F016E4B8B7332451F4F62EC /* HarnessRollback.swift in Sources */,
 				37F098674C4600B6E73BB1AF /* KeyboardFrameProbe.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -219,6 +226,7 @@
 				2CAA187C22A74C4D6D805DE0 /* DesktopUITests.swift in Sources */,
 				9ABA09955DC7AF3574A54130 /* DockTapUITests.swift in Sources */,
 				715FCE4456EEABB4351479EB /* IconPackScreenshots.swift in Sources */,
+				2C25592E0612BA5A8F0834C4 /* IdleClipboardMenuUITests.swift in Sources */,
 				9D7D261D0E2E9682AEE57ADE /* KeyboardChromeUITests.swift in Sources */,
 				B644889ABB41FDE2E90E062F /* LiveWallhavenScreenshots.swift in Sources */,
 				36098F4958FA1BEC0AB2F7F5 /* OnboardingUITests.swift in Sources */,

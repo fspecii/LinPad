@@ -1,0 +1,7 @@
+# LinPad: no accessibility bus. iPadOS's VoiceOver cannot reach Linux apps, and the
+# launcher plus registry daemon it would start cost two processes. GTK already skips it
+# (NO_AT_BRIDGE=1 in ishwl-session); this stops D-Bus activation by Firefox and Qt.
+# A service file in /usr/local/share takes precedence over /usr/share's.
+[D-BUS Service]
+Name=org.a11y.Bus
+Exec=/bin/false

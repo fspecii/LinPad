@@ -61,3 +61,7 @@ struct uptime_info get_uptime() {
 uint64_t host_memory_headroom(void) {
     return 0;
 }
+
+uint64_t host_memory_footprint(void) {
+    return 0;
+}

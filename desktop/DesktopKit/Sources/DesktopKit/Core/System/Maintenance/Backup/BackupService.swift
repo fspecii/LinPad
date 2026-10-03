@@ -78,7 +78,7 @@ final class BackupService {
     static let settingsPrefixes = ["desktop.", "calendar.", "widgets.", "wallhaven.favorites", "fastMode.setting"]
     static let settingsExcluded: Set<String> = [
         "desktop.session", "desktop.debugAutomation", "desktop.onboarding.progress", "desktop.resetWidgets",
-        "desktop.ipadPlaces", "desktop.performanceOverlay",
+        "desktop.ipadPlaces", "desktop.performanceOverlay", "desktop.enabled",
     ]
     /// Application Support folders with the user's own desktop files.
     static let desktopFileFolders = ["Wallpapers", "Calendar"]

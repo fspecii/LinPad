@@ -26,6 +26,9 @@
 
 struct pending_input {
     struct wl_list link;
+    bool is_keymap;       /* commit = layout, preedit = variant, options below */
+    bool is_text;         /* commit = text typed as keys (seat_type_text) */
+    char *options;
     bool is_key;
     uint32_t keycode;
     bool pressed;
@@ -36,6 +39,9 @@ struct pending_input {
 
 static struct wl_list pending_inputs;
 static bool waiting_for_app;
+/* While a queued `text` turns into keys, they go to the front of the queue, in order. */
+static bool expanding;
+static struct wl_list *insert_after;
 static uint32_t waiting_since;
 
 struct text_input_state {
@@ -158,6 +164,20 @@ static bool is_modifier(uint32_t keycode) {
 
 static void deliver(struct server *s, struct pending_input *in) {
     struct text_input *ti = find_active(s);
+    if (in->is_keymap) {
+        seat_set_keymap(s, in->commit, in->preedit, in->options);
+        waiting_for_app = false;
+        return;
+    }
+    if (in->is_text) {
+        /* Looked up now, with the keymap the app has when the keys arrive. */
+        expanding = true;
+        insert_after = &pending_inputs;
+        seat_type_text(s, in->commit);
+        expanding = false;
+        waiting_for_app = false;
+        return;
+    }
     if (in->is_key) {
         seat_key(s, in->keycode, in->pressed);
     } else if (ti) {
@@ -181,12 +201,13 @@ static void drain(struct server *s) {
         deliver(s, in);
         free(in->commit);
         free(in->preedit);
+        free(in->options);
         free(in);
     }
 }
 
 static void submit(struct server *s, struct pending_input in) {
-    if (!find_active(s) && wl_list_empty(&pending_inputs)) {
+    if (!expanding && !find_active(s) && wl_list_empty(&pending_inputs)) {
         waiting_for_app = false;
         deliver(s, &in);
         return;
@@ -196,6 +217,12 @@ static void submit(struct server *s, struct pending_input in) {
     *queued = in;
     queued->commit = in.commit ? strdup(in.commit) : NULL;
     queued->preedit = in.preedit ? strdup(in.preedit) : NULL;
+    queued->options = in.options ? strdup(in.options) : NULL;
+    if (expanding) {
+        wl_list_insert(insert_after, &queued->link);
+        insert_after = &queued->link;
+        return;
+    }
     wl_list_insert(pending_inputs.prev, &queued->link);
     drain(s);
 }
@@ -212,6 +239,23 @@ void text_input_apply(struct server *s, uint32_t delete_before, uint32_t delete_
         .delete_before = delete_before, .delete_after = delete_after,
         .commit = (char *) commit, .preedit = (char *) preedit, .begin = begin, .end = end,
     });
+}
+
+/* A new keymap applies to the keys queued before it with the old one still in force:
+ * the queued keys are key codes, and the app reads them through its current keymap. */
+/* On-screen keyboard text, after what is already queued (a keymap change included). */
+void text_input_type(struct server *s, const char *utf8) {
+    submit(s, (struct pending_input) {.is_text = true, .commit = (char *) utf8});
+}
+
+void text_input_set_keymap(struct server *s, const char *layout, const char *variant, const char *options) {
+    submit(s, (struct pending_input) {
+        .is_keymap = true, .commit = (char *) layout, .preedit = (char *) variant, .options = (char *) options,
+    });
+}
+
+bool text_input_active(struct server *s) {
+    return find_active(s) != NULL;
 }
 
 bool text_input_waiting(struct server *s) {

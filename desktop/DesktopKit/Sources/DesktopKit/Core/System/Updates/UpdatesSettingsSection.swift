@@ -49,6 +49,7 @@ struct UpdatesSettingsSection: View {
             appRows
             ThemedSeparator()
             systemRows
+            SystemVersionDetailRows(service: service)
             ThemedSeparator()
             packageRows
             Text(footnote)

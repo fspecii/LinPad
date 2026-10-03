@@ -13,6 +13,7 @@
 #include "debug.h"
 #include "kernel/errno.h"
 #include "kernel/signal.h"
+#include "kernel/swapfile.h"
 #include "kernel/memory.h"
 #include "asbestos/asbestos.h"
 #include "kernel/vdso.h"
@@ -633,6 +634,13 @@ bool pt_is_hole(struct mem *mem, page_t start, pages_t pages) {
     return true;
 }
 
+// Host memory behind guest pages: anonymous, a file mapping, or a range of the swap
+// file (kernel/swapfile.h), which has to be given back to it.
+static void host_unmap(void *memory, size_t size) {
+    if (!swap_free(memory, size))
+        munmap(memory, size);
+}
+
 // Takes ownership of memory: on failure it is unmapped (except the vdso) and
 // the range is left unmapped.
 int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t offset, unsigned flags) {
@@ -645,7 +653,7 @@ int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t of
     struct data *data = mem_host_alloc_fails() ? NULL : malloc(sizeof(struct data));
     if (data == NULL) {
         if (memory != vdso_data)
-            munmap(memory, pages * PAGE_SIZE + offset);
+            host_unmap(memory, pages * PAGE_SIZE + offset);
         return _ENOMEM;
     }
     *data = (struct data) {
@@ -669,7 +677,7 @@ int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t of
             for (page_t done = start; done < page; done++)
                 mem_pt(mem, done)->data = NULL;
             if (memory != vdso_data)
-                munmap(memory, data->size);
+                host_unmap(memory, data->size);
             free(data);
             mem_changed(mem);
             return _ENOMEM;
@@ -722,7 +730,7 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
             free((void *) shares);
             // vdso wasn't allocated with mmap, it's just in our data segment
             if (data->data != vdso_data) {
-                munmap(data->data, data->size);
+                host_unmap(data->data, data->size);
             }
             if (data->fd != NULL) {
                 fd_close(data->fd);
@@ -743,8 +751,9 @@ int pt_map_nothing(struct mem *mem, page_t start, pages_t pages, unsigned flags)
     if (!(flags & P_READ) && !(flags & P_WRITE) && !(flags & P_EXEC))
         host_prot = PROT_NONE;
     size_t map_size = (size_t)pages * PAGE_SIZE;
-    void *memory = mem_host_alloc_fails() ? MAP_FAILED :
-        mmap(NULL, map_size, host_prot, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+    void *memory = mem_host_alloc_fails() ? MAP_FAILED : swap_alloc(map_size, host_prot);
+    if (memory == NULL)
+        memory = mmap(NULL, map_size, host_prot, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     if (memory == MAP_FAILED)
         return _ENOMEM;
     return pt_map(mem, start, pages, memory, 0, flags | P_ANONYMOUS);
@@ -1245,7 +1254,8 @@ void mem_coredump(struct mem *mem, const char *file) {
 static void discard_host_run(struct mem *mem, char *host, size_t size, page_t first, pages_t count) {
     if (size == 0)
         return;
-    if (mmap(host, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == MAP_FAILED)
+    if (!swap_discard(host, size) &&
+            mmap(host, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == MAP_FAILED)
         memset(host, 0, size);
     for (pages_t i = 0; i < count; i++)
         asbestos_invalidate_page(mem->mmu.asbestos, first + i);

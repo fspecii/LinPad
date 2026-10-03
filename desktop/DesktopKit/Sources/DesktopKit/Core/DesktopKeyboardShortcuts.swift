@@ -110,6 +110,14 @@ struct DesktopCommand: Identifiable {
             // ⌘ chords give way to Linux apps and the terminal while they have focus.
             DesktopCommand(id: "commandMenu", title: "Command Menu", group: .general, key: "k",
                            modifiers: .command, keyLabel: "K") { $0.toggleCommandMenu() },
+            // The Omarchy-style menu: sections first, a letter opens one.
+            DesktopCommand(id: "commandMenu.sections", title: "Menu by Section", group: .general, key: "m",
+                           modifiers: [.control, .option, .shift], keyLabel: "M") { $0.toggleCommandMenu(.index) },
+            // ⌘⇧V gives way to Linux apps (Ctrl-Shift-V pastes in terminals); ⌃⌥V works everywhere.
+            DesktopCommand(id: "clipboard", title: "Clipboard History", group: .general, key: "v",
+                           modifiers: windowKeys, keyLabel: "V") { $0.toggleCommandMenu(.section(.clipboard)) },
+            DesktopCommand(id: "clipboard.command", title: "Clipboard History", group: .general, key: "v",
+                           modifiers: [.command, .shift], keyLabel: "V") { $0.toggleCommandMenu(.section(.clipboard)) },
             DesktopCommand(id: "shortcuts", title: "Keyboard Shortcuts", group: .general, key: "/",
                            modifiers: .command, keyLabel: "/") { $0.isShortcutSheetPresented.toggle() },
             DesktopCommand(id: "capture.full", title: "Screenshot", group: .general, key: "s",

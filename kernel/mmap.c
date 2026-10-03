@@ -12,6 +12,7 @@
 #include "fs/fd.h"
 #include "kernel/memory.h"
 #include "kernel/mm.h"
+#include "kernel/oom.h"
 
 #if ANON_MMAP_LIMIT_PAGES > 0
 _Atomic long anon_page_count;
@@ -21,9 +22,18 @@ _Atomic long anon_page_count;
 // ENOMEM while less than this headroom is left, so the guest program fails (a
 // browser tab, a decoder) instead of the whole app.
 #define HOST_MEMORY_HEADROOM (192ull << 20)
+// Before failing, give the out-of-memory monitor (kernel/oom.c) the chance to close
+// the process it would pick anyway, as Linux's allocator waits for the OOM killer:
+// otherwise whichever process allocates next gets ENOMEM, often a browser's parent
+// process, whose infallible allocator then aborts.
 static bool host_memory_low(pages_t pages) {
     uint64_t headroom = host_memory_headroom();
-    return headroom != 0 && headroom < HOST_MEMORY_HEADROOM + (uint64_t) pages * PAGE_SIZE;
+    if (headroom == 0)
+        return false;
+    uint64_t needed = HOST_MEMORY_HEADROOM + (uint64_t) pages * PAGE_SIZE;
+    if (headroom >= needed)
+        return false;
+    return !oom_wait_for_headroom(needed);
 }
 
 long anon_page_limit(void) {

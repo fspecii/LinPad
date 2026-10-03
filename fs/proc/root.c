@@ -1,3 +1,4 @@
+#include "kernel/oom.h"
 #include <sys/stat.h>
 #include <inttypes.h>
 #include <string.h>
@@ -182,6 +183,15 @@ static struct proc_children proc_sysvipc_children = PROC_CHILDREN({
     {"shm", .show = proc_sysvipc_shm},
 });
 
+static int proc_show_pressure_memory(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    oom_show_pressure(buf);
+    return 0;
+}
+
+static struct proc_children proc_pressure_children = PROC_CHILDREN({
+    {"memory", .show = proc_show_pressure_memory},
+});
+
 // in alphabetical order
 struct proc_dir_entry proc_root_entries[] = {
     {"cpuinfo", .show = proc_show_cpuinfo},
@@ -189,6 +199,7 @@ struct proc_dir_entry proc_root_entries[] = {
     {"meminfo", .show = proc_show_meminfo},
     {"mounts", .show = proc_show_mounts},
     {"net", S_IFDIR, .children = &proc_net_children},
+    {"pressure", S_IFDIR, .children = &proc_pressure_children},
     {"self", S_IFLNK, .readlink = proc_readlink_self},
     {"stat", .show = proc_show_stat},
     {"sys", S_IFDIR, .children = &proc_sys_children},

@@ -1,3 +1,4 @@
+import GameController
 import SwiftUI
 import UIKit
 
@@ -6,6 +7,7 @@ import UIKit
 /// keyboard's own process, out of reach of UI tests otherwise.
 struct KeyboardFrameProbe: View {
     @State private var frame = "none"
+    @State private var gcKeyboard = "none"
 
     var body: some View {
         Color.clear
@@ -14,6 +16,16 @@ struct KeyboardFrameProbe: View {
             .accessibilityLabel("Keyboard frame")
             .accessibilityValue(frame)
             .accessibilityIdentifier("harness.keyboardFrame")
+            .overlay {
+                Color.clear.frame(width: 2, height: 2)
+                    .accessibilityElement()
+                    .accessibilityLabel("Game controller keyboard")
+                    .accessibilityValue(gcKeyboard)
+                    .accessibilityIdentifier("harness.gcKeyboard")
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .GCKeyboardDidConnect)) { _ in gcKeyboard = "connected" }
+            .onReceive(NotificationCenter.default.publisher(for: .GCKeyboardDidDisconnect)) { _ in gcKeyboard = "none" }
+            .onAppear { gcKeyboard = GCKeyboard.coalesced == nil ? "none" : "connected" }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { update($0) }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in frame = "none" }
     }

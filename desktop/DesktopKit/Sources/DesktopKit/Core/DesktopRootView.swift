@@ -58,6 +58,16 @@ public struct DesktopRootView: View {
                     }
                 }
                 .overlay {
+                    if controller.idle.isScreensaverShown {
+                        ScreensaverOverlay(controller: controller).transition(.opacity)
+                    }
+                }
+                .task {
+                    HardwareKeyboardMonitor.onKeyActivity = { [weak controller] in controller?.idle.noteActivity() }
+                    ClipboardHistory.shared.startObservingPasteboard()
+                    controller.idle.start()
+                }
+                .overlay {
                     // Onboarding shows Linux's progress itself while it unpacks.
                     if !controller.boot.isFinished && !controller.isOnboardingPresented {
                         BootSplash(controller: controller).transition(.opacity)

@@ -1,3 +1,4 @@
+#include "kernel/oom.h"
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
@@ -413,11 +414,11 @@ static ssize_t proc_pid_mem_pwrite(struct proc_entry *entry, struct proc_data *b
 }
 
 
-// OOM score files: Chromium and systemd-style launchers write them for their
-// children. There is no OOM killer to steer, so the value is only kept for
-// reading back.
-static int proc_pid_oom_score_show(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
-    proc_printf(buf, "0\n");
+// OOM score files: Firefox, Chromium and systemd-style launchers write
+// oom_score_adj for their children, and the out-of-memory monitor (kernel/oom.c)
+// goes by it.
+static int proc_pid_oom_score_show(struct proc_entry *entry, struct proc_data *buf) {
+    proc_printf(buf, "%d\n", oom_score_of_pid(entry->pid));
     return 0;
 }
 

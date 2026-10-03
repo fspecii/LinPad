@@ -28,7 +28,11 @@ final class HardwareKeyboardMonitor {
     /// Called for presses that carry a key (on-screen keyboard taps arrive as text instead).
     static func noteHardwareKeyPress() {
         lastHardwareKeyPress = Date()
+        onKeyActivity?()
     }
+
+    /// Every hardware key, for the idle monitor (GameController sees keys whatever holds focus).
+    static var onKeyActivity: (() -> Void)?
 
     /// Without GameController keyboard events the switcher stays open until Return or a click.
     var canObserveModifiers: Bool { GCKeyboard.coalesced?.keyboardInput != nil }
@@ -52,6 +56,7 @@ final class HardwareKeyboardMonitor {
     private func attach() {
         isConnected = GCKeyboard.coalesced != nil
         GCKeyboard.coalesced?.keyboardInput?.keyChangedHandler = { [weak self] _, _, keyCode, pressed in
+            if pressed { Task { @MainActor in Self.onKeyActivity?() } }
             guard !pressed, keyCode == .leftAlt || keyCode == .rightAlt else { return }
             Task { @MainActor in self?.onSwitcherModifierReleased?() }
         }
@@ -178,6 +183,7 @@ final class DesktopInputCoordinator: NSObject, UIGestureRecognizerDelegate {
     /// content: SwiftUI views, the terminal's web view and Linux surfaces alike.
     @objc private func touchDown(_ recognizer: TouchDownRecognizer) {
         DispatchQueue.main.async { [weak self] in self?.ensureKeyCommandsReachable() }
+        controller?.idle.noteActivity()
         guard let controller, !controller.isOverlayPresented, let referenceView else { return }
         let point = recognizer.location(in: referenceView)
         guard referenceView.bounds.contains(point) else { return }

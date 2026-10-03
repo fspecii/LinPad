@@ -29,7 +29,7 @@ final class CommandMenuSearchTests: XCTestCase {
         controller.open(appID: AppID.files, arguments: [:])
         controller.commandMenu = CommandMenuState(query: "")
         let sections = Set(controller.commandMenuItems().map(\.section))
-        XCTAssertTrue(sections.isSuperset(of: [.windows, .apps, .commands, .toggles, .themes, .looks]))
+        XCTAssertTrue(sections.isSuperset(of: [.windows, .apps, .commands, .toggles, .style, .setup, .capture, .system, .update]))
         controller.commandMenu = CommandMenuState(query: "linpad://open")
         XCTAssertEqual(controller.commandMenuItems().first?.section, .links)
         controller.commandMenu = CommandMenuState(query: "nord")

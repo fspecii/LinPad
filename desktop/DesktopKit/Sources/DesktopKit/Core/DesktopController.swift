@@ -53,6 +53,7 @@ final class DesktopController {
     var isRegionCapturePresented = false
     var isRecordingScreen = false
     @ObservationIgnored var osdObserver: OSDObserver?
+    @ObservationIgnored private var memoryCloseObserver: NSObjectProtocol?
     /// Toasts under the pointer, which do not time out.
     @ObservationIgnored var hoveredToasts: Set<UUID> = []
     @ObservationIgnored private var wallpaperToast: UUID?
@@ -94,6 +95,7 @@ final class DesktopController {
     @ObservationIgnored private(set) lazy var nowPlaying = NowPlayingCenter(host: host)
     @ObservationIgnored private(set) lazy var calendarStore = CalendarStore()
     @ObservationIgnored private(set) lazy var widgets = DesktopWidgetStore()
+    @ObservationIgnored private(set) lazy var idle = IdleMonitor(controller: self)
 
     /// True while a shell overlay owns the keyboard and pointer, so windows must not react.
     var isOverlayPresented: Bool {
@@ -187,6 +189,16 @@ final class DesktopController {
         linux?.start()
         input.controller = self
         osdObserver = OSDObserver(controller: self)
+        memoryCloseObserver = NotificationCenter.default.addObserver(
+            forName: MemorySettings.appClosedNotification, object: nil, queue: .main) { [weak self] note in
+            guard let message = note.userInfo?["message"] as? String else { return }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.notify(message, action: DesktopToast.Action(title: "Memory") { [weak self] in
+                    self?.open(appID: AppID.settings, arguments: [SettingsApp.pageArgument: SettingsApp.performancePage])
+                })
+            }
+        }
         colorThemes.onApplyRequest = { [weak self] id in self?.applyColorTheme(id) }
         colorThemes.onPickerRequest = { [weak self] in self?.presentThemePicker() }
         colorThemes.onFindWallpapersRequest = { [weak self] theme in self?.findWallpapers(for: theme) }

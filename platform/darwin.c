@@ -8,7 +8,7 @@
 #include <sys/time.h>
 #include "platform/platform.h"
 
-static uint64_t phys_footprint(void) {
+uint64_t host_memory_footprint(void) {
     task_vm_info_data_t info;
     mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
     if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t) &info, &count) != KERN_SUCCESS)
@@ -33,7 +33,7 @@ uint64_t host_memory_headroom(void) {
     uint64_t limit = emulated_limit();
     if (limit == 0)
         return 0;
-    uint64_t used = phys_footprint();
+    uint64_t used = host_memory_footprint();
     return used < limit ? limit - used : 1;
 }
 
@@ -79,7 +79,7 @@ struct mem_usage get_mem_usage() {
     // Firefox's low-memory watcher compares MemAvailable with it.
     uint64_t headroom = host_memory_headroom();
     if (headroom != 0) {
-        uint64_t allowance = phys_footprint() + headroom;
+        uint64_t allowance = host_memory_footprint() + headroom;
         if (allowance < usage.total)
             usage.total = allowance;
         usage.available = headroom;

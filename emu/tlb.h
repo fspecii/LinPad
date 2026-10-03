@@ -45,6 +45,8 @@ struct tlb {
 #define TLB_PAGE(addr) ((addr) & 0xfffff000)
 #endif
 #define TLB_PAGE_EMPTY 1
+// A zeroed TLB in pages of its own: only the parts a thread uses become resident.
+struct tlb *tlb_new(void);
 void tlb_refresh(struct tlb *tlb, struct mmu *mmu);
 void tlb_free(struct tlb *tlb);
 void tlb_flush(struct tlb *tlb);

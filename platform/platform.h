@@ -26,6 +26,9 @@ struct mem_usage get_mem_usage(void);
 // emulates an iOS per-process limit of n MB (n minus this process's phys_footprint),
 // so the iPad's low-memory behaviour can be tested on the Mac.
 uint64_t host_memory_headroom(void);
+// What the host charges this process for (Darwin: phys_footprint, the number jetsam
+// compares with the limit), or 0 when unknown.
+uint64_t host_memory_footprint(void);
 
 struct uptime_info {
     uint64_t uptime_ticks;

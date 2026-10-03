@@ -298,7 +298,19 @@ Xwayland applies a new `wl_keyboard.keymap` to its X server, so X11 apps follow 
   AltGr (`lv3:alt_switch`), or both Alt (`lv3:ralt_alt`). This is the Linux keymap; text the
   iPad types itself into a Linux text field (see Option key) is unaffected.
 - `text` replay looks each character up in the current keymap with no modifier, Shift,
-  AltGr and Shift+AltGr, so on-screen keyboard text keeps working on every layout.
+  AltGr (the physical Right Alt, never the virtual `<LVL3>`) and Shift+AltGr, so on-screen
+  keyboard text keeps working on every layout. Keys are tried main block first, then the
+  keypad, then any other key with an X11 keycode (<= 255): evdev's KEY_DOLLAR (434) and
+  KEY_EURO (435) carry `$` and `€` in the evdev keymap, and Chromium/Electron and
+  Xwayland drop them, which is why `$` never reached VS Code.
+- A character the layout only has as a dead key (German `^` and `` ` ``) is typed as the
+  dead key then Space when the app has no text input. When it has one, that character,
+  and any character the active layout cannot type at all (`£` on US, emoji), is committed
+  as text instead: Chromium composes dead keys asynchronously, and the result overtook the
+  keys typed after it.
+- `keymap` and `text` go through the text-input ordering queue (see Ordering), so a layout
+  change waits for the keys already queued, and `text` is looked up with the keymap in
+  force when it is delivered.
 - Dead keys in the keymap compose in the client (xkbcommon's Compose tables come from
   libx11's `/usr/share/X11/locale`, which the repair kit keeps installed).
 - `tools/keymap-test.sh` checks all of this in the guest with a headless ishwl, the

@@ -7,6 +7,7 @@
 #include "fs/fd.h"
 #include "fs/real.h"
 #include "fs/tty.h"
+#include "kernel/oom.h"
 #include "kernel/calls.h"
 #include "fs/sysfs.h"
 #include "fs/dev_video.h"
@@ -109,6 +110,7 @@ int become_first_process() {
         return PTR_ERR(task);
 
     current = task;
+    oom_start();
     sysfs_create_nodes();
 #ifdef ISH_VIRTGPU
     virtgpu_create_nodes();

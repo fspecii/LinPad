@@ -7,10 +7,14 @@
  * Left Alt held) and, for
  * every key press, the text typed so far after compose:
  *   text ü@ß
+ * With TEXTINPUT=1 it also enables a zwp_text_input_v3 while focused, as Chromium, GTK
+ * and Qt do, and appends commit_string text to the same line (ishwl then delivers keys
+ * and text in order, one at a time).
  * Exits after SECONDS (default 20) with no events. Build in the guest:
  *   wayland-scanner client-header $XDG xdg-shell-client.h
  *   wayland-scanner private-code $XDG xdg-shell.c
- *   cc -o keymap-test tools/keymap-test.c xdg-shell.c -I. \
+ *   (the same two for text-input-unstable-v3)
+ *   cc -o keymap-test tools/keymap-test.c xdg-shell.c text-input-unstable-v3.c -I. \
  *      $(pkg-config --cflags --libs wayland-client xkbcommon) */
 #define _GNU_SOURCE
 #include <linux/input-event-codes.h>
@@ -25,6 +29,7 @@
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
 #include <xkbcommon/xkbcommon-compose.h>
+#include "text-input-unstable-v3-client.h"
 #include "xdg-shell-client.h"
 
 static struct wl_compositor *compositor;
@@ -37,7 +42,10 @@ static struct xkb_keymap *keymap;
 static struct xkb_state *state;
 static struct xkb_compose_state *compose;
 static int keymaps;
-static char typed[1024];
+static char typed[2048];
+static struct zwp_text_input_manager_v3 *ti_manager;
+static struct zwp_text_input_v3 *text_input;
+static bool use_text_input;
 
 static const struct probe {
     const char *name;
@@ -80,6 +88,34 @@ static void print_probes(void) {
     fflush(stdout);
 }
 
+static void print_typed(void) {
+    printf("text %s\n", typed);
+    fflush(stdout);
+}
+
+/* ---- text input: commit after enter and after every done, as toolkits do ---- */
+static void ti_enter(void *d, struct zwp_text_input_v3 *ti, struct wl_surface *s) {
+    zwp_text_input_v3_enable(ti);
+    zwp_text_input_v3_set_content_type(ti, 0, 0);
+    zwp_text_input_v3_commit(ti);
+    printf("textinput enabled\n");
+    fflush(stdout);
+}
+static void ti_leave(void *d, struct zwp_text_input_v3 *ti, struct wl_surface *s) {}
+static void ti_preedit(void *d, struct zwp_text_input_v3 *ti, const char *text, int32_t b, int32_t e) {}
+static void ti_commit_string(void *d, struct zwp_text_input_v3 *ti, const char *text) {
+    if (!text) return;
+    strncat(typed, text, sizeof(typed) - strlen(typed) - 1);
+    print_typed();
+}
+static void ti_delete(void *d, struct zwp_text_input_v3 *ti, uint32_t before, uint32_t after) {}
+static void ti_done(void *d, struct zwp_text_input_v3 *ti, uint32_t serial) {
+    zwp_text_input_v3_commit(ti);
+}
+static const struct zwp_text_input_v3_listener ti_listener = {
+    ti_enter, ti_leave, ti_preedit, ti_commit_string, ti_delete, ti_done,
+};
+
 static void kb_keymap(void *d, struct wl_keyboard *kb, uint32_t format, int32_t fd, uint32_t size) {
     char *map = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
     close(fd);
@@ -120,8 +156,9 @@ static void kb_key(void *d, struct wl_keyboard *kb, uint32_t serial, uint32_t ti
     }
     if (cp < 0x20 || cp == 0x7f) return;
     append_utf8(typed, sizeof(typed), cp);
-    printf("text %s\n", typed);
-    fflush(stdout);
+    print_typed();
+    /* An edit is followed by the text input's state, which tells ishwl the key landed. */
+    if (text_input) zwp_text_input_v3_commit(text_input);
 }
 
 static void kb_modifiers(void *d, struct wl_keyboard *kb, uint32_t serial, uint32_t dep, uint32_t lat,
@@ -163,12 +200,15 @@ static void global(void *d, struct wl_registry *r, uint32_t name, const char *if
     else if (!strcmp(iface, "wl_shm")) shm = wl_registry_bind(r, name, &wl_shm_interface, 1);
     else if (!strcmp(iface, "xdg_wm_base")) wm_base = wl_registry_bind(r, name, &xdg_wm_base_interface, 1);
     else if (!strcmp(iface, "wl_seat")) seat = wl_registry_bind(r, name, &wl_seat_interface, 5);
+    else if (!strcmp(iface, "zwp_text_input_manager_v3"))
+        ti_manager = wl_registry_bind(r, name, &zwp_text_input_manager_v3_interface, 1);
 }
 static void global_remove(void *d, struct wl_registry *r, uint32_t name) {}
 static const struct wl_registry_listener registry_listener = { global, global_remove };
 
 int main(int argc, char **argv) {
     int seconds = argc > 1 ? atoi(argv[1]) : 20;
+    use_text_input = getenv("TEXTINPUT") && strcmp(getenv("TEXTINPUT"), "1") == 0;
     setlocale(LC_ALL, "");
     ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
     const char *locale = getenv("LC_ALL");
@@ -187,6 +227,10 @@ int main(int argc, char **argv) {
     xdg_wm_base_add_listener(wm_base, &wm_listener, NULL);
     struct wl_keyboard *kb = wl_seat_get_keyboard(seat);
     wl_keyboard_add_listener(kb, &kb_listener, NULL);
+    if (use_text_input && ti_manager) {
+        text_input = zwp_text_input_manager_v3_get_text_input(ti_manager, seat);
+        zwp_text_input_v3_add_listener(text_input, &ti_listener, NULL);
+    }
     surface = wl_compositor_create_surface(compositor);
     struct xdg_surface *xdg = xdg_wm_base_get_xdg_surface(wm_base, surface);
     xdg_surface_add_listener(xdg, &xdg_listener, NULL);

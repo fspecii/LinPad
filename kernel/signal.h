@@ -390,4 +390,7 @@ struct rt_sigframe_ {
 extern int xsave_extra;
 extern int fxsave_extra;
 
+// ISH_CRASHLOG=1: log a process dying of a crash signal (once per thread)
+void log_crash(int sig, int code, addr_t fault_addr);
+
 #endif

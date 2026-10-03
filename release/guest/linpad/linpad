@@ -1,0 +1,74 @@
+#!/bin/sh
+# linpad: LinPad's command line.
+#   linpad update [--no-packages]   upgrade Linux packages, then have the desktop check for a
+#                                   newer app and Linux system (Settings › Updates)
+#   linpad version                  app, Linux system and repair kit versions
+#   linpad apps ...                 optional apps (linpad-apps)
+# Installed by the repair kit (release/guest/linpad-repair) as /usr/local/bin/linpad.
+set -u
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+default() {
+    value=$(cat "/proc/ish/.defaults/$1" 2>/dev/null) || return 1
+    value=${value#\"}
+    value=${value%\"}
+    [ -n "$value" ] && printf '%s\n' "$value"
+}
+
+versions() {
+    printf 'LinPad app       %s\n' "$(default linux.appVersion || echo unknown)"
+    printf 'Linux system     %s\n' "$(cat /usr/share/ish/rootfs-version 2>/dev/null || echo unknown)"
+    printf 'Repair kit       %s\n' "$(cat /usr/share/ish/repair-kit-version 2>/dev/null || echo none)"
+    printf 'Alpine           %s\n' "$(cat /etc/alpine-release 2>/dev/null || echo unknown)"
+}
+
+# The desktop asks before acting on linpad:// links, so this only opens a confirmation.
+ask_desktop() {
+    notify=/tmp/ishwl/notify
+    [ -p "$notify" ] && timeout 2 sh -c 'printf "open %s\n" "$1" > "$2"' sh "$1" "$notify"
+}
+
+update() {
+    packages=1
+    for arg in "$@"; do
+        case $arg in
+        --no-packages) packages=0 ;;
+        *) echo "usage: linpad update [--no-packages]" >&2; exit 2 ;;
+        esac
+    done
+    [ "$(id -u)" = 0 ] || { echo "linpad update: run it as root" >&2; exit 1; }
+    versions
+    status=0
+    if [ $packages = 1 ]; then
+        echo
+        echo "==> Linux packages (apk)"
+        if apk update && apk upgrade; then
+            echo "Packages are up to date."
+        else
+            echo "apk could not finish (offline?). Your packages were left as they were." >&2
+            status=1
+        fi
+    fi
+    echo
+    echo "==> LinPad app and Linux system"
+    if ask_desktop "linpad://update"; then
+        echo "The desktop asks to check GitHub for a newer LinPad and Linux system;"
+        echo "Settings › Updates shows what it finds. Nothing installs without asking."
+    else
+        echo "The desktop is not reachable from here: open Settings › Updates and press Check Now."
+    fi
+    echo
+    echo "LinPad's own fixes (the repair kit) come with app updates and apply on the next start;"
+    echo "Settings › Maintenance › Repair System applies them right away."
+    exit $status
+}
+
+case ${1:-help} in
+    update) shift; update "$@" ;;
+    version|--version|-v) versions ;;
+    apps) shift; exec linpad-apps "$@" ;;
+    help|-h|--help)
+        sed -n '2,6s/^# \{0,1\}//p' "$0"
+        ;;
+    *) echo "linpad: unknown command '$1' (try: linpad help)" >&2; exit 2 ;;
+esac

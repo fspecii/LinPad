@@ -11,7 +11,10 @@ B=build/keymap-test
 mkdir -p "$B"
 wayland-scanner client-header "$XDG" "$B/xdg-shell-client.h"
 wayland-scanner private-code "$XDG" "$B/xdg-shell.c"
-${CC:-cc} -o "$B/keymap-test" tools/keymap-test.c "$B/xdg-shell.c" -I"$B" \
+TI=$(pkg-config --variable=pkgdatadir wayland-protocols)/unstable/text-input/text-input-unstable-v3.xml
+wayland-scanner client-header "$TI" "$B/text-input-unstable-v3-client.h"
+wayland-scanner private-code "$TI" "$B/text-input-unstable-v3.c"
+${CC:-cc} -o "$B/keymap-test" tools/keymap-test.c "$B/xdg-shell.c" "$B/text-input-unstable-v3.c" -I"$B" \
     $(pkg-config --cflags --libs wayland-client xkbcommon) || exit 1
 
 RT=/tmp/keymap-test-rt
@@ -65,6 +68,67 @@ wait $client
 kill $ishwl 2>/dev/null
 wait $ishwl 2>/dev/null
 
+# Phase 2: every printable ASCII character through the on-screen keyboard's `text` path,
+# on each layout. Keys must be ones every client can take: the main block, an X11
+# keycode (<= 255), never evdev's KEY_DOLLAR (434) or KEY_EURO (435), which
+# Chromium/Electron and Xwayland drop ("$" never reached VS Code).
+ASCII_LAYOUTS="us:-:- us:mac:- us:intl:- gb:mac:- de:mac:- de:-:- ch:de_mac:- fr:mac:- ro:std:- ru,us:mac,:-"
+ascii=$(i=32; while [ $i -le 126 ]; do printf "\\$(printf %03o $i)"; i=$((i + 1)); done)
+ascii=$(printf '%b' "$ascii")
+ascii_wire=$(printf '%s' "$ascii" | sed 's/%/%25/g; s/ /%20/g')
+rm -rf "$RT"
+./ishwl -H -r "$RT" -s "$SOCK-2" -vv >"$B/ishwl-ascii.log" 2>&1 &
+ishwl=$!
+for _ in $(seq 50); do [ -p "$RT/events" ] && break; sleep 0.2; done
+WAYLAND_DISPLAY=$SOCK-2 LC_ALL=C "$B/keymap-test" 15 >"$B/client-ascii.log" 2>&1 &
+client=$!
+for _ in $(seq 50); do grep -q "keymap 1" "$B/client-ascii.log" && break; sleep 0.2; done
+send "focus 1"
+expected=
+for spec in $ASCII_LAYOUTS; do
+    IFS=: read -r layout variant options <<EOF2
+$spec
+EOF2
+    send "keymap $layout $variant $options"
+    printf 'text %s\n' "$ascii_wire" > "$RT/events"
+    sleep 4
+    expected="$expected$ascii"
+done
+wait $client
+kill $ishwl 2>/dev/null
+wait $ishwl 2>/dev/null
+
+# Phase 3: the same through an app with an enabled text input (Chromium, GTK, Qt).
+# ishwl then queues keys, text and keymap changes and delivers them one at a time:
+# a keymap change sent while keys are still queued must apply after them, and text
+# must be looked up in the keymap in force when it is delivered, not when it arrived.
+# Characters the layout only has as dead keys, or not at all, are committed as text.
+rm -rf "$RT"
+./ishwl -H -r "$RT" -s "$SOCK-3" -vv >"$B/ishwl-ti.log" 2>&1 &
+ishwl=$!
+for _ in $(seq 50); do [ -p "$RT/events" ] && break; sleep 0.2; done
+WAYLAND_DISPLAY=$SOCK-3 LC_ALL=C TEXTINPUT=1 "$B/keymap-test" 15 >"$B/client-ti.log" 2>&1 &
+client=$!
+for _ in $(seq 50); do grep -q "keymap 1" "$B/client-ti.log" && break; sleep 0.2; done
+send "focus 1"
+ti_expected=
+for spec in us:mac:- de:mac:- fr:mac:-; do
+    IFS=: read -r layout variant options <<EOF2
+$spec
+EOF2
+    send "keymap $layout $variant $options"
+    printf 'text %s\n' "$ascii_wire" > "$RT/events"
+    sleep 6
+    ti_expected="$ti_expected$ascii"
+done
+# Back to back, in one write: the keymap must wait for "abc", and "yz" must use it.
+printf 'keymap us - -\ntext abc\nkeymap de mac -\ntext yz\ntext %%C2%%A3%%E2%%82%%AC\n' > "$RT/events"
+sleep 6
+ti_expected="${ti_expected}abcyz£€"
+wait $client
+kill $ishwl 2>/dev/null
+wait $ishwl 2>/dev/null
+
 echo "--- client"
 cat "$B/client.log"
 echo "--- ishwl (keymap lines)"
@@ -97,5 +161,36 @@ if [ -n "$xwayland" ]; then
 else
     echo "skip Xwayland (not installed)"
 fi
+A=$B/client-ascii.log
+got=$(grep '^text ' "$A" | tail -1 | cut -c6-)
+if [ "$got" = "$expected" ]; then
+    echo "ok   printable ASCII through the text path on $(echo $ASCII_LAYOUTS | wc -w) layouts"
+else
+    echo "FAIL printable ASCII through the text path"
+    echo "     expected: $expected"
+    echo "     got:      $got"
+    fails=$((fails + 1))
+fi
+grep -E "no key for U\+00([2-7][0-9A-F])" "$B/ishwl-ascii.log" && { echo "FAIL ASCII without a key"; fails=$((fails + 1)); }
+if grep -E "type U\+[0-9A-F]+: key ([0-9]+) " "$B/ishwl-ascii.log" | awk '{ for (i = 1; i <= NF; i++) if ($i == "key" && $(i + 1) + 8 > 255) bad = 1 } END { exit !bad }'; then
+    echo "FAIL a character was typed with a keycode above 255"; fails=$((fails + 1))
+else
+    echo "ok   every typed key has an X11 keycode"
+fi
+check "\$ is Shift+4 on us" 'type U\+0024: key 5 mods 42 ' "$B/ishwl-ascii.log"
+check "AltGr is the physical Right Alt (100), not <LVL3>" 'type U\+0040: key 38 mods 100 ' "$B/ishwl-ascii.log"
+check "German ^ is the dead key then Space" 'type U\+005E: key 57 mods 0 0' "$B/ishwl-ascii.log"
+T=$B/client-ti.log
+check "text input enabled in the client" '^textinput enabled' "$T"
+got=$(grep '^text ' "$T" | tail -1 | cut -c6-)
+if [ "$got" = "$ti_expected" ]; then
+    echo "ok   ASCII, keymap changes and £€ in order through a text input"
+else
+    echo "FAIL ASCII through a text input"
+    echo "     expected: $ti_expected"
+    echo "     got:      $got"
+    fails=$((fails + 1))
+fi
+check "German ^ is committed as text with a text input" 'type U\+005E: commit' "$B/ishwl-ti.log"
 echo "keymap-test: $fails failure(s)"
 [ $fails = 0 ]

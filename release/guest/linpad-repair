@@ -149,9 +149,12 @@ put 755 "$G/ish-firstrun" /usr/local/sbin/ish-firstrun
 put 755 "$G/ish-install-vscode" /usr/local/bin/ish-install-vscode
 put 755 "$G/ish-preview" /usr/local/bin/ish-preview
 put 644 "$G/90-firstrun.sh" /etc/ishwl/session.d/90-firstrun.sh
+put 644 "$G/15-lowmem.sh" /etc/ishwl/session.d/15-lowmem.sh
+put 644 "$G/org.a11y.Bus.service" /usr/local/share/dbus-1/services/org.a11y.Bus.service
 put 644 "$G/ish-code.svg" /usr/share/icons/hicolor/scalable/apps/ish-code.svg
 put 644 "$G/linpad/catalog.json" /usr/share/linpad/catalog.json
 put 755 "$G/linpad/linpad-apps" /usr/local/bin/linpad-apps
+put 755 "$G/linpad/linpad" /usr/local/bin/linpad
 put 644 "$G/linpad/sample.pdf" /usr/local/share/linpad/sample.pdf
 put 644 "$G/ish-install-vscode.desktop" /usr/local/share/linpad/ish-install-vscode.desktop
 for f in "$G"/linpad/packs/*.sh; do

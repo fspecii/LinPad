@@ -353,7 +353,11 @@ final class LinuxGUIBridge {
         // Setting the pasteboard posts changedNotification synchronously; without the
         // count taken first, that would echo the text straight back to Linux.
         pasteboardChangeCount = UIPasteboard.general.changeCount + 1
-        UIPasteboard.general.string = String(decoding: data, as: UTF8.self)
+        let text = String(decoding: data, as: UTF8.self)
+        let isSecret = textInputSurfaceID.flatMap { surfaces[$0]?.textInput?.isSecret } ?? false
+        ClipboardHistory.shared.recordLinuxCopy(text, isSecret: isSecret) {
+            UIPasteboard.general.string = text
+        }
         pasteboardChangeCount = UIPasteboard.general.changeCount
     }
 
@@ -502,6 +506,10 @@ final class LinuxGUIBridge {
             // them, so only web URLs are honoured. "preview" always opens Quick Preview
             // (WebKit, hardware video decoding), whatever the URL handler setting says.
             if fields.count > 1, let url = URL(string: Self.unescape(fields[1])),
+               url.scheme?.lowercased() == LinPadLink.scheme, fields[0] == "open" {
+                // linpad:// from `linpad update` and friends: the desktop asks before acting.
+                LinPadLinkInbox.shared.receive(url)
+            } else if fields.count > 1, let url = URL(string: Self.unescape(fields[1])),
                let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" {
                 if fields[0] == "preview" {
                     delegate?.linuxBridge(self, didRequestPreview: url)

@@ -54,8 +54,16 @@ final class KeyboardChromeUITests: XCTestCase {
         }
     }
 
-    private func checkTouchOnly(style: String) {
+    /// The headless simulator sometimes reports a GameController keyboard while UIKit still
+    /// shows the software keyboard, a state no iPad is in; the touch-only path needs neither.
+    static func skipIfSimulatorReportsAKeyboard(_ app: XCUIApplication) throws {
+        let value = app.descendants(matching: .any)["harness.gcKeyboard"].firstMatch.value as? String
+        try XCTSkipIf(value == "connected", "the simulator reports a hardware keyboard (GCKeyboard); touch-only behaviour cannot be exercised")
+    }
+
+    private func checkTouchOnly(style: String) throws {
         let window = launch(style: style, window: "firefox")
+        try Self.skipIfSimulatorReportsAKeyboard(app)
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)).tap()
         settle()
         shot("\(style)-focused")
@@ -78,12 +86,12 @@ final class KeyboardChromeUITests: XCTestCase {
         assertBottomBarClear("keyboard dismissed")
     }
 
-    func testTouchOnlyMacOSDock() {
-        checkTouchOnly(style: "macos")
+    func testTouchOnlyMacOSDock() throws {
+        try checkTouchOnly(style: "macos")
     }
 
-    func testTouchOnlyWindowsTaskbar() {
-        checkTouchOnly(style: "windows")
+    func testTouchOnlyWindowsTaskbar() throws {
+        try checkTouchOnly(style: "windows")
     }
 
     /// A Linux text field brings the keyboard up by itself (text-input-v3); once it is

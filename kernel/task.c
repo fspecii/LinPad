@@ -153,7 +153,7 @@ static void task_run_tlb_cleanup(void *arg) {
 
 void task_run_current() {
     struct cpu_state *cpu = &current->cpu;
-    struct tlb *tlb = calloc(1, sizeof(struct tlb));
+    struct tlb *tlb = tlb_new();
     if (!tlb) die("could not allocate TLB");
 
     // Register cleanup so the TLB (and its fiber_frame) is freed even when

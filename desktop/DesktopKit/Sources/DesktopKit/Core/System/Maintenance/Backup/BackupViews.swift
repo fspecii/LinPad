@@ -33,8 +33,11 @@ struct BackupSettingsRows: View {
         }
         if service.schedule != .off {
             SettingsRow(title: "Keep automatic backups") {
-                Stepper("\(service.keep)", value: $service.keep, in: 1...10)
-                    .fixedSize()
+                HStack(spacing: 10) {
+                    Text("\(service.keep)").monospacedDigit()
+                    Stepper("Keep", value: $service.keep, in: 1...10).labelsHidden()
+                }
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 }
                     .accessibilityIdentifier("settings.backupKeep")
             }
         }

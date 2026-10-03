@@ -88,6 +88,10 @@ final class UpdateService {
     @ObservationIgnored var showSettings: (() -> Void)?
 
     @ObservationIgnored private let host: any LinuxHost
+    /// The host's rollback, when it keeps earlier systems.
+    var rollback: (any LinuxSystemRollingBack)? { host as? any LinuxSystemRollingBack }
+    /// Reads files in the guest (the repair kit's version).
+    var linuxHost: any LinuxHost { host }
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let client: ReleaseClient
     @ObservationIgnored private var downloader: SystemUpdateDownloader?

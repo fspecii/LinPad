@@ -91,6 +91,11 @@ pref("image.mem.surfacecache.max_size_kb", 131072);
 // cache purges) and unloads background tabs, before the kernel starts refusing mmap.
 pref("browser.low_commit_space_threshold_percent", 20);
 pref("browser.tabs.unloadOnLowMemory", true);
+// Tabs become candidates for unloading after a minute in the background, not ten: on
+// an iPad the low-memory watcher fires within minutes of opening a few heavy sites, and
+// with no candidate it has nothing to give back before the out-of-memory monitor
+// (kernel/oom.c) has to close a whole tab process.
+pref("browser.tabs.min_inactive_duration_before_unload", 60000);
 // Fewer frames for decoration: animations cost a full software repaint each.
 pref("toolkit.cosmeticAnimations.enabled", false);
 pref("ui.prefersReducedMotion", 1);

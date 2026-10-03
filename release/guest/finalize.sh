@@ -40,6 +40,8 @@ install -D -m 755 "$src/ish-firstrun" /usr/local/sbin/ish-firstrun
 install -D -m 755 "$src/ish-install-vscode" /usr/local/bin/ish-install-vscode
 install -D -m 755 "$src/ish-preview" /usr/local/bin/ish-preview
 install -D -m 644 "$src/90-firstrun.sh" /etc/ishwl/session.d/90-firstrun.sh
+install -D -m 644 "$src/15-lowmem.sh" /etc/ishwl/session.d/15-lowmem.sh
+install -D -m 644 "$src/org.a11y.Bus.service" /usr/local/share/dbus-1/services/org.a11y.Bus.service
 install -D -m 644 "$src/ish-code.svg" /usr/share/icons/hicolor/scalable/apps/ish-code.svg
 
 # Optional apps (linpad/catalog.json): nothing in the catalog ships preinstalled. The

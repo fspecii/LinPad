@@ -121,6 +121,7 @@ struct LinkConfirmationSheet: View {
         case .importTheme(let name, _): "Add the theme “\(name)”"
         case .applyLook(let look): "Apply the look “\(look.name)”"
         case .installApp(let id): "Install \(pack(id)?.name ?? id)"
+        case .checkUpdates: "Check for updates"
         case .open: "Open LinPad"
         }
     }
@@ -130,6 +131,7 @@ struct LinkConfirmationSheet: View {
         case .installTheme, .importTheme: "paintpalette"
         case .applyLook: "sparkles"
         case .installApp: "shippingbox"
+        case .checkUpdates: "arrow.triangle.2.circlepath"
         case .open: "arrow.up.forward.app"
         }
     }
@@ -145,6 +147,8 @@ struct LinkConfirmationSheet: View {
         case .installApp(let id):
             pack(id).map { "\($0.description) About \($0.sizeText) is downloaded with apk on this iPad." }
                 ?? "The app is installed from LinPad Store."
+        case .checkUpdates:
+            "LinPad looks for a newer app and Linux system on GitHub and shows them in Settings › Updates. Nothing is installed without asking."
         case .open:
             ""
         }
@@ -162,6 +166,7 @@ struct LinkConfirmationSheet: View {
         case .installTheme, .installApp: "Install"
         case .importTheme: "Add & Apply"
         case .applyLook: "Apply Look"
+        case .checkUpdates: "Check"
         case .open: "OK"
         }
     }
@@ -195,6 +200,11 @@ enum LinPadLinkActions {
         let host = controller.host
         switch link {
         case .open:
+            return nil
+        case .checkUpdates:
+            controller.open(appID: AppID.settings, arguments: [SettingsApp.pageArgument: SettingsApp.updatesPage])
+            let service = UpdateService.shared(for: host)
+            Task { await service.checkNow() }
             return nil
         case .installTheme(let git):
             let before = Set(controller.colorThemes.themes.map(\.id))

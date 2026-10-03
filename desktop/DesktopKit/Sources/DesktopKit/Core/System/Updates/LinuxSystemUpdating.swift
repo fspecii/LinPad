@@ -19,3 +19,16 @@ public protocol LinuxSystemUpdating: AnyObject {
     /// been delivered: lets the system take its snapshot and suspend the app again.
     func backgroundDownloadEventsFinished()
 }
+
+/// Optional host capability: go back to the Linux system an update replaced. The app keeps
+/// that system after every update; rolling back makes it the default again at the next
+/// launch, carrying /root, /home and the user's files over, and keeps the newer one.
+@MainActor
+public protocol LinuxSystemRollingBack: AnyObject {
+    /// The kept earlier system's version, or nil when there is none to go back to.
+    var previousSystemVersion: String? { get }
+    /// Whether a rollback is scheduled for the next launch.
+    var isRollbackScheduled: Bool { get }
+    func scheduleRollback() throws
+    func cancelRollback()
+}

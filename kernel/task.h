@@ -57,6 +57,11 @@ struct task {
     // Timestamp (CLOCK_MONOTONIC ns) of last time blocking became false.
     // Used by deadlock detector to check how long ALL threads have been stuck.
     uint64_t last_unblocked_ns;
+    // The last syscalls of this thread (number, first argument, result), for
+    // the crash log (ISH_CRASHLOG=1, kernel/signal.c)
+    struct { uint32_t nr; uint64_t arg0; int64_t result; } recent_syscalls[16];
+    unsigned recent_syscall_pos;
+    bool crash_logged;
 
     struct {
         // Locks all ptrace-related things
@@ -181,7 +186,7 @@ struct tgroup {
     // group. The process is about to BRK anyway — further output is noise.
     // Cleared on execve (new program state).
     bool v8_aborting;
-    int oom_score_adj; // /proc/<pid>/oom_score_adj; stored, has no effect
+    int oom_score_adj; // /proc/<pid>/oom_score_adj; steers the OOM monitor (kernel/oom.c)
 
     struct rusage_ children_rusage;
     cond_t child_exit;

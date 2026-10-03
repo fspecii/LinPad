@@ -65,6 +65,19 @@ NS_ASSUME_NONNULL_BEGIN
 /// to reinstall. The previous root is kept (renamed) until the user deletes it.
 - (BOOL)updateDefaultRootWithProgress:(id<ProgressReporter> _Nullable)progress error:(NSError **)error;
 
+/// The system an update replaced, kept as "<default> (before update <version>)": the newest
+/// such root, or nil when there is none.
+@property (readonly, nullable) NSString *previousRootName;
+/// The rootfs version of previousRootName, or nil.
+@property (readonly, nullable) NSString *previousRootVersion;
+/// Set by Settings › Updates › Roll Back: the root name to roll back to before the next boot.
+@property (nullable) NSString *pendingRollback;
+/// Makes previousRootName the default root again, carrying the same user data as an update
+/// (/root, /home, /opt, /srv, accounts, onboarding and ishwl options) over from the current
+/// one, which is kept as "<default> (rolled back from <version>)". The previous root is
+/// cloned into staging first, so an interrupted rollback leaves both systems as they were.
+- (BOOL)rollBackDefaultRootWithProgress:(id<ProgressReporter> _Nullable)progress error:(NSError **)error;
+
 /// Set by Settings › Maintenance › Reset to Factory (or the Settings app): RootsFactoryResetKeepFiles
 /// or RootsFactoryResetErase. The reset runs before the next boot.
 @property (nullable) NSString *pendingFactoryReset;

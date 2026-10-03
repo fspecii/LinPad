@@ -1,3 +1,4 @@
+#include "kernel/oom.h"
 #include "fs/proc.h"
 #include "fs/proc/ish.h"
 #include "kernel/errno.h"
@@ -160,10 +161,26 @@ static int proc_ish_show_version(struct proc_entry *UNUSED(entry), struct proc_d
     return 0;
 }
 
+static int proc_ish_show_memory(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    oom_show_memory(buf);
+    return 0;
+}
+
+static int proc_ish_show_oom(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    oom_show_policy(buf);
+    return 0;
+}
+
+static int proc_ish_update_oom(struct proc_entry *UNUSED(entry), struct proc_data *data) {
+    return oom_update_policy(data->data, data->size);
+}
+
 struct proc_children proc_ish_children = PROC_CHILDREN({
     {"colors", .show = proc_ish_show_colors},
     {".defaults", S_IFDIR, .readdir = proc_ish_underlying_defaults_readdir},
     {"defaults", S_IFDIR, .readdir = proc_ish_defaults_readdir},
     {"documents", .show = proc_ish_show_documents},
+    {"memory", .show = proc_ish_show_memory},
+    {"oom", 0644, .show = proc_ish_show_oom, .update = proc_ish_update_oom},
     {"version", .show = proc_ish_show_version},
 });

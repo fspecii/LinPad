@@ -42,6 +42,7 @@ static NSURL *DownloadedRootDir(void) {
 static NSString *kDefaultRoot = @"Default Root";
 static NSString *kPendingUpdate = @"linux.pendingSystemUpdate";
 static NSString *kPendingFactoryReset = @"linux.pendingFactoryReset";
+static NSString *kPendingRollback = @"linux.pendingSystemRollback";
 NSString *const RootsFactoryResetKeepFiles = @"keep-files";
 NSString *const RootsFactoryResetErase = @"erase";
 /// iOSFS's remembered iPad folder mounts (app/iOSFS.m), mount point → bookmark.
@@ -600,6 +601,91 @@ static void ListPackagesToReinstall(NSURL *old, NSURL *new) {
         addRoot();
     if (fromDownload)
         [fm removeItemAtURL:DownloadedRootDir() error:nil];
+    return YES;
+}
+
+#pragma mark - Rollback
+
+- (NSString *)previousRootName {
+    NSString *name = self.defaultRoot;
+    if (name == nil)
+        return nil;
+    NSString *prefix = [name stringByAppendingString:@" (before update "];
+    NSString *best = nil;
+    long long bestVersion = -1;
+    for (NSString *root in self.roots) {
+        if (![root hasPrefix:prefix])
+            continue;
+        NSString *version = ReadVersion([[self rootUrl:root] URLByAppendingPathComponent:@"data/usr/share/ish/rootfs-version"]);
+        long long value = version.longLongValue;
+        if (best == nil || value > bestVersion) {
+            best = root;
+            bestVersion = value;
+        }
+    }
+    return best;
+}
+
+- (NSString *)previousRootVersion {
+    NSString *previous = self.previousRootName;
+    return previous ? ReadVersion([[self rootUrl:previous] URLByAppendingPathComponent:@"data/usr/share/ish/rootfs-version"]) : nil;
+}
+
+- (NSString *)pendingRollback {
+    return [NSUserDefaults.standardUserDefaults stringForKey:kPendingRollback];
+}
+- (void)setPendingRollback:(NSString *)pendingRollback {
+    [NSUserDefaults.standardUserDefaults setObject:pendingRollback forKey:kPendingRollback];
+}
+
+- (BOOL)rollBackDefaultRootWithProgress:(id<ProgressReporter>)progress error:(NSError **)error {
+    NSString *name = self.defaultRoot;
+    NSString *previousName = self.pendingRollback ?: self.previousRootName;
+    if (name == nil || previousName == nil || ![self.roots containsObject:previousName]) {
+        *error = [NSError errorWithDomain:@"iSH" code:ENOENT userInfo:@{NSLocalizedDescriptionKey: @"There is no earlier system to roll back to"}];
+        return NO;
+    }
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSURL *current = [self rootUrl:name];
+    NSURL *previous = [self rootUrl:previousName];
+    [fm createDirectoryAtURL:StagingDir() withIntermediateDirectories:YES attributes:nil error:nil];
+    NSURL *staged = [StagingDir() URLByAppendingPathComponent:[@"rollback-" stringByAppendingString:NSProcessInfo.processInfo.globallyUniqueString]];
+    [progress updateProgress:0 message:@"Restoring the earlier system…"];
+    // An APFS clone: instant, and the kept root stays untouched until the swap.
+    if (![fm copyItemAtURL:previous toURL:staged error:error])
+        return NO;
+    [progress updateProgress:0.5 message:@"Keeping your files…"];
+    NSString *message = nil;
+    if (!CarryUserData(current, staged, UpdateKeptPaths(), &message)) {
+        *error = [NSError errorWithDomain:@"iSH" code:EIO userInfo:@{NSLocalizedDescriptionKey: message ?: @"could not keep user data"}];
+        [fm removeItemAtURL:staged error:nil];
+        return NO;
+    }
+    ListPackagesToReinstall(current, staged);
+
+    NSString *newer = [NSString stringWithFormat:@"%@ (rolled back from %@)", name, self.installedRootVersion ?: @"unversioned"];
+    while ([self.roots containsObject:newer] || [fm fileExistsAtPath:[self rootUrl:newer].path])
+        newer = [newer stringByAppendingString:@"+"];
+    if (![fm moveItemAtURL:current toURL:[self rootUrl:newer] error:error]) {
+        [fm removeItemAtURL:staged error:nil];
+        return NO;
+    }
+    if (![fm moveItemAtURL:staged toURL:current error:error]) {
+        [fm moveItemAtURL:[self rootUrl:newer] toURL:current error:nil];
+        [fm removeItemAtURL:staged error:nil];
+        return NO;
+    }
+    // The default root is now that system; its kept copy is no longer needed.
+    void (^updateRoots)(void) = ^{
+        NSMutableOrderedSet *roots = [self mutableOrderedSetValueForKey:@"roots"];
+        [roots addObject:newer];
+        [roots removeObject:previousName];
+    };
+    if (!NSThread.isMainThread)
+        dispatch_sync(dispatch_get_main_queue(), updateRoots);
+    else
+        updateRoots();
+    DeleteInBackground(previous);
     return YES;
 }
 

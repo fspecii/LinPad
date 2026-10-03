@@ -68,10 +68,11 @@ final class DiagnosticsExportModel {
             "events.txt", eventsText())
         let provider = host as? LinuxDiagnosticsProviding
         if let provider {
+            let empty = "(empty: nothing was logged since LinPad started)"
             add("kernel-log", "Linux kernel log", "The newest messages of the emulator's kernel log (what dmesg shows).",
-                "kernel-log.txt", provider.emulatorLog(diagnostic: false, maxBytes: Self.maxLogBytes))
+                "kernel-log.txt", provider.emulatorLog(diagnostic: false, maxBytes: Self.maxLogBytes).nonEmpty ?? empty)
             add("emulator-log", "Emulator diagnostic log", "Messages normally hidden: network waits, unsupported system calls.",
-                "emulator-diagnostic-log.txt", provider.emulatorLog(diagnostic: true, maxBytes: Self.maxLogBytes))
+                "emulator-diagnostic-log.txt", provider.emulatorLog(diagnostic: true, maxBytes: Self.maxLogBytes).nonEmpty ?? empty)
         } else if guestAnswers {
             add("kernel-log", "Linux kernel log", "The newest messages of dmesg.", "kernel-log.txt", await guest("dmesg 2>&1 | tail -c \(Self.maxLogBytes)"))
         }

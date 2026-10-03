@@ -1,22 +1,51 @@
 import SwiftUI
 
 /// One row of the Command Menu: an app, an open window, a desktop command, a toggle, a
-/// colour theme or a look, or a `linpad://` link typed in.
+/// colour theme or a look, a clipboard entry, or a `linpad://` link typed in.
 struct CommandMenuItem: Identifiable {
+    /// Grouped like the Omarchy menu: Apps, Style, Setup, Capture, Toggles, System, Update.
     enum Section: String, CaseIterable {
+        case links = "Links"
+        case sections = "Menu"
+        case clipboard = "Clipboard"
         case windows = "Windows"
         case apps = "Apps"
-        case commands = "Commands"
+        case style = "Style"
+        case setup = "Setup"
+        case capture = "Capture"
         case toggles = "Toggles"
-        case themes = "Themes"
-        case looks = "Looks"
-        case links = "Links"
+        case system = "System"
+        case update = "Update"
+        case commands = "Commands"
+
+        /// The sections the menu's index offers, and the letter that opens each.
+        static let browsable: [(Section, Character)] = [
+            (.apps, "a"), (.style, "s"), (.setup, "e"), (.capture, "c"), (.toggles, "t"), (.system, "y"),
+            (.update, "u"), (.windows, "w"), (.commands, "o"), (.clipboard, "v"),
+        ]
+
+        var symbol: String {
+            switch self {
+            case .apps: "square.grid.2x2"
+            case .style: "paintpalette"
+            case .setup: "gearshape"
+            case .capture: "camera.viewfinder"
+            case .toggles: "switch.2"
+            case .system: "power"
+            case .update: "arrow.down.circle"
+            case .windows: "macwindow.on.rectangle"
+            case .commands: "command"
+            case .clipboard: "doc.on.clipboard"
+            case .links: "link"
+            case .sections: "list.bullet"
+            }
+        }
     }
 
     let id: String
     let title: String
     var subtitle: String?
-    let section: Section
+    var section: Section
     var symbol: String
     var iconName: String?
     var iconURL: URL?
@@ -24,6 +53,10 @@ struct CommandMenuItem: Identifiable {
     var isOn: Bool?
     /// Extra words the search matches (ids, categories).
     var keywords = ""
+    /// Opening a section keeps the menu up; everything else closes it first.
+    var keepsMenuOpen = false
+    /// Clipboard rows: the entry, for pinning and removing.
+    var clipboardEntryID: UUID?
     let run: @MainActor () -> Void
 }
 
@@ -53,7 +86,7 @@ enum CommandMenuSearch {
     }
 
     /// The best matches first; without a query, every item in section order.
-    static func rank(_ items: [CommandMenuItem], query: String, limit: Int = 60) -> [CommandMenuItem] {
+    static func rank(_ items: [CommandMenuItem], query: String, limit: Int = 80) -> [CommandMenuItem] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return Array(items.prefix(limit)) }
         let scored: [(CommandMenuItem, Int)] = items.compactMap { item in
@@ -64,30 +97,53 @@ enum CommandMenuSearch {
         }
         return scored.sorted { $0.1 == $1.1 ? $0.0.title < $1.0.title : $0.1 > $1.1 }.prefix(limit).map(\.0)
     }
+
+    /// Items in the menu's order: sections as `Section.allCases` lists them, stable within.
+    static func ordered(_ items: [CommandMenuItem]) -> [CommandMenuItem] {
+        let order = Dictionary(uniqueKeysWithValues: CommandMenuItem.Section.allCases.enumerated().map { ($1, $0) })
+        return items.enumerated().sorted { lhs, rhs in
+            let (l, r) = (order[lhs.element.section] ?? 0, order[rhs.element.section] ?? 0)
+            return l == r ? lhs.offset < rhs.offset : l < r
+        }.map(\.element)
+    }
 }
 
 /// What the Command Menu shows right now.
 struct CommandMenuState: Equatable {
+    enum Mode: Hashable {
+        /// ⌘K: everything, searchable.
+        case all
+        /// ⌃⌥⇧M: the list of sections; a section's letter opens it.
+        case index
+        case section(CommandMenuItem.Section)
+    }
+
     var query = ""
     var highlighted = 0
+    var mode = Mode.all
 }
 
 extension DesktopController {
     /// ⌘K: opens the Command Menu, or closes it when it is open.
     func toggleCommandMenu() {
-        if commandMenu != nil {
-            commandMenu = nil
+        toggleCommandMenu(.all)
+    }
+
+    /// Opens the menu in `mode`; the same shortcut again closes it.
+    func toggleCommandMenu(_ mode: CommandMenuState.Mode) {
+        if let state = commandMenu {
+            commandMenu = state.mode == mode ? nil : CommandMenuState(mode: mode)
             return
         }
         dismissTransientOverlays()
         isLauncherPresented = false
         themePicker = nil
-        commandMenu = CommandMenuState()
+        commandMenu = CommandMenuState(mode: mode)
     }
 
     func moveCommandMenu(by offset: Int) {
         guard var state = commandMenu else { return }
-        let count = CommandMenuSearch.rank(commandMenuItems(), query: state.query).count
+        let count = commandMenuResults().count
         guard count > 0 else { return }
         state.highlighted = ((state.highlighted + offset) % count + count) % count
         commandMenu = state
@@ -95,14 +151,56 @@ extension DesktopController {
 
     func runHighlightedCommand() {
         guard let state = commandMenu else { return }
-        let results = CommandMenuSearch.rank(commandMenuItems(), query: state.query)
+        let results = commandMenuResults()
         guard results.indices.contains(state.highlighted) else { return }
         run(results[state.highlighted])
     }
 
     func run(_ item: CommandMenuItem) {
-        commandMenu = nil
+        if !item.keepsMenuOpen { commandMenu = nil }
         item.run()
+    }
+
+    /// Typing in the menu. In the index, a section's letter opens that section.
+    func setCommandMenuQuery(_ query: String) {
+        guard var state = commandMenu else { return }
+        if state.mode == .index, query.count == 1, let letter = query.lowercased().first,
+           let section = CommandMenuItem.Section.browsable.first(where: { $0.1 == letter })?.0 {
+            commandMenu = CommandMenuState(mode: .section(section))
+            return
+        }
+        state.query = query
+        state.highlighted = 0
+        commandMenu = state
+    }
+
+    /// What the menu lists for its mode and query.
+    func commandMenuResults() -> [CommandMenuItem] {
+        guard let state = commandMenu else { return [] }
+        let items: [CommandMenuItem]
+        switch state.mode {
+        case .all: items = commandMenuItems().filter { $0.section != .clipboard }
+        case .index: items = sectionIndexItems()
+        case .section(let section):
+            items = commandMenuItems().filter { $0.section == section } + [backToIndexItem()]
+        }
+        return CommandMenuSearch.rank(items, query: state.query)
+    }
+
+    private func backToIndexItem() -> CommandMenuItem {
+        CommandMenuItem(id: "menu:index", title: "All Sections", section: .sections, symbol: "chevron.left",
+                        keywords: "back menu", keepsMenuOpen: true) { [weak self] in
+            self?.commandMenu = CommandMenuState(mode: .index)
+        }
+    }
+
+    private func sectionIndexItems() -> [CommandMenuItem] {
+        CommandMenuItem.Section.browsable.map { section, letter in
+            CommandMenuItem(id: "menu:\(section.rawValue)", title: section.rawValue, section: .sections, symbol: section.symbol,
+                            shortcut: String(letter).uppercased(), keywords: "menu section", keepsMenuOpen: true) { [weak self] in
+                self?.commandMenu = CommandMenuState(mode: .section(section))
+            }
+        }
     }
 
     /// Everything the menu can do, built when it is shown so it reflects the desktop now.
@@ -134,16 +232,98 @@ extension DesktopController {
         }
         for command in DesktopCommand.all where !command.id.hasPrefix("workspace.move.") {
             items.append(CommandMenuItem(id: "command:\(command.id)", title: command.title, subtitle: command.group.rawValue,
-                                         section: .commands, symbol: "command", shortcut: command.shortcutLabel,
-                                         keywords: command.id) { [weak self] in
+                                         section: Self.menuSection(forCommand: command.id), symbol: "command",
+                                         shortcut: command.shortcutLabel, keywords: command.id) { [weak self] in
                 guard let self else { return }
                 command.perform(self)
             })
         }
-        items += maintenanceCommandItems()
+        items += styleItems()
+        items += setupItems()
         items += toggleItems()
+        items += systemItems()
+        items += maintenanceCommandItems().map { item in
+            var item = item
+            item.section = .system
+            return item
+        }
+        items += updateItems()
+        items += clipboardItems()
+        return CommandMenuSearch.ordered(items)
+    }
+
+    /// Desktop commands go under the section a user would look in.
+    static func menuSection(forCommand id: String) -> CommandMenuItem.Section {
+        if id.hasPrefix("capture.") { return .capture }
+        if id.hasPrefix("theme.") || id.hasPrefix("background.") { return .style }
+        if ["launcher", "run", "terminal"].contains(id) { return .apps }
+        if ["shortcuts", "commandMenu", "commandMenu.sections", "clipboard"].contains(id) { return .system }
+        return .commands
+    }
+
+    private func styleItems() -> [CommandMenuItem] {
+        var items: [CommandMenuItem] = []
+        for theme in [nil] + colorThemes.themes.map(Optional.some) {
+            let id = theme?.id ?? ""
+            items.append(CommandMenuItem(id: "theme:\(id)", title: "Theme: \(colorThemes.name(of: id))",
+                                         subtitle: theme.map { $0.isDark ? "Dark colour theme" : "Light colour theme" } ?? "The style's own colours",
+                                         section: .style, symbol: "paintpalette", isOn: colorThemes.currentID == id,
+                                         keywords: "colour color theme \(id)") { [weak self] in
+                self?.applyColorTheme(id)
+            })
+        }
+        for look in DesktopLook.builtIn + DesktopLook.loadUserLooks() {
+            items.append(CommandMenuItem(id: "look:\(look.id)", title: "Look: \(look.name)", subtitle: look.style.displayName,
+                                         section: .style, symbol: "sparkles", keywords: "look preset") { [weak self] in
+                self?.applyLook(look)
+            })
+        }
+        return items
+    }
+
+    private func settingsItem(_ id: String, _ title: String, page: String?, symbol: String, keywords: String) -> CommandMenuItem {
+        CommandMenuItem(id: "setup:\(id)", title: title, subtitle: "Settings", section: .setup, symbol: symbol,
+                        keywords: keywords) { [weak self] in
+            self?.open(appID: AppID.settings, arguments: page.map { [SettingsApp.pageArgument: $0] } ?? [:])
+        }
+    }
+
+    private func setupItems() -> [CommandMenuItem] {
+        [
+            settingsItem("settings", "Settings", page: nil, symbol: "gearshape", keywords: "preferences"),
+            settingsItem("wallpaper", "Wallpaper", page: SettingsApp.wallpaperPage, symbol: "photo", keywords: "background"),
+            settingsItem("icons", "Icon Packs", page: SettingsApp.iconsPage, symbol: "square.grid.3x3", keywords: "icons"),
+            settingsItem("apps", "Install Apps", page: SettingsApp.appsPage, symbol: "bag", keywords: "store packages install"),
+            settingsItem("keyboard", "Keyboard & Shortcuts", page: SettingsApp.shortcutsPage, symbol: "keyboard",
+                         keywords: "keys shortcuts modifier extra keys"),
+            settingsItem("screensaver", "Screensaver & Lock", page: SettingsApp.idlePage, symbol: "sparkles.tv",
+                         keywords: "idle screensaver lock timeout"),
+            settingsItem("performance", "Performance", page: SettingsApp.performancePage, symbol: "speedometer",
+                         keywords: "firefox video scale"),
+            CommandMenuItem(id: "setup:onboarding", title: "Welcome Tour", subtitle: "Setup", section: .setup,
+                            symbol: "hand.wave", keywords: "onboarding setup intro") { [weak self] in
+                self?.presentOnboarding()
+            },
+        ]
+    }
+
+    private func systemItems() -> [CommandMenuItem] {
+        var items = [
+            CommandMenuItem(id: "system:clipboard", title: "Clipboard History", section: .system, symbol: "doc.on.clipboard",
+                            shortcut: "⌃⌥V", keywords: "paste copy history", keepsMenuOpen: true) { [weak self] in
+                self?.commandMenu = CommandMenuState(mode: .section(.clipboard))
+            },
+            CommandMenuItem(id: "system:screensaver", title: "Start Screensaver", section: .system, symbol: "sparkles.tv",
+                            keywords: "idle saver") { [weak self] in
+                self?.idle.showScreensaver()
+            },
+            CommandMenuItem(id: "system:lock", title: "Lock Screen", section: .system, symbol: "lock",
+                            keywords: "lock away") { [weak self] in
+                self?.lockScreen()
+            },
+        ]
         for (title, step) in [("Brightness Up", 0.1), ("Brightness Down", -0.1)] {
-            items.append(CommandMenuItem(id: "brightness:\(step)", title: title, section: .commands,
+            items.append(CommandMenuItem(id: "brightness:\(step)", title: title, section: .system,
                                          symbol: step > 0 ? "sun.max" : "sun.min", keywords: "screen display") { [weak self] in
                 let level = min(max(UIScreen.main.brightness + step, 0), 1)
                 UIScreen.main.brightness = level
@@ -152,7 +332,7 @@ extension DesktopController {
         }
         if let controls = systemControls, controls.volume != nil {
             for (title, step) in [("Volume Up", Float(0.1)), ("Volume Down", Float(-0.1))] {
-                items.append(CommandMenuItem(id: "volume:\(step)", title: title, subtitle: "Linux audio", section: .commands,
+                items.append(CommandMenuItem(id: "volume:\(step)", title: title, subtitle: "Linux audio", section: .system,
                                              symbol: step > 0 ? "speaker.wave.3" : "speaker.wave.1", keywords: "sound audio") { [weak self] in
                     let level = min(max((controls.volume ?? 0) + step, 0), 1)
                     controls.volume = level
@@ -160,22 +340,43 @@ extension DesktopController {
                 })
             }
         }
-        for theme in [nil] + colorThemes.themes.map(Optional.some) {
-            let id = theme?.id ?? ""
-            items.append(CommandMenuItem(id: "theme:\(id)", title: "Theme: \(colorThemes.name(of: id))",
-                                         subtitle: theme.map { $0.isDark ? "Dark colour theme" : "Light colour theme" } ?? "The style's own colours",
-                                         section: .themes, symbol: "paintpalette", isOn: colorThemes.currentID == id,
-                                         keywords: "colour color theme \(id)") { [weak self] in
-                self?.applyColorTheme(id)
-            })
-        }
-        for look in DesktopLook.builtIn + DesktopLook.loadUserLooks() {
-            items.append(CommandMenuItem(id: "look:\(look.id)", title: "Look: \(look.name)", subtitle: look.style.displayName,
-                                         section: .looks, symbol: "sparkles", keywords: "look preset") { [weak self] in
-                self?.applyLook(look)
-            })
-        }
         return items
+    }
+
+    private func updateItems() -> [CommandMenuItem] {
+        [
+            CommandMenuItem(id: "update:check", title: "Check for Updates", subtitle: "App and Linux system", section: .update,
+                            symbol: "arrow.triangle.2.circlepath", keywords: "update upgrade release") { [weak self] in
+                guard let self else { return }
+                open(appID: AppID.settings, arguments: [SettingsApp.pageArgument: SettingsApp.updatesPage])
+                let service = UpdateService.shared(for: host)
+                Task { await service.checkNow() }
+            },
+            CommandMenuItem(id: "update:linpad", title: "Update Everything in a Terminal", subtitle: "linpad update",
+                            section: .update, symbol: "terminal", keywords: "apk upgrade packages repair kit") { [weak self] in
+                self?.open(appID: AppID.terminal, arguments: [AppArgument.command: "linpad update"])
+            },
+            settingsItem("updates", "Updates & Rollback", page: SettingsApp.updatesPage, symbol: "clock.arrow.circlepath",
+                         keywords: "update version roll back rollback"),
+        ].map { item in
+            var item = item
+            item.section = .update
+            return item
+        }
+    }
+
+    private func clipboardItems() -> [CommandMenuItem] {
+        let history = ClipboardHistory.shared
+        return history.entries.map { entry in
+            let age = entry.date.formatted(.relative(presentation: .named))
+            return CommandMenuItem(id: "clipboard:\(entry.id)", title: entry.title,
+                                   subtitle: "\(entry.source.title) · \(age)\(entry.isPinned ? " · Pinned" : "")",
+                                   section: .clipboard, symbol: entry.isPinned ? "pin.fill" : entry.imageFile != nil ? "photo" : "doc.on.clipboard",
+                                   keywords: entry.text ?? "image", clipboardEntryID: entry.id) { [weak self] in
+                history.restore(entry)
+                self?.notify("Copied to the clipboard. Paste with ⌘V.")
+            }
+        }
     }
 
     private func toggleItems() -> [CommandMenuItem] {
@@ -183,6 +384,8 @@ extension DesktopController {
         let defaults = UserDefaults.standard
         let showsIcons = defaults.object(forKey: DesktopFolderModel.showIconsKey) as? Bool ?? true
         let showsPerformance = defaults.bool(forKey: DesktopSettings.performanceOverlayKey)
+        let keepAwake = defaults.bool(forKey: IdleSettings.keepAwakeKey)
+        let history = ClipboardHistory.shared
         return [
             CommandMenuItem(id: "toggle:tiling", title: "Auto-Tiling", subtitle: manager.title(ofWorkspace: manager.currentWorkspace),
                             section: .toggles, symbol: "rectangle.split.2x1", isOn: manager.isTiling(workspace: manager.currentWorkspace),
@@ -198,17 +401,25 @@ extension DesktopController {
                             isOn: notifications.doNotDisturb, keywords: "notifications quiet") { [weak self] in
                 self?.notifications.doNotDisturb.toggle()
             },
+            CommandMenuItem(id: "toggle:keepAwake", title: "Keep Awake", subtitle: "No screensaver or idle lock",
+                            section: .toggles, symbol: "cup.and.saucer", isOn: keepAwake, keywords: "idle caffeine") {
+                UserDefaults.standard.set(!keepAwake, forKey: IdleSettings.keepAwakeKey)
+            },
+            CommandMenuItem(id: "toggle:clipboardPause", title: "Pause Clipboard History", section: .toggles,
+                            symbol: "pause.circle", isOn: history.isPaused, keywords: "privacy clipboard") {
+                history.isPaused.toggle()
+            },
             CommandMenuItem(id: "toggle:icons", title: "Desktop Icons", section: .toggles, symbol: "square.grid.2x2",
                             isOn: showsIcons, keywords: "desktop icons show hide") {
                 UserDefaults.standard.set(!showsIcons, forKey: DesktopFolderModel.showIconsKey)
             },
             CommandMenuItem(id: "toggle:rice", title: "Rice Mode Screenshots", subtitle: "No panels, framed on the wallpaper",
-                            section: .toggles, symbol: "camera.aperture", isOn: DesktopCapture.riceMode,
+                            section: .capture, symbol: "camera.aperture", isOn: DesktopCapture.riceMode,
                             keywords: "screenshot share frame") {
                 UserDefaults.standard.set(!DesktopCapture.riceMode, forKey: DesktopCapture.riceModeKey)
             },
             CommandMenuItem(id: "toggle:mic", title: "Record the Microphone", subtitle: "With screen recordings",
-                            section: .toggles, symbol: "mic.fill",
+                            section: .capture, symbol: "mic.fill",
                             isOn: UserDefaults.standard.bool(forKey: DesktopCapture.microphoneKey), keywords: "screen recording audio") {
                 let key = DesktopCapture.microphoneKey
                 UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: key), forKey: key)
@@ -230,7 +441,7 @@ struct CommandMenuView: View {
     private var state: CommandMenuState { controller.commandMenu ?? CommandMenuState() }
 
     var body: some View {
-        let results = CommandMenuSearch.rank(controller.commandMenuItems(), query: state.query)
+        let results = controller.commandMenuResults()
         ZStack(alignment: .top) {
             theme.scrim
                 .ignoresSafeArea()
@@ -240,9 +451,9 @@ struct CommandMenuView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
                     ThemeGlyph(symbol: "magnifyingglass", size: 15).foregroundStyle(theme.secondaryText)
-                    TextField("Apps, windows, commands, themes, linpad:// links", text: Binding(
+                    TextField(placeholder, text: Binding(
                         get: { state.query },
-                        set: { controller.commandMenu = CommandMenuState(query: $0, highlighted: 0) }))
+                        set: { controller.setCommandMenuQuery($0) }))
                         .textFieldStyle(.plain)
                         .font(.system(size: 17))
                         .autocorrectionDisabled()
@@ -250,7 +461,11 @@ struct CommandMenuView: View {
                         .focused($fieldFocused)
                         .onSubmit { controller.runHighlightedCommand() }
                         .accessibilityIdentifier("commandMenu.search")
-                    Text("⌘K").font(.caption.monospaced()).foregroundStyle(theme.secondaryText)
+                        // A section's letter switches mode and clears the query; a fresh
+                        // field drops the letter the old one still shows.
+                        .id(state.mode)
+                        .onChange(of: state.mode) { fieldFocused = true }
+                    Text(shortcutHint).font(.caption.monospaced()).foregroundStyle(theme.secondaryText)
                 }
                 .padding(.horizontal, 16)
                 .frame(height: 52)
@@ -258,8 +473,10 @@ struct CommandMenuView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 1) {
-                            if results.isEmpty {
-                                Text("Nothing matches “\(state.query)”")
+                            if results.isEmpty || isClipboard && results.count == 1 && state.query.isEmpty {
+                                Text(isClipboard && state.query.isEmpty
+                                     ? (ClipboardHistory.shared.isPaused ? "History is paused." : "Nothing copied yet. Copies made in LinPad and in Linux apps show up here.")
+                                     : "Nothing matches “\(state.query)”")
                                     .font(.callout).foregroundStyle(theme.secondaryText)
                                     .padding(16)
                             }
@@ -275,12 +492,9 @@ struct CommandMenuView: View {
                         if results.indices.contains(index) { proxy.scrollTo(results[index].id, anchor: .center) }
                     }
                 }
-                .frame(maxHeight: 420)
+                .frame(maxHeight: listHeight)
                 theme.separator.frame(height: 1)
-                Text("↑↓ choose · Return runs · Esc closes")
-                    .font(.caption).foregroundStyle(theme.secondaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16).padding(.vertical, 8)
+                footer
             }
             .frame(width: 640)
             .background(RoundedRectangle(cornerRadius: theme.cornerRadius + 4, style: .continuous).fill(theme.windowBackground))
@@ -292,6 +506,67 @@ struct CommandMenuView: View {
             .accessibilityIdentifier("commandMenu")
         }
         .onAppear { fieldFocused = true }
+    }
+
+    private var isClipboard: Bool { state.mode == .section(.clipboard) }
+
+    /// The list shrinks above the on-screen keyboard so the footer stays reachable.
+    private var listHeight: CGFloat {
+        let manager = controller.windowManager
+        let available = manager.desktopSize.height - manager.keyboard.overlap - 70 - 52 - 40 - 24
+        return max(140, min(420, available))
+    }
+
+    private var placeholder: String {
+        switch state.mode {
+        case .all: "Apps, windows, commands, themes, linpad:// links"
+        case .index: "Type a section's letter, or search"
+        case .section(.clipboard): "Search the clipboard history"
+        case .section(let section): "Search \(section.rawValue)"
+        }
+    }
+
+    private var shortcutHint: String {
+        switch state.mode {
+        case .all: "⌘K"
+        case .index: "⌃⌥⇧M"
+        case .section(.clipboard): "⌃⌥V"
+        case .section(let section): section.rawValue
+        }
+    }
+
+    @ViewBuilder
+    private var footer: some View {
+        HStack(spacing: 14) {
+            Text(isClipboard ? "Return copies · Esc closes" : "↑↓ choose · Return runs · Esc closes")
+                .font(.caption).foregroundStyle(theme.secondaryText)
+            Spacer()
+            if isClipboard {
+                let history = ClipboardHistory.shared
+                Button(history.isPaused ? "Resume History" : "Pause History") { history.isPaused.toggle() }
+                    .accessibilityIdentifier("clipboard.pause")
+                Button("Clear", role: .destructive) { history.clear() }
+                    .disabled(history.entries.allSatisfy(\.isPinned))
+                    .accessibilityIdentifier("clipboard.clear")
+            }
+        }
+        .font(.caption.weight(.medium))
+        .buttonStyle(.plain)
+        .foregroundStyle(theme.accent)
+        .padding(.horizontal, 16).padding(.vertical, 8)
+    }
+
+    private func pinButton(_ id: UUID, isHighlighted: Bool) -> some View {
+        let pinned = ClipboardHistory.shared.entries.first { $0.id == id }?.isPinned == true
+        return Button { ClipboardHistory.shared.togglePin(id) } label: {
+            Image(systemName: pinned ? "pin.fill" : "pin").font(.system(size: 12))
+                .foregroundStyle(isHighlighted ? theme.accent.readableLabel : theme.secondaryText)
+                .frame(width: 30, height: 30).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.trailing, 6)
+        .accessibilityLabel(pinned ? "Unpin Entry" : "Pin Entry")
+        .accessibilityIdentifier("clipboard.pin.\(id)")
     }
 
     private func row(_ item: CommandMenuItem, isHighlighted: Bool, showsSection: Bool) -> some View {
@@ -335,8 +610,18 @@ struct CommandMenuView: View {
             }
             .buttonStyle(.plain)
             .hoverEffect(.highlight)
+            .contextMenu {
+                if let id = item.clipboardEntryID {
+                    let pinned = ClipboardHistory.shared.entries.first { $0.id == id }?.isPinned == true
+                    Button(pinned ? "Unpin" : "Pin", systemImage: pinned ? "pin.slash" : "pin") { ClipboardHistory.shared.togglePin(id) }
+                    Button("Remove", systemImage: "trash", role: .destructive) { ClipboardHistory.shared.remove(id) }
+                }
+            }
             .accessibilityIdentifier("commandMenu.item.\(item.id)")
             .accessibilityAddTraits(isHighlighted ? .isSelected : [])
+            .overlay(alignment: .trailing) {
+                if let id = item.clipboardEntryID { pinButton(id, isHighlighted: isHighlighted) }
+            }
         }
     }
 }

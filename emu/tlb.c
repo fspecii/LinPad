@@ -4,6 +4,10 @@
 #include "kernel/memory.h"
 #include "kernel/fs.h"
 #include "util/sync.h"
+#include <sys/mman.h>
+#ifdef ISH_JIT
+#include "asbestos/asbestos.h"
+#endif
 
 uint64_t mmu_new_id(void) {
     static uint64_t next_id = 1;
@@ -25,8 +29,25 @@ void tlb_refresh(struct tlb *tlb, struct mmu *mmu) {
     tlb->mmu = mmu;
     tlb->mmu_id = mmu->id;
     tlb->dirty_page = TLB_PAGE_EMPTY;
+#ifdef ISH_JIT
+    // Under the native JIT this TLB only serves the gadget engine's fallbacks, which
+    // flush it first whenever mem_changes is behind mmu->changes (jit/jit.c). Flushing
+    // here, on every return from a syscall after any mmap in the process, wrote all
+    // 256 KB of every thread's TLB (resident memory per guest thread, and CPU). Leave it
+    // behind instead: changes only grows, so the entries stay unused until a flush.
+    if (mmu->asbestos != NULL && mmu->asbestos->jit != NULL) {
+        tlb->mem_changes = (unsigned) (mmu->changes - 1);
+        return;
+    }
+#endif
     tlb->mem_changes = mmu->changes;
     tlb_flush(tlb);
+}
+
+struct tlb *tlb_new(void) {
+    size_t size = (sizeof(struct tlb) + real_page_size - 1) & ~(real_page_size - 1);
+    void *tlb = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    return tlb == MAP_FAILED ? NULL : tlb;
 }
 
 void tlb_flush(struct tlb *tlb) {
@@ -38,7 +59,7 @@ void tlb_flush(struct tlb *tlb) {
 void tlb_free(struct tlb *tlb) {
     if (tlb->frame != NULL)
         free(tlb->frame);
-    free(tlb);
+    munmap(tlb, (sizeof(struct tlb) + real_page_size - 1) & ~(real_page_size - 1));
 }
 
 bool __tlb_read_cross_page(struct tlb *tlb, addr_t addr, char *value, unsigned size) {

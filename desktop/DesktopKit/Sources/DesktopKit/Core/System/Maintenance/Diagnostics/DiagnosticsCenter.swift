@@ -255,8 +255,10 @@ public final class DiagnosticsCenter {
 
     func snapshotEmulatorLog() {
         guard let host = diagnosticsHost else { return }
-        let text = "--- kernel log ---\n" + host.emulatorLog(diagnostic: false, maxBytes: 64 << 10)
-            + "\n--- diagnostic log ---\n" + host.emulatorLog(diagnostic: true, maxBytes: 64 << 10)
+        let kernel = host.emulatorLog(diagnostic: false, maxBytes: 64 << 10)
+        let diagnostic = host.emulatorLog(diagnostic: true, maxBytes: 64 << 10)
+        guard !kernel.isEmpty || !diagnostic.isEmpty else { return }
+        let text = "--- kernel log ---\n" + kernel + "\n--- diagnostic log ---\n" + diagnostic
         try? Data(text.utf8).write(to: logSnapshotURL, options: .atomic)
     }
 

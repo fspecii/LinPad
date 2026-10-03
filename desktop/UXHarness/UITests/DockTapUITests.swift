@@ -72,8 +72,9 @@ final class DockTapUITests: XCTestCase {
         XCTAssertTrue(isShown(window("files")), "a window behind another comes forward, not minimized")
     }
 
-    func testLinuxWindowFromTheDock() {
+    func testLinuxWindowFromTheDock() throws {
         launch(style: "macos", extra: ["-desktop.fakeLinuxWindow", "firefox"])
+        try KeyboardChromeUITests.skipIfSimulatorReportsAKeyboard(app)
         let firefox = dockButton("Firefox")
         XCTAssertTrue(firefox.waitForExistence(timeout: 5))
         waitFor("the Linux window is up") { isShown(window("linux:firefox")) }

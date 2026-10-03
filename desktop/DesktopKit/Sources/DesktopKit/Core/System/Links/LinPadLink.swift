@@ -6,6 +6,7 @@ import Foundation
 ///   linpad://theme/import?name=<name>&colors=<b64>    a theme's colors.toml inline (base64url)
 ///   linpad://look/<b64>                               a Look (style, colour theme, styling) as base64url JSON
 ///   linpad://app/install?id=<catalog id>              an optional app from Settings › Apps
+///   linpad://update                                   check for app and Linux system updates (`linpad update`)
 ///   linpad://                                         just opens LinPad (e.g. back from LocalDevVPN)
 ///
 /// Everything in a link is untrusted: parsing validates and clamps it, and the desktop
@@ -15,6 +16,7 @@ enum LinPadLink: Equatable, Sendable {
     case importTheme(name: String, colorsToml: String)
     case applyLook(DesktopLook)
     case installApp(id: String)
+    case checkUpdates
     case open
 
     static let scheme = "linpad"
@@ -52,6 +54,8 @@ enum LinPadLink: Equatable, Sendable {
         case ("app", "install"):
             guard let id = query("id"), isCatalogID(id) else { return nil }
             return .installApp(id: id)
+        case ("update", nil), ("update", "check"):
+            return .checkUpdates
         default:
             return nil
         }
@@ -65,6 +69,8 @@ enum LinPadLink: Equatable, Sendable {
         switch self {
         case .open:
             components.host = "open"
+        case .checkUpdates:
+            components.host = "update"
         case .installTheme(let git):
             components.host = "theme"
             components.path = "/install"

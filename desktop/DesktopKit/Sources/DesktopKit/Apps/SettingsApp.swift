@@ -61,6 +61,9 @@ enum SettingsApp {
     static let appsPage = "apps"
     static let updatesPage = "updates"
     static let maintenancePage = "maintenance"
+    static let shortcutsPage = "shortcuts"
+    static let idlePage = "screensaver"
+    static let performancePage = "performance"
 
     static func descriptor() -> DesktopAppDescriptor {
         DesktopAppDescriptor(
@@ -181,8 +184,13 @@ struct SettingsAppView: View {
                     }
                     desktopSection
                     PerformanceSettingsSection(host: host)
+                        .id(SettingsApp.performancePage)
+                    MemorySettingsSection(host: host)
+                    IdleSettingsSection(controller: desktopController)
+                        .id(SettingsApp.idlePage)
                     tilingSection
                     shortcutsSection
+                        .id(SettingsApp.shortcutsPage)
                     UpdatesSettingsSection(service: UpdateService.shared(for: host))
                         .id(SettingsApp.updatesPage)
                     MaintenanceSettingsSection(service: SystemMaintenanceService.shared(for: host))

@@ -373,6 +373,67 @@ static void setup_rt_sigframe(struct siginfo_ *info, struct rt_sigframe_ *frame)
     memcpy(frame->retcode, &rt_retcode, sizeof(rt_retcode));
 }
 
+// ISH_CRASHLOG=1 (or ISH_LOG): a process killed by a crash signal is logged on the
+// host's stderr with where it was, the mapping (library + offset) of its pc and lr,
+// and the thread's last syscalls, so a soak can tell which process died and why.
+static bool crashlog_enabled(void) {
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("ISH_CRASHLOG");
+        on = (e != NULL && e[0] == '1') || ish_log_enabled();
+    }
+    return on;
+}
+
+static void describe_addr(addr_t addr, char *out, size_t size) {
+    snprintf(out, size, "?");
+    struct mem *mem = current->mem;
+    if (mem == NULL)
+        return;
+    read_wrlock(&mem->lock);
+    struct pt_entry *entry = mem_pt(mem, PAGE(addr));
+    if (entry != NULL && entry->data != NULL) {
+        char path[MAX_PATH] = "[anon]";
+        if (entry->data->fd != NULL && generic_getpath(entry->data->fd, path) < 0)
+            snprintf(path, sizeof(path), "[file]");
+        // offset in the file: the mapping's file offset + the page's offset in it
+        unsigned long long off = entry->data->file_offset + entry->offset - (entry->offset % PAGE_SIZE) +
+                                 PGOFFSET(addr);
+        snprintf(out, size, "%s+%#llx", path, entry->data->fd != NULL ? off : (unsigned long long) PGOFFSET(addr));
+    }
+    read_wrunlock(&mem->lock);
+}
+
+void log_crash(int sig, int code, addr_t fault_addr) {
+    if (!crashlog_enabled() || current == NULL || current->crash_logged)
+        return;
+    current->crash_logged = true;
+    struct cpu_state *cpu = &current->cpu;
+    char pc_where[MAX_PATH + 32], lr_where[MAX_PATH + 32];
+#ifdef GUEST_ARM64
+    addr_t pc = cpu->pc, lr = cpu->regs[30], sp = cpu->sp;
+#else
+    addr_t pc = cpu->eip, lr = 0, sp = cpu->esp;
+#endif
+    describe_addr(pc, pc_where, sizeof(pc_where));
+    describe_addr(lr, lr_where, sizeof(lr_where));
+    char line[2048];
+    int n = snprintf(line, sizeof(line),
+            "ish crash: pid %d tgid %d (%s) signal %d code %d addr %#llx pc %#llx %s lr %#llx %s sp %#llx\n"
+            "ish crash:   last syscalls (oldest first):",
+            current->pid, current->tgid, current->comm, sig, code,
+            (unsigned long long) fault_addr, (unsigned long long) pc, pc_where,
+            (unsigned long long) lr, lr_where, (unsigned long long) sp);
+    unsigned count = current->recent_syscall_pos < 16 ? current->recent_syscall_pos : 16;
+    for (unsigned i = 0; i < count && n < (int) sizeof(line) - 64; i++) {
+        unsigned slot = (current->recent_syscall_pos - count + i) % 16;
+        n += snprintf(line + n, sizeof(line) - n, " %u(%#llx)=%lld", current->recent_syscalls[slot].nr,
+                (unsigned long long) current->recent_syscalls[slot].arg0,
+                (long long) current->recent_syscalls[slot].result);
+    }
+    fprintf(stderr, "%s\n", line);
+}
+
 static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
     int sig = info->sig;
     STRACE("%d receiving signal %d\n", current->pid, sig);
@@ -391,6 +452,9 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
 
         case SIGNAL_KILL:
             unlock(&sighand->lock); // do_exit must be called without this lock
+            if (sig == SIGSEGV_ || sig == SIGBUS_ || sig == SIGILL_ || sig == SIGABRT_ || sig == SIGFPE_ ||
+                    sig == SIGTRAP_ || sig == SIGSYS_)
+                log_crash(sig, info->code, info->fault.addr);
 #ifdef GUEST_ARM64
             // V8's IMMEDIATE_CRASH() uses BRK #0 on ARM64 (delivers SIGTRAP).
             // Generic recovery: unwind the current function frame and return 0

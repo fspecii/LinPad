@@ -27,6 +27,7 @@
 #import "UIApplication+OpenURL.h"
 #include "kernel/init.h"
 #include "kernel/calls.h"
+#include "kernel/oom.h"
 #include "fs/dyndev.h"
 #include "fs/devices.h"
 #include "fs/path.h"
@@ -162,6 +163,32 @@ static void ApplyJITSettings(void) {
     NSInteger mb = [NSUserDefaults.standardUserDefaults integerForKey:kFastModeCodeCacheKey];
     if (mb >= 32 && mb <= 1024)
         setenv("ISH_JIT_CACHE_MB", [NSString stringWithFormat:@"%ld", (long) mb].UTF8String, 1);
+}
+
+// Settings › Performance › Memory (desktop/DesktopKit MemorySettings.swift). The
+// out-of-memory monitor (kernel/oom.c) reads these when the kernel starts; the panel
+// also changes a running one through /proc/ish/oom.
+static NSString *const kMemoryCloseAppsKey = @"memory.closeAppsOnLowMemory"; // default on
+static NSString *const kMemoryProtectKey = @"memory.protectedApps";
+static void ApplyMemorySettings(void) {
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    if ([defaults objectForKey:kMemoryCloseAppsKey] != nil && ![defaults boolForKey:kMemoryCloseAppsKey])
+        setenv("ISH_OOM", "0", 1);
+    NSString *protect = [defaults stringForKey:kMemoryProtectKey];
+    if (protect.length > 0)
+        setenv("ISH_OOM_PROTECT", protect.UTF8String, 1);
+}
+
+// Called on the monitor's thread after it closed a guest process; the desktop shows
+// the message (DesktopController observes the notification).
+static void ios_handle_oom_kill(const char *app, const char *message) {
+    NSString *appName = @(app);
+    NSString *text = @(message);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [NSNotificationCenter.defaultCenter postNotificationName:@"LinPadGuestAppClosedForMemory"
+                                                          object:nil
+                                                        userInfo:@{@"app": appName, @"message": text}];
+    });
 }
 
 static void *JITSymbol(const char *name) {
@@ -450,6 +477,7 @@ static void RequestFastMode(BOOL afterBoot, void (^done)(BOOL on)) {
     
     exit_hook = ios_handle_exit;
     die_handler = ios_handle_die;
+    oom_kill_hook = ios_handle_oom_kill;
 #if !TARGET_OS_SIMULATOR
     NSString *sockTmp = [NSTemporaryDirectory() stringByAppendingString:@"ishsock"];
     sock_tmp_prefix = strdup(sockTmp.UTF8String);
@@ -670,7 +698,16 @@ static NSString *TakeFactoryResetRequest(Roots *roots) {
     }
     NSString *reset = TakeFactoryResetRequest(roots);
     BOOL keepFiles = [reset isEqualToString:RootsFactoryResetKeepFiles];
+    // A rollback replaces a pending update; a factory reset replaces both.
+    BOOL rollback = !import && reset == nil && roots.pendingRollback != nil;
+    if (rollback && (![roots.roots containsObject:roots.pendingRollback] || !DesktopEnabled())) {
+        rollback = NO;
+        roots.pendingRollback = nil;
+    }
+    if (rollback)
+        update = nil;
     if (reset != nil) {
+        roots.pendingRollback = nil;
         import = NO;
         update = nil;
         if (!DesktopEnabled()) {
@@ -682,7 +719,7 @@ static NSString *TakeFactoryResetRequest(Roots *roots) {
             reset = nil;
         }
     }
-    if (!DesktopEnabled() || (!import && update == nil && reset == nil)) {
+    if (!DesktopEnabled() || (!import && update == nil && reset == nil && !rollback)) {
         void (^boot)(void) = ^{
             CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
             bootError = [self boot];
@@ -698,6 +735,7 @@ static NSString *TakeFactoryResetRequest(Roots *roots) {
     }
 
     NSString *title = reset ? (keepFiles ? @"Resetting Linux (keeping your files)…" : @"Resetting Linux…")
+                            : rollback ? @"Rolling back Linux…"
                             : import ? @"Unpacking Linux…" : @"Updating Linux…";
     SetBootState(ISHBootPhaseUnpacking, 0, title, @"");
     UIApplication *app = UIApplication.sharedApplication;
@@ -705,11 +743,12 @@ static NSString *TakeFactoryResetRequest(Roots *roots) {
         [app endBackgroundTask:task];
         task = UIBackgroundTaskInvalid;
     }];
-    RootImportProgress *progress = [[RootImportProgress alloc] initWithArchive:import ? roots.bundledRootArchive : roots.updateRootArchive title:title];
+    RootImportProgress *progress = [[RootImportProgress alloc] initWithArchive:rollback ? nil : import ? roots.bundledRootArchive : roots.updateRootArchive title:title];
     CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSError *error;
         BOOL ok = reset ? [roots resetDefaultRootKeepingFiles:keepFiles progress:progress error:&error]
+                : rollback ? [roots rollBackDefaultRootWithProgress:progress error:&error]
                 : import ? [roots importBundledRootWithProgress:progress error:&error]
                          : [roots updateDefaultRootWithProgress:progress error:&error];
         CFAbsoluteTime unpacked = CFAbsoluteTimeGetCurrent();
@@ -718,12 +757,14 @@ static NSString *TakeFactoryResetRequest(Roots *roots) {
                 [app endBackgroundTask:task];
                 task = UIBackgroundTaskInvalid;
             }
-            RecordBootStat(reset ? @"reset_seconds" : import ? @"import_seconds" : @"update_seconds",
+            RecordBootStat(reset ? @"reset_seconds" : rollback ? @"rollback_seconds" : import ? @"import_seconds" : @"update_seconds",
                            [NSString stringWithFormat:@"%.2f%@", unpacked - start, ok ? @"" : @" (failed)"]);
             if (!import)
                 roots.pendingUpdate = nil; // a failed update boots the old system and is offered again
             if (reset)
                 roots.pendingFactoryReset = nil; // a failed reset boots the old system; never retried in a loop
+            if (rollback)
+                roots.pendingRollback = nil; // likewise: a failed rollback boots the current system
             if (!ok && import) {
                 bootError = _EIO;
                 bootFailure = error.localizedDescription ?: @"unpacking failed";
@@ -732,7 +773,7 @@ static NSString *TakeFactoryResetRequest(Roots *roots) {
                 return;
             }
             if (!ok)
-                NSLog(@"system update failed, booting the previous system: %@", error);
+                NSLog(@"system %@ failed, booting the previous system: %@", rollback ? @"rollback" : @"update", error);
             SetBootState(ISHBootPhaseConfiguring, 1, @"Configuring…", @"");
             // One run-loop turn so the splash shows "Configuring…" before the kernel starts.
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -795,6 +836,7 @@ static void (^backgroundURLSessionCompletion)(void);
 
 #if !ISH_LINUX
     ApplyJITSettings();
+    ApplyMemorySettings();
     [self startBoot];
 #else
     bootError = [self boot];

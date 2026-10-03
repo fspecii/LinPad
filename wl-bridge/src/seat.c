@@ -3,11 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <linux/input-event-codes.h>
 #include "ishwl.h"
-
-#define KEY_BACKSPACE 14
-#define KEY_TAB 15
-#define KEY_ENTER 28
 
 static void resource_unlink(struct wl_resource *resource) {
     wl_list_remove(wl_resource_get_link(resource));
@@ -348,22 +345,48 @@ struct key_recipe {
     xkb_layout_index_t layout;
 };
 
+static bool key_has_sym(struct xkb_keymap *keymap, xkb_keycode_t kc, xkb_layout_index_t layout, xkb_keysym_t sym) {
+    const xkb_keysym_t *syms;
+    int n = xkb_keymap_key_get_syms_by_level(keymap, kc, layout, 0, &syms);
+    for (int i = 0; i < n; i++)
+        if (syms[i] == sym)
+            return true;
+    return false;
+}
+
+/* The modifier key for SYM, preferring the physical key a keyboard has (Left Shift,
+ * Right/Left Alt) over virtual ones such as <LVL3>, which apps do not expect. */
 static xkb_keycode_t key_with_sym(struct xkb_keymap *keymap, xkb_layout_index_t layout, xkb_keysym_t sym) {
+    const uint32_t preferred[] = {KEY_LEFTSHIFT, KEY_RIGHTSHIFT, KEY_RIGHTALT, KEY_LEFTALT};
+    for (size_t i = 0; i < sizeof(preferred) / sizeof(preferred[0]); i++)
+        if (key_has_sym(keymap, preferred[i] + 8, layout, sym))
+            return preferred[i] + 8;
     xkb_keycode_t min = xkb_keymap_min_keycode(keymap), max = xkb_keymap_max_keycode(keymap);
-    for (xkb_keycode_t kc = min; kc <= max; kc++) {
-        const xkb_keysym_t *syms;
-        int n = xkb_keymap_key_get_syms_by_level(keymap, kc, layout, 0, &syms);
-        for (int i = 0; i < n; i++)
-            if (syms[i] == sym)
-                return kc;
-    }
+    for (xkb_keycode_t kc = min; kc <= max; kc++)
+        if (key_has_sym(keymap, kc, layout, sym))
+            return kc;
     return XKB_KEYCODE_INVALID;
 }
 
-/* Tries every layout of the keymap (the active one first) with no modifier, Shift,
- * the third-level key (AltGr) and Shift+AltGr, on a scratch xkb_state, so it finds
- * whatever key the current keymap really uses for the character. */
-static bool find_key(struct server *s, uint32_t cp, struct key_recipe *out) {
+/* Which keys may type text, best first: the main block (what Shift+4 is on), then the
+ * keypad (terminals in application keypad mode send escapes for it), then any other key
+ * an X11 keycode can name. evdev's KEY_DOLLAR, KEY_EURO and the like are above 255:
+ * Chromium/Electron and Xwayland drop them, which is how "$" never reached VS Code. */
+static int key_class(xkb_keycode_t kc) {
+    uint32_t code = kc - 8;
+    if ((code >= KEY_ESC && code <= KEY_CAPSLOCK && code != KEY_KPASTERISK) || code == KEY_102ND ||
+        code == KEY_RO || code == KEY_YEN)
+        return 0;
+    if ((code >= KEY_KP7 && code <= KEY_KPDOT) || code == KEY_KPASTERISK || code == KEY_KPENTER ||
+        code == KEY_KPSLASH || code == KEY_KPEQUAL || code == KEY_KPCOMMA)
+        return 1;
+    return kc <= 255 ? 2 : -1;
+}
+
+/* Finds a key for code point CP, or, when SYM is not NoSymbol, for that keysym (a dead
+ * key). Tries every layout (the active one first), then the key classes above, then no
+ * modifier, Shift, the third-level key (AltGr) and Shift+AltGr, on a scratch xkb_state. */
+static bool find_key(struct server *s, uint32_t cp, xkb_keysym_t sym, struct key_recipe *out) {
     xkb_layout_index_t layouts = xkb_keymap_num_layouts(s->keymap);
     xkb_keycode_t min = xkb_keymap_min_keycode(s->keymap), max = xkb_keymap_max_keycode(s->keymap);
     xkb_keycode_t shift = key_with_sym(s->keymap, 0, XKB_KEY_Shift_L);
@@ -374,30 +397,49 @@ static bool find_key(struct server *s, uint32_t cp, struct key_recipe *out) {
             {XKB_KEYCODE_INVALID, XKB_KEYCODE_INVALID}, {shift, XKB_KEYCODE_INVALID},
             {level3, XKB_KEYCODE_INVALID}, {shift, level3},
         };
-        for (int c = 0; c < 4; c++) {
-            if (c > 0 && (combos[c][0] == XKB_KEYCODE_INVALID || (c == 3 && level3 == XKB_KEYCODE_INVALID)))
-                continue;
-            struct xkb_state *state = xkb_state_new(s->keymap);
-            if (!state) return false;
-            xkb_state_update_mask(state, 0, 0, 0, 0, 0, layout);
-            int nmods = 0;
-            for (int m = 0; m < 2; m++) {
-                if (combos[c][m] == XKB_KEYCODE_INVALID) continue;
-                xkb_state_update_key(state, combos[c][m], XKB_KEY_DOWN);
-                nmods++;
-            }
-            for (xkb_keycode_t kc = min; kc <= max; kc++) {
-                if (kc == shift || kc == level3) continue;
-                if (xkb_state_key_get_utf32(state, kc) != cp) continue;
-                *out = (struct key_recipe) {.keycode = kc, .nmods = nmods, .layout = layout,
-                                            .mods = {combos[c][0], combos[c][1]}};
+        for (int class = 0; class <= 2; class++) {
+            for (int c = 0; c < 4; c++) {
+                if (c > 0 && (combos[c][0] == XKB_KEYCODE_INVALID || (c == 3 && level3 == XKB_KEYCODE_INVALID)))
+                    continue;
+                struct xkb_state *state = xkb_state_new(s->keymap);
+                if (!state) return false;
+                xkb_state_update_mask(state, 0, 0, 0, 0, 0, layout);
+                int nmods = 0;
+                for (int m = 0; m < 2; m++) {
+                    if (combos[c][m] == XKB_KEYCODE_INVALID) continue;
+                    xkb_state_update_key(state, combos[c][m], XKB_KEY_DOWN);
+                    nmods++;
+                }
+                for (xkb_keycode_t kc = min; kc <= max; kc++) {
+                    if (kc == shift || kc == level3 || key_class(kc) != class) continue;
+                    if (sym != XKB_KEY_NoSymbol ? xkb_state_key_get_one_sym(state, kc) != sym
+                                                : xkb_state_key_get_utf32(state, kc) != cp)
+                        continue;
+                    *out = (struct key_recipe) {.keycode = kc, .nmods = nmods, .layout = layout,
+                                                .mods = {combos[c][0], combos[c][1]}};
+                    xkb_state_unref(state);
+                    return true;
+                }
                 xkb_state_unref(state);
-                return true;
             }
-            xkb_state_unref(state);
         }
     }
     return false;
+}
+
+/* Characters some layouts only have as dead keys (German ^ and `, US International ' and
+ * "): the dead key then Space types the character itself in every toolkit's compose. */
+static xkb_keysym_t dead_key_for(uint32_t cp) {
+    switch (cp) {
+    case '^': return XKB_KEY_dead_circumflex;
+    case '`': return XKB_KEY_dead_grave;
+    case '~': return XKB_KEY_dead_tilde;
+    case '\'': case 0xB4: return XKB_KEY_dead_acute;
+    case '"': case 0xA8: return XKB_KEY_dead_diaeresis;
+    case 0xB8: return XKB_KEY_dead_cedilla;
+    case 0xB0: return XKB_KEY_dead_abovering;
+    default: return XKB_KEY_NoSymbol;
+    }
 }
 
 static void lock_layout(struct server *s, xkb_layout_index_t base, xkb_layout_index_t latched,
@@ -410,16 +452,19 @@ static void lock_layout(struct server *s, xkb_layout_index_t base, xkb_layout_in
     update_modifiers(s);
 }
 
-static void type_key(struct server *s, const struct key_recipe *r) {
+/* ORDERED: the app has a text input, so keys go through its ordering queue
+ * (textinput.c), which keeps them in step with text committed around them. */
+static void type_key(struct server *s, const struct key_recipe *r, bool ordered) {
+    void (*press)(struct server *, uint32_t, bool) = ordered ? text_input_key : seat_key;
     xkb_layout_index_t base = xkb_state_serialize_layout(s->xkb_state, XKB_STATE_LAYOUT_DEPRESSED);
     xkb_layout_index_t latched = xkb_state_serialize_layout(s->xkb_state, XKB_STATE_LAYOUT_LATCHED);
     xkb_layout_index_t locked = xkb_state_serialize_layout(s->xkb_state, XKB_STATE_LAYOUT_LOCKED);
     bool other_layout = r->layout != s->group;
     if (other_layout) lock_layout(s, 0, 0, r->layout);
-    for (int m = 0; m < r->nmods; m++) seat_key(s, r->mods[m] - 8, true);
-    seat_key(s, r->keycode - 8, true);
-    seat_key(s, r->keycode - 8, false);
-    for (int m = r->nmods - 1; m >= 0; m--) seat_key(s, r->mods[m] - 8, false);
+    for (int m = 0; m < r->nmods; m++) press(s, r->mods[m] - 8, true);
+    press(s, r->keycode - 8, true);
+    press(s, r->keycode - 8, false);
+    for (int m = r->nmods - 1; m >= 0; m--) press(s, r->mods[m] - 8, false);
     if (other_layout) lock_layout(s, base, latched, locked);
 }
 
@@ -438,10 +483,27 @@ static uint32_t utf8_next(const unsigned char **p) {
     return cp;
 }
 
+static void utf8_encode(uint32_t cp, char out[5]) {
+    if (cp < 0x80) { out[0] = (char) cp; out[1] = 0; }
+    else if (cp < 0x800) { out[0] = (char) (0xc0 | cp >> 6); out[1] = (char) (0x80 | (cp & 0x3f)); out[2] = 0; }
+    else if (cp < 0x10000) {
+        out[0] = (char) (0xe0 | cp >> 12); out[1] = (char) (0x80 | (cp >> 6 & 0x3f));
+        out[2] = (char) (0x80 | (cp & 0x3f)); out[3] = 0;
+    } else {
+        out[0] = (char) (0xf0 | cp >> 18); out[1] = (char) (0x80 | (cp >> 12 & 0x3f));
+        out[2] = (char) (0x80 | (cp >> 6 & 0x3f)); out[3] = (char) (0x80 | (cp & 0x3f)); out[4] = 0;
+    }
+}
+
 /* Text from an on-screen keyboard has no key codes; replay it through the current
- * keymap, with Shift, AltGr or another of its layouts where the character needs them. */
+ * keymap, with Shift, AltGr or another of its layouts where the character needs them.
+ * When the app has a text input, a character the active layout cannot type with one key
+ * (dead keys only, another layout's, not in the keymap at all) is committed as text:
+ * Chromium composes dead keys asynchronously, so "^" as dead key + Space overtook the
+ * keys typed after it in VS Code. Without a text input, dead key + Space is the way. */
 void seat_type_text(struct server *s, const char *utf8) {
     const unsigned char *p = (const unsigned char *) utf8;
+    bool ordered = text_input_active(s);
     while (*p) {
         uint32_t cp = utf8_next(&p);
         struct key_recipe recipe = {.layout = s->group};
@@ -450,12 +512,28 @@ void seat_type_text(struct server *s, const char *utf8) {
         case '\t': recipe.keycode = KEY_TAB + 8; break;
         case '\b': recipe.keycode = KEY_BACKSPACE + 8; break;
         default:
-            if (!find_key(s, cp, &recipe)) {
-                log_msg(s, "no key for U+%04X in keymap %s", cp, s->keymap_names ? s->keymap_names : "default");
+            if (find_key(s, cp, XKB_KEY_NoSymbol, &recipe) && (!ordered || recipe.layout == s->group))
+                break;
+            if (ordered) {
+                char text[5];
+                utf8_encode(cp, text);
+                if (s->verbose > 1)
+                    log_msg(s, "type U+%04X: commit", cp);
+                text_input_apply(s, 0, 0, text, "", 0, 0);
                 continue;
             }
+            if (dead_key_for(cp) != XKB_KEY_NoSymbol && find_key(s, cp, dead_key_for(cp), &recipe)) {
+                type_key(s, &recipe, false);
+                recipe = (struct key_recipe) {.keycode = KEY_SPACE + 8, .layout = recipe.layout};
+                break;
+            }
+            log_msg(s, "no key for U+%04X in keymap %s", cp, s->keymap_names ? s->keymap_names : "default");
+            continue;
         }
-        type_key(s, &recipe);
+        if (s->verbose > 1)
+            log_msg(s, "type U+%04X: key %u mods %u %u layout %u", cp, recipe.keycode - 8,
+                    recipe.nmods > 0 ? recipe.mods[0] - 8 : 0, recipe.nmods > 1 ? recipe.mods[1] - 8 : 0, recipe.layout);
+        type_key(s, &recipe, ordered);
     }
 }
 

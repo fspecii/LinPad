@@ -211,6 +211,20 @@ static inline void __write_wrlock(wrlock_t *lock, const char *file, int line) {
     lock->pid = current_pid();
 }
 #define write_wrlock(lock) __write_wrlock(lock, __FILE__, __LINE__)
+// A reader lock only if no writer holds or waits for it; for monitors that must not
+// queue behind a thread that holds the write lock for long (kernel/oom.c).
+static inline bool read_wrtrylock(wrlock_t *lock) {
+    if (atomic_load(&lock->writers) != 0)
+        return false;
+    atomic_fetch_add(&lock->readers, 1);
+    if (atomic_load(&lock->writers) != 0) {
+        __wrlock_reader_leave(lock);
+        return false;
+    }
+    lock->val++;
+    wrlock_debug_acquired(lock, false, "read_wrtrylock", 0);
+    return true;
+}
 static inline bool write_wrtrylock(wrlock_t *lock) {
     pthread_mutex_lock(&lock->m);
     bool ok = false;

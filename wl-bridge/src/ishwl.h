@@ -314,6 +314,12 @@ void text_input_apply(struct server *s, uint32_t delete_before, uint32_t delete_
                       const char *commit, const char *preedit, int32_t begin, int32_t end);
 void text_input_key(struct server *s, uint32_t keycode, bool pressed);
 bool text_input_waiting(struct server *s);
+/* The keyboard-focused app has an enabled text input (text-input-v3). */
+bool text_input_active(struct server *s);
+/* seat_set_keymap, after the keys and text already queued for the app. */
+void text_input_set_keymap(struct server *s, const char *layout, const char *variant, const char *options);
+/* seat_type_text, after the keys and text already queued for the app. */
+void text_input_type(struct server *s, const char *utf8);
 void text_input_tick(struct server *s);
 void clipboard_set_from_host(struct server *s);
 

@@ -108,14 +108,14 @@ static void handle_line(struct server *s, char *line) {
         text_input_key(s, (uint32_t) strtoul(argv[1], NULL, 10), ARGI(2) != 0);
     } else if (strcmp(cmd, "text") == 0 && argc > 1) {
         unescape(argv[1]);
-        seat_type_text(s, argv[1]);
+        text_input_type(s, argv[1]);
     } else if (strcmp(cmd, "ime") == 0 && argc > 6) {
         unescape(argv[3]);
         unescape(argv[4]);
         text_input_apply(s, (uint32_t) ARGI(1), (uint32_t) ARGI(2), argv[3], argv[4], ARGI(5), ARGI(6));
     } else if (strcmp(cmd, "keymap") == 0 && argc > 3) {
         for (int i = 1; i <= 3; i++) unescape(argv[i]);
-        seat_set_keymap(s, argv[1], argv[2], argv[3]);
+        text_input_set_keymap(s, argv[1], argv[2], argv[3]);
     } else if (strcmp(cmd, "focus") == 0) {
         seat_focus_view(s, v);
     } else if (strcmp(cmd, "configure") == 0) {

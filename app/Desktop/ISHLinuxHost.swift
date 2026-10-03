@@ -344,10 +344,38 @@ extension ISHLinuxHost: LinuxSystemUpdating {
         let roots = Roots.instance()
         try roots.storeDownloadedRootArchive(archive, version: version)
         roots.pendingUpdate = roots.availableUpdate
+        roots.pendingRollback = nil
     }
 
     func backgroundDownloadEventsFinished() {
         AppDelegate.finishBackgroundURLSessionEvents()
+    }
+}
+
+/// Settings › Updates › Roll Back System: Roots swaps the system kept from before the last
+/// update back in before the next boot (AppDelegate.startBoot).
+extension ISHLinuxHost: LinuxSystemRollingBack {
+    var previousSystemVersion: String? {
+        let roots = Roots.instance()
+        return roots.previousRootName == nil ? nil : roots.previousRootVersion ?? "unversioned"
+    }
+
+    var isRollbackScheduled: Bool {
+        Roots.instance().pendingRollback != nil
+    }
+
+    func scheduleRollback() throws {
+        let roots = Roots.instance()
+        guard let previous = roots.previousRootName else {
+            throw NSError(domain: "iSH", code: Int(ENOENT),
+                          userInfo: [NSLocalizedDescriptionKey: "There is no earlier system to roll back to."])
+        }
+        roots.pendingRollback = previous
+        roots.pendingUpdate = nil
+    }
+
+    func cancelRollback() {
+        Roots.instance().pendingRollback = nil
     }
 }
 
