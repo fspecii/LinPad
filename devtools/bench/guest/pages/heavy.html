@@ -1,0 +1,40 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>heavy</title>
+<style>
+body{font-family:sans-serif;margin:0 auto;max-width:1100px}
+.card{display:inline-block;width:200px;margin:6px;padding:8px;border-radius:10px;
+      box-shadow:0 2px 6px rgba(0,0,0,.25);background:linear-gradient(#fff,#eef)}
+.card b{color:#335}
+table{border-collapse:collapse;width:100%}td{border:1px solid #ccc;padding:2px 4px}
+</style></head>
+<body><h1>Heavy local page</h1><div id="cards"></div><table id="grid"></table>
+<script>
+// A fixed, network-free workload: JSON parse/stringify, sorting, string building and
+// 6k DOM nodes with shadows and gradients, then forced layout.
+performance.mark("work-begin");
+const rows = [];
+for (let i = 0; i < 20000; i++)
+  rows.push({id: i, name: "item-" + ((i * 7919) % 20000), v: Math.sin(i) * 1000, tags: ["a" + (i % 13), "b" + (i % 7)]});
+const copy = JSON.parse(JSON.stringify(rows));
+copy.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+let html = "";
+for (let i = 0; i < 1500; i++) {
+  const r = copy[i];
+  html += `<div class="card"><b>${r.name}</b><br>${r.v.toFixed(2)}<br><i>${r.tags.join(", ")}</i></div>`;
+}
+document.getElementById("cards").innerHTML = html;
+const grid = document.getElementById("grid");
+for (let i = 0; i < 300; i++) {
+  const tr = document.createElement("tr");
+  for (let j = 0; j < 10; j++) {
+    const td = document.createElement("td");
+    td.textContent = copy[i * 10 + j].name;
+    tr.appendChild(td);
+  }
+  grid.appendChild(tr);
+}
+document.body.offsetHeight;
+performance.mark("work-end");
+performance.measure("work", "work-begin", "work-end");
+document.title = "heavy " + Math.round(performance.getEntriesByName("work")[0].duration);
+</script></body></html>

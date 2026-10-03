@@ -1,0 +1,11 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>player</title>
+<style>body{margin:0;background:#111}video{display:block;width:854px;height:480px;margin:40px auto}</style>
+</head><body>
+<!-- player.html?src=FILE: plays FILE (relative to this page's directory, e.g. ../media/x.mp4) in a 854x480 CSS-px box. -->
+<video id="v" playsinline></video>
+<script>
+const v = document.getElementById("v");
+v.src = new URLSearchParams(location.search).get("src");
+v.loop = true;
+</script></body></html>

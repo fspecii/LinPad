@@ -45,12 +45,6 @@ pref("network.process.enabled", false);
 // AV1 through Media Source Extensions (plain <video> WebM still plays).
 pref("media.mediasource.webm.enabled", false);
 pref("media.av1.enabled", false);
-// Launch child processes from the fork server, a small process forked at startup, instead
-// of fork()ing the large parent. iSH copies every page the parent writes after a fork
-// (copy-on-write, one host mmap per 4 KB page), so each RDD/utility/content launch cost
-// the parent seconds of CPU. Measured (devtools/bench, speed-report.md): YouTube 480p
-// 17.6 -> 23.9 fps (30% -> 0% dropped), watch page 26.6 -> 15.3 s, start 31 -> 15 s.
-pref("dom.ipc.forkserver.enable", true);
 // Background work that competes with the page for the CPU.
 pref("browser.newtabpage.activity-stream.feeds.topsites", false);
 pref("browser.newtabpage.activity-stream.feeds.section.topstories", false);

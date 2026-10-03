@@ -20,7 +20,7 @@ fastlane/test_output
 e2e_out/
 
 # Legacy bench scripts (replaced by benchmark/)
-bench/
+/bench/
 
 # LinPad build outputs and large local artifacts (rebuilt by scripts)
 /build-*/
