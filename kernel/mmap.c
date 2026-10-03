@@ -93,7 +93,9 @@ void mm_release(struct mm *mm) {
     }
 }
 
-static addr_t do_mmap(addr_t addr, uint64_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
+// file: map this open file description instead of fd_no (SysV shared memory).
+static addr_t do_mmap(addr_t addr, uint64_t len, dword_t prot, dword_t flags, fd_t fd_no, struct fd *file,
+        dword_t offset) {
     int err;
     pages_t pages = (len + PAGE_SIZE - 1) / PAGE_SIZE;
     if (!pages) return _EINVAL;
@@ -242,7 +244,7 @@ static addr_t do_mmap(addr_t addr, uint64_t len, dword_t prot, dword_t flags, fd
         }
     } else {
         // fd must be valid
-        struct fd *fd = f_get(fd_no);
+        struct fd *fd = file != NULL ? file : f_get(fd_no);
         if (fd == NULL)
             return _EBADF;
         if (fd->ops->mmap == NULL)
@@ -255,6 +257,10 @@ static addr_t do_mmap(addr_t addr, uint64_t len, dword_t prot, dword_t flags, fd
     return page << PAGE_BITS;
 }
 
+addr_t mmap_file(addr_t addr, uint64_t len, dword_t prot, dword_t flags, struct fd *file) {
+    return do_mmap(addr, len, prot, flags, -1, file, 0);
+}
+
 static addr_t mmap_common(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
     STRACE("mmap(0x%x, 0x%x, 0x%x, 0x%x, %d, %d)", addr, len, prot, flags, fd_no, offset);
     if (len == 0)
@@ -265,7 +271,7 @@ static addr_t mmap_common(addr_t addr, dword_t len, dword_t prot, dword_t flags,
         return _EINVAL;
 
     write_wrlock(&current->mem->lock);
-    addr_t res = do_mmap(addr, len, prot, flags, fd_no, offset);
+    addr_t res = do_mmap(addr, len, prot, flags, fd_no, NULL, offset);
     write_wrunlock(&current->mem->lock);
     return res;
 }
@@ -287,7 +293,7 @@ addr_t sys_mmap64(addr_t addr, addr_t len, dword_t prot, dword_t flags, fd_t fd_
         return _EINVAL;
 
     write_wrlock(&current->mem->lock);
-    addr_t res = do_mmap(addr, len, prot, flags, fd_no, (dword_t)offset);
+    addr_t res = do_mmap(addr, len, prot, flags, fd_no, NULL, (dword_t)offset);
     write_wrunlock(&current->mem->lock);
     return res;
 }

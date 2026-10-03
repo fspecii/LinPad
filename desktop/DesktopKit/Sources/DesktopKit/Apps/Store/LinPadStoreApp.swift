@@ -123,10 +123,10 @@ struct StoreRootView: View {
         .onReceive(NotificationCenter.default.publisher(for: LinPadStoreApp.showAppNotification)) { note in
             if let id = note.object as? String { nav.show(.app(id)) }
         }
+        .onChange(of: nav.stack) { _, _ in searchFocused = false }
         .onChange(of: nav.query) { _, query in
             if !query.isEmpty, nav.tab != .search { nav.select(.search) }
         }
-        .accessibilityIdentifier("store.root")
     }
 
     // MARK: Chrome
@@ -322,6 +322,7 @@ struct StoreRootView: View {
         .frame(height: 150)
         .background(Color.black.opacity(0.3))
         .overlay(alignment: .top) { ThemedSeparator() }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("store.log")
     }
 

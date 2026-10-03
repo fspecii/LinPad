@@ -88,6 +88,8 @@
 	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Linux apps you run can use the camera, for example for video calls or to take pictures. The camera is only on while an app captures.</string>
 	<key>NSMicrophoneUsageDescription</key>

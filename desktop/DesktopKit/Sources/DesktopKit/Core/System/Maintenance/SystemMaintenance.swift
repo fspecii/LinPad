@@ -84,6 +84,7 @@ final class SystemMaintenanceService {
     }
 
     var resetter: (any LinuxSystemResetting)? { host as? LinuxSystemResetting }
+    var linuxHost: any LinuxHost { host }
 
     // MARK: Repair
 

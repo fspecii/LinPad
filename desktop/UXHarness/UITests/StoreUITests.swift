@@ -19,15 +19,32 @@ final class StoreUITests: XCTestCase {
         app.launchArguments = ["-desktop.resetSession", "YES", "-desktop.autostart", "store", "-desktop.style", style,
                                "-desktop.onboarded", "YES", "-store.mockInstallSeconds", "\(installSeconds)"]
         app.launch()
-        XCTAssertTrue(app.descendants(matching: .any)["store.home"].waitForExistence(timeout: 20), "the Store opens on Home")
+        XCTAssertTrue(app.textFields["Search apps"].firstMatch.waitForExistence(timeout: 20), "the Store opens")
         return app
+    }
+
+    /// New windows open at half the screen in landscape; the Store's compact layout is
+    /// captured there, then the window is maximized for the sidebar layout.
+    private func maximize(_ app: XCUIApplication, compactShot: String? = nil) {
+        sleep(2)
+        if let compactShot { save(compactShot) }
+        let titleBar = app.descendants(matching: .any)["desktop.window.titlebar"].firstMatch
+        XCTAssertTrue(titleBar.waitForExistence(timeout: 5))
+        titleBar.doubleTap()
+        let sidebar = app.buttons["store.tab.home"].waitForExistence(timeout: 5)
+        if !sidebar, let directory {
+            save("debug-after-maximize")
+            try? app.debugDescription.write(toFile: directory + "/debug-tree.txt", atomically: true, encoding: .utf8)
+        }
+        XCTAssertTrue(sidebar, "the sidebar appears when the window is wide")
     }
 
     func testBrowseSearchInstallAndOpen() throws {
         let app = launch(style: "ish")
+        maximize(app, compactShot: "ish-00-half-width")
         let any = app.descendants(matching: .any)
-        XCTAssertTrue(any["store.hero"].exists)
-        XCTAssertTrue(any["store.collection.internet"].exists)
+        XCTAssertTrue(any["store.hero.apk:filezilla"].waitForExistence(timeout: 5))
+        XCTAssertTrue(any["store.card.apk:geany"].exists)
         sleep(2)
         save("ish-01-home")
 
@@ -70,10 +87,19 @@ final class StoreUITests: XCTestCase {
 
     func testQueueCancelAndSizeWarning() throws {
         let app = launch(style: "ish", installSeconds: 20)
+        maximize(app)
         let any = app.descendants(matching: .any)
         // Two installs queue behind each other; the second can be cancelled while it waits.
-        any["store.collection.graphics"].buttons["store.install.apk:inkscape"].firstMatch.tap()
-        any["store.collection.graphics"].buttons["store.install.apk:krita"].firstMatch.tap()
+        let search = app.textFields["Search apps"].firstMatch
+        search.tap()
+        search.typeText("inkscape")
+        XCTAssertTrue(app.buttons["store.install.apk:inkscape"].firstMatch.waitForExistence(timeout: 5))
+        app.buttons["store.install.apk:inkscape"].firstMatch.tap()
+        app.buttons["Clear"].firstMatch.tap()
+        search.tap()
+        search.typeText("krita")
+        XCTAssertTrue(app.buttons["store.install.apk:krita"].firstMatch.waitForExistence(timeout: 5))
+        app.buttons["store.install.apk:krita"].firstMatch.tap()
         XCTAssertTrue(any["store.queue.waiting"].waitForExistence(timeout: 5))
         sleep(1)
         save("ish-10-queue")
@@ -81,7 +107,7 @@ final class StoreUITests: XCTestCase {
         sleep(2)
         save("ish-11-cancelled")
 
-        let search = app.textFields["Search apps"].firstMatch
+        app.buttons["Clear"].firstMatch.tap()
         search.tap()
         search.typeText("libreoffice")
         XCTAssertTrue(any["store.row.office"].waitForExistence(timeout: 5))
@@ -96,7 +122,8 @@ final class StoreUITests: XCTestCase {
         let styles = environment["DESKTOP_STYLES"]?.split(separator: ",").map(String.init) ?? ["macos", "windows", "aero", "ubuntu"]
         for style in styles {
             let app = launch(style: style)
-            sleep(2)
+            maximize(app, compactShot: "style-\(style)-half")
+            sleep(1)
             save("style-\(style)-home")
             let card = app.descendants(matching: .any)["store.card.apk:audacity"].firstMatch
             if card.waitForExistence(timeout: 5) {

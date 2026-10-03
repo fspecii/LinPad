@@ -47,6 +47,7 @@ struct StoreHomePage: View {
             }
             .padding(.vertical, 20)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("store.home")
     }
 }
@@ -73,6 +74,7 @@ struct StoreHeroCarousel: View {
         }
         .scrollTargetBehavior(.viewAligned)
         .frame(height: 230)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("store.hero")
     }
 
@@ -80,7 +82,9 @@ struct StoreHeroCarousel: View {
         let tint = hero.tint.flatMap(RGB.init(hex:))?.color ?? theme.accent
         return ZStack(alignment: .leading) {
             LinearGradient(colors: [tint, tint.opacity(0.55)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            if let shot = app.screenshots?.first, let base = model.index?.mediaBase {
+            // The screenshot only when the banner is wide enough to keep it clear of the text.
+            GeometryReader { proxy in
+            if proxy.size.width >= 680, let shot = app.screenshots?.first, let base = model.index?.mediaBase {
                 HStack {
                     Spacer()
                     StoreRemoteImage(url: shot.url.hasPrefix("https://") ? URL(string: shot.url) : URL(string: base + "/" + shot.url), contentMode: .fill) { Color.clear }
@@ -91,6 +95,7 @@ struct StoreHeroCarousel: View {
                         .offset(x: 40, y: 34)
                         .accessibilityHidden(true)
                 }
+            }
             }
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
@@ -184,6 +189,7 @@ struct StoreCategoriesPage: View {
             }
             .padding(20)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("store.categories")
     }
 }
@@ -221,6 +227,7 @@ struct StoreGridPage: View {
             }
             .padding(20)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("store.grid")
     }
 
@@ -285,6 +292,7 @@ struct StoreSearchPage: View {
             results = model.search(nav.query)
             searched = nav.query
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("store.searchResults")
     }
 
@@ -369,6 +377,7 @@ struct StoreInstalledPage: View {
         } message: { _ in
             Text("The app is uninstalled from Linux. Your files in /root stay.")
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("store.installed")
     }
 
@@ -437,6 +446,7 @@ struct StoreUpdatesPage: View {
             .padding(20)
         }
         .task { if model.lastUpdateCheck == nil, model.state != nil { await model.checkUpdates() } }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("store.updates")
     }
 

@@ -1,12 +1,15 @@
 import SwiftUI
 
-/// Settings › Maintenance: Repair System and Reset to Factory.
+/// Settings › Maintenance: Back Up and Restore, Repair System, Reset to Factory and
+/// Export Diagnostics.
 struct MaintenanceSettingsSection: View {
     @Bindable var service: SystemMaintenanceService
     @Environment(\.desktopTheme) private var theme
 
     var body: some View {
         SettingsSection(title: "Maintenance", symbol: "wrench.and.screwdriver") {
+            BackupSettingsRows(service: BackupService.shared(for: service.linuxHost))
+            ThemedSeparator()
             SettingsRow(title: "Repair System") {
                 ToolbarTextButton(title: service.state.isRunning ? "Repairing…" : "Repair…", symbol: "bandage") {
                     service.isRepairSheetRequested = true
@@ -27,6 +30,8 @@ struct MaintenanceSettingsSection: View {
             }
             .sheet(isPresented: $service.isResetSheetRequested) { FactoryResetSheet(service: service) }
             caption("Reinstalls the Linux system that comes with the app, keeping your files or erasing everything. LinPad closes and finishes the reset the next time you open it.")
+            ThemedSeparator()
+            DiagnosticsSettingsRow(host: service.linuxHost, center: .shared)
         }
         .task { await service.refreshInstalledKitVersion() }
     }

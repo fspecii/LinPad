@@ -91,6 +91,11 @@ final class ISHLinuxHost: LinuxGraphicsHost, LinuxSystemPreparing, FastModeContr
 
     init() {
         hostName = UIDevice.current.name
+        if let crashLog = Self.crashLogURL {
+            try? FileManager.default.createDirectory(at: crashLog.deletingLastPathComponent(), withIntermediateDirectories: true)
+            ish_log_set_crash_path(crashLog.path)
+        }
+        Self.excludeSystemFromDeviceBackup()
         AppDelegate.observeFastMode { [weak self] in
             MainActor.assumeIsolated { self?.fastModeChanged() }
         }
@@ -372,10 +377,44 @@ extension ISHLinuxHost: LinuxSystemResetting {
     /// delegate's applicationDidEnterBackground (which ends an exitApp), hence the
     /// notification and, should neither arrive, the deadline.
     func quitToApplyFactoryReset() {
+        DiagnosticsCenter.shared.markCleanExit()
         UserDefaults.standard.synchronize()
         NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification,
                                                object: nil, queue: .main) { _ in exit(0) }
         (UIApplication.shared.delegate as? AppDelegate)?.exitApp()
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { exit(0) }
+    }
+}
+
+/// Settings › Maintenance › Export Diagnostics reads the emulator's log rings directly, so
+/// they are there even when Linux no longer answers (kernel/log_tail.h).
+extension ISHLinuxHost: LinuxDiagnosticsProviding {
+    static let crashLogURL: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+        .appendingPathComponent("Diagnostics/emulator-crash.txt")
+
+    var emulatorCrashLogURL: URL? { Self.crashLogURL }
+
+    func emulatorLog(diagnostic: Bool, maxBytes: Int) -> String {
+        var buffer = [CChar](repeating: 0, count: maxBytes)
+        let copied = buffer.withUnsafeMutableBufferPointer { pointer in
+            ish_log_copy_tail(diagnostic ? ISH_LOG_RING_DIAGNOSTIC : ISH_LOG_RING_KERNEL, pointer.baseAddress, maxBytes, nil)
+        }
+        return String(decoding: buffer.prefix(copied).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    }
+
+    /// The Linux system (2-3 GB, rebuilt from the app on a fresh install) stays out of the
+    /// iPad's iCloud/Finder device backup; the user's own data is protected by LinPad's
+    /// backups in Documents/Backups, which iPadOS does back up (backup-diagnostics-report.md).
+    static func excludeSystemFromDeviceBackup() {
+        let roots = Roots.instance().defaultRootUrl.deletingLastPathComponent()
+        let container = roots.deletingLastPathComponent()
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let directories = [roots, container.appendingPathComponent("roots-staging"),
+                           container.appendingPathComponent("system-update"), support.appendingPathComponent("linpad-updates")]
+        for var directory in directories where FileManager.default.fileExists(atPath: directory.path) {
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try? directory.setResourceValues(values)
+        }
     }
 }

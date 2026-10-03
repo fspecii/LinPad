@@ -60,6 +60,9 @@ addr_t sys_mmap2(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_
 addr_t sys_mmap64(addr_t addr, addr_t len, dword_t prot, dword_t flags, fd_t fd_no, qword_t offset);
 #endif
 int_t sys_munmap(addr_t addr, addr_t len);
+// Maps file (MAP_SHARED/MAP_FIXED etc. in flags) at offset 0; mem->lock held for writing.
+struct fd;
+addr_t mmap_file(addr_t addr, uint64_t len, dword_t prot, dword_t flags, struct fd *file);
 int_t sys_mprotect(addr_t addr, addr_t len, int_t prot);
 addr_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags);
 dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice);
@@ -326,6 +329,18 @@ int_t sys_get_robust_list(pid_t_ pid, addr_t robust_list_ptr, addr_t len_ptr);
 dword_t sys_getrandom(addr_t buf_addr, dword_t len, dword_t flags);
 int_t sys_syslog(int_t type, addr_t buf_addr, int_t len);
 int_t sys_ipc(uint_t call, int_t first, int_t second, int_t third, addr_t ptr, int_t fifth);
+int_t sys_shmget(int_t key, uint64_t size, int_t flags);
+addr_t sys_shmat(int_t id, addr_t addr, int_t flags);
+int_t sys_shmdt(addr_t addr);
+int_t sys_shmctl(int_t id, int_t cmd, addr_t buf);
+int_t sys_semget(int_t key, int_t nsems, int_t flags);
+int_t sys_semop(int_t id, addr_t ops, uint_t nops);
+int_t sys_semtimedop(int_t id, addr_t ops, uint_t nops, addr_t timeout);
+int_t sys_semctl(int_t id, int_t num, int_t cmd, uint64_t arg);
+int_t sys_msgget(int_t key, int_t flags);
+int_t sys_msgsnd(int_t id, addr_t msgp, uint64_t size, int_t flags);
+int64_t sys_msgrcv(int_t id, addr_t msgp, uint64_t size, int64_t type, int_t flags);
+int_t sys_msgctl(int_t id, int_t cmd, addr_t buf);
 
 #ifdef GUEST_ARM64
 // ARM64 syscalls pass 64-bit register values; functions taking dword_t

@@ -9,6 +9,8 @@ void ish_printk(const char *msg, ...);
 // normal use (NETDIAG socket waits, stub syscalls, illegal-instruction dumps)
 bool ish_log_enabled(void);
 void ish_vprintk(const char *msg, va_list args);
+// printk when ISH_LOG=1, else only kept in the diagnostic ring (kernel/log_tail.h)
+void ish_printk_diag(const char *msg, ...) __attribute__((format(printf, 1, 2)));
 #undef printk
 #define printk ish_printk
 

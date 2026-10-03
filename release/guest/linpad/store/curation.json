@@ -267,6 +267,26 @@
     "xboard": {
       "status": "experimental",
       "note": "Opens through Xwayland, but needs a chess engine (apk add gnuchess) to play."
+    },
+    "pack:camera": {
+      "status": "works",
+      "note": "Live preview and photos; CPU-heavy under emulation. Verified 2026-10-03 by the Linux-apps agent: installed with linpad-apps and opened from its .desktop entry on the release system (CLI emulator)."
+    },
+    "pack:scanner": {
+      "status": "works",
+      "note": "OCR to a searchable PDF, in the terminal. Verified 2026-10-03 by the Linux-apps agent: installed with linpad-apps and opened from its .desktop entry on the release system (CLI emulator)."
+    },
+    "pack:recorder": {
+      "status": "works",
+      "note": "Verified 2026-10-03 by the Linux-apps agent: installed with linpad-apps and opened from its .desktop entry on the release system (CLI emulator)."
+    },
+    "pack:notes": {
+      "status": "works",
+      "note": "Verified 2026-10-03 by the Linux-apps agent: installed with linpad-apps and opened from its .desktop entry on the release system (CLI emulator)."
+    },
+    "pack:calendar-cli": {
+      "status": "works",
+      "note": "Verified 2026-10-03 by the Linux-apps agent: installed with linpad-apps and opened from its .desktop entry on the release system (CLI emulator)."
     }
   },
   "warnSizeMB": 400,

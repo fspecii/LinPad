@@ -21,9 +21,9 @@ struct StoreAppIcon: View {
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
             } else if let url = remoteURL {
-                StoreRemoteImage(url: url) { glyph }
+                StoreRemoteImage(url: url) { bundledOrGlyph }
             } else {
-                glyph
+                bundledOrGlyph
             }
         }
         .frame(width: size, height: size)
@@ -35,6 +35,17 @@ struct StoreAppIcon: View {
         if path.hasPrefix("https://") { return URL(string: path) }
         guard let mediaBase else { return nil }
         return URL(string: mediaBase + "/" + path)
+    }
+
+    /// AppStream's cached 64 px icon, bundled with the app for when the media server has none
+    /// or the iPad is offline.
+    @ViewBuilder
+    private var bundledOrGlyph: some View {
+        if let image = StoreBundledIcons.image(for: app.id) {
+            Image(uiImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+        } else {
+            glyph
+        }
     }
 
     private var glyph: some View {
@@ -415,5 +426,21 @@ struct StoreScreenshotViewer: View {
 
     private func url(_ path: String) -> URL? {
         path.hasPrefix("https://") ? URL(string: path) : URL(string: mediaBase + "/" + path)
+    }
+}
+
+enum StoreBundledIcons {
+    private static let directory = Bundle.module.url(forResource: "icons", withExtension: nil, subdirectory: "Store")
+
+    @MainActor private static var cache: [String: UIImage] = [:]
+
+    @MainActor
+    static func image(for appID: String) -> UIImage? {
+        if let hit = cache[appID] { return hit }
+        let name = String(appID.map { $0.isLetter || $0.isNumber || "._-".contains($0) ? $0 : "_" })
+        guard let url = directory?.appendingPathComponent(name + ".png"),
+              let image = UIImage(contentsOfFile: url.path) else { return nil }
+        cache[appID] = image
+        return image
     }
 }

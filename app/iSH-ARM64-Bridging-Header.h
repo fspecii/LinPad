@@ -5,3 +5,4 @@
 #import "UserPreferences.h"
 #import "iOSFS.h"
 #include "fs/dev_video.h"
+#include "kernel/log_tail.h"

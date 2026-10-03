@@ -5,6 +5,7 @@
 #include "kernel/task.h"
 #include "kernel/random.h"
 #include "fs/proc.h"
+#include "kernel/ipc.h"
 
 // /proc/sys: read-only values that runtimes and tools commonly probe.
 
@@ -105,11 +106,18 @@ static struct proc_children sys_kernel_random_children = PROC_CHILDREN({
 
 static struct proc_children sys_kernel_children = PROC_CHILDREN({
     {"hostname", .show = sys_kernel_hostname},
+    {"msgmax", .show = proc_sys_kernel_msgmax},
+    {"msgmnb", .show = proc_sys_kernel_msgmnb},
+    {"msgmni", .show = proc_sys_kernel_msgmni},
     {"ngroups_max", .show = sys_kernel_ngroups_max},
     {"osrelease", .show = sys_kernel_osrelease},
     {"ostype", .show = sys_kernel_ostype},
     {"pid_max", .show = sys_kernel_pid_max},
     {"random", S_IFDIR, .children = &sys_kernel_random_children},
+    {"sem", .show = proc_sys_kernel_sem},
+    {"shmall", .show = proc_sys_kernel_shmall},
+    {"shmmax", .show = proc_sys_kernel_shmmax},
+    {"shmmni", .show = proc_sys_kernel_shmmni},
     {"threads-max", .show = sys_kernel_threads_max},
 });
 

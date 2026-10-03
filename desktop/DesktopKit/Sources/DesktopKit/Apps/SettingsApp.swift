@@ -180,6 +180,7 @@ struct SettingsAppView: View {
                         if let desktopController { WallpaperAutoMatchToggle(model: desktopController.wallpaperMatch).padding(.horizontal, 4) }
                     }
                     desktopSection
+                    PerformanceSettingsSection(host: host)
                     tilingSection
                     shortcutsSection
                     UpdatesSettingsSection(service: UpdateService.shared(for: host))

@@ -154,13 +154,14 @@ struct StoreJob: Identifiable, Equatable {
         }
     }
 
-    /// 0...1 when the job's progress is known; downloads weigh 70 %, apk's install steps 25 %.
+    /// 0...1 when the job's progress is known; downloads weigh about two thirds, apk's install
+    /// steps a quarter.
     var fraction: Double? {
         switch phase {
         case .queued: return nil
         case .resolving: return 0.02
         case .downloading(let done, let total):
-            return total > 0 ? 0.02 + 0.68 * min(1, Double(done) / Double(total)) : 0.02
+            return total > 0 ? 0.02 + 0.66 * min(1, Double(done) / Double(total)) : 0.02
         case .installing(let step, let count):
             return count > 0 ? 0.70 + 0.25 * Double(step) / Double(count) : (kind == .install ? 0.70 : nil)
         case .configuring: return 0.96
@@ -259,7 +260,7 @@ enum StoreFormat {
     static func bytes(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .decimal
-        formatter.allowedUnits = bytes >= 1_000_000_000 ? [.useGB] : (bytes >= 1_000_000 ? [.useMB] : [.useKB])
+        formatter.allowedUnits = bytes >= 1_000_000_000 ? [.useGB] : (bytes >= 1_000_000 ? [.useMB] : [.useBytes, .useKB])
         return formatter.string(fromByteCount: bytes)
     }
 

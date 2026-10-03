@@ -17,6 +17,32 @@ extension DesktopController {
             self?.showMaintenanceSettings()
         }
         Task { await service.runAutomaticRepairIfNeeded() }
+        startBackupAndDiagnostics()
+    }
+
+    /// Scheduled backups, the unclean-exit notice and the hang watchdogs.
+    private func startBackupAndDiagnostics() {
+        let backup = BackupService.shared(for: host)
+        backup.notify = { [weak self] message, action in
+            self?.notify(message, action: action, lifetime: action == nil ? nil : .seconds(20))
+        }
+        backup.restartSession = { [weak self] in
+            await self?.restartDesktopSession()
+        }
+        let diagnostics = DiagnosticsCenter.shared
+        diagnostics.beginSession(host: host)
+        diagnostics.notify = { [weak self] message, action in
+            self?.notify(message, action: action, lifetime: .seconds(30))
+        }
+        diagnostics.restartSession = { [weak self] in
+            await self?.restartDesktopSession()
+        }
+        diagnostics.showRepair = { [weak self] in
+            self?.maintenance.isRepairSheetRequested = true
+            self?.showMaintenanceSettings()
+        }
+        diagnostics.desktopStarted(host: host)
+        backup.startScheduling()
     }
 
     func showMaintenanceSettings() {
@@ -29,6 +55,19 @@ extension DesktopController {
                             section: .commands, symbol: "bandage",
                             keywords: "repair fix maintenance firefox youtube video broken") { [weak self] in
                 self?.maintenance.isRepairSheetRequested = true
+                self?.showMaintenanceSettings()
+            },
+            CommandMenuItem(id: "maintenance:backup", title: "Back Up Linux Files…", subtitle: "Maintenance",
+                            section: .commands, symbol: "externaldrive.badge.timemachine",
+                            keywords: "backup back up save export home restore") { [weak self] in
+                guard let self else { return }
+                BackupService.shared(for: self.host).isBackupSheetRequested = true
+                self.showMaintenanceSettings()
+            },
+            CommandMenuItem(id: "maintenance:diagnostics", title: "Export Diagnostics…", subtitle: "Maintenance",
+                            section: .commands, symbol: "stethoscope",
+                            keywords: "diagnostics bug report crash log logs") { [weak self] in
+                DiagnosticsCenter.shared.isExportSheetRequested = true
                 self?.showMaintenanceSettings()
             },
             CommandMenuItem(id: "maintenance:reset", title: "Reset to Factory…", subtitle: "Maintenance",

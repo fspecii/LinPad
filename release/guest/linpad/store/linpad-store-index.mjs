@@ -39,6 +39,22 @@ export function cacheFileName(pkg) {
     return `${pkg.name}-${pkg.version}.${hash}.apk`;
 }
 
+/** name -> contents of every regular file in a .tar.gz (one or more gzip members). */
+export function readTarGz(gz) {
+    const tar = zlib.gunzipSync(gz);
+    const files = new Map();
+    for (let offset = 0; offset + 512 <= tar.length;) {
+        const name = tar.toString('latin1', offset, offset + 100).replace(/\0.*$/s, '');
+        if (!name) break;
+        const size = parseInt(tar.toString('latin1', offset + 124, offset + 136).replace(/\0.*$/s, '').trim() || '0', 8);
+        const type = tar.toString('latin1', offset + 156, offset + 157);
+        const body = offset + 512;
+        if (type === '0' || type === '\0') files.set(name.replace(/^\.\//, ''), tar.subarray(body, body + size));
+        offset = body + Math.ceil(size / 512) * 512;
+    }
+    return files;
+}
+
 /** Parses an APKINDEX.tar.gz (two concatenated gzip members) into name -> package. */
 export function parseApkIndex(gz, repo) {
     const tar = zlib.gunzipSync(gz);
@@ -177,6 +193,7 @@ export function parseAppStream(xml) {
                 || child(c, 'id')?.text.trim().replace(/\.desktop$/, '') || pkg,
             stockIcon: icons.find(i => i.attrs.type === 'stock')?.text.trim() || '',
             icon: remote[0]?.text.trim() || '',
+            cachedIcon: icons.find(i => i.attrs.type === 'cached')?.text.trim() || '',
             binaries: childrenOf(child(c, 'provides') || { children: [] }, 'binary').map(b => b.text.trim()),
             screenshots: shots.slice(0, SCREENSHOT_LIMIT),
         });
@@ -539,6 +556,10 @@ async function build(args) {
     }
     const { components, etags } = await loadAppStream(cacheDir, offline, {});
     if (!components) throw new Error('AppStream catalog unavailable');
+    for (const repo of REPOS) {
+        await fetchCached(`${APPSTREAM}/${BRANCH}/${repo}/icons-64x64.tar.gz`, path.join(cacheDir, `icons-64x64-${repo}.tar.gz`), { offline })
+            .catch(e => process.stderr.write(`icons ${repo}: ${e.message}\n`));
+    }
     const desktopFiles = await fetchDesktopFiles(cacheDir, offline);
     const catalog = JSON.parse(fs.readFileSync(argValue(args, '--catalog', path.join(HERE, '..', 'catalog.json')), 'utf8'));
     const curation = JSON.parse(fs.readFileSync(argValue(args, '--curation', path.join(HERE, 'curation.json')), 'utf8'));
@@ -551,12 +572,37 @@ async function build(args) {
     write(out, index);
     // The desktop ships the same index, so the Store opens instantly and before Linux boots,
     // and the guest's icon cache renders the icons of the apps the Store features.
+    // Alpine's media server lacks some apps' remote icons; the desktop bundles AppStream's
+    // cached 64 px icons (Store/icons/<id>.png, id with ':' as '_') as the fallback.
+    const iconDir = argValue(args, '--icon-dir', path.join(HERE, '..', '..', '..', '..', 'desktop', 'DesktopKit', 'Sources', 'DesktopKit', 'Resources', 'Store', 'icons'));
+    if (iconDir !== 'none' && fs.existsSync(path.dirname(iconDir))) bundleIcons(index, components, cacheDir, iconDir, offline);
     const appCopy = argValue(args, '--app-copy', path.join(HERE, '..', '..', '..', '..', 'desktop', 'DesktopKit', 'Sources', 'DesktopKit', 'Resources', 'Store', 'store-index.json'));
     if (appCopy !== 'none' && fs.existsSync(path.dirname(appCopy))) write(appCopy, index);
     const featured = new Set([...index.collections.flatMap(c => c.apps), ...index.hero.map(h => h.app)]);
     const iconNames = uniq(index.apps.filter(a => featured.has(a.id)).map(a => a.iconNames?.[0]).filter(Boolean)).sort();
     fs.writeFileSync(path.join(path.dirname(out), 'store-icons.txt'), iconNames.join('\n') + '\n');
     report(index, missing);
+}
+
+function bundleIcons(index, components, cacheDir, iconDir, offline) {
+    const cached = new Map();
+    for (const repo of REPOS) {
+        const file = path.join(cacheDir, `icons-64x64-${repo}.tar.gz`);
+        if (!fs.existsSync(file)) continue;
+        for (const [name, data] of readTarGz(fs.readFileSync(file))) cached.set(name, data);
+    }
+    const byPkg = new Map(components.filter(c => c.cachedIcon).map(c => [c.pkg, c.cachedIcon]));
+    fs.rmSync(iconDir, { recursive: true, force: true });
+    fs.mkdirSync(iconDir, { recursive: true });
+    let count = 0;
+    for (const app of index.apps) {
+        const pkg = app.kind === 'apk' ? app.id.slice(4) : (app.packages || [])[0];
+        const data = cached.get(byPkg.get(pkg));
+        if (!data) continue;
+        fs.writeFileSync(path.join(iconDir, `${app.id.replace(/[^A-Za-z0-9._-]/g, '_')}.png`), data);
+        count++;
+    }
+    process.stdout.write(`${count} bundled icons\n`);
 }
 
 /** Guest refresh: local APKINDEX caches + (changed) AppStream; keeps the base index otherwise. */

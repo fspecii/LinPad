@@ -54,6 +54,12 @@ final class StoreTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(office.estimatedMB ?? 0, index.sizeWarningMB, "LibreOffice gets the size warning")
     }
 
+    func testBundledIconsCoverAppsTheMediaServerLacks() {
+        XCTAssertNotNil(StoreBundledIcons.image(for: "apk:geany"), "Geany has no remote 128 px icon")
+        XCTAssertNotNil(StoreBundledIcons.image(for: "image-editor"))
+        XCTAssertNil(StoreBundledIcons.image(for: "apk:does-not-exist"))
+    }
+
     func testCompatibilityDefaultsToNotTested() {
         var app = StoreApp(id: "apk:x", kind: "apk", name: "X", category: "Utilities")
         XCTAssertEqual(app.compatibility, .untested)
@@ -153,7 +159,7 @@ final class StoreTests: XCTestCase {
         }
         XCTAssertEqual(fractions, fractions.sorted(), "progress never goes backwards")
         XCTAssertEqual(job(after: Array(script.prefix(5))).phase, .downloading(done: 500, total: 1000))
-        XCTAssertEqual(job(after: Array(script.prefix(5))).statusText, "Downloading 500 bytes of 1 kB")
+        XCTAssertEqual(job(after: Array(script.prefix(5))).statusText, "Downloading \(StoreFormat.bytes(500)) of \(StoreFormat.bytes(1000))")
         XCTAssertEqual(job(after: Array(script.prefix(9))).phase, .installing(step: 2, of: 2))
         XCTAssertEqual(job(after: script, exitCode: 0).phase, .finished)
         XCTAssertEqual(job(after: script, exitCode: 0).fraction, 1)

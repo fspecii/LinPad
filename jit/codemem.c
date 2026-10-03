@@ -12,7 +12,9 @@
 //    mapped into both. A vm_remap alias is charged twice in phys_footprint
 //    once both views have touched a page (and MADV_FREE_REUSABLE on it
 //    confuses the ledger); a named object mapped twice is charged once, and a
-//    freed chunk is unmapped, so its memory really goes back.
+//    freed chunk is unmapped, so its memory really goes back. Not the default:
+//    with a small cache (ISH_JIT_CACHE_MB=8 or 16, constant eviction) Firefox
+//    still crashes in this mode, and the cause is not known yet.
 //  * TXM devices (iOS 26+): the RX region is created by the debugger.
 //    StikDebug's universal.js protocol: `brk #0xf00d` with x16 = 1,
 //    x0 = 0 (let debugserver allocate), x1 = size; the address comes back in

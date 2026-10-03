@@ -27,6 +27,8 @@ final class DesktopBridge: NSObject {
             preferences.colorScheme = .ColorSchemeAlwaysDark
         }
         let host = ISHLinuxHost()
+        // Before anything else can crash: how the last session ended, MetricKit, the marker.
+        DiagnosticsCenter.shared.beginSession(host: host)
         // Waits for the guest's PulseAudio FIFO, which the Linux session (ishwl-session)
         // creates; until sound plays it holds no audio session.
         ISHAudioBridge.shared.start(guestRoot: host.guestRootURL)

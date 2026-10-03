@@ -168,7 +168,7 @@
     {
       "id": "multimedia",
       "name": "VLC media player",
-      "description": "Plays video and audio files, with LinPad's native video window and sound. Includes internet radio: a Radio (VLC) launcher with 47 stations by genre (news, chill, jazz, classical, rock, electronic, talk, Romania, UK) and VLC's Icecast directory of thousands more.",
+      "description": "Plays video and audio files, with LinPad's native video window and sound. Includes internet radio: a Radio (VLC) launcher with 45 stations by genre (news, chill, jazz, classical, rock, electronic, talk, Romania, UK) and VLC's Icecast directory of thousands more.",
       "category": "Multimedia",
       "sizeMB": 95,
       "packages": [

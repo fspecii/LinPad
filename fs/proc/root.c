@@ -4,6 +4,7 @@
 #include "kernel/calls.h"
 #include "fs/proc.h"
 #include "platform/platform.h"
+#include "kernel/ipc.h"
 #ifdef GUEST_ARM64
 #include "asbestos/guest-arm64/hwcap.h"
 #endif
@@ -175,6 +176,12 @@ static int proc_show_mounts(struct proc_entry *UNUSED(entry), struct proc_data *
 extern struct proc_children proc_net_children;
 extern struct proc_children proc_sys_children;
 
+static struct proc_children proc_sysvipc_children = PROC_CHILDREN({
+    {"msg", .show = proc_sysvipc_msg},
+    {"sem", .show = proc_sysvipc_sem},
+    {"shm", .show = proc_sysvipc_shm},
+});
+
 // in alphabetical order
 struct proc_dir_entry proc_root_entries[] = {
     {"cpuinfo", .show = proc_show_cpuinfo},
@@ -185,6 +192,7 @@ struct proc_dir_entry proc_root_entries[] = {
     {"self", S_IFLNK, .readlink = proc_readlink_self},
     {"stat", .show = proc_show_stat},
     {"sys", S_IFDIR, .children = &proc_sys_children},
+    {"sysvipc", S_IFDIR, .children = &proc_sysvipc_children},
     {"uptime", .show = proc_show_uptime},
     {"version", .show = proc_show_version},
     {"zoneinfo", .show = proc_show_zoneinfo},

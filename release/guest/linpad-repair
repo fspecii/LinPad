@@ -117,7 +117,7 @@ if [ -d "$prefs" ]; then
         fail "gecko-tune.sh did not produce ish-tune.js"
     fi
     rm -rf "$tmp"
-    # The desktop's prefs (ishwl.js) moved there too, in repair kit 2026100306.
+    # The desktop's prefs (ishwl.js) moved there too (repair kit 2026100308).
     if [ -f "$KIT/wl-bridge/firefox-prefs.js" ]; then
         put 644 "$KIT/wl-bridge/firefox-prefs.js" "$appprefs/ishwl.js"
         if [ -f "$prefs/ishwl.js" ]; then

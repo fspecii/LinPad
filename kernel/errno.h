@@ -45,6 +45,8 @@
 #define _ENOSYS        -38 /* Invalid system call number */
 #define _ENOTEMPTY     -39 /* Directory not empty */
 #define _ELOOP         -40 /* Too many symbolic links encountered */
+#define _ENOMSG        -42 /* No message of desired type */
+#define _EIDRM         -43 /* Identifier removed */
 
 #define _EBFONT        -59 /* Bad font file format */
 #define _ENOSTR        -60 /* Device not a stream */

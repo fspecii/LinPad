@@ -19,6 +19,7 @@
 		9ABA09955DC7AF3574A54130 /* DockTapUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A6AA220E11DB730546C126D /* DockTapUITests.swift */; };
 		9D7D261D0E2E9682AEE57ADE /* KeyboardChromeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEFD8C64C5D38CD32548624A /* KeyboardChromeUITests.swift */; };
 		B644889ABB41FDE2E90E062F /* LiveWallhavenScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B1A430120A572ABD1A0BD75 /* LiveWallhavenScreenshots.swift */; };
+		B818DB7920CC479389F31D43 /* PerformanceSettingsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8B9504F363311E52D3C1F0E /* PerformanceSettingsUITests.swift */; };
 		D2ECC9FBA3BA11E5B4E7AF4E /* HarnessGraphicsHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = E739007D988ACB2BF6F0357E /* HarnessGraphicsHost.swift */; };
 		F2A5005FA53ED805E2C5CF83 /* WallpaperMatchScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF55FC3FC5F50DCCCB810FD8 /* WallpaperMatchScreenshots.swift */; };
 		FDB89417314278B38772EDAA /* RealAppScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 717FEA742F25D083F27BEC8B /* RealAppScreenshots.swift */; };
@@ -45,6 +46,7 @@
 		8B1A430120A572ABD1A0BD75 /* LiveWallhavenScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveWallhavenScreenshots.swift; sourceTree = "<group>"; };
 		AE2A2A78AF0D7C4142E4F4D2 /* HarnessApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessApp.swift; sourceTree = "<group>"; };
 		BEFD8C64C5D38CD32548624A /* KeyboardChromeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardChromeUITests.swift; sourceTree = "<group>"; };
+		C8B9504F363311E52D3C1F0E /* PerformanceSettingsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceSettingsUITests.swift; sourceTree = "<group>"; };
 		DA4E3C8D783502C2C25F12E8 /* DesktopUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = DesktopUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DF55FC3FC5F50DCCCB810FD8 /* WallpaperMatchScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WallpaperMatchScreenshots.swift; sourceTree = "<group>"; };
 		E739007D988ACB2BF6F0357E /* HarnessGraphicsHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessGraphicsHost.swift; sourceTree = "<group>"; };
@@ -75,6 +77,7 @@
 				BEFD8C64C5D38CD32548624A /* KeyboardChromeUITests.swift */,
 				8B1A430120A572ABD1A0BD75 /* LiveWallhavenScreenshots.swift */,
 				F11E49C199BBB023D15AB1DE /* OnboardingUITests.swift */,
+				C8B9504F363311E52D3C1F0E /* PerformanceSettingsUITests.swift */,
 				717FEA742F25D083F27BEC8B /* RealAppScreenshots.swift */,
 				7E10F8CF5AC46056D919F8A5 /* StoreUITests.swift */,
 				EA8EB04400C7FF26AA9C17D3 /* StyleScreenshots.swift */,
@@ -219,6 +222,7 @@
 				9D7D261D0E2E9682AEE57ADE /* KeyboardChromeUITests.swift in Sources */,
 				B644889ABB41FDE2E90E062F /* LiveWallhavenScreenshots.swift in Sources */,
 				36098F4958FA1BEC0AB2F7F5 /* OnboardingUITests.swift in Sources */,
+				B818DB7920CC479389F31D43 /* PerformanceSettingsUITests.swift in Sources */,
 				FDB89417314278B38772EDAA /* RealAppScreenshots.swift in Sources */,
 				196D84E45CA7F4DABF4F5438 /* StoreUITests.swift in Sources */,
 				2B33A885D10821ABEBCCE783 /* StyleScreenshots.swift in Sources */,

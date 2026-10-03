@@ -25,6 +25,7 @@ struct StoreDetailPage: View {
                 }
                 if let shots = app.screenshots, !shots.isEmpty, let base = model.index?.mediaBase {
                     StoreScreenshotStrip(shots: shots, mediaBase: base, height: 230) { nav.screenshot = $0 }
+                        .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("store.detail.screenshots")
                 }
                 if let note = compatibilityNote {
@@ -52,6 +53,7 @@ struct StoreDetailPage: View {
         } message: {
             Text(sizeWarning ?? "")
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("store.detail.\(app.id)")
     }
 
@@ -203,6 +205,7 @@ struct StoreDetailPage: View {
                 fact("Details from", app.isBarePackage ? "Alpine package" : (app.metadataSource == "flathub" ? "AppStream (Alpine, Flathub)" : "AppStream (Alpine)"))
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("store.detail.facts")
     }
 
