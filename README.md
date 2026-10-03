@@ -16,8 +16,11 @@
   <a href="https://x.com/AmbsdOP">
     <img src="https://img.shields.io/badge/Follow-@AmbsdOP-1DA1F2?style=for-the-badge&logo=x&logoColor=white" alt="Follow on X">
   </a>
-  <a href="https://webdesignstudio.london">
-    <img src="https://img.shields.io/badge/Web_Design-webdesignstudio.london-d4ff00?style=for-the-badge&labelColor=000000" alt="Web Design Studio London">
+  <a href="https://linpados.com">
+    <img src="https://img.shields.io/badge/Website-linpados.com-d4ff00?style=for-the-badge&labelColor=000000" alt="linpados.com">
+  </a>
+  <a href="https://valineagu.com">
+    <img src="https://img.shields.io/badge/Author-valineagu.com-ffffff?style=for-the-badge&labelColor=000000" alt="valineagu.com">
   </a>
 </p>
 
@@ -270,7 +273,7 @@ Cutting a release: **[release/RELEASING.md](release/RELEASING.md)**
 
 ## 👤 About the Author
 
-LinPad is built and maintained by **Vali** — open-source developer and founder of [Web Design Studio London](https://webdesignstudio.london), a specialist web design and development studio serving London businesses and international clients.
+LinPad is built and maintained by **Vali** ([valineagu.com](https://valineagu.com) · [@AmbsdOP](https://x.com/AmbsdOP) on X · [fspecii](https://github.com/fspecii) on GitHub).
 
 I bought an iPad Air M3, attached a Logitech keyboard with a trackpad, and realised I owned a laptop-class machine that couldn't run a terminal, an editor or a real browser. LinPad is the fix.
 
