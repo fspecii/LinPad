@@ -76,11 +76,11 @@
       </extension>
     </track>
     <track>
-      <location>https://radio.plaza.one/ogg</location>
-      <title>Nightwave Plaza</title>
-      <annotation>RU · OGG · 64 kbps</annotation>
-      <info>https://plaza.one/</info>
-      <meta rel="https://api.radio-browser.info/#stationuuid">e35e3676-58e2-48ba-94bf-e32cc024b7cb</meta>
+      <location>https://public.isekoi-radio.com/listen/chill/radio.mp3</location>
+      <title>ISEKOI Radio Chill Zone</title>
+      <annotation>FR · MP3 · 320 kbps</annotation>
+      <info>https://isekoi-radio.com/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">9467b580-dd8b-44d6-b99a-6ac688a50786</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
         <vlc:id>7</vlc:id>
       </extension>
@@ -146,23 +146,13 @@
       </extension>
     </track>
     <track>
-      <location>https://stream.srg-ssr.ch/m/rsc_de/mp3_128</location>
-      <title>Radio Swiss Classic</title>
-      <annotation>CH · MP3 · 128 kbps</annotation>
-      <info>http://www.radioswissclassic.ch/</info>
-      <meta rel="https://api.radio-browser.info/#stationuuid">96077079-0601-11e8-ae97-52543be04c81</meta>
-      <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>14</vlc:id>
-      </extension>
-    </track>
-    <track>
       <location>https://media-ssl.musicradio.com/ClassicFMMP3</location>
       <title>Classic FM</title>
       <annotation>GB · MP3 · 128 kbps</annotation>
       <info>http://www.classicfm.com/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">96063f25-0601-11e8-ae97-52543be04c81</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>15</vlc:id>
+        <vlc:id>14</vlc:id>
       </extension>
     </track>
     <track>
@@ -172,7 +162,7 @@
       <info>https://www.veniceclassicradio.eu/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">6b4d2d9d-1435-44aa-b5ee-1db50f833ddc</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>16</vlc:id>
+        <vlc:id>15</vlc:id>
       </extension>
     </track>
     <track>
@@ -182,7 +172,7 @@
       <info>https://walmradio.com/walm2</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">64bb1467-2585-4454-a96f-34cfbc864d41</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>17</vlc:id>
+        <vlc:id>16</vlc:id>
       </extension>
     </track>
     <track>
@@ -192,7 +182,7 @@
       <info>https://www.bbc.co.uk/radio3</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">03e68f6d-1ca3-459f-891a-c55d84711646</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>18</vlc:id>
+        <vlc:id>17</vlc:id>
       </extension>
     </track>
     <track>
@@ -202,7 +192,7 @@
       <info>https://somafm.com/seventies/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">961e37ee-0601-11e8-ae97-52543be04c81</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>19</vlc:id>
+        <vlc:id>18</vlc:id>
       </extension>
     </track>
     <track>
@@ -212,7 +202,7 @@
       <info>http://www.0nradio.com/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">d7f5a497-40ec-11e9-aa55-52543be04c81</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>20</vlc:id>
+        <vlc:id>19</vlc:id>
       </extension>
     </track>
     <track>
@@ -222,7 +212,7 @@
       <info>https://somafm.com/indiepop/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">96394224-0601-11e8-ae97-52543be04c81</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>21</vlc:id>
+        <vlc:id>20</vlc:id>
       </extension>
     </track>
     <track>
@@ -232,7 +222,7 @@
       <info>https://exclusive.radio/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">501e4f18-fd92-441e-b4c6-4bd4a8435672</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>22</vlc:id>
+        <vlc:id>21</vlc:id>
       </extension>
     </track>
     <track>
@@ -242,7 +232,7 @@
       <info>https://webradio.ert.gr/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">605b2521-e764-42ba-8be0-473fc096a3b3</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>23</vlc:id>
+        <vlc:id>22</vlc:id>
       </extension>
     </track>
     <track>
@@ -252,7 +242,7 @@
       <info>https://dancewave.online/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">962cc6df-0601-11e8-ae97-52543be04c81</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>24</vlc:id>
+        <vlc:id>23</vlc:id>
       </extension>
     </track>
     <track>
@@ -262,7 +252,7 @@
       <info>https://www.intenseradio.net/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">af6f51b1-0ca9-11ea-a87e-52543be04c81</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>25</vlc:id>
+        <vlc:id>24</vlc:id>
       </extension>
     </track>
     <track>
@@ -272,7 +262,7 @@
       <info>https://somafm.com/spacestation/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">960d3f6f-0601-11e8-ae97-52543be04c81</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>26</vlc:id>
+        <vlc:id>25</vlc:id>
       </extension>
     </track>
     <track>
@@ -282,7 +272,7 @@
       <info>https://somafm.com/lush/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">961173b5-0601-11e8-ae97-52543be04c81</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>27</vlc:id>
+        <vlc:id>26</vlc:id>
       </extension>
     </track>
     <track>
@@ -292,7 +282,7 @@
       <info>https://technolovers.fm/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">cc0fdbe3-a2fb-4f0a-b67d-b47acd6354c7</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>28</vlc:id>
+        <vlc:id>27</vlc:id>
       </extension>
     </track>
     <track>
@@ -302,7 +292,7 @@
       <info>https://www.bbc.co.uk/radio4</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">98137c2d-ce68-4e33-8cb7-ddf3692ecc9d</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>29</vlc:id>
+        <vlc:id>28</vlc:id>
       </extension>
     </track>
     <track>
@@ -312,7 +302,7 @@
       <info>http://www.lbc.co.uk/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">9614bbb6-0601-11e8-ae97-52543be04c81</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>30</vlc:id>
+        <vlc:id>29</vlc:id>
       </extension>
     </track>
     <track>
@@ -322,7 +312,7 @@
       <info>https://rmc.bfmtv.com/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">7a3a3989-8f26-44f7-9ae5-fa91e5cf4f9d</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>31</vlc:id>
+        <vlc:id>30</vlc:id>
       </extension>
     </track>
     <track>
@@ -332,7 +322,7 @@
       <info>https://talksport.com/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">177dda8f-ce5f-4f18-a19e-c6c8b6f5319a</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>32</vlc:id>
+        <vlc:id>31</vlc:id>
       </extension>
     </track>
     <track>
@@ -342,7 +332,7 @@
       <info>https://www.romania-actualitati.ro/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">8158142a-c13e-4073-ace3-ab574f0285bb</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>33</vlc:id>
+        <vlc:id>32</vlc:id>
       </extension>
     </track>
     <track>
@@ -352,7 +342,7 @@
       <info>https://www.digi24.ro/live/digi24-fm</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">73ee836b-e9f2-4758-9cd6-2886da6db476</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>34</vlc:id>
+        <vlc:id>33</vlc:id>
       </extension>
     </track>
     <track>
@@ -362,17 +352,7 @@
       <info>https://www.kissfm.ro/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">99ac4423-0307-11ea-bbf2-52543be04c81</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>35</vlc:id>
-      </extension>
-    </track>
-    <track>
-      <location>https://astreaming.edi.ro:8443/EuropaFM_aac</location>
-      <title>Europa FM</title>
-      <annotation>RO · AAC · 64 kbps</annotation>
-      <info>http://www.europafm.ro/</info>
-      <meta rel="https://api.radio-browser.info/#stationuuid">c63f7402-f143-4f92-9cc9-e2d49f2a0bc5</meta>
-      <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>36</vlc:id>
+        <vlc:id>34</vlc:id>
       </extension>
     </track>
     <track>
@@ -382,7 +362,7 @@
       <info>https://virginradio.ro/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">1d6d9870-b554-4919-a0a9-93457d3de6da</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>37</vlc:id>
+        <vlc:id>35</vlc:id>
       </extension>
     </track>
     <track>
@@ -392,7 +372,7 @@
       <info>https://www.guerrillaradio.ro/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">331f8e7c-a7ca-4c19-b1f2-1998cca09d4c</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>38</vlc:id>
+        <vlc:id>36</vlc:id>
       </extension>
     </track>
     <track>
@@ -402,7 +382,7 @@
       <info>https://www.magicfm.ro/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">5e7667bc-98db-4772-be99-cf6e2e10d73f</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>39</vlc:id>
+        <vlc:id>37</vlc:id>
       </extension>
     </track>
     <track>
@@ -412,7 +392,7 @@
       <info>https://www.rockfm.ro/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">2eb897a7-b86b-4bb2-b245-94a43829b7e5</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>40</vlc:id>
+        <vlc:id>38</vlc:id>
       </extension>
     </track>
     <track>
@@ -422,7 +402,7 @@
       <info>https://www.bbc.co.uk/radio2</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">3606ef8c-cd58-4440-8c47-dbf1e0cacdac</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>41</vlc:id>
+        <vlc:id>39</vlc:id>
       </extension>
     </track>
     <track>
@@ -432,7 +412,7 @@
       <info>https://www.heart.co.uk/80s</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">c4077677-dc2f-11e9-a8ba-52543be04c81</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>42</vlc:id>
+        <vlc:id>40</vlc:id>
       </extension>
     </track>
     <track>
@@ -442,7 +422,7 @@
       <info>https://www.mygoldmusic.co.uk/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">0a1e0bb0-dc37-11e9-a8ba-52543be04c81</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>43</vlc:id>
+        <vlc:id>41</vlc:id>
       </extension>
     </track>
     <track>
@@ -452,7 +432,7 @@
       <info>https://www.heart.co.uk/90s</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">52bb00fe-dc31-11e9-a8ba-52543be04c81</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>44</vlc:id>
+        <vlc:id>42</vlc:id>
       </extension>
     </track>
     <track>
@@ -462,7 +442,7 @@
       <info>http://www.radiox.co.uk/</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">9617bbd8-0601-11e8-ae97-52543be04c81</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>45</vlc:id>
+        <vlc:id>43</vlc:id>
       </extension>
     </track>
     <track>
@@ -472,7 +452,7 @@
       <info>https://www.hellorayo.co.uk/absolute-80s</info>
       <meta rel="https://api.radio-browser.info/#stationuuid">c6c204d3-3ffd-4e85-b0f9-29bf6de7ddf4</meta>
       <extension application="http://www.videolan.org/vlc/playlist/0">
-        <vlc:id>46</vlc:id>
+        <vlc:id>44</vlc:id>
       </extension>
     </track>
   </trackList>
@@ -502,45 +482,43 @@
       <vlc:item tid="15"/>
       <vlc:item tid="16"/>
       <vlc:item tid="17"/>
-      <vlc:item tid="18"/>
     </vlc:node>
     <vlc:node title="Rock">
+      <vlc:item tid="18"/>
       <vlc:item tid="19"/>
       <vlc:item tid="20"/>
       <vlc:item tid="21"/>
       <vlc:item tid="22"/>
-      <vlc:item tid="23"/>
     </vlc:node>
     <vlc:node title="Electronic">
+      <vlc:item tid="23"/>
       <vlc:item tid="24"/>
       <vlc:item tid="25"/>
       <vlc:item tid="26"/>
       <vlc:item tid="27"/>
-      <vlc:item tid="28"/>
     </vlc:node>
     <vlc:node title="Talk">
+      <vlc:item tid="28"/>
       <vlc:item tid="29"/>
       <vlc:item tid="30"/>
       <vlc:item tid="31"/>
-      <vlc:item tid="32"/>
     </vlc:node>
     <vlc:node title="Romania">
+      <vlc:item tid="32"/>
       <vlc:item tid="33"/>
       <vlc:item tid="34"/>
       <vlc:item tid="35"/>
       <vlc:item tid="36"/>
       <vlc:item tid="37"/>
       <vlc:item tid="38"/>
-      <vlc:item tid="39"/>
-      <vlc:item tid="40"/>
     </vlc:node>
     <vlc:node title="UK">
+      <vlc:item tid="39"/>
+      <vlc:item tid="40"/>
       <vlc:item tid="41"/>
       <vlc:item tid="42"/>
       <vlc:item tid="43"/>
       <vlc:item tid="44"/>
-      <vlc:item tid="45"/>
-      <vlc:item tid="46"/>
     </vlc:node>
   </extension>
 </playlist>

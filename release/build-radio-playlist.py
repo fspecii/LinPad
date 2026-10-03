@@ -28,6 +28,8 @@ PROBE_AGENT = "VLC/3.0.21 LibVLC/3.0.21"
 OUT = Path(__file__).resolve().parent / "guest/linpad/packs/radio/linpad-radio.xspf"
 
 # (folder, Radio Browser station UUID, display name or None, stream URL override or None)
+# Left out after testing in VLC 3.0.21 under LinPad: Nightwave Plaza and Radio Swiss
+# Classic, whose streams stop after the first second or two in VLC.
 STATIONS = [
     ("News", "598c4d0e-6b06-43fb-bff4-717c591213a9", "BBC World Service", None),
     ("News", "1c3e8be2-5b14-4933-bad3-87cbc227cba4", "Deutschlandfunk", None),
@@ -36,14 +38,13 @@ STATIONS = [
     ("Chill / Lo-fi", "960cf833-0601-11e8-ae97-52543be04c81", "SomaFM Groove Salad", None),
     ("Chill / Lo-fi", "478fd7f4-dc36-11e9-a8ba-52543be04c81", "Smooth Chill", None),
     ("Chill / Lo-fi", "02338a64-da59-4db6-a1c1-639fdc74d65b", "REYFM #lofi", None),
-    ("Chill / Lo-fi", "e35e3676-58e2-48ba-94bf-e32cc024b7cb", "Nightwave Plaza", None),
+    ("Chill / Lo-fi", "9467b580-dd8b-44d6-b99a-6ac688a50786", "ISEKOI Radio Chill Zone", None),
     ("Chill / Lo-fi", "960eb2e9-0601-11e8-ae97-52543be04c81", "SomaFM Drone Zone", None),
     ("Chill / Lo-fi", "3fd18c3f-8157-11e9-aa30-52543be04c81", "Café del Mar", None),
     ("Jazz", "ea8059be-d119-4de3-b27b-0d9bd6aedb17", "Adroit Jazz Underground", None),
     ("Jazz", "960c7c81-0601-11e8-ae97-52543be04c81", "SomaFM Secret Agent", None),
     ("Jazz", "0eb3dbcf-05f7-480e-83f4-7718102a4820", "SmoothJazz.com", None),
     ("Jazz", "7ada8a81-5ae1-418c-8f18-51d2f38d86a4", "Bossa Jazz Brasil", None),
-    ("Classical", "96077079-0601-11e8-ae97-52543be04c81", "Radio Swiss Classic", None),
     ("Classical", "96063f25-0601-11e8-ae97-52543be04c81", "Classic FM", None),
     ("Classical", "6b4d2d9d-1435-44aa-b5ee-1db50f833ddc", "Venice Classic Radio", None),
     ("Classical", "64bb1467-2585-4454-a96f-34cfbc864d41", "WALM 2", None),

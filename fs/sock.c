@@ -475,7 +475,7 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
         // Log connect failures except the routine nonblock in-progress case,
         // so VPN / routing issues are visible in user-shared logs.
         if (ce != EINPROGRESS && ce != EALREADY) {
-            if (ish_log_enabled()) printk("NETDIAG connect(pid=%d comm=%s fd=%d) errno=%d\n",
+            ish_printk_diag("NETDIAG connect(pid=%d comm=%s fd=%d) errno=%d\n",
                    current->pid, current->comm, sock_fd, ce);
         }
         errno = ce;
@@ -875,7 +875,7 @@ static int sock_wait_for(int real_fd, short events, int timeout_opt) {
         if (deadline_ms > 0) {
             long remaining = deadline_ms - monotonic_ms();
             if (remaining <= 0) {
-                if (ish_log_enabled()) printk("NETDIAG sock_wait(pid=%d comm=%s fd=%d ev=%#x) deadline-expired after %ldms\n",
+                ish_printk_diag("NETDIAG sock_wait(pid=%d comm=%s fd=%d ev=%#x) deadline-expired after %ldms\n",
                        current->pid, current->comm, real_fd, events, timeout_ms);
                 return _EAGAIN;
             }
@@ -894,7 +894,7 @@ static int sock_wait_for(int real_fd, short events, int timeout_opt) {
         if (pr == 0) {
             // Log once if we're stuck > 3 seconds without any ready event
             if (!slow_logged && (monotonic_ms() - start_ms) >= 3000) {
-                if (ish_log_enabled()) printk("NETDIAG sock_wait(pid=%d comm=%s fd=%d ev=%#x) no-event for 3s (timeout_opt_ms=%ld)\n",
+                ish_printk_diag("NETDIAG sock_wait(pid=%d comm=%s fd=%d ev=%#x) no-event for 3s (timeout_opt_ms=%ld)\n",
                        current->pid, current->comm, real_fd, events, timeout_ms);
                 slow_logged = true;
             }
@@ -903,7 +903,7 @@ static int sock_wait_for(int real_fd, short events, int timeout_opt) {
         if (saved_errno == EINTR)
             continue;
         errno = saved_errno;
-        if (ish_log_enabled()) printk("NETDIAG sock_wait(pid=%d comm=%s fd=%d ev=%#x) poll err=%d\n",
+        ish_printk_diag("NETDIAG sock_wait(pid=%d comm=%s fd=%d ev=%#x) poll err=%d\n",
                current->pid, current->comm, real_fd, events, saved_errno);
         return errno_map();
     }
@@ -997,7 +997,7 @@ int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags,
         // Diagnostic: a blocking recv is exceptional for most network
         // programs (Node, Go, Python asyncio all use nonblock). Log it so
         // we can see the guest/host fd state in user-shared logs.
-        if (ish_log_enabled()) printk("NETDIAG recvfrom-block(pid=%d comm=%s fd=%d real=%d len=%u gflags=%#x hflags=%#x sflags=%#x)\n",
+        ish_printk_diag("NETDIAG recvfrom-block(pid=%d comm=%s fd=%d real=%d len=%u gflags=%#x hflags=%#x sflags=%#x)\n",
                current->pid, current->comm, sock_fd, sock->real_fd,
                (unsigned)len, (unsigned)flags,
                host_flags, sock->flags);
@@ -1589,7 +1589,7 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     ssize_t res = -1;
     int err = 0;
     if (should_wait_rm) {
-        if (ish_log_enabled()) printk("NETDIAG recvmsg-block(pid=%d comm=%s fd=%d real=%d gflags=%#x hflags=%#x sflags=%#x)\n",
+        ish_printk_diag("NETDIAG recvmsg-block(pid=%d comm=%s fd=%d real=%d gflags=%#x hflags=%#x sflags=%#x)\n",
                current->pid, current->comm, sock_fd, sock->real_fd,
                (unsigned)flags, host_flags_rm, sock->flags);
         for (;;) {
@@ -1886,7 +1886,7 @@ static ssize_t sock_read(struct fd *fd, void *buf, size_t size) {
         // no guest signal — retry the host read
     }
     if (eintr_count >= 3) {
-        if (ish_log_enabled()) printk("NETDIAG sock_read-eintr(pid=%d comm=%s fd=%d) count=%d err=%d\n",
+        ish_printk_diag("NETDIAG sock_read-eintr(pid=%d comm=%s fd=%d) count=%d err=%d\n",
                current->pid, current->comm, fd->real_fd, eintr_count, err);
     }
     sock_translate_err(fd, &err);
@@ -1912,7 +1912,7 @@ static ssize_t sock_write(struct fd *fd, const void *buf, size_t size) {
         }
     }
     if (eintr_count >= 3) {
-        if (ish_log_enabled()) printk("NETDIAG sock_write-eintr(pid=%d comm=%s fd=%d) count=%d err=%d\n",
+        ish_printk_diag("NETDIAG sock_write-eintr(pid=%d comm=%s fd=%d) count=%d err=%d\n",
                current->pid, current->comm, fd->real_fd, eintr_count, err);
     }
     sock_translate_err(fd, &err);
