@@ -114,9 +114,12 @@ struct DiagnosticsSessionMarker: Codable, Equatable {
     var inForeground: Bool
     /// A main-thread stall that was still going on when this was written.
     var stallInProgressSince: Date?
+    /// Set when LinPad exits on purpose (Quit, Reset to Factory). Absent in markers from
+    /// before it existed.
+    var exitedCleanly: Bool?
 
     /// Whether the previous session (this marker, read at the next launch) ended badly.
-    var endedUncleanly: Bool { inForeground }
+    var endedUncleanly: Bool { inForeground && exitedCleanly != true }
 }
 
 enum UncleanExitPolicy {

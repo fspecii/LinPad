@@ -59,6 +59,7 @@
       "desktop": "libreoffice-writer.desktop",
       "icon": "libreoffice-writer",
       "launch": "ishwl-launch 'libreoffice --writer'",
+      "postinstall": "/usr/local/sbin/linpad-autosave-defaults",
       "recommended": false,
       "experimental": true
     },
@@ -320,6 +321,21 @@
       "check": "/usr/bin/calcurse",
       "launch": "calcurse --version",
       "cli": true,
+      "recommended": false
+    },
+    {
+      "id": "persistent-terminals",
+      "name": "Persistent terminals (tmux)",
+      "description": "Linux terminal windows run inside tmux: closing a window or restarting the desktop session keeps its shell and programs running, and the next terminal window reattaches to them. When iPadOS closes LinPad, Linux stops and the shells end too.",
+      "category": "Development",
+      "sizeMB": 1,
+      "packages": [
+        "tmux"
+      ],
+      "check": "/etc/ish/terminal-tmux",
+      "postinstall": "/usr/local/share/linpad/packs/terminals/postinstall.sh",
+      "postremove": "/usr/local/share/linpad/packs/terminals/postremove.sh",
+      "launch": "ishwl-launch 'ish-terminal'",
       "recommended": false
     }
   ]

@@ -54,7 +54,7 @@
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>Programs running in iSH will be allowed to track your location in the background.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Programs running in iSH will be allowed to see your location.</string>
+	<string>With Settings › Background set to “Always”, location updates keep Linux running while LinPad is in the background; LinPad does not keep or share where you are. Linux programs that read /dev/location can also see your location.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>app.ish.scene</string>
@@ -84,6 +84,7 @@
 	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
+		<string>audio</string>
 		<string>location</string>
 	</array>
 	<key>UIFileSharingEnabled</key>

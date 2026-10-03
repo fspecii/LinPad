@@ -93,6 +93,38 @@ enum MemorySettings {
     static func megabytes(_ mb: Int) -> String {
         mb >= 1024 ? String(format: "%.1f GB", Double(mb) / 1024) : "\(mb) MB"
     }
+
+    /// The installed Linux app a closed process stands for ("Firefox", "foot"), so the
+    /// toast can offer to reopen it; nil for a helper ("a Firefox tab process").
+    static func reopenableApp(named app: String, in entries: [LinuxDesktopEntry]) -> LinuxDesktopEntry? {
+        let name = app.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return nil }
+        return entries.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+            ?? entries.first { $0.matches(appID: name) }
+    }
+}
+
+extension DesktopController {
+    /// The out-of-memory monitor closed a Linux app: say so, and offer to reopen it (when
+    /// it was an app's own process and none of its windows is left) and the Memory settings.
+    func guestAppClosedForMemory(app: String, message: String) {
+        let settings = DesktopToast.Action(title: "Memory Settings") { [weak self] in
+            self?.open(appID: AppID.settings, arguments: [SettingsApp.pageArgument: SettingsApp.performancePage])
+        }
+        let entries = linux?.applications ?? []
+        guard let entry = MemorySettings.reopenableApp(named: app, in: entries) else {
+            notify(message, action: settings)
+            return
+        }
+        let appID = LinuxAppID.prefix + entry.id
+        guard !windowManager.windows.contains(where: { $0.appID == appID }) else {
+            notify(message, action: settings)
+            return
+        }
+        notify(message, action: DesktopToast.Action(title: "Reopen \(entry.name)") { [weak self] in
+            self?.open(appID: appID, arguments: [:])
+        }, secondaryAction: settings)
+    }
 }
 
 /// Settings › Performance › Memory.
@@ -104,6 +136,9 @@ struct MemorySettingsSection: View {
     @State private var status = GuestMemoryStatus()
     @State private var protectDraft = ""
     @State private var loaded = false
+    /// nil while the first read is in flight; false when /proc/ish/memory is missing.
+    @State private var available: Bool?
+    @FocusState private var protectFocused: Bool
 
     var body: some View {
         SettingsSection(title: "Memory", symbol: "memorychip") {
@@ -119,11 +154,20 @@ struct MemorySettingsSection: View {
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
             SettingsRow(title: "Never close") {
-                TextField("process names, comma-separated", text: $protectDraft)
-                    .textFieldStyle(.roundedBorder)
+                TextField("e.g. code, firefox-esr", text: $protectDraft)
+                    .textFieldStyle(.plain)
+                    .font(.callout)
                     .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(theme.primaryText.opacity(0.06)))
+                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(theme.separator))
                     .frame(maxWidth: 260)
+                    .focused($protectFocused)
                     .onSubmit { saveProtectList() }
+                    .onChange(of: protectFocused) { _, focused in
+                        if !focused, protectDraft != protectedApps { saveProtectList() }
+                    }
                     .accessibilityIdentifier("settings.memory.protect")
             }
             if !status.processes.isEmpty { processList }
@@ -145,13 +189,26 @@ struct MemorySettingsSection: View {
 
     private var usage: some View {
         VStack(alignment: .leading, spacing: 4) {
-            if status.allowanceMB > 0 {
+            if available == nil {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Reading memory use…").font(.callout).foregroundStyle(theme.secondaryText)
+                }
+            } else if available == false {
+                Label("Memory details need a newer Linux system (Settings › Updates). The setting below still applies.",
+                      systemImage: "info.circle")
+                    .font(.callout)
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("settings.memory.unavailable")
+            } else if status.allowanceMB > 0 {
                 ProgressView(value: status.fraction)
                     .tint(status.footprintMB >= status.allowanceMB - status.hardMB ? .red :
                           status.footprintMB >= status.allowanceMB - status.softMB ? .orange : theme.accent)
                     .accessibilityIdentifier("settings.memory.usage")
                 Text("LinPad uses \(MemorySettings.megabytes(status.footprintMB)) of the \(MemorySettings.megabytes(status.allowanceMB)) iPadOS allows it.")
                     .font(.callout)
+                    .accessibilityIdentifier("settings.memory.summary")
             } else {
                 Text("LinPad uses \(MemorySettings.megabytes(status.footprintMB)). This device sets no per-app limit.")
                     .font(.callout)
@@ -167,6 +224,8 @@ struct MemorySettingsSection: View {
                     Text(process.name).font(.callout).lineLimit(1)
                     if process.isProtected {
                         Text("never closed").font(.caption2).foregroundStyle(theme.secondaryText)
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Capsule().fill(theme.primaryText.opacity(0.08)))
                     }
                     Spacer()
                     Text(MemorySettings.megabytes(process.megabytes)).font(.callout.monospacedDigit())
@@ -184,7 +243,8 @@ struct MemorySettingsSection: View {
                 HStack {
                     Text(close.name).font(.callout).lineLimit(1)
                     Spacer()
-                    Text(close.date, style: .time).font(.caption).foregroundStyle(theme.secondaryText)
+                    Text("freed \(MemorySettings.megabytes(close.freedMB))").font(.caption).foregroundStyle(theme.secondaryText)
+                    Text(close.date, style: .time).font(.caption.monospacedDigit()).foregroundStyle(theme.secondaryText)
                 }
             }
         }
@@ -193,7 +253,11 @@ struct MemorySettingsSection: View {
 
     private func refresh() async {
         let result = await host.run("cat \(MemorySettings.statusPath)")
-        guard result.succeeded else { return }
+        guard result.succeeded, !result.stdout.isEmpty else {
+            if available == nil { available = false }
+            return
+        }
+        available = true
         status = GuestMemoryStatus(parsing: result.stdout)
     }
 

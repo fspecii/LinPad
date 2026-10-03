@@ -49,6 +49,14 @@ final class DesktopSessionStore {
     private var saveTask: Task<Void, Never>?
     private var isRestoring = false
     private var backgroundObserver: NSObjectProtocol?
+    private var linuxRelaunchTask: Task<Void, Never>?
+    /// Desktop windows the last `restore()` reopened.
+    private(set) var restoredWindowIDs: [UUID] = []
+    /// Linux apps the last `restore()` started or is about to start.
+    private(set) var relaunchedLinuxAppIDs: Set<String> = []
+    /// "Don't Restore": windows of restored Linux apps that map before this are closed.
+    private var discardRelaunchedUntil: Date?
+    private static let discardWindow: TimeInterval = 60
 
     init(controller: DesktopController, defaults: UserDefaults = .standard) {
         self.controller = controller
@@ -95,6 +103,7 @@ final class DesktopSessionStore {
               snapshot.version == DesktopSessionSnapshot.currentVersion else { return [] }
         isRestoring = true
         defer { isRestoring = false }
+        EditorRecoveryStore.shared.prune(keeping: Set(snapshot.windows.compactMap { $0.arguments[AppArgument.recovery] }))
         if let names = snapshot.workspaceNames {
             controller.windowManager.restoreWorkspaces(names: names)
             if let states = TilingSettings.decode(defaults.string(forKey: DesktopSettings.tilingKey) ?? "") {
@@ -103,6 +112,7 @@ final class DesktopSessionStore {
         }
         var reopened = Set<String>()
         var linuxWindows: [DesktopSessionSnapshot.Window] = []
+        let before = Set(controller.windowManager.windows.map(\.id))
         for window in snapshot.windows {
             controller.windowManager.enqueuePlacement(window.placement, forAppID: window.appID)
             reopened.insert(window.appID)
@@ -112,11 +122,41 @@ final class DesktopSessionStore {
                 controller.open(appID: window.appID, arguments: window.arguments)
             }
         }
+        restoredWindowIDs = controller.windowManager.windows.map(\.id).filter { !before.contains($0) }
         controller.windowManager.restoreWorkspace(snapshot.currentWorkspace)
-        if !linuxWindows.isEmpty {
-            Task { await relaunchLinuxWindows(linuxWindows) }
+        let launches = LinuxSessionRelaunch.launches(for: linuxWindows)
+        relaunchedLinuxAppIDs = Set(launches.map(\.appID))
+        if !launches.isEmpty {
+            linuxRelaunchTask = Task { await relaunchLinuxWindows(launches) }
         }
         return reopened
+    }
+
+    /// Whether `restore()` brought anything back.
+    var didRestoreWindows: Bool {
+        !restoredWindowIDs.isEmpty || !relaunchedLinuxAppIDs.isEmpty
+    }
+
+    /// "Don't Restore" on the notice: closes what the restore opened, stops Linux apps
+    /// that were not started yet, and closes the windows of those already starting.
+    func discardRestoredWindows() {
+        guard let controller else { return }
+        linuxRelaunchTask?.cancel()
+        linuxRelaunchTask = nil
+        for id in restoredWindowIDs { controller.windowManager.close(id) }
+        for (surfaceID, windowID) in controller.linuxWindows {
+            guard let window = controller.windowManager.window(withID: windowID),
+                  relaunchedLinuxAppIDs.contains(window.appID) else { continue }
+            controller.linux?.requestClose(surfaceID)
+        }
+        discardRelaunchedUntil = Date().addingTimeInterval(Self.discardWindow)
+        restoredWindowIDs = []
+    }
+
+    /// A Linux window of a restored app mapped after "Don't Restore": it should close.
+    func shouldDiscardMappedLinuxWindow(appID: String) -> Bool {
+        guard let until = discardRelaunchedUntil, Date() < until else { return false }
+        return relaunchedLinuxAppIDs.contains(appID)
     }
 
     /// A Linux window's app id names its .desktop entry, which only resolves to a command
@@ -127,6 +167,7 @@ final class DesktopSessionStore {
             try? await Task.sleep(for: .milliseconds(500))
         }
         for window in windows {
+            guard !Task.isCancelled else { return }
             controller?.open(appID: window.appID, arguments: window.arguments)
         }
     }

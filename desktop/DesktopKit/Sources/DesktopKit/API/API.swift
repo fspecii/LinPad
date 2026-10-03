@@ -187,6 +187,7 @@ public enum AppArgument {
     public static let url = "url"          // Web Browser
     public static let command = "command"  // Terminal
     public static let cwd = "cwd"          // Terminal
+    public static let recovery = "recovery" // Text Editor: its unsaved-changes snapshot
 }
 
 /// The window an app instance lives in.
@@ -195,6 +196,13 @@ public protocol WindowHandle: AnyObject {
     var id: UUID { get }
     func setTitle(_ title: String)
     func close()
+    /// Changes an argument the window was opened with, so session restore reopens it with
+    /// the new value (e.g. a document's recovery id). nil removes it.
+    func setArgument(_ value: String?, forKey key: String)
+}
+
+public extension WindowHandle {
+    func setArgument(_ value: String?, forKey key: String) {}
 }
 
 /// Actions an app may ask of the desktop.

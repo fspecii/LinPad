@@ -10,7 +10,8 @@ final class DesktopWindow: Identifiable {
     let appID: String
     let symbol: String
     /// What the app was opened with; session restore reopens it with the same arguments.
-    let arguments: [String: String]
+    /// Apps may update them (`WindowHandle.setArgument`).
+    @ObservationIgnored var arguments: [String: String]
     var title: String
     /// The free-floating frame; maximized and snapped windows return to it.
     var frame: CGRect
@@ -887,5 +888,11 @@ final class DesktopWindowHandle: WindowHandle {
 
     func close() {
         manager?.close(id)
+    }
+
+    func setArgument(_ value: String?, forKey key: String) {
+        guard let window, window.arguments[key] != value else { return }
+        window.arguments[key] = value
+        manager?.onLayoutChange?()
     }
 }

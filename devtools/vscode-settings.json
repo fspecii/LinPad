@@ -3,6 +3,11 @@
     "window.menuBarStyle": "classic",
     "window.dialogStyle": "custom",
     "window.restoreWindows": "all",
+    // iPadOS may end LinPad without warning: save edits within a second, and keep
+    // unsaved editors (hot exit backups) when a window closes too.
+    "files.autoSave": "afterDelay",
+    "files.autoSaveDelay": 1000,
+    "files.hotExit": "onExitAndWindowClose",
     "files.simpleDialog.enable": true,
     "update.mode": "none",
     "extensions.autoUpdate": false,

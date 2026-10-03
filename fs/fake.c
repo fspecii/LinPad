@@ -334,6 +334,9 @@ static struct fd *fakefs_open(struct mount *mount, const char *path, int flags, 
      * instead of relying on symlink traversal (which iOS sandbox may block). */
     char host_abs[PATH_MAX];
     struct fd *fd;
+    // The host file is new: any db row for this path is stale (left by an interrupted
+    // unlink or rename) and must not lend the new file its type and owner.
+    bool created_on_host = false;
     if (bind_mount_translate_path(path, host_abs, sizeof(host_abs))) {
         int real_flags = 0;
         if (flags & O_RDONLY_) real_flags |= O_RDONLY;
@@ -363,8 +366,11 @@ static struct fd *fakefs_open(struct mount *mount, const char *path, int flags, 
     } else {
         // A create holds the db write lock across the host step, so the new file is
         // never seen without its metadata (fakefs_adopt_host_only).
-        if (flags & O_CREAT_)
+        if (flags & O_CREAT_) {
             db_begin_write(fs);
+            struct stat before;
+            created_on_host = fstatat(mount->root_fd, fix_path(path), &before, AT_SYMLINK_NOFOLLOW) < 0;
+        }
         fd = realfs.open(mount, path, flags, 0666);
         if (IS_ERR(fd)) {
             if (flags & O_CREAT_)
@@ -384,7 +390,7 @@ locked:
         ishstat.uid = current->euid;
         ishstat.gid = current->egid;
         ishstat.rdev = 0;
-        if (fd->fake_inode == 0) {
+        if (fd->fake_inode == 0 || created_on_host) {
             path_create(fs, path, &ishstat);
             fd->fake_inode = path_get_inode(fs, path);
         }
@@ -551,7 +557,8 @@ static int fakefs_mknod(struct mount *mount, const char *path, mode_t_ mode, dev
     stat.rdev = 0;
     if (S_ISBLK(mode) || S_ISCHR(mode))
         stat.rdev = dev;
-    if (path_get_inode(fs, path) == 0)
+    // A node the host step just made replaces any stale row for the path.
+    if (err == 0 || path_get_inode(fs, path) == 0)
         path_create(fs, path, &stat);
     db_commit(fs);
     return 0;

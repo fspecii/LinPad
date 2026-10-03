@@ -150,6 +150,13 @@ put 755 "$G/ish-install-vscode" /usr/local/bin/ish-install-vscode
 put 755 "$G/ish-preview" /usr/local/bin/ish-preview
 put 644 "$G/90-firstrun.sh" /etc/ishwl/session.d/90-firstrun.sh
 put 644 "$G/15-lowmem.sh" /etc/ishwl/session.d/15-lowmem.sh
+put 755 "$G/lifecycle/linpad-lifecycle" /usr/local/bin/linpad-lifecycle
+put 755 "$G/lifecycle/linpad-autosave-defaults" /usr/local/sbin/linpad-autosave-defaults
+put 755 "$G/lifecycle/linpad-tmux-attach" /usr/local/bin/linpad-tmux-attach
+put 755 "$G/lifecycle/mousepad" /usr/local/bin/mousepad
+[ -e /etc/linpad/lifecycle.conf ] || put 644 "$G/lifecycle/lifecycle.conf" /etc/linpad/lifecycle.conf
+[ -d /etc/linpad/lifecycle.d ] || { mkdir -p /etc/linpad/lifecycle.d && changed /etc/linpad/lifecycle.d; }
+[ -f "$KIT/wl-bridge/ish-terminal" ] && put 755 "$KIT/wl-bridge/ish-terminal" /usr/local/bin/ish-terminal
 put 644 "$G/org.a11y.Bus.service" /usr/local/share/dbus-1/services/org.a11y.Bus.service
 put 644 "$G/ish-code.svg" /usr/share/icons/hicolor/scalable/apps/ish-code.svg
 put 644 "$G/linpad/catalog.json" /usr/share/linpad/catalog.json
@@ -202,6 +209,13 @@ if [ -d "$KIT/wl-bridge" ]; then
     done
     [ -f "$KIT/wl-bridge/fastfetch/config.jsonc" ] && put 644 "$KIT/wl-bridge/fastfetch/config.jsonc" /etc/xdg/fastfetch/config.jsonc
     [ -f "$KIT/wl-bridge/fastfetch/logo.txt" ] && put 644 "$KIT/wl-bridge/fastfetch/logo.txt" /usr/share/ish/logo.txt
+fi
+
+# Autosave and crash-restore defaults for VS Code, LibreOffice and Mousepad; they only
+# add what the user has not set.
+if [ -x /usr/local/sbin/linpad-autosave-defaults ]; then
+    out=$(/usr/local/sbin/linpad-autosave-defaults)
+    case $out in *" 0 change(s)"*) ;; *) changed "autosave defaults" ;; esac
 fi
 
 # --- 4. Desktop styles, colour themes, audio -------------------------------------------

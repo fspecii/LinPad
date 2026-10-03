@@ -10,6 +10,8 @@ struct DesktopToast: Identifiable, Equatable {
     let id = UUID()
     let message: String
     var action: Action?
+    /// A second, quieter button next to `action`.
+    var secondaryAction: Action?
     var showsProgress = false
 
     static func == (lhs: DesktopToast, rhs: DesktopToast) -> Bool { lhs.id == rhs.id }
@@ -92,6 +94,8 @@ final class DesktopController {
     @ObservationIgnored let input = DesktopInputCoordinator()
     @ObservationIgnored private(set) lazy var keyCommands = DesktopKeyCommands(controller: self)
     @ObservationIgnored private(set) lazy var session = DesktopSessionStore(controller: self)
+    /// Screen lock, app switching and iPadOS ending LinPad (Core/System/Lifecycle).
+    @ObservationIgnored private(set) lazy var lifecycle = LifecycleCoordinator(controller: self, host: host)
     @ObservationIgnored private(set) lazy var nowPlaying = NowPlayingCenter(host: host)
     @ObservationIgnored private(set) lazy var calendarStore = CalendarStore()
     @ObservationIgnored private(set) lazy var widgets = DesktopWidgetStore()
@@ -192,12 +196,8 @@ final class DesktopController {
         memoryCloseObserver = NotificationCenter.default.addObserver(
             forName: MemorySettings.appClosedNotification, object: nil, queue: .main) { [weak self] note in
             guard let message = note.userInfo?["message"] as? String else { return }
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.notify(message, action: DesktopToast.Action(title: "Memory") { [weak self] in
-                    self?.open(appID: AppID.settings, arguments: [SettingsApp.pageArgument: SettingsApp.performancePage])
-                })
-            }
+            let app = note.userInfo?["app"] as? String ?? ""
+            MainActor.assumeIsolated { self?.guestAppClosedForMemory(app: app, message: message) }
         }
         colorThemes.onApplyRequest = { [weak self] id in self?.applyColorTheme(id) }
         colorThemes.onPickerRequest = { [weak self] in self?.presentThemePicker() }
@@ -286,10 +286,11 @@ final class DesktopController {
 
     /// A toast with a button, e.g. "Restart Linux apps"; also kept in the notification history.
     @discardableResult
-    func notify(_ message: String, action: DesktopToast.Action?, showsProgress: Bool = false,
-                lifetime: Duration? = nil) -> UUID {
+    func notify(_ message: String, action: DesktopToast.Action?, secondaryAction: DesktopToast.Action? = nil,
+                showsProgress: Bool = false, lifetime: Duration? = nil) -> UUID {
         notifications.record(message)
-        let toast = DesktopToast(message: message, action: action, showsProgress: showsProgress)
+        let toast = DesktopToast(message: message, action: action, secondaryAction: secondaryAction,
+                                 showsProgress: showsProgress)
         guard !notifications.doNotDisturb || action != nil else { return toast.id }
         withAnimation(.snappy) {
             toasts.append(toast)

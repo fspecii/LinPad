@@ -1,0 +1,7 @@
+#!/bin/sh
+# Mousepad keeps its crash-restore session (the list of unsaved documents it backs up
+# every few seconds) in GSettings. The desktop session uses the in-memory backend
+# (ishwl-session), which forgets it when iPadOS ends LinPad; Mousepad gets the keyfile
+# backend (~/.config/glib-2.0/settings/keyfile) so those documents come back.
+export GSETTINGS_BACKEND=keyfile
+exec /usr/bin/mousepad "$@"

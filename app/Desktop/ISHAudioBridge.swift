@@ -73,6 +73,9 @@ final class ISHAudioBridge: @unchecked Sendable {
     private let engineQueue = DispatchQueue(label: "ishaudio.engine")
     private var engine: AVAudioEngine?
     private var interrupted = false
+    /// Settings › Background is "Off" and LinPad is not in front: no audio session, so
+    /// iPadOS suspends LinPad as for any other app. Read and written on `engineQueue`.
+    private var heldForBackground = false
     private var observers: [NSObjectProtocol] = []
     private var readerThread: Thread?
     private var statsURL: URL?
@@ -215,8 +218,31 @@ final class ISHAudioBridge: @unchecked Sendable {
 
     // MARK: - Engine and session
 
+    // MARK: - App lifecycle
+
+    /// Settings › Background. With background playback not allowed, leaving the screen
+    /// stops sound and gives the session back; coming back lets the next chunk restart it.
+    func setBackgroundPlaybackAllowed(_ allowed: Bool, inBackground: Bool) {
+        engineQueue.async {
+            let hold = inBackground && !allowed
+            guard hold != self.heldForBackground else { return }
+            self.heldForBackground = hold
+            if hold { self.stopEngine(deactivate: true) }
+        }
+    }
+
+    /// LinPad is in front again. iPadOS does not promise an end to every interruption
+    /// (a call taken while LinPad was suspended, another app's audio), so one that never
+    /// ended must not keep Linux silent until the next launch.
+    func resumeAfterBackground() {
+        engineQueue.async {
+            self.heldForBackground = false
+            self.interrupted = false
+        }
+    }
+
     private func startEngine() {
-        guard engine == nil, !interrupted else { return }
+        guard engine == nil, !interrupted, !heldForBackground else { return }
         let session = AVAudioSession.sharedInstance()
         do {
             // .playback without .mixWithOthers: Linux media (VLC) behaves like a media app
@@ -298,6 +324,16 @@ final class ISHAudioBridge: @unchecked Sendable {
                 @unknown default:
                     break
                 }
+            }
+        })
+        // Headphones unplugged (or a Bluetooth speaker gone): iPadOS media convention is to
+        // pause rather than continue out of the speaker. The desktop pauses Linux players.
+        observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: session,
+                                            queue: nil) { note in
+            guard let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                  AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable else { return }
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .linuxAudioOutputLost, object: nil)
             }
         })
         observers.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification,

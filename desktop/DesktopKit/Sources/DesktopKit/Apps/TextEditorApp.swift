@@ -17,15 +17,26 @@ enum TextEditorApp {
 
 @MainActor
 @Observable
-final class EditorDocument {
+final class EditorDocument: LifecycleSaving {
     static let readOnlyByteLimit = 2 * 1024 * 1024
     /// Beyond this many UTF-16 units a full regex pass costs noticeable main-thread time.
     static let highlightLengthLimit = 300_000
+    /// Autosave and the recovery snapshot run this long after the last change.
+    static let autosaveDelay: Duration = .milliseconds(1500)
 
     @ObservationIgnored private let host: any LinuxHost
     @ObservationIgnored private let window: any WindowHandle
     @ObservationIgnored let editorView: EditorContainerView
     @ObservationIgnored private var didLoad = false
+    @ObservationIgnored private let recovery: EditorRecoveryStore
+    @ObservationIgnored private let defaults: UserDefaults
+    /// Names this window's recovery record; kept in the window's arguments so a restored
+    /// window finds it again.
+    @ObservationIgnored private(set) var recoveryID: String
+    @ObservationIgnored private var recoveryIDPublished: Bool
+    @ObservationIgnored private var autosaveTask: Task<Void, Never>?
+    /// The change count the recovery record (or the file) last captured.
+    @ObservationIgnored private var persistedChangeCount = -1
 
     let homeDirectory: String
     private(set) var path: String?
@@ -41,15 +52,24 @@ final class EditorDocument {
     var isFindVisible = false
     var isSaveAsPresented = false
 
-    init(context: AppLaunchContext) {
+    init(context: AppLaunchContext, recovery: EditorRecoveryStore = .shared, defaults: UserDefaults = .standard) {
         host = context.host
         window = context.window
+        self.recovery = recovery
+        self.defaults = defaults
+        let restoredID = context.arguments[AppArgument.recovery]
+        recoveryID = restoredID ?? UUID().uuidString
+        recoveryIDPublished = restoredID != nil
         homeDirectory = AppPath.normalize(context.host.homeDirectory)
         let initialPath = context.arguments[AppArgument.path].map { AppPath.normalize($0) }
         path = initialPath
         language = SyntaxLanguage(path: initialPath)
         editorView = EditorContainerView()
-        editorView.onEdit = { [weak self] in self?.markDirty() }
+        editorView.onEdit = { [weak self] in
+            self?.markDirty()
+            self?.scheduleAutosave()
+        }
+        LifecycleSavers.shared.register(self)
         editorView.onLineCountChange = { [weak self] count in self?.lineCount = count }
         editorView.textView.onSave = { [weak self] in self?.save() }
         editorView.textView.onSaveAs = { [weak self] in self?.presentSaveAs() }
@@ -70,6 +90,7 @@ final class EditorDocument {
         updateTitle()
         guard let path else {
             editorView.load(text: "", language: language, readOnly: false, highlight: true)
+            applyRecoveredText(over: "")
             return
         }
 
@@ -88,9 +109,65 @@ final class EditorDocument {
             let highlight = !isBinary && (text.utf16.count <= Self.highlightLengthLimit)
             editorView.load(text: text, language: isBinary ? .plain : language,
                             readOnly: isReadOnly, highlight: highlight)
+            if !isReadOnly { applyRecoveredText(over: text) }
         } catch {
             await handleLoadFailure(path: path, error: error)
+            if !isReadOnly { applyRecoveredText(over: "") }
         }
+    }
+
+    /// A restored window whose last edits never reached the file (LinPad was closed
+    /// first): show those edits, unsaved, instead of the file.
+    private func applyRecoveredText(over loaded: String) {
+        guard let record = recovery.read(recoveryID) else { return }
+        guard record.text != loaded else {
+            recovery.remove(recoveryID)
+            return
+        }
+        editorView.load(text: record.text, language: language, readOnly: false,
+                        highlight: record.text.utf16.count <= Self.highlightLengthLimit)
+        persistedChangeCount = editorView.changeCount
+        markDirty()
+        noticeMessage = "Recovered unsaved changes from \(record.savedAt.formatted(date: .abbreviated, time: .shortened))"
+    }
+
+    // MARK: Autosave and recovery
+
+    private var autosavesToFile: Bool {
+        path != nil && !isReadOnly && LifecycleSettings.editorAutosaves(defaults)
+    }
+
+    private func scheduleAutosave() {
+        autosaveTask?.cancel()
+        autosaveTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.autosaveDelay)
+            guard !Task.isCancelled else { return }
+            await self?.persistChanges()
+        }
+    }
+
+    /// Captures unsaved text: the recovery record first (iPad side, instant), then the
+    /// file itself when autosave applies. The record goes once the file has the text.
+    func persistChanges() async {
+        guard isDirty, !isReadOnly else { return }
+        let changeCount = editorView.changeCount
+        if changeCount != persistedChangeCount {
+            if !recoveryIDPublished {
+                window.setArgument(recoveryID, forKey: AppArgument.recovery)
+                recoveryIDPublished = true
+            }
+            if recovery.write(EditorRecoveryRecord(path: path, text: editorView.text, savedAt: Date()), id: recoveryID) {
+                persistedChangeCount = changeCount
+            }
+        }
+        if autosavesToFile, let path {
+            await write(to: path, automatic: true)
+        }
+    }
+
+    func saveBeforeSuspension() async {
+        autosaveTask?.cancel()
+        await persistChanges()
     }
 
     func save() {
@@ -159,8 +236,10 @@ final class EditorDocument {
         }
     }
 
+    /// `automatic`: autosave, which stays quiet about success and leaves a failure to the
+    /// recovery record (and the next explicit save) instead of an error banner per change.
     @discardableResult
-    private func write(to target: String) async -> Bool {
+    private func write(to target: String, automatic: Bool = false) async -> Bool {
         guard !isSaving else { return false }
         isSaving = true
         defer { isSaving = false }
@@ -169,12 +248,15 @@ final class EditorDocument {
         do {
             try await host.writeFile(target, data: data)
             isDirty = editorView.changeCount != changeCount
+            if !isDirty { recovery.remove(recoveryID) }
             errorMessage = nil
-            noticeMessage = "Saved \(AppPath.lastComponent(target))"
+            noticeMessage = automatic ? "Saved automatically" : "Saved \(AppPath.lastComponent(target))"
             updateTitle()
             return true
         } catch {
-            errorMessage = "Couldn't save \(target): \(error.localizedDescription)"
+            if !automatic {
+                errorMessage = "Couldn't save \(target): \(error.localizedDescription)"
+            }
             return false
         }
     }

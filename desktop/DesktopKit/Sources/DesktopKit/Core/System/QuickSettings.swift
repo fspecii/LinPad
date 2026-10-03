@@ -403,8 +403,13 @@ struct PowerMenuItems: View {
         }
         Button("Quit", systemImage: "power", role: .destructive) {
             controller.session.saveNow()
-            // A desktop session ends by leaving; iPadOS has no API for it, so the app exits.
-            exit(0)
+            DiagnosticsCenter.shared.markCleanExit()
+            // A desktop session ends by leaving; iPadOS has no API for it, so the app exits,
+            // after open documents and the Linux file system are saved.
+            Task {
+                _ = await controller.lifecycle.flushForSuspension()
+                exit(0)
+            }
         }
     }
 }

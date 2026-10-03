@@ -35,6 +35,7 @@ static pthread_mutex_t reg_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct jit_ctx *reg_head;
 static pthread_key_t ctx_key;
 static __thread struct jit_ctx *tls_ctx;
+static __thread unsigned reclaim_tick;   // dispatcher passes, to look for dead entries now and then
 static struct sigaction old_segv, old_bus, old_ill;
 static unsigned tick_us = 500;
 uint32_t jit_promote_after = 128;   // tier-1 executions before tier-2 retranslation
@@ -329,6 +330,7 @@ struct jit_block_ext {
 };
 
 static void block_free(struct jit_block *b);
+static void free_dead(struct jit_block *b, struct ss_entry *e);
 static void chunk_destroy(struct jit_chunk *c);
 
 void jit_mm_free(struct jit_mm *mm) {
@@ -353,6 +355,26 @@ void jit_mm_free(struct jit_mm *mm) {
         static const char *names[] = {"?", "chain", "indirect", "fallback", "syscall", "poll", "icivau",
                                       "gpf", "hostfault", "undef", "redispatch", "promote"};
         fprintf(stderr, "[jit]   promoted to tier 2: %llu blocks\n", (unsigned long long) mm->stats_promote);
+        size_t ndead = 0, njetsam = 0, nlive = 0;
+        for (struct jit_block *b = mm->dead; b; b = b->dead_next)
+            ndead++;
+        for (struct jit_block *b = mm->dead_pending; b; b = b->dead_next)
+            ndead++;
+        for (struct ss_entry *e = mm->ss_jetsam; e; e = e->next)
+            njetsam++;
+        for (struct ss_entry *e = mm->ss_pending; e; e = e->next)
+            njetsam++;
+        size_t ninvalid = 0, map_bytes = 0;
+        for (struct jit_chunk *c = mm->chunks; c; c = c->next) {
+            nlive += c->nblocks;
+            for (size_t i = 0; i < c->nblocks; i++) {
+                ninvalid += c->blocks[i]->invalid;
+                map_bytes += c->blocks[i]->nmap * sizeof(struct jit_map_entry) + sizeof(struct jit_block_ext);
+            }
+        }
+        fprintf(stderr, "[jit]   at exit: %zu blocks in %zu chunks (%zu invalidated), maps %zu KB, %zu dead negative entries and "
+                "%zu dead single-step blocks not yet freed, %zu live single-step\n",
+                nlive, mm->nchunks, ninvalid, map_bytes >> 10, ndead, njetsam, mm->ss_count);
         fprintf(stderr, "[jit]   translate %.1f ms, invalidate %.1f ms (%llu blocks, %llu slots)\n",
                 mm->stats_translate_ns / 1e6, mm->stats_inval_ns / 1e6,
                 (unsigned long long) mm->stats_inval_blocks, (unsigned long long) mm->stats_inval_slots);
@@ -393,13 +415,8 @@ void jit_mm_free(struct jit_mm *mm) {
             e = n;
         }
     }
-    struct ss_entry *e = mm->ss_jetsam;
-    while (e) {
-        struct ss_entry *n = e->next;
-        free(e->block);
-        free(e);
-        e = n;
-    }
+    free_dead(mm->dead, mm->ss_jetsam);
+    free_dead(mm->dead_pending, mm->ss_pending);
     free(mm->ss_hash);
     free(mm->itab);
     for (struct jit_htpub *h = mm->htpub; h;) {
@@ -407,11 +424,6 @@ void jit_mm_free(struct jit_mm *mm) {
         free(h->tab);   // the newest one is mm->hash
         free(h);
         h = o;
-    }
-    for (struct jit_block *b = mm->dead; b;) {
-        struct jit_block *n = b->dead_next;
-        free(b);
-        b = n;
     }
     munmap(mm->counters, JIT_COUNTERS * sizeof(uint32_t));
     free(mm->page_hash);
@@ -659,27 +671,78 @@ static void chunk_destroy(struct jit_chunk *c) {
     free(c);
 }
 
-// Free retired chunks if no thread of this mm can still be executing them.
-static void reclaim(struct jit_mm *mm) {
-    if (mm->retired == NULL)
-        return;
+// True if a thread of this mm may still be inside code or blocks that were
+// retired at `epoch` (it has not been back in the dispatcher since).
+static bool mm_busy(struct jit_mm *mm, uint64_t epoch) {
     bool busy = false;
     pthread_mutex_lock(&reg_lock);
     for (struct jit_ctx *c = reg_head; c; c = c->reg_next)
-        if (c->mm == mm && c->in_jit && c->epoch < mm->retired_epoch)
+        if (c->mm == mm && c->in_jit && c->epoch < epoch)
             busy = true;
     pthread_mutex_unlock(&reg_lock);
-    if (busy)
-        return;
+    return busy;
+}
+
+static void free_dead(struct jit_block *b, struct ss_entry *e) {
+    while (b) {
+        struct jit_block *n = b->dead_next;
+        free(b);
+        b = n;
+    }
+    while (e) {
+        struct ss_entry *n = e->next;
+        free(e->block);
+        free(e);
+        e = n;
+    }
+}
+
+// Free retired chunks, dead negative entries and dead single-step blocks once no
+// thread of this mm can still be using them. Dead entries go through a pending
+// list stamped with an epoch, so the ones that keep coming don't hold back the
+// ones that are already safe to free.
+static void reclaim(struct jit_mm *mm) {
     pthread_mutex_lock(&mm->lock);
-    struct jit_chunk *c = mm->retired;
-    mm->retired = NULL;
+    uint64_t retired_epoch = mm->retired_epoch, dead_epoch = mm->dead_epoch;
+    bool retired = mm->retired != NULL, pending = mm->dead_pending != NULL || mm->ss_pending != NULL;
+    pthread_mutex_unlock(&mm->lock);
+    struct jit_chunk *c = NULL;
+    struct jit_block *dead = NULL;
+    struct ss_entry *ss = NULL;
+    if (retired && !mm_busy(mm, retired_epoch)) {
+        pthread_mutex_lock(&mm->lock);
+        // a chunk retired meanwhile has a newer epoch: wait for the next pass
+        if (mm->retired_epoch == retired_epoch) {
+            c = mm->retired;
+            mm->retired = NULL;
+        }
+        pthread_mutex_unlock(&mm->lock);
+    }
+    if (pending && !mm_busy(mm, dead_epoch)) {
+        pthread_mutex_lock(&mm->lock);
+        if (mm->dead_epoch == dead_epoch) {
+            dead = mm->dead_pending;
+            ss = mm->ss_pending;
+            mm->dead_pending = NULL;
+            mm->ss_pending = NULL;
+        }
+        pthread_mutex_unlock(&mm->lock);
+    }
+    pthread_mutex_lock(&mm->lock);
+    if (mm->dead_pending == NULL && mm->ss_pending == NULL && (mm->dead != NULL || mm->ss_jetsam != NULL)) {
+        mm->dead_pending = mm->dead;
+        mm->ss_pending = mm->ss_jetsam;
+        mm->dead = NULL;
+        mm->ss_jetsam = NULL;
+        mm->dead_epoch = atomic_fetch_add(&global_epoch, 1) + 1;
+    }
     pthread_mutex_unlock(&mm->lock);
     while (c) {
         struct jit_chunk *n = c->next;
         chunk_destroy(c);
         c = n;
     }
+    free_dead(dead, ss);
 }
 
 // The arena is full: retire the oldest chunk of the address space that ran
@@ -819,7 +882,7 @@ static void invalidate_block_nosync(struct jit_mm *mm, struct jit_block *b) {
         mm->stats_inval_slots += x->nin;
         x->nin = 0;
     } else {
-        b->dead_next = mm->dead;   // negative entry: free with the mm (lock-free readers)
+        b->dead_next = mm->dead;   // negative entry: freed by reclaim (lock-free readers)
         mm->dead = b;
     }
 }
@@ -840,7 +903,7 @@ static void invalidate_block_locked(struct jit_mm *mm, struct jit_block *b) {
         }
         x->nin = 0;
     } else {
-        b->dead_next = mm->dead;   // negative entry: free with the mm (lock-free readers)
+        b->dead_next = mm->dead;   // negative entry: freed by reclaim (lock-free readers)
         mm->dead = b;
     }
 }
@@ -1378,7 +1441,7 @@ static struct fiber_block *ss_get(struct jit_mm *mm, addr_t pc, struct tlb *tlb)
         mm->ss_count++;
         __atomic_fetch_or(&mm->ss_bloom, 1ull << (PAGE(pc) & 63), __ATOMIC_RELEASE);
     } else {
-        e->next = mm->ss_jetsam;   // used once, freed with the mm
+        e->next = mm->ss_jetsam;   // used once, freed by reclaim
         mm->ss_jetsam = e;
     }
     mm->stats_fallback++;
@@ -1596,7 +1659,8 @@ int jit_run(struct cpu_state *cpu, struct tlb *tlb, struct jit_mm *mm) {
     int interrupt = INT_NONE;
     while (interrupt == INT_NONE) {
         ctx->epoch = atomic_load(&global_epoch);
-        if (mm->retired)
+        if (mm->retired || ((++reclaim_tick & 1023) == 0 &&
+                (mm->dead || mm->ss_jetsam || mm->dead_pending || mm->ss_pending)))
             reclaim(mm);
         check_changes(ctx);
         if (ctx->exitflag) {

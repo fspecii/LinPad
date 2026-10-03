@@ -104,6 +104,35 @@ final class DebugAutomation {
         log("ok")
     }
 
+    /// lifecycle|editor-text|TEXT  types TEXT into every open Text Editor (replacing its text)
+    /// lifecycle|editors            each editor's path, dirty state, notice and text
+    /// lifecycle|report             how LinPad last left the screen and how the previous run ended
+    private func lifecycle(_ action: String, argument: String, controller: DesktopController) {
+        let documents = LifecycleSavers.shared.all.compactMap { $0 as? EditorDocument }
+        switch action {
+        case "editor-text":
+            for document in documents {
+                document.editorView.textView.text = argument.replacingOccurrences(of: "\\n", with: "\n")
+                document.editorView.textViewDidChange(document.editorView.textView)
+            }
+            log("ok \(documents.count)")
+        case "editors":
+            for document in documents {
+                log("editor \(document.path ?? "untitled")|dirty=\(document.isDirty)|notice=\(document.noticeMessage ?? "")|text=\(document.editorView.text)")
+            }
+        case "report":
+            log("previous-exit \(DiagnosticsCenter.shared.previousExit)")
+            if let report = controller.lifecycle.lastFlush {
+                log("last-flush apps=\(report.appsSaved) hook=\(report.guestHookFinished) fs=\(report.filesystemFlushed) seconds=\(String(format: "%.2f", report.seconds))")
+            } else {
+                log("last-flush none")
+            }
+            log("restored \(controller.session.didRestoreWindows) toasts=\(controller.toasts.map(\.message))")
+        default:
+            log("unknown lifecycle action")
+        }
+    }
+
     private func log(_ line: String) {
         let url = Self.root.appendingPathComponent("log")
         let data = Data((line + "\n").utf8)
@@ -134,6 +163,8 @@ final class DebugAutomation {
             }
         case "maintenance" where fields.count > 1:
             await maintenance(fields[1], controller: controller)
+        case "lifecycle" where fields.count > 1:
+            lifecycle(fields[1], argument: fields.dropFirst(2).joined(separator: "|"), controller: controller)
         case "open" where fields.count > 1:
             var arguments: [String: String] = [:]
             for pair in fields.dropFirst(2) {

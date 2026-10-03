@@ -19,6 +19,7 @@
 		715FCE4456EEABB4351479EB /* IconPackScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C1DCBD79251B0B9A13A772 /* IconPackScreenshots.swift */; };
 		8D86F8A89EED996EBF66BEF6 /* DesktopKit in Frameworks */ = {isa = PBXBuildFile; productRef = 59EFA4C0450AFEE98FFD2EBC /* DesktopKit */; };
 		9ABA09955DC7AF3574A54130 /* DockTapUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A6AA220E11DB730546C126D /* DockTapUITests.swift */; };
+		9C3EFB7C706E9BDD0C4E9DFE /* MemorySettingsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C5B822E88D5DBC389B7CC3 /* MemorySettingsUITests.swift */; };
 		9D7D261D0E2E9682AEE57ADE /* KeyboardChromeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEFD8C64C5D38CD32548624A /* KeyboardChromeUITests.swift */; };
 		B644889ABB41FDE2E90E062F /* LiveWallhavenScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B1A430120A572ABD1A0BD75 /* LiveWallhavenScreenshots.swift */; };
 		B818DB7920CC479389F31D43 /* PerformanceSettingsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8B9504F363311E52D3C1F0E /* PerformanceSettingsUITests.swift */; };
@@ -57,6 +58,7 @@
 		F060C6CF07F4FC662A494E5E /* IdleClipboardMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleClipboardMenuUITests.swift; sourceTree = "<group>"; };
 		F11E49C199BBB023D15AB1DE /* OnboardingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingUITests.swift; sourceTree = "<group>"; };
 		F3C1DCBD79251B0B9A13A772 /* IconPackScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IconPackScreenshots.swift; sourceTree = "<group>"; };
+		F7C5B822E88D5DBC389B7CC3 /* MemorySettingsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemorySettingsUITests.swift; sourceTree = "<group>"; };
 		FFA42D54ACE41A9C571FC4AB /* DesktopUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -81,6 +83,7 @@
 				F060C6CF07F4FC662A494E5E /* IdleClipboardMenuUITests.swift */,
 				BEFD8C64C5D38CD32548624A /* KeyboardChromeUITests.swift */,
 				8B1A430120A572ABD1A0BD75 /* LiveWallhavenScreenshots.swift */,
+				F7C5B822E88D5DBC389B7CC3 /* MemorySettingsUITests.swift */,
 				F11E49C199BBB023D15AB1DE /* OnboardingUITests.swift */,
 				C8B9504F363311E52D3C1F0E /* PerformanceSettingsUITests.swift */,
 				717FEA742F25D083F27BEC8B /* RealAppScreenshots.swift */,
@@ -229,6 +232,7 @@
 				2C25592E0612BA5A8F0834C4 /* IdleClipboardMenuUITests.swift in Sources */,
 				9D7D261D0E2E9682AEE57ADE /* KeyboardChromeUITests.swift in Sources */,
 				B644889ABB41FDE2E90E062F /* LiveWallhavenScreenshots.swift in Sources */,
+				9C3EFB7C706E9BDD0C4E9DFE /* MemorySettingsUITests.swift in Sources */,
 				36098F4958FA1BEC0AB2F7F5 /* OnboardingUITests.swift in Sources */,
 				B818DB7920CC479389F31D43 /* PerformanceSettingsUITests.swift in Sources */,
 				FDB89417314278B38772EDAA /* RealAppScreenshots.swift in Sources */,

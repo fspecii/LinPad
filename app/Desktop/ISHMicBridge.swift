@@ -238,6 +238,16 @@ final class ISHMicBridge: @unchecked Sendable {
 
     // MARK: - Microphone
 
+    /// LinPad is in front again: an interruption whose end iPadOS never reported must not
+    /// leave a recording Linux app with silence.
+    func resumeAfterBackground() {
+        engineQueue.async {
+            guard self.interrupted else { return }
+            self.interrupted = false
+            self.startMicIfAllowed()
+        }
+    }
+
     private func beginCapture() {
         lock.withLockUnchecked { capturing = true }
         log.info("a Linux app is recording")

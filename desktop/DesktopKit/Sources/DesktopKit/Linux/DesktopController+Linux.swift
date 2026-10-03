@@ -148,8 +148,14 @@ extension DesktopController: LinuxGUIBridgeDelegate {
     func linuxBridge(_ bridge: LinuxGUIBridge, didMap surface: LinuxSurface) {
         guard let view = surface.view else { return }
         let entry = bridge.applications.first { $0.matches(appID: surface.appID) }
+        let appID = LinuxAppID.prefix + (entry?.id ?? surface.appID)
+        // "Don't Restore" was chosen while this restored app was still starting.
+        if session.shouldDiscardMappedLinuxWindow(appID: appID) {
+            bridge.requestClose(surface.id)
+            return
+        }
         let window = windowManager.makeWindow(
-            appID: LinuxAppID.prefix + (entry?.id ?? surface.appID),
+            appID: appID,
             symbol: entry?.symbol ?? "macwindow",
             title: windowTitle(for: surface, entry: entry),
             preferredSize: CGSize(width: surface.size.width,

@@ -207,6 +207,8 @@ noreturn void do_exit_group(int status) {
             killed_by == SIGILL_ || killed_by == SIGABRT_ || killed_by == SIGFPE_ || killed_by == SIGTRAP_ ||
             killed_by == SIGSYS_))
         log_crash(killed_by, 0, current->cpu.segfault_addr);
+    else if (current != NULL && status >= 0x100)
+        log_exit(status >> 8);
 #ifdef ISH_GADGET_PROFILE
     extern void dump_gadget_profile(void);
     static int dumped = 0;

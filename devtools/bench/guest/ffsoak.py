@@ -63,8 +63,9 @@ class Soak(Bench):
         self.t0 = time.time()
         if args.minidumps:
             self.env.pop("MOZ_CRASHREPORTER_DISABLE", None)
-            self.env.update(MOZ_CRASHREPORTER="1", MOZ_CRASHREPORTER_NO_REPORT="1",
-                            MOZ_CRASHREPORTER_SHUTDOWN="1")
+            # (not MOZ_CRASHREPORTER_SHUTDOWN: with it the parent exits (245) whenever a
+            # content process dies, also when the OOM killer closes one)
+            self.env.update(MOZ_CRASHREPORTER="1", MOZ_CRASHREPORTER_NO_REPORT="1")
         self.youtube_played = []
 
     def event(self, kind, **info):

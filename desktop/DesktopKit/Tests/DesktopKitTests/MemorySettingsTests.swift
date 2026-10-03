@@ -50,4 +50,28 @@ final class MemorySettingsTests: XCTestCase {
         XCTAssertEqual(MemorySettings.policy(protecting: " code, ,firefox-esr\nfoot "), "protect code,firefox-esr,foot\n")
         XCTAssertEqual(MemorySettings.policy(protecting: ""), "protect \n")
     }
+
+    @MainActor
+    func testReopenOffersOnlyAnAppsOwnProcess() {
+        let entries = [
+            LinuxDesktopEntry(id: "firefox-esr", name: "Firefox", command: "firefox-esr", icon: "firefox",
+                              categories: [], startupWMClass: nil),
+            LinuxDesktopEntry(id: "foot", name: "Terminal", command: "foot", icon: "foot", categories: [], startupWMClass: nil),
+        ]
+        XCTAssertEqual(MemorySettings.reopenableApp(named: "Firefox", in: entries)?.id, "firefox-esr")
+        XCTAssertEqual(MemorySettings.reopenableApp(named: "foot", in: entries)?.id, "foot", "matched by its binary")
+        XCTAssertNil(MemorySettings.reopenableApp(named: "a Firefox tab process", in: entries))
+        XCTAssertNil(MemorySettings.reopenableApp(named: "", in: entries))
+    }
+
+    @MainActor
+    func testClosedAppToastLinksToMemorySettings() {
+        let controller = DesktopController(host: MockLinuxHost(latency: .zero), apps: BuiltinApps.all())
+        controller.guestAppClosedForMemory(app: "a Firefox tab process",
+                                           message: "Closed a Firefox tab process to free memory.")
+        let toast = controller.toasts.last
+        XCTAssertEqual(toast?.message, "Closed a Firefox tab process to free memory.")
+        XCTAssertEqual(toast?.action?.title, "Memory Settings")
+        XCTAssertNil(toast?.secondaryAction, "a tab process cannot be reopened")
+    }
 }

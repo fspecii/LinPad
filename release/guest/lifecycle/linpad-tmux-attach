@@ -1,0 +1,12 @@
+#!/bin/sh
+# The terminal behind ish-terminal when the "Persistent terminals" pack is installed:
+# a terminal window reattaches to a tmux session nobody is attached to (one left when
+# its window closed or the desktop session restarted), or starts a new one. Shells keep
+# running while LinPad does; when iPadOS ends LinPad, Linux and tmux end with it.
+#   linpad-tmux-attach [DIRECTORY]   a new session in DIRECTORY ("Open Terminal Here")
+if [ -n "${1:-}" ]; then
+    exec tmux new-session -c "$1"
+fi
+session=$(tmux list-sessions -F '#{session_attached} #{session_name}' 2>/dev/null | awk '$1 == 0 { print $2; exit }')
+[ -n "$session" ] && exec tmux attach-session -t "$session"
+exec tmux new-session

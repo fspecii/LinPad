@@ -22,6 +22,8 @@ public final class MockLinuxHost: LinuxHost {
         self.hostName = hostName
         self.latency = latency
         self.nodes = Self.seedFileSystem(hostName: hostName)
+        // UI tests: `-mock.noMemoryReport YES` is a system without the out-of-memory monitor.
+        if UserDefaults.standard.bool(forKey: "mock.noMemoryReport") { nodes["/proc/ish/memory"] = nil }
     }
 
     /// Every command run, in order, for tests that check what reached the guest.
@@ -48,6 +50,9 @@ public final class MockLinuxHost: LinuxHost {
         switch trimmed {
         case "uname -a":
             return CommandResult(stdout: "Linux \(hostName) 4.20.69-ish #1 SMP PREEMPT aarch64 Linux\n")
+        case "true":
+            // DiagnosticsCenter's heartbeat.
+            return CommandResult(stdout: "")
         case "whoami":
             return CommandResult(stdout: "root\n")
         case "hostname":
@@ -261,6 +266,25 @@ public final class MockLinuxHost: LinuxHost {
             "/root/Documents/todo.md": file("- [ ] try the terminal\n- [ ] install packages with apk\n"),
             "/root/projects/README": file("Put your code here.\n"),
             "/etc": .directory,
+            "/proc": .directory,
+            "/proc/ish": .directory,
+            // kernel/oom.c's report (Settings › Performance › Memory).
+            "/proc/ish/memory": file("""
+                footprint_mb 1862
+                allowance_mb 2500
+                headroom_mb 637
+                soft_mb 500
+                hard_mb 320
+                oom_enabled 1
+                kills 1
+                kill \(Int(Date().timeIntervalSince1970) - 600) 114 395 2196 2500 a Firefox tab process
+                proc 22 388 0 0 Firefox
+                proc 340 220 100 0 a Firefox tab process
+                proc 101 96 0 0 Visual Studio Code
+                proc 19 5 0 1 pulseaudio
+
+                """),
+            "/proc/ish/oom": file(""),
             "/etc/hostname": file("\(hostName)\n"),
             "/etc/os-release": file("""
                 NAME="Alpine Linux"

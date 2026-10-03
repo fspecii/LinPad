@@ -61,7 +61,14 @@ pref("browser.urlbar.suggest.trending", false);
 pref("browser.urlbar.quicksuggest.enabled", false);
 pref("network.prefetch-next", false);
 pref("network.predictor.enabled", false);
-pref("browser.sessionstore.interval", 60000);
+// Session restore. iPadOS ends a suspended LinPad without warning, which Firefox sees
+// as a crash: save the session every 15 s (Firefox's own default; it was 60 s here, and
+// a write costs a few ms when something changed), always reopen the last session, and
+// resume it automatically after such "crashes" instead of asking after the first.
+pref("browser.sessionstore.interval", 15000);
+pref("browser.startup.page", 3);
+pref("browser.sessionstore.resume_from_crash", true);
+pref("browser.sessionstore.max_resumed_crashes", 10);
 // Memory. The iPad app has a per-process limit of a few GB (no increased-memory-limit
 // entitlement) shared by every guest process and the emulator. Firefox sizes these
 // caches from physical RAM, which is far too much here. Measured on the Mac with H.264

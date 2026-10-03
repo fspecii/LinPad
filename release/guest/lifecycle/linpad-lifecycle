@@ -1,0 +1,56 @@
+#!/bin/sh
+# Run by the LinPad app when it leaves or re-enters the screen (DesktopKit
+# LifecycleCoordinator):
+#   linpad-lifecycle suspend   LinPad left the screen; iPadOS may end it from now on
+#   linpad-lifecycle resume    LinPad is in front again
+# suspend asks running apps to save (the signals in /etc/linpad/lifecycle.conf), runs the
+# hooks in /etc/linpad/lifecycle.d and ~/.config/linpad/lifecycle.d with the event as $1,
+# and syncs. The app gives it 8 seconds and then writes the file system through to flash
+# itself, so a hook that hangs costs time but nothing else. Each hook runs with a 5 s limit.
+set -u
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+event=${1:-}
+case $event in
+suspend|resume) ;;
+*) echo "usage: linpad-lifecycle suspend|resume" >&2; exit 2 ;;
+esac
+
+conf=/etc/linpad/lifecycle.conf
+# "SIGNAL PATTERN": send SIGNAL to every process whose command line starts with PATTERN
+# (as /proc/PID/cmdline shows it, arguments separated by spaces). Matched through /proc
+# rather than pkill, which reads /proc/PID/exe.
+send_signals() {
+    [ -r "$conf" ] || return 0
+    grep -v '^[[:space:]]*\(#\|$\)' "$conf" | while read -r sig pattern; do
+        [ -n "$pattern" ] || continue
+        for d in /proc/[0-9]*; do
+            pid=${d#/proc/}
+            [ "$pid" = $$ ] && continue
+            cmd=$(tr '\0' ' ' < "$d/cmdline" 2>/dev/null) || continue
+            case "$cmd" in
+            "$pattern"*) kill -s "$sig" "$pid" 2>/dev/null ;;
+            esac
+        done
+    done
+}
+
+run_hooks() {
+    for dir in /etc/linpad/lifecycle.d "${HOME:-/root}/.config/linpad/lifecycle.d"; do
+        [ -d "$dir" ] || continue
+        for hook in "$dir"/*; do
+            [ -f "$hook" ] && [ -x "$hook" ] || continue
+            timeout 5 "$hook" "$event" >/dev/null 2>&1 </dev/null
+        done
+    done
+}
+
+if [ "$event" = suspend ]; then
+    send_signals
+    run_hooks
+    sync
+    date +%s > /run/linpad-suspended 2>/dev/null
+else
+    rm -f /run/linpad-suspended
+    run_hooks
+fi
+exit 0

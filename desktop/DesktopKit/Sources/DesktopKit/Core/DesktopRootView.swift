@@ -115,7 +115,9 @@ public struct DesktopRootView: View {
             controller.keyCommands.syncOverlayCommands()
         }
         .task {
+            _ = controller.lifecycle
             openStartupWindows()
+            controller.noticeRestoredSession(previousExit: DiagnosticsCenter.shared.previousExit)
             if !UserDefaults.standard.bool(forKey: OnboardingFlow.completedKey) {
                 controller.presentOnboarding()
             }

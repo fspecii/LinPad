@@ -445,6 +445,30 @@ static void log_crash_line(const char *what, int sig, int code, addr_t fault_add
     fprintf(stderr, "%s\n", line);
 }
 
+// ISH_CRASHLOG=2: a process that calls exit_group with a nonzero code, with its last syscalls and
+// the guest's frame-pointer chain (a program's fatal-error path that ends in exit()).
+void log_exit(int code) {
+    if (crashlog_level() < 2 || current == NULL || code == 0)
+        return;
+    log_crash_line("ish exit", 0, code, 0);   // "signal 0 code N": exit(N)
+#ifdef GUEST_ARM64
+    char line[4 * MAX_PATH], where[MAX_PATH + 32];
+    int n = snprintf(line, sizeof(line), "ish exit:   frames:");
+    addr_t fp = current->cpu.regs[29];
+    for (int i = 0; i < 16 && fp != 0 && n < (int) (sizeof(line) - sizeof(where)); i++) {
+        uint64_t frame[2];
+        if (user_read(fp, frame, sizeof(frame)))
+            break;
+        describe_addr(frame[1], where, sizeof(where));
+        n += snprintf(line + n, sizeof(line) - n, " %s", where);
+        if (frame[0] <= fp)
+            break;
+        fp = frame[0];
+    }
+    fprintf(stderr, "%s\n", line);
+#endif
+}
+
 static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
     int sig = info->sig;
     STRACE("%d receiving signal %d\n", current->pid, sig);

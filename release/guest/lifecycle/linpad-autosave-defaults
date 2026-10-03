@@ -1,0 +1,86 @@
+#!/bin/sh
+# Makes the Linux apps LinPad ships or offers keep the user's work when iPadOS ends LinPad
+# without warning (lifecycle-report.md). Idempotent; run as root by finalize.sh, by the
+# repair kit (linpad-repair) and after the Office pack installs. Never overrides a choice
+# the user made: VS Code keys are only added when absent, LibreOffice and Mousepad get
+# defaults the user's own settings still override.
+#   VS Code      files.autoSave afterDelay (1 s), hot exit also on window close
+#   LibreOffice  AutoRecovery information every minute, backup copy on save
+#   Mousepad     session backups every 5 s (its crash restore needs them)
+# Firefox's session-restore prefs are in gecko-tune.sh.
+set -u
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+changed=0
+
+# --- VS Code: settings.json is JSONC (comments allowed), so keys are inserted as text
+# after the opening brace instead of rewriting the user's file.
+vscode_defaults() {
+    f=$1
+    [ -f "$f" ] || return 0
+    add=
+    grep -q '"files.autoSave"' "$f" || add="$add    \"files.autoSave\": \"afterDelay\",\n"
+    grep -q '"files.autoSaveDelay"' "$f" || add="$add    \"files.autoSaveDelay\": 1000,\n"
+    grep -q '"files.hotExit"' "$f" || add="$add    \"files.hotExit\": \"onExitAndWindowClose\",\n"
+    [ -n "$add" ] || return 0
+    tmp=$(mktemp "$f.XXXXXX") || return 1
+    awk -v add="$add" 'BEGIN { gsub(/\\n/, "\n", add) } !done && /\{/ { sub(/\{/, "{\n" add); done = 1 } { print }' "$f" > "$tmp" || { rm -f "$tmp"; return 1; }
+    chmod "$(stat -c %a "$f")" "$tmp" 2>/dev/null
+    chown "$(stat -c %u:%g "$f")" "$tmp" 2>/dev/null
+    # A file with no "{" (empty) gets a fresh object.
+    grep -q '{' "$tmp" || printf '{\n%b}\n' "$add" > "$tmp"
+    mv -f "$tmp" "$f" && changed=$((changed + 1)) && echo "  autosave: $f"
+}
+for home in /root /home/*; do
+    for variant in Code "Code - OSS" VSCodium code-oss; do
+        vscode_defaults "$home/.config/$variant/User/settings.json"
+    done
+done
+
+# --- LibreOffice: a registry layer in the installation (share/registry/*.xcd).
+for lo in /usr/lib/libreoffice /opt/libreoffice*; do
+    [ -d "$lo/share/registry" ] || continue
+    xcd=$lo/share/registry/linpad-autosave.xcd
+    tmp=$(mktemp)
+    cat > "$tmp" <<'XCD'
+<?xml version="1.0" encoding="UTF-8"?>
+<oor:data xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:oor="http://openoffice.org/2001/registry">
+<dependency file="main"/>
+<oor:component-data oor:package="org.openoffice.Office" oor:name="Recovery">
+ <node oor:name="AutoSave">
+  <prop oor:name="Enabled" oor:op="fuse"><value>true</value></prop>
+  <prop oor:name="TimeIntervall" oor:op="fuse"><value>1</value></prop>
+ </node>
+ <node oor:name="RecoveryInfo">
+  <prop oor:name="Enabled" oor:op="fuse"><value>true</value></prop>
+ </node>
+</oor:component-data>
+<oor:component-data oor:package="org.openoffice.Office" oor:name="Common">
+ <node oor:name="Save">
+  <node oor:name="Document">
+   <prop oor:name="CreateBackup" oor:op="fuse"><value>true</value></prop>
+  </node>
+ </node>
+</oor:component-data>
+</oor:data>
+XCD
+    if ! cmp -s "$tmp" "$xcd"; then
+        install -m 644 "$tmp" "$xcd" && changed=$((changed + 1)) && echo "  autosave: $xcd"
+    fi
+    rm -f "$tmp"
+done
+
+# --- Mousepad (GSettings defaults: a schema override, compiled with the schemas).
+schemas=/usr/share/glib-2.0/schemas
+if [ -f "$schemas/org.xfce.mousepad.gschema.xml" ] || [ -x /usr/bin/mousepad ]; then
+    override=$schemas/90_linpad-autosave.gschema.override
+    tmp=$(mktemp)
+    printf '[org.xfce.mousepad.preferences.file]\nautosave-timer=5\n' > "$tmp"
+    if ! cmp -s "$tmp" "$override"; then
+        install -m 644 "$tmp" "$override" && command -v glib-compile-schemas >/dev/null &&
+            glib-compile-schemas "$schemas" 2>/dev/null && changed=$((changed + 1)) && echo "  autosave: $override"
+    fi
+    rm -f "$tmp"
+fi
+
+echo "linpad-autosave-defaults: $changed change(s)"
+exit 0

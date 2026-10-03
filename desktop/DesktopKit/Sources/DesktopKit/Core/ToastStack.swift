@@ -19,13 +19,27 @@ struct ToastStack: View {
                         if toast.showsProgress {
                             ProgressView().progressViewStyle(.linear).tint(theme.accent)
                         }
-                        if let action = toast.action {
-                            Button(action.title) {
-                                controller.dismissToast(toast.id)
-                                action.perform()
+                        if toast.action != nil || toast.secondaryAction != nil {
+                            HStack(spacing: 8) {
+                                if let action = toast.action {
+                                    Button(action.title) {
+                                        controller.dismissToast(toast.id)
+                                        action.perform()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .tint(theme.accent)
+                                    .accessibilityIdentifier("desktop.toast.action")
+                                }
+                                if let secondary = toast.secondaryAction {
+                                    Button(secondary.title) {
+                                        controller.dismissToast(toast.id)
+                                        secondary.perform()
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .foregroundStyle(theme.accent)
+                                    .accessibilityIdentifier("desktop.toast.secondaryAction")
+                                }
                             }
-                            .buttonStyle(.bordered)
-                            .tint(theme.accent)
                             .controlSize(.small)
                         }
                     }

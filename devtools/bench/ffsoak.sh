@@ -17,7 +17,8 @@
 # footprint every 10 s.
 # Firefox processes that die are found three ways: Firefox's own log, the kernel's crash
 # log on the host's stderr (ISH_CRASHLOG=1: process, signal, pc/lr as library+offset,
-# last syscalls), and relaunches of a dead parent.
+# last syscalls), and relaunches of a dead parent. ISH_CRASHLOG=2 also logs crash signals
+# that go to a handler and every exit_group with a nonzero code (with the guest's frames).
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)

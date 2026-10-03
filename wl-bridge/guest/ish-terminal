@@ -6,4 +6,12 @@ config=/etc/ish/foot/${style:-ish}.ini
 [ -r "$config" ] || config=/etc/ish/foot/ish.ini
 # A colour theme (ish-apply-colors, themes/omarchy) replaces the style's colours.
 [ -r "${HOME:-/root}/.config/foot/linpad.ini" ] && config=${HOME:-/root}/.config/foot/linpad.ini
+# Persistent terminals pack: a plain terminal (no command of its own) runs in tmux and
+# reattaches to a detached session (release/guest/lifecycle/linpad-tmux-attach).
+if [ -e /etc/ish/terminal-tmux ] && command -v tmux >/dev/null 2>&1 && command -v linpad-tmux-attach >/dev/null 2>&1; then
+    case "$#:${1:-}" in
+    0:) exec foot --config="$config" linpad-tmux-attach ;;
+    1:--working-directory=*) exec foot --config="$config" "$1" linpad-tmux-attach "${1#--working-directory=}" ;;
+    esac
+fi
 exec foot --config="$config" "$@"

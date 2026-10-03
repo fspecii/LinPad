@@ -100,6 +100,9 @@ final class LinuxGUIBridge {
     /// pasteboard on the first paste.
     @ObservationIgnored private var pasteboardChangeCount = -1
     @ObservationIgnored private var controlKeysDown = Set<UInt32>()
+    /// Keys Linux was told are down. A key held while LinPad leaves the screen (⌘ of
+    /// ⌘-Tab, the shortcut that locks the iPad) never sends its release to this app.
+    @ObservationIgnored private var keysDown = Set<UInt32>()
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var pendingAcks: [String] = []
     @ObservationIgnored private var displayLink: CADisplayLink?
@@ -229,6 +232,20 @@ final class LinuxGUIBridge {
                 }
             }
         }
+    }
+
+    /// LinPad is in front again. ishwl may have died meanwhile (the guest was low on
+    /// memory), and acks queued for a display refresh that never came while the screen
+    /// was off are still pending. `hello` makes ishwl announce every window again and
+    /// redraw it in full, which also clears any frame it was still holding for an ack.
+    func resumeAfterBackground() {
+        guard state == .running, let runtimeURL else { return }
+        guard Self.isSessionAlive(runtimeURL) else {
+            sessionEnded()
+            return
+        }
+        flushAcks()
+        send("hello")
     }
 
     /// ishwl's pid (ishwl-session execs it), written when the session is started.
@@ -398,10 +415,20 @@ final class LinuxGUIBridge {
         if Self.controlKeys.contains(code) {
             if pressed { controlKeysDown.insert(code) } else { controlKeysDown.remove(code) }
         }
+        if pressed { keysDown.insert(code) } else { keysDown.remove(code) }
         if pressed && (code == Self.keyV && !controlKeysDown.isEmpty || code == Self.keyInsert) {
             pushPasteboardIfChanged()
         }
         send("key \(code) \(pressed ? 1 : 0)")
+    }
+
+    /// LinPad is leaving the screen: release every key Linux thinks is held and take the
+    /// pointer out of the windows, so nothing stays pressed when the user comes back.
+    func releaseHeldInput() {
+        for code in keysDown.sorted() { send("key \(code) 0") }
+        keysDown.removeAll()
+        controlKeysDown.removeAll()
+        if state == .running { send("leave") }
     }
 
     func type(_ text: String) {

@@ -24,6 +24,8 @@ public final class DiagnosticsCenter {
 
     /// Set at launch when the previous session ended while LinPad was in front.
     private(set) var previousSessionEndedUncleanly = false
+    /// How the previous run ended (session restore's notice).
+    private(set) var previousExit = PreviousExit.clean
     private(set) var events: [DiagnosticsEvent] = []
     var isExportSheetRequested = false
     /// The guest stopped answering; cleared when it answers again.
@@ -78,9 +80,10 @@ public final class DiagnosticsCenter {
         began = true
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         events = loadEvents()
-        if let data = try? Data(contentsOf: markerURL),
-           let previous = try? JSONDecoder.diagnostics.decode(DiagnosticsSessionMarker.self, from: data),
-           previous.endedUncleanly {
+        let previousMarker = (try? Data(contentsOf: markerURL))
+            .flatMap { try? JSONDecoder.diagnostics.decode(DiagnosticsSessionMarker.self, from: $0) }
+        previousExit = PreviousExit(marker: previousMarker)
+        if let previous = previousMarker, previous.endedUncleanly {
             previousSessionEndedUncleanly = true
             var detail = "LinPad \(previous.appVersion), launched \(previous.launchedAt.formatted(.iso8601))"
             if let stall = previous.stallInProgressSince {
@@ -103,6 +106,7 @@ public final class DiagnosticsCenter {
     /// The app is about to exit on purpose (Reset to Factory closes it).
     public func markCleanExit() {
         marker?.inForeground = false
+        marker?.exitedCleanly = true
         writeMarker()
     }
 
@@ -213,17 +217,10 @@ public final class DiagnosticsCenter {
     }
 
     /// Runs `true` in the guest; false when it has not finished within `timeout`.
+    /// Not a task group: one waits for all of its children, so a wedged guest whose `true`
+    /// never finishes would have kept this from ever returning.
     static func answers(_ host: any LinuxHost, within timeout: TimeInterval) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
-            group.addTask { @MainActor in await host.run("true").succeeded }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(timeout))
-                return false
-            }
-            let first = await group.next() ?? false
-            group.cancelAll()
-            return first
-        }
+        await withLifecycleTimeout(timeout) { await host.run("true").succeeded } ?? false
     }
 
     private func guestStoppedAnswering() {

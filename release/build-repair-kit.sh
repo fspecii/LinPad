@@ -9,7 +9,7 @@
 #   guest/     release/guest       (linpad-repair, gecko-tune.sh, linpad/ catalog + packs, ...)
 #   themes/    themes/guest        (ish-apply-style, styles, session hooks, audio)
 #   omarchy/   themes/omarchy/guest (colour themes, ish-apply-colors)
-#   wl-bridge/ firefox-prefs.js, os-release.sh, foot/*.ini, fastfetch/
+#   wl-bridge/ firefox-prefs.js, os-release.sh, ish-terminal, foot/*.ini, fastfetch/
 #
 # The version is release/guest/repair-kit-version (yyyymmddNN). Bump it whenever anything
 # above changes in a way existing installs should get: the app repairs silently once when
@@ -27,7 +27,7 @@ mkdir -p "$STAGE/kit/wl-bridge"
 cp -R "$HERE/guest" "$STAGE/kit/guest"
 cp -R "$ROOT/themes/guest" "$STAGE/kit/themes"
 cp -R "$ROOT/themes/omarchy/guest" "$STAGE/kit/omarchy"
-cp "$ROOT/wl-bridge/firefox-prefs.js" "$ROOT/wl-bridge/guest/os-release.sh" "$STAGE/kit/wl-bridge/"
+cp "$ROOT/wl-bridge/firefox-prefs.js" "$ROOT/wl-bridge/guest/os-release.sh" "$ROOT/wl-bridge/guest/ish-terminal" "$STAGE/kit/wl-bridge/"
 cp -R "$ROOT/wl-bridge/guest/foot" "$ROOT/wl-bridge/guest/fastfetch" "$STAGE/kit/wl-bridge/"
 find "$STAGE/kit" \( -name .DS_Store -o -name '._*' \) -exec rm -f {} +
 

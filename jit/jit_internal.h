@@ -173,7 +173,9 @@ struct jit_mm {
     struct jit_block **hash;
     size_t hash_size, nblocks;
     struct jit_htpub *htpub;          // {hash, hash_size} for lock-free lookups; old ones kept
-    struct jit_block *dead;           // freed with the mm
+    struct jit_block *dead;           // invalidated negative entries (lock-free readers): see reclaim
+    struct jit_block *dead_pending;   // the previous batch, freed once no thread is older than dead_epoch
+    uint64_t dead_epoch;
     uint32_t *counters;               // tier-1 execution counters
     uint32_t ncounters;
     uint64_t stats_promote;
@@ -191,7 +193,8 @@ struct jit_mm {
     struct ss_entry **ss_hash;        // gadget single-step blocks
     size_t ss_size, ss_count;
     uint64_t ss_bloom;                // bit (page & 63) set for pages with single-step blocks
-    void *ss_jetsam;                  // freed single-step blocks (freed with mm)
+    void *ss_jetsam;                  // invalidated single-step blocks: see reclaim
+    void *ss_pending;                 // with dead_pending
     uint64_t stats_blocks, stats_insns, stats_hot, stats_words, stats_fallback, stats_inval, stats_flush;
     uint64_t stats_veneer_retire;      // exits routed through far_chain (veneers used up)
     uint64_t stats_exits[16];

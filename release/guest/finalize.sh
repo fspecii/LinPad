@@ -41,6 +41,14 @@ install -D -m 755 "$src/ish-install-vscode" /usr/local/bin/ish-install-vscode
 install -D -m 755 "$src/ish-preview" /usr/local/bin/ish-preview
 install -D -m 644 "$src/90-firstrun.sh" /etc/ishwl/session.d/90-firstrun.sh
 install -D -m 644 "$src/15-lowmem.sh" /etc/ishwl/session.d/15-lowmem.sh
+# Leaving the screen and iPadOS ending LinPad (ipad-jit/lifecycle-report.md): the app runs
+# linpad-lifecycle; apps get autosave and crash-restore defaults.
+install -D -m 755 "$src/lifecycle/linpad-lifecycle" /usr/local/bin/linpad-lifecycle
+install -D -m 755 "$src/lifecycle/linpad-autosave-defaults" /usr/local/sbin/linpad-autosave-defaults
+install -D -m 755 "$src/lifecycle/linpad-tmux-attach" /usr/local/bin/linpad-tmux-attach
+install -D -m 755 "$src/lifecycle/mousepad" /usr/local/bin/mousepad
+[ -e /etc/linpad/lifecycle.conf ] || install -D -m 644 "$src/lifecycle/lifecycle.conf" /etc/linpad/lifecycle.conf
+mkdir -p /etc/linpad/lifecycle.d
 install -D -m 644 "$src/org.a11y.Bus.service" /usr/local/share/dbus-1/services/org.a11y.Bus.service
 install -D -m 644 "$src/ish-code.svg" /usr/share/icons/hicolor/scalable/apps/ish-code.svg
 
@@ -184,6 +192,9 @@ if [ -f "$cc/bin/claude.exe" ] && [ -f "$musl" ] && [ ! -L "$musl" ] && cmp -s "
 fi
 rm -rf /root/.cache /root/.npm/_cacache /root/.dbus /root/fixt /root/gt /root/t /var/cache/apk/* \
     /var/cache/vscode-install /usr/share/ish/themes/cache 2>/dev/null || true
+
+echo "finalize: autosave defaults"
+/usr/local/sbin/linpad-autosave-defaults
 
 echo "finalize: sanity"
 missing=

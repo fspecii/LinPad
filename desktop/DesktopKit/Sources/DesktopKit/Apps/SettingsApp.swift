@@ -64,6 +64,7 @@ enum SettingsApp {
     static let shortcutsPage = "shortcuts"
     static let idlePage = "screensaver"
     static let performancePage = "performance"
+    static let backgroundPage = "background"
 
     static func descriptor() -> DesktopAppDescriptor {
         DesktopAppDescriptor(
@@ -188,6 +189,8 @@ struct SettingsAppView: View {
                     MemorySettingsSection(host: host)
                     IdleSettingsSection(controller: desktopController)
                         .id(SettingsApp.idlePage)
+                    LifecycleSettingsSection(controller: desktopController, host: host)
+                        .id(SettingsApp.backgroundPage)
                     tilingSection
                     shortcutsSection
                         .id(SettingsApp.shortcutsPage)

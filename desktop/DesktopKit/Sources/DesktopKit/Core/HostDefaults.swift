@@ -30,7 +30,7 @@ public extension LinuxHost {
 
     func writeFile(_ path: String, data: Data) async throws {
         try HostPathRules.validate(path)
-        let result = await run("cat > \(path.shellQuoted)", cwd: nil, stdin: data)
+        let result = await run(AtomicWrite.command(for: path), cwd: nil, stdin: data)
         guard result.succeeded else { throw LinuxHostError.commandFailed(result) }
     }
 
@@ -42,6 +42,34 @@ public extension LinuxHost {
             onOutput(output)
         }
         return result.exitCode
+    }
+}
+
+/// Replaces a file the way careful editors do: the new contents go to a temporary file
+/// next to it, are flushed, and are renamed over the old file. Killed at any point (iPadOS
+/// ends LinPad without warning), the file holds either all of the old or all of the new
+/// text, never a truncated mix. A symlink is written through to its target; mode and owner
+/// are kept. Where no temporary file can be made (a directory the user may not write),
+/// it falls back to writing in place.
+enum AtomicWrite {
+    static func command(for path: String) -> String {
+        """
+        p=\(path.shellQuoted)
+        if [ -L "$p" ]; then t=$(readlink -f -- "$p") && p=$t; fi
+        tmp=$(mktemp "$(dirname -- "$p")/.$(basename -- "$p").XXXXXX" 2>/dev/null) || { cat > "$p"; exit $?; }
+        if cat > "$tmp"; then
+            if [ -e "$p" ]; then
+                chmod "$(stat -c %a -- "$p")" "$tmp" 2>/dev/null
+                chown "$(stat -c %u:%g -- "$p")" "$tmp" 2>/dev/null
+            else
+                chmod 644 "$tmp"
+            fi
+            sync -- "$tmp" 2>/dev/null
+            mv -f -- "$tmp" "$p" && exit 0
+        fi
+        rm -f -- "$tmp"
+        exit 1
+        """
     }
 }
 
