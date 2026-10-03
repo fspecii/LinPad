@@ -54,3 +54,4 @@ themes/kylin/ref/
 gpu/sim-root.txt
 gpu/sim-udid.txt
 /site/dist/
+__pycache__/
