@@ -641,9 +641,9 @@ class DesktopUITests: XCTestCase {
         app.launch()
         let onboarding = app.descendants(matching: .any)["desktop.onboarding"]
         XCTAssertTrue(onboarding.waitForExistence(timeout: 15))
-        let kylin = app.buttons["onboarding.style.kylin"]
-        for _ in 0..<7 where !kylin.exists { app.buttons["onboarding.next"].tap() }
-        kylin.tap()
+        let personalize = app.descendants(matching: .any)["onboarding.step.personalize"]
+        for _ in 0..<7 where !personalize.waitForExistence(timeout: 1) { app.buttons["onboarding.next"].tap() }
+        app.buttons["onboarding.style.kylin"].tap()
         app.buttons["onboarding.skip"].tap()
         waitFor("onboarding closed") { !onboarding.exists }
         XCTAssertTrue(app.descendants(matching: .any)["desktop.panel.search"].firstMatch.waitForExistence(timeout: 5),

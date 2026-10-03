@@ -31,6 +31,8 @@ final class DesktopController {
     var isRunDialogPresented = false
     let wallpapers = WallpaperStore()
     let colorThemes = ColorThemeStore()
+    /// "Match to Wallpaper": the prompt after a wallpaper change and auto-match.
+    let wallpaperMatch = WallpaperMatchModel()
     /// Themes app › Advanced styling.
     var styling = DesktopStyling.load()
     /// Themes app › Appearance (light/dark pair and when each applies).
@@ -193,6 +195,7 @@ final class DesktopController {
             // One wallpaper toast at a time, so Undo always means the latest change.
             if let previous = wallpaperToast { dismissToast(previous) }
             wallpaperToast = notify(message, action: DesktopToast.Action(title: "Undo", perform: undo))
+            wallpaperDidChange()
         }
         keyboard.onSwitcherModifierReleased = { [weak self] in self?.commitSwitcher() }
         windowManager.willChangeFocus = { [weak self] window in self?.input.captureSnapshot(of: window) }

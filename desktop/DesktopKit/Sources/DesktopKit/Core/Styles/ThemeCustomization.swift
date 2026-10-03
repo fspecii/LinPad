@@ -378,6 +378,14 @@ struct DesktopLook: Codable, Identifiable, Equatable, Sendable {
     /// DesktopAppearance raw value for looks without a colour theme ("light", "dark").
     var appearanceID: String?
     var isBuiltIn = false
+    /// A desktop theme the look stands for (DesktopThemePresets.swift): applying the look
+    /// applies the preset (chrome, wallpaper, fonts, widgets), `presetDark` picks its member.
+    var presetID: String?
+    var presetDark: Bool?
+    /// Aqua's brushed-metal title bars; nil leaves them off.
+    var brushedMetal: Bool?
+    /// The wallpaper saved with the look, nil to leave the current one.
+    var wallpaper: WallpaperSource?
 
     var style: DesktopStyle { DesktopStyle.stored(styleID) }
 
@@ -420,7 +428,7 @@ struct DesktopLook: Codable, Identifiable, Equatable, Sendable {
                         styling: kylin, wallpaperQuery: nil, appearanceID: "light", isBuiltIn: true),
             DesktopLook(id: "ubuntu-yaru-dark", name: "Ubuntu Yaru Dark", styleID: "ubuntu", colorThemeID: "",
                         styling: ubuntu, wallpaperQuery: nil, appearanceID: "dark", isBuiltIn: true),
-        ]
+        ] + DesktopThemePreset.looks
     }()
 
     static func loadUserLooks(from defaults: UserDefaults = .standard) -> [DesktopLook] {

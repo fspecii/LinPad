@@ -11,13 +11,13 @@ struct OnboardingApps: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("LinPad starts small. Tick what you want and it installs in the background after setup. Settings › Apps adds or removes apps later.")
+            Text("LinPad starts small. Tick what you want and it installs in the background after setup. LinPad Store has hundreds more, and adds or removes apps later.")
                 .font(.callout)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
             if controller.boot.isFinished {
                 ScrollView {
-                    AppCatalogList(catalog: catalog, selection: selection)
+                    StorePicker(store: StoreModel.shared(for: controller.host), selection: selection)
                         .padding(.trailing, 6)
                 }
                 .scrollBounceBehavior(.basedOnSize)
@@ -54,10 +54,7 @@ struct OnboardingApps: View {
     }
 
     private var summary: String {
-        let chosen = catalog.packs.filter { flow.choices.packs.contains($0.id) }
-        let megabytes = chosen.reduce(0) { $0 + $1.sizeMB }
-        let size = megabytes >= 1000 ? String(format: "%.1f GB", Double(megabytes) / 1000) : "\(megabytes) MB"
-        return "\(flow.choices.packs.count) selected · about \(size)"
+        StorePicker.summary(Set(flow.choices.packs), store: StoreModel.shared(for: controller.host))
     }
 }
 

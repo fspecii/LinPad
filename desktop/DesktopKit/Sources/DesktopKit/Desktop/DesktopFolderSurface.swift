@@ -627,6 +627,7 @@ struct DesktopFolderSurface: View {
     @AppStorage(DesktopIconSize.storageKey) private var iconSize = DesktopIconSize.medium
     @Environment(\.desktopTheme) private var theme
     @Environment(\.desktopStyle) private var style
+    @Environment(\.desktopIcons) private var iconStore
 
     init(controller: DesktopController, shellItems: [DesktopMenuItem]) {
         self.controller = controller
@@ -873,70 +874,70 @@ struct DesktopFolderSurface: View {
     private func itemMenu(_ item: DesktopItem) -> some View {
         switch item {
         case .app(let id, _, _):
-            Button { model.open(item) } label: { Label("Open", systemImage: "arrow.up.forward.app") }
+            Button { model.open(item) } label: { ThemedLabel("Open", systemImage: "arrow.up.forward.app") }
             Divider()
             Button(role: .destructive) { controller.toggleOnDesktop(id) } label: {
-                Label("Remove from Desktop", systemImage: "minus.circle")
+                ThemedLabel("Remove from Desktop", systemImage: "minus.circle")
             }
         case .trash:
-            Button { model.open(item) } label: { Label("Open", systemImage: "trash") }
+            Button { model.open(item) } label: { ThemedLabel("Open", systemImage: "trash") }
             Button(role: .destructive) {
                 model.run { [trash = model.trash] in
                     try await trash.empty()
                     return []
                 }
-            } label: { Label("Empty Trash", systemImage: "trash.slash") }
+            } label: { ThemedLabel("Empty Trash", systemImage: "trash.slash") }
         case .file(let entry):
             let targets = model.targets(for: entry)
             let single = targets.count == 1 ? targets.first : nil
-            Button { model.open(item) } label: { Label("Open", systemImage: "arrow.up.forward.app") }
+            Button { model.open(item) } label: { ThemedLabel("Open", systemImage: "arrow.up.forward.app") }
             if let single, !single.isDirectory {
                 let apps = OpenWithCatalog.shared.linuxApplications(
                     for: OpenWithCatalog.shared.mimeType(for: single.name, isDirectory: false))
                 Menu {
-                    Button { model.openInEditor(single) } label: { Label("Text Editor", systemImage: "doc.text") }
-                    Button { model.quickLook([single]) } label: { Label("Quick Look", systemImage: "eye") }
+                    Button { model.openInEditor(single) } label: { ThemedLabel("Text Editor", systemImage: "doc.text") }
+                    Button { model.quickLook([single]) } label: { ThemedLabel("Quick Look", systemImage: "eye") }
                     if !apps.isEmpty {
                         Section("Linux Applications") {
                             ForEach(apps) { app in Button(app.name) { model.openWith(single, app: app) } }
                         }
                     }
-                } label: { Label("Open With", systemImage: "arrow.up.right.square") }
+                } label: { ThemedLabel("Open With", systemImage: "arrow.up.right.square") }
             }
             if let single {
                 ForEach(controller.fileActions(forGuestPath: single.path), id: \.title) { action in
-                    Button { action.action() } label: { Label(action.title, systemImage: action.symbol) }
+                    Button { action.action() } label: { ThemedLabel(action.title, systemImage: action.symbol) }
                 }
             }
             if let single, single.isDirectory {
-                Button { model.openTerminal(at: single.path) } label: { Label("Open Terminal Here", systemImage: "terminal") }
+                Button { model.openTerminal(at: single.path) } label: { ThemedLabel("Open Terminal Here", systemImage: "terminal") }
             }
             Divider()
-            Button { FileClipboard.shared.cut(targets.map(\.path)) } label: { Label("Cut", systemImage: "scissors") }
-            Button { FileClipboard.shared.copy(targets.map(\.path)) } label: { Label("Copy", systemImage: "doc.on.doc") }
+            Button { FileClipboard.shared.cut(targets.map(\.path)) } label: { ThemedLabel("Cut", systemImage: "scissors") }
+            Button { FileClipboard.shared.copy(targets.map(\.path)) } label: { ThemedLabel("Copy", systemImage: "doc.on.doc") }
             Button {
                 UIPasteboard.general.string = targets.map(\.path).joined(separator: "\n")
-            } label: { Label("Copy Path", systemImage: "link") }
+            } label: { ThemedLabel("Copy Path", systemImage: "link") }
             Divider()
             if let single {
                 Button {
                     promptText = single.name
                     prompt = .rename(single)
-                } label: { Label("Rename…", systemImage: "pencil") }
+                } label: { ThemedLabel("Rename…", systemImage: "pencil") }
             }
-            Button { model.duplicate(targets) } label: { Label("Duplicate", systemImage: "plus.square.on.square") }
-            Button { model.compress(targets) } label: { Label("Compress", systemImage: "archivebox") }
+            Button { model.duplicate(targets) } label: { ThemedLabel("Duplicate", systemImage: "plus.square.on.square") }
+            Button { model.compress(targets) } label: { ThemedLabel("Compress", systemImage: "archivebox") }
             if let single, !single.isDirectory, FileOperations.isArchive(single.name) {
-                Button { model.extractHere(single) } label: { Label("Extract Here", systemImage: "archivebox.circle") }
+                Button { model.extractHere(single) } label: { ThemedLabel("Extract Here", systemImage: "archivebox.circle") }
             }
-            Button { model.share(targets) } label: { Label("Share…", systemImage: "square.and.arrow.up") }
+            Button { model.share(targets) } label: { ThemedLabel("Share…", systemImage: "square.and.arrow.up") }
             Divider()
-            Button(role: .destructive) { model.moveToTrash(targets) } label: { Label("Move to Trash", systemImage: "trash") }
+            Button(role: .destructive) { model.moveToTrash(targets) } label: { ThemedLabel("Move to Trash", systemImage: "trash") }
             Button(role: .destructive) { pendingDeletion = targets } label: {
-                Label("Delete Permanently…", systemImage: "trash.slash")
+                ThemedLabel("Delete Permanently…", systemImage: "trash.slash")
             }
             Divider()
-            Button { propertiesTarget = PropertiesTarget(path: entry.path) } label: { Label("Properties", systemImage: "info.circle") }
+            Button { propertiesTarget = PropertiesTarget(path: entry.path) } label: { ThemedLabel("Properties", systemImage: "info.circle") }
         }
     }
 
@@ -944,17 +945,17 @@ struct DesktopFolderSurface: View {
     private func backgroundMenu() -> UIMenu {
         let clipboard = FileClipboard.shared
         let newItems = UIMenu(title: "", options: .displayInline, children: [
-            UIMenu(title: "Create New", image: UIImage(systemName: "plus"), children: [
-                UIAction(title: "Folder", image: UIImage(systemName: "folder.badge.plus")) { _ in beginPrompt(.newFolder, "New Folder") },
-                UIAction(title: "Text File", image: UIImage(systemName: "doc.badge.plus")) { _ in beginPrompt(.newFile, "untitled.txt") },
+            UIMenu(title: "Create New", image: UIImage.themed(systemName: "plus", icons: iconStore), children: [
+                UIAction(title: "Folder", image: UIImage.themed(systemName: "folder.badge.plus", icons: iconStore)) { _ in beginPrompt(.newFolder, "New Folder") },
+                UIAction(title: "Text File", image: UIImage.themed(systemName: "doc.badge.plus", icons: iconStore)) { _ in beginPrompt(.newFile, "untitled.txt") },
             ]),
-            UIAction(title: "New Folder", image: UIImage(systemName: "folder.badge.plus")) { _ in beginPrompt(.newFolder, "New Folder") },
-            UIAction(title: "New File", image: UIImage(systemName: "doc.badge.plus")) { _ in beginPrompt(.newFile, "untitled.txt") },
+            UIAction(title: "New Folder", image: UIImage.themed(systemName: "folder.badge.plus", icons: iconStore)) { _ in beginPrompt(.newFolder, "New Folder") },
+            UIAction(title: "New File", image: UIImage.themed(systemName: "doc.badge.plus", icons: iconStore)) { _ in beginPrompt(.newFile, "untitled.txt") },
             UIAction(title: clipboard.paths.count > 1 ? "Paste \(clipboard.paths.count) Items" : "Paste",
-                     image: UIImage(systemName: "doc.on.clipboard"),
+                     image: UIImage.themed(systemName: "doc.on.clipboard", icons: iconStore),
                      attributes: clipboard.isEmpty ? .disabled : []) { _ in model.paste() },
         ])
-        let terminal = UIAction(title: "Open Terminal Here", image: UIImage(systemName: "terminal")) { _ in
+        let terminal = UIAction(title: "Open Terminal Here", image: UIImage.themed(systemName: "terminal", icons: iconStore)) { _ in
             model.openTerminal(at: model.desktopPath)
         }
         let layout = model.layout
@@ -963,27 +964,27 @@ struct DesktopFolderSurface: View {
                 model.setKeepsArranged(layout.keepsArranged == key ? nil : key)
             }
         })
-        let arrange = UIMenu(title: "Arrange Icons", image: UIImage(systemName: "square.grid.3x3"), children: [
+        let arrange = UIMenu(title: "Arrange Icons", image: UIImage.themed(systemName: "square.grid.3x3", icons: iconStore), children: [
             UIMenu(title: "", options: .displayInline, children: DesktopArrangeKey.allCases.map { key in
                 UIAction(title: "By \(key.title)") { _ in model.arrange(by: key) }
             } + [UIAction(title: "By Size") { _ in model.arrange(by: FilesSortKey.size) }]),
             UIMenu(title: "", options: .displayInline, children: [
                 keepArranged,
-                UIAction(title: "Align to Grid", image: UIImage(systemName: "grid")) { _ in model.alignToGrid() },
+                UIAction(title: "Align to Grid", image: UIImage.themed(systemName: "grid", icons: iconStore)) { _ in model.alignToGrid() },
                 UIAction(title: "Snap to Grid", state: layout.snapsToGrid ? .on : .off) { _ in
                     model.setSnapsToGrid(!layout.snapsToGrid)
                 },
             ]),
         ])
-        let sizes = UIMenu(title: "Icon Size", image: UIImage(systemName: "textformat.size"), children: DesktopIconSize.allCases.map { size in
+        let sizes = UIMenu(title: "Icon Size", image: UIImage.themed(systemName: "textformat.size", icons: iconStore), children: DesktopIconSize.allCases.map { size in
             UIAction(title: size.title, state: iconSize == size ? .on : .off) { _ in iconSize = size }
         })
-        let showIcons = UIAction(title: "Show Desktop Icons", image: UIImage(systemName: "square.grid.2x2"),
+        let showIcons = UIAction(title: "Show Desktop Icons", image: UIImage.themed(systemName: "square.grid.2x2", icons: iconStore),
                                  state: showsIcons ? .on : .off) { _ in showsIcons.toggle() }
         let shell = shellItems.map { item in
-            UIAction(title: item.title, image: UIImage(systemName: item.symbol)) { _ in item.action() }
+            UIAction(title: item.title, image: UIImage.themed(systemName: item.symbol, icons: iconStore)) { _ in item.action() }
         }
-        let settings = UIAction(title: "Desktop Settings…", image: UIImage(systemName: "slider.horizontal.3")) { _ in
+        let settings = UIAction(title: "Desktop Settings…", image: UIImage.themed(systemName: "slider.horizontal.3", icons: iconStore)) { _ in
             controller.open(appID: AppID.settings, arguments: [:])
         }
         let shellWithoutSettings = shell.filter { $0.title != "Settings" }

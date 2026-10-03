@@ -17,7 +17,17 @@ struct OnboardingPersonalize: View {
             layout {
                 section("Layout", detail: "Where the panels, launcher and window buttons go.") {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 128, maximum: 200), spacing: 12)], spacing: 12) {
-                        ForEach(DesktopStyle.allCases) { style in styleTile(style) }
+                        ForEach(DesktopStyle.groups) { group in
+                            Section {
+                                ForEach(group.styles) { style in styleTile(style) }
+                            } header: {
+                                Text(group.title)
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(theme.secondaryText)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .accessibilityAddTraits(.isHeader)
+                            }
+                        }
                     }
                 }
                 .frame(maxWidth: sizeClass == .compact ? .infinity : 430)
@@ -114,7 +124,7 @@ struct OnboardingPersonalize: View {
     private var themeStrip: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 10) {
+                HStack(spacing: 10) {
                     ForEach(controller.colorThemes.orderedIDs, id: \.self) { id in themeCard(id) }
                 }
                 .padding(.vertical, 3)

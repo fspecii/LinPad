@@ -12,18 +12,22 @@
 
 #define PATH_CACHE_SIZE 64
 #define PATH_CACHE_TTL_NS 100000000  // 100ms TTL
+// Longer paths are not cached. With MAX_PATH-sized entries the cache was 525 KB of
+// thread-local storage per guest thread, all of it made resident by the first path
+// lookup: about 70 MB of host memory for Firefox's ~130 threads.
+#define PATH_CACHE_LEN 256
 
 struct path_cache_entry {
-    char input_path[MAX_PATH];     // Original path (with at_path prefix if any)
-    char normalized[MAX_PATH];     // Normalized result
+    char input_path[PATH_CACHE_LEN];     // Original path (with at_path prefix if any)
+    char normalized[PATH_CACHE_LEN];     // Normalized result
     uint64_t timestamp;            // nanosecond timestamp
     int flags;                     // N_SYMLINK_FOLLOW or N_SYMLINK_NOFOLLOW
     bool valid;
 };
 
 // Thread-local cache (one per thread for lock-free access)
+// Zero-initialised like all thread-local storage, so every entry starts invalid.
 static __thread struct path_cache_entry path_cache[PATH_CACHE_SIZE];
-static __thread bool path_cache_initialized = false;
 
 // Simple hash function for path strings
 static inline uint32_t path_hash(const char *str) {
@@ -41,18 +45,9 @@ static inline uint64_t get_time_ns(void) {
     return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 }
 
-// Initialize thread-local cache
-static void path_cache_init(void) {
-    if (!path_cache_initialized) {
-        memset(path_cache, 0, sizeof(path_cache));
-        path_cache_initialized = true;
-    }
-}
-
 // Try to get cached normalized path
 // Returns 0 on cache hit, -1 on cache miss
 static int path_cache_get(const char *full_path, int flags, char *out) {
-    path_cache_init();
 
     uint32_t hash = path_hash(full_path);
     uint32_t index = hash % PATH_CACHE_SIZE;
@@ -83,18 +78,15 @@ static int path_cache_get(const char *full_path, int flags, char *out) {
 
 // Store normalized path in cache
 static void path_cache_set(const char *full_path, int flags, const char *normalized) {
-    path_cache_init();
+    if (strlen(full_path) >= PATH_CACHE_LEN || strlen(normalized) >= PATH_CACHE_LEN)
+        return;
 
     uint32_t hash = path_hash(full_path);
     uint32_t index = hash % PATH_CACHE_SIZE;
     struct path_cache_entry *entry = &path_cache[index];
 
-    // Store in cache
-    strncpy(entry->input_path, full_path, MAX_PATH - 1);
-    entry->input_path[MAX_PATH - 1] = '\0';
-
-    strncpy(entry->normalized, normalized, MAX_PATH - 1);
-    entry->normalized[MAX_PATH - 1] = '\0';
+    strcpy(entry->input_path, full_path);
+    strcpy(entry->normalized, normalized);
 
     entry->flags = flags;
     entry->timestamp = get_time_ns();

@@ -44,8 +44,10 @@ Run in the guest (e.g. `LinuxHost.run`):
 ish-apply-style <windows|macos|ubuntu|kylin|ish> [light|dark]
 ```
 
-Exit status 0 means settings and cache are both written. It takes a few seconds (one
-SVG rasterisation per icon and size). `ish-apply-style --current` prints the active id,
+Exit status 0 means settings and cache are both written. One SVG rasterisation per icon
+and size (about 300 names), spread over up to six worker processes (`nproc`;
+`ISH_ICON_JOBS=n` overrides): under iSH on an M-series host 19-38 s per pack, 70-130 s
+with one worker. `ish-apply-style --current` prints the active id,
 `--list` the ids, `--cache-only` rebuilds the cache for the active style (run it after
 installing an app so its icon is cached).
 
@@ -183,6 +185,15 @@ test fails when the shell asks for a name the guest does not render):
   edit-clear-all user-trash media-eject drive-harddisk list-add start-here
   window-minimize window-maximize window-restore window-close`, each as `<name>-symbolic`
   and (where it exists) the full-colour `<name>`.
+
+### Without a cache
+
+DesktopKit bundles a pre-rendered default pack (Papirus, GPL-3.0; a few names from Breeze,
+LGPL-3.0) in `Resources/Icons`, laid out like a cache directory, for every name above
+(`themes/build-bundled-icons.sh` regenerates it). The shell resolves a list of names in
+the active cache first, then in the bundled pack, and draws a plain glyph only when
+neither has any of them, so a real icon shows before Linux has booted, while a cache is
+being rendered and on hosts without a guest.
 
 ### Lookup rules (what the guest does)
 

@@ -82,7 +82,7 @@ struct OverviewBackdrop: View {
         ZStack(alignment: .topLeading) {
             Group {
                 if style == .ish || style == .windows || style == .kylin {
-                    Color.black.opacity(0.45)
+                    theme.scrim
                 } else {
                     Rectangle().fill(.ultraThinMaterial).overlay(Color.black.opacity(0.3))
                 }
@@ -229,9 +229,8 @@ private struct WorkspaceThumbnail: View {
                             .strokeBorder(theme.separator, lineWidth: 0.5)
                     }
                     .overlay {
-                        Image(systemName: window.symbol)
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(theme.secondaryText)
+                        AppGlyph(iconName: controller.iconName(forAppID: window.appID), url: controller.iconURL(forAppID: window.appID),
+                                 symbol: window.symbol, size: 8, tint: theme.secondaryText)
                     }
                     .frame(width: max(frame.width * scale, 4), height: max(frame.height * scale, 3))
                     .offset(x: frame.minX * scale, y: frame.minY * scale)

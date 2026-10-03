@@ -24,7 +24,24 @@ public final class MockLinuxHost: LinuxHost {
         self.nodes = Self.seedFileSystem(hostName: hostName)
     }
 
+    /// Every command run, in order, for tests that check what reached the guest.
+    public private(set) var commandLog: [String] = []
+
+    /// Streams LinPad Store's installs with progress (StoreMockGuest); everything else
+    /// runs to completion and is delivered at once, like the protocol's default.
+    public func stream(_ command: String, cwd: String?, onOutput: @escaping @MainActor (String) -> Void) async -> Int32 {
+        if let code = await StoreMockGuest.shared.stream(command, onOutput: onOutput) {
+            commandLog.append(command)
+            return code
+        }
+        let result = await run(command, cwd: cwd, stdin: nil)
+        let output = result.stdout + result.stderr
+        if !output.isEmpty { onOutput(output) }
+        return result.exitCode
+    }
+
     public func run(_ command: String, cwd: String?, stdin: Data?) async -> CommandResult {
+        commandLog.append(command)
         try? await Task.sleep(for: latency)
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -48,6 +65,9 @@ public final class MockLinuxHost: LinuxHost {
         }
 
         if let reply = MockMediaPlayer.shared.reply(to: trimmed) {
+            return reply
+        }
+        if let reply = await StoreMockGuest.shared.reply(to: trimmed) {
             return reply
         }
         if trimmed.hasPrefix("mkdir -p -- ") {

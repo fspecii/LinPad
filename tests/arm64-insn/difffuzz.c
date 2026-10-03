@@ -2,8 +2,11 @@
 // processing, which never touch memory). Reads hex instruction words on stdin,
 // runs each one from a generated trampoline against fixed register states, and
 // prints all 32 V registers, X0-X30 and NZCV afterwards. Run natively and in the
-// guest on the same input and diff. "ILL" means the CPU raised SIGILL.
+// guest on the same input and diff. "ILL" means the CPU raised SIGILL (or a fault).
 //   cc -O1 -o difffuzz difffuzz.c && ./difffuzz < words.txt > out.txt
+// With -m (loads, stores, atomics): X registers hold small values, the base
+// register (bits 9:5) points into a 128 KB buffer mapped at the same address
+// natively and in the guest, and the buffer is part of the hash.
 #include <inttypes.h>
 #include <setjmp.h>
 #include <signal.h>
@@ -24,6 +27,10 @@ struct state {
 
 static uint32_t *code;
 static sigjmp_buf jb;
+static int mem_mode;
+#define MEM_BUF_ADDR 0x7e00000000ull
+#define MEM_BUF_SIZE (128 * 1024)
+static uint8_t *mem_buf;
 
 static void on_ill(int sig) {
     (void) sig;
@@ -73,7 +80,7 @@ static const uint64_t seeds[][4] = {
     { 0x0123456789abcdef, 0xfedcba9876543210, 0x5555aaaa3c003c00, 0x7bfffc0003ff8001 },
 };
 
-static void fill(struct state *s, int k) {
+static void fill(struct state *s, int k, uint32_t insn) {
     for (int r = 0; r < 32; r++)
         for (int h = 0; h < 2; h++) {
             uint64_t v = seeds[k][(r + h) & 3] ^ ((uint64_t) r << (8 * ((r + h) & 7)));
@@ -81,11 +88,26 @@ static void fill(struct state *s, int k) {
         }
     for (int r = 0; r < 31; r++)
         s->x[r] = seeds[k][r & 3] + (uint64_t) r * 0x0101010101010101ull;
+    if (mem_mode) {
+        for (int r = 0; r < 31; r++)
+            s->x[r] = (s->x[r] >> (8 * (r & 3))) & 0x3f8;
+        unsigned rn = (insn >> 5) & 0x1f;
+        if (rn != 31)
+            s->x[rn] = MEM_BUF_ADDR + MEM_BUF_SIZE / 2;
+        for (unsigned i = 0; i < MEM_BUF_SIZE; i++)
+            mem_buf[i] = (uint8_t) ((i * 131 + k * 17) ^ (i >> 7));
+    }
     s->x[18] = 0;
     s->nzcv = (uint64_t) (k & 3) << 29;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    mem_mode = argc > 1 && strcmp(argv[1], "-m") == 0;
+    if (mem_mode) {
+        mem_buf = mmap((void *) MEM_BUF_ADDR, MEM_BUF_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0);
+        if (mem_buf != (uint8_t *) MEM_BUF_ADDR)
+            return 2;
+    }
     size_t sz = 1 << 14;
 #ifdef __APPLE__
     code = mmap(NULL, sz, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0);
@@ -110,7 +132,7 @@ int main(void) {
 #endif
         for (int k = 0; k < 3; k++) {
             static struct state s;
-            fill(&s, k);
+            fill(&s, k, w);
             if (sigsetjmp(jb, 1)) {
                 printf("%08x %d ILL\n", w, k);
                 break;
@@ -120,6 +142,8 @@ int main(void) {
             const uint8_t *b = (const uint8_t *) &s;
             for (size_t i = 0; i < sizeof s; i++)
                 h = (h ^ b[i]) * 16777619u;
+            for (size_t i = 0; mem_mode && i < MEM_BUF_SIZE; i++)
+                h = (h ^ mem_buf[i]) * 16777619u;
             printf("%08x %d %08x\n", w, k, h);
         }
     }

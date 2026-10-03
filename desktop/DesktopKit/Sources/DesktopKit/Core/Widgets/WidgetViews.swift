@@ -185,12 +185,12 @@ struct WeatherWidget: View {
             }
         }
         .contextMenu {
-            Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.refresh() } }
+            Button { Task { await model.refresh() } } label: { ThemedLabel("Refresh", systemImage: "arrow.clockwise") }
             if !model.city.isEmpty {
-                Button("Use Current Location", systemImage: "location") {
+                Button {
                     model.city = ""
                     Task { await model.refresh() }
-                }
+                } label: { ThemedLabel("Use Current Location", systemImage: "location") }
             }
         }
     }

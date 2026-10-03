@@ -12,7 +12,7 @@ esac
 if pactl --server="unix:$dir/native" info >/dev/null 2>&1; then
     exit 0
 fi
-rm -f "$dir/native" "$dir/pcm"
+rm -f "$dir/native" "$dir/pcm" "$dir/mic"
 mode=--daemonize=yes
 if [ "${1:-}" = "--foreground" ]; then
     mode=--daemonize=no

@@ -81,7 +81,7 @@ struct LauncherView: View {
 
     private var searchField: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
+            ThemeGlyph(symbol: "magnifyingglass", size: 14)
                 .foregroundStyle(theme.secondaryText)
             TextField("Search applications", text: $query)
                 .textFieldStyle(.plain)
@@ -205,7 +205,7 @@ private struct CategoryRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: symbol)
+                ThemeGlyph(symbol: symbol, size: 14)
                     .frame(width: 18)
                     .foregroundStyle(isSelected ? theme.accent : theme.secondaryText)
                 Text(title)
@@ -273,7 +273,7 @@ private struct FooterButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
+            ThemeGlyph(symbol: symbol, size: 14)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(theme.primaryText)
                 .frame(width: 32, height: 30)
@@ -285,30 +285,6 @@ private struct FooterButton: View {
         .help(label)
         .accessibilityLabel(label)
         .accessibilityIdentifier("desktop.launcher.\(label == "Settings" ? "settings" : symbol)")
-    }
-}
-
-/// The rounded app tile shared by the launcher and the desktop.
-struct DesktopAppTile: View {
-    let symbol: String
-    let size: CGFloat
-    @Environment(\.desktopTheme) private var theme
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-            .fill(LinearGradient(colors: [theme.accent.opacity(0.95), theme.accent.opacity(0.55)],
-                                 startPoint: .top, endPoint: .bottom))
-            .overlay {
-                RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-                    .strokeBorder(.white.opacity(0.18), lineWidth: 1)
-            }
-            .overlay {
-                Image(systemName: symbol)
-                    .font(.system(size: size * 0.48, weight: .medium))
-                    .foregroundStyle(theme.accent.readableLabel)
-            }
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
     }
 }
 

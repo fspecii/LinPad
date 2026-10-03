@@ -160,6 +160,8 @@ void view_configure(struct view *v) {
             *state = XDG_TOPLEVEL_STATE_ACTIVATED;
         if (v->maximized && (state = wl_array_add(&states, sizeof(*state))))
             *state = XDG_TOPLEVEL_STATE_MAXIMIZED;
+        if (v->fullscreen && (state = wl_array_add(&states, sizeof(*state))))
+            *state = XDG_TOPLEVEL_STATE_FULLSCREEN;
         xdg_toplevel_send_configure(v->role_resource, v->host_width, v->host_height, &states);
         wl_array_release(&states);
     } else {
@@ -309,6 +311,9 @@ static void toplevel_set_fullscreen(struct wl_client *client, struct wl_resource
     if (v && !v->fullscreen) {
         v->fullscreen = true;
         output_client_fullscreen(v->server, client, true);
+        /* Clients finish entering fullscreen (Firefox resolves requestFullscreen) on a
+         * configure with the fullscreen state; the host's maximize configure follows. */
+        view_configure(v);
     }
 }
 
@@ -318,6 +323,7 @@ static void toplevel_unset_fullscreen(struct wl_client *client, struct wl_resour
     if (v && v->fullscreen) {
         v->fullscreen = false;
         output_client_fullscreen(v->server, client, false);
+        view_configure(v);
     }
 }
 

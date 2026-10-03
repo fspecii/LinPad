@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # Sourced by ishwl-session (/etc/ishwl/session.d). After "Update Linux system" the packages
 # the user had added are listed in /etc/ish/reinstall-packages; once the compositor is up,
 # reinstall them in a visible terminal window. Optional apps chosen in onboarding are

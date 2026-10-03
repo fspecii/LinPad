@@ -14,15 +14,15 @@ struct MenuBar: View {
     var body: some View {
         HStack(spacing: 14) {
             Menu {
-                Button("About This Desktop", systemImage: "info.circle") {
+                Button {
                     controller.open(appID: AppID.settings, arguments: [:])
-                }
+                } label: { ThemedLabel("About This Desktop", systemImage: "info.circle") }
                 Divider()
-                Button("Run Command…", systemImage: "terminal") { controller.presentRunDialog() }
-                Button("Overview", systemImage: "rectangle.3.group") { controller.toggleOverview() }
-                Button("Settings…", systemImage: "gearshape") {
+                Button { controller.presentRunDialog() } label: { ThemedLabel("Run Command…", systemImage: "terminal") }
+                Button { controller.toggleOverview() } label: { ThemedLabel("Overview", systemImage: "rectangle.3.group") }
+                Button {
                     controller.open(appID: AppID.settings, arguments: [:])
-                }
+                } label: { ThemedLabel("Settings…", systemImage: "gearshape") }
                 Divider()
                 PowerMenuItems(controller: controller)
             } label: {
@@ -174,7 +174,7 @@ struct WindowsTaskbar: View {
             }
             TaskbarIconButton(isActive: controller.isOverviewPresented, label: "Task View",
                               identifier: "desktop.panel.overview") {
-                Image(systemName: "rectangle.on.rectangle")
+                ThemeGlyph(symbol: "rectangle.on.rectangle", size: 16)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
             } action: {
@@ -408,20 +408,8 @@ private struct DockItem: View {
         .accessibilityIdentifier(isRunning ? "desktop.taskbar.item" : "desktop.dock.item")
     }
 
-    /// Opens the app, or brings its most recent window forward; clicking the app that is
-    /// already in front cycles through its windows.
     private func activate() {
-        let recent = manager.recentWindowsInCurrentWorkspace().filter { $0.appID == app.id }
-        let candidates = recent.isEmpty ? windows : recent
-        guard let first = candidates.first else {
-            controller.open(appID: app.id, arguments: [:])
-            return
-        }
-        if first.id == manager.focusedWindowID, !first.isMinimized, candidates.count > 1 {
-            manager.focus(candidates[candidates.count - 1].id)
-        } else {
-            manager.focus(first.id)
-        }
+        controller.activateApp(app.id)
     }
 
     private var menu: some View {

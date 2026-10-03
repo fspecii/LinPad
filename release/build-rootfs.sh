@@ -111,7 +111,7 @@ REPOS
 apk update -q
 apk add -q adwaita-icon-theme bash curl dbus fastfetch firefox-esr font-dejavu \
     font-jetbrains-mono font-noto font-noto-cjk font-noto-emoji foot git gtk+3.0-demo libxkbcommon mousepad nodejs npm \
-    playerctl thunar wayland-libs-server xkeyboard-config zlib
+    playerctl thunar wayland-libs-server xkeyboard-config libx11 zlib
 npm install -g --no-audit --no-fund @anthropic-ai/claude-code >/dev/null
 apk add -q --virtual .ishwl-build build-base wayland-dev wayland-protocols pkgconf zlib-dev \
     libxkbcommon-dev libx11-dev

@@ -1,3 +1,4 @@
+#include <sys/stat.h>
 #include "kernel/calls.h"
 #include "fs/poll.h"
 
@@ -64,6 +65,9 @@ int_t sys_epoll_ctl(fd_t epoll_f, int_t op, fd_t f, addr_t event_addr) {
     STRACE(" {events: %#x, data: %#x}", event.events, event.data);
 
     if (op == EPOLL_CTL_ADD_) {
+        // Linux: regular files and directories do not support epoll.
+        if (S_ISREG(fd->type) || S_ISDIR(fd->type))
+            return _EPERM;
         if (poll_has_fd(epoll->epollfd.poll, fd))
             return _EEXIST;
         return poll_add_fd(epoll->epollfd.poll, fd, event.events, (union poll_fd_info) event.data);

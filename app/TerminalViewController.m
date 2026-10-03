@@ -16,6 +16,7 @@
 #import "NSObject+SaneKVO.h"
 #import "LinuxInterop.h"
 #import "SceneDelegate.h"
+@import GameController;
 #include "kernel/init.h"
 #include "kernel/task.h"
 #include "kernel/calls.h"
@@ -313,7 +314,9 @@
         }
     }];
     UIView *oldBarView = self.termView.inputAccessoryView;
-    if (UserPreferences.shared.hideExtraKeysWithExternalKeyboard && self.hasExternalKeyboard) {
+    if (self.embedded) {
+        self.termView.inputAccessoryView = self.desktopShowsExtraKeys ? self.barView : nil;
+    } else if (UserPreferences.shared.hideExtraKeysWithExternalKeyboard && self.hasExternalKeyboard) {
         self.termView.inputAccessoryView = nil;
     } else {
         self.termView.inputAccessoryView = self.barView;
@@ -326,6 +329,13 @@
         });
     }
 }
+// In the desktop the extra keys belong to the on-screen keyboard: a row left at the
+// bottom edge would sit over the dock or taskbar (Settings > Show extra keys row).
+- (BOOL)desktopShowsExtraKeys {
+    NSNumber *enabled = [NSUserDefaults.standardUserDefaults objectForKey:@"desktop.keyboard.extraKeysRow"];
+    return (enabled == nil || enabled.boolValue) && !self.hasExternalKeyboard && GCKeyboard.coalescedKeyboard == nil;
+}
+
 - (void)_updateStyleAnimated {
     [self _updateStyleFromPreferences:YES];
 }
@@ -358,6 +368,13 @@
     CGRect intersection = CGRectIntersection(keyboardFrame, self.view.bounds);
     keyboardFrame = intersection;
     NSLog(@"%@ %@", notification.name, @(keyboardFrame));
+    BOOL onlyAccessoryLeft = keyboardFrame.size.height < 100 && self.termView.inputAccessoryView != nil;
+    if (self.embedded && onlyAccessoryLeft && GCKeyboard.coalescedKeyboard == nil && self.termView.isFirstResponder) {
+        // The on-screen keyboard was put away with its own key; the extra keys go with it.
+        // A tap on the terminal brings both back.
+        [self.termView resignFirstResponder];
+        return;
+    }
     self.hasExternalKeyboard = keyboardFrame.size.height < 100;
     CGFloat pad = CGRectGetMaxY(self.view.bounds) - CGRectGetMinY(keyboardFrame);
     // The keyboard appears to be undocked. This means it can either be split or

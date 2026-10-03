@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<components version="0.16" origin="fixture" media_baseurl="https://example.invalid/media">
+<component type="desktop-application">
+  <id>filezilla.desktop</id>
+  <name>FileZilla</name>
+  <name xml:lang="de">FileZilla DE</name>
+  <summary>Download and upload files via FTP, FTPS and SFTP</summary>
+  <summary xml:lang="de">Dateien</summary>
+  <project_license>GPL-2.0-or-later</project_license>
+  <description>
+    <p>FileZilla Client is a fast &amp; reliable cross-platform FTP client.</p>
+    <p xml:lang="de">Deutsch</p>
+    <ul><li>Easy to use</li><li xml:lang="de">Einfach</li><li>Supports <em>SFTP</em></li></ul>
+  </description>
+  <pkgname>filezilla</pkgname>
+  <launchable type="desktop-id">filezilla.desktop</launchable>
+  <icon type="cached" width="64" height="64">filezilla_filezilla.png</icon>
+  <icon type="remote" width="64" height="64">f/fi/filezilla/64x64/filezilla.png</icon>
+  <icon type="remote" width="128" height="128">f/fi/filezilla/128x128/filezilla.png</icon>
+  <icon type="stock">filezilla</icon>
+  <url type="homepage">https://filezilla-project.org/</url>
+  <categories><category>Network</category><category>FileTransfer</category></categories>
+  <keywords><keyword>ftp</keyword><keyword>sftp</keyword><keyword xml:lang="de">dateien</keyword></keywords>
+  <screenshots>
+    <screenshot>
+      <image type="source" width="1600" height="900">f/fi/filezilla/screenshots/2_orig.png</image>
+    </screenshot>
+    <screenshot type="default">
+      <caption>Main window</caption>
+      <image type="source" width="1600" height="900">f/fi/filezilla/screenshots/1_orig.png</image>
+      <image type="thumbnail" width="752" height="423">f/fi/filezilla/screenshots/1_752x423.png</image>
+      <image type="thumbnail" width="224" height="126">f/fi/filezilla/screenshots/1_224x126.png</image>
+    </screenshot>
+  </screenshots>
+</component>
+<component type="desktop-application">
+  <id>org.gimp.GIMP</id>
+  <name>GNU Image Manipulation Program</name>
+  <summary>Create images and edit photographs</summary>
+  <pkgname>gimp</pkgname>
+  <launchable type="desktop-id">gimp.desktop</launchable>
+  <categories><category>Graphics</category></categories>
+</component>
+<component type="addon">
+  <id>org.example.Plugin</id>
+  <name>Not an app</name>
+  <pkgname>dillo</pkgname>
+</component>
+</components>

@@ -656,13 +656,13 @@ final class EditorContainerView: UIView, UITextViewDelegate, NSTextStorageDelega
                   suggestedActions: [UIMenuElement]) -> UIMenu? {
         let undoManager = textView.undoManager
         let history = UIMenu(options: .displayInline, children: [
-            UIAction(title: "Undo", image: UIImage(systemName: "arrow.uturn.backward"),
+            UIAction(title: "Undo", image: UIImage.themed(systemName: "arrow.uturn.backward"),
                      attributes: undoManager?.canUndo == true ? [] : .disabled) { _ in undoManager?.undo() },
-            UIAction(title: "Redo", image: UIImage(systemName: "arrow.uturn.forward"),
+            UIAction(title: "Redo", image: UIImage.themed(systemName: "arrow.uturn.forward"),
                      attributes: undoManager?.canRedo == true ? [] : .disabled) { _ in undoManager?.redo() },
         ])
         let find = UIMenu(options: .displayInline, children: [
-            UIAction(title: "Find…", image: UIImage(systemName: "magnifyingglass")) { [weak self] _ in
+            UIAction(title: "Find…", image: UIImage.themed(systemName: "magnifyingglass")) { [weak self] _ in
                 self?.textView.onFind?()
             },
         ])

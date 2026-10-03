@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <time.h>
 #include <string.h>
 #include <sys/stat.h>
 #include "kernel/memory.h"
@@ -84,9 +85,53 @@ static struct vm_counts mm_vm_counts(struct mm *mm) {
     return c;
 }
 
+// Counting walks every page of the address space under its lock: about 10 ms for a
+// Firefox process, and ps/top (or a benchmark sampling CPU time) read stat/status of
+// every thread, which also holds off the process's mmaps. So remember the counts per
+// address space until it changes (mmu.changes moves on mmap/munmap/mprotect/CoW) or
+// for at most a second.
+#define VM_COUNTS_CACHE 16
+static struct {
+    struct mm *mm;
+    uint64_t changes;
+    uint64_t when_ns;
+    struct vm_counts counts;
+} vm_counts_cache[VM_COUNTS_CACHE];
+static lock_t vm_counts_lock = LOCK_INITIALIZER;
+
+static uint64_t monotonic_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t) ts.tv_sec * 1000000000ull + (uint64_t) ts.tv_nsec;
+}
+
+static struct vm_counts mm_vm_counts_cached(struct mm *mm) {
+    if (mm == NULL)
+        return (struct vm_counts) {};
+    uint64_t changes = __atomic_load_n(&mm->mem.mmu.changes, __ATOMIC_ACQUIRE);
+    uint64_t now = monotonic_ns();
+    unsigned slot = (unsigned) (((uintptr_t) mm >> 6) % VM_COUNTS_CACHE);
+    lock(&vm_counts_lock);
+    if (vm_counts_cache[slot].mm == mm && vm_counts_cache[slot].changes == changes &&
+        now - vm_counts_cache[slot].when_ns < 1000000000ull) {
+        struct vm_counts c = vm_counts_cache[slot].counts;
+        unlock(&vm_counts_lock);
+        return c;
+    }
+    unlock(&vm_counts_lock);
+    struct vm_counts c = mm_vm_counts(mm);
+    lock(&vm_counts_lock);
+    vm_counts_cache[slot].mm = mm;
+    vm_counts_cache[slot].changes = changes;
+    vm_counts_cache[slot].when_ns = now;
+    vm_counts_cache[slot].counts = c;
+    unlock(&vm_counts_lock);
+    return c;
+}
+
 static struct vm_counts proc_vm_counts(struct proc_entry *entry) {
     struct mm *mm = proc_get_mm(entry);
-    struct vm_counts c = mm_vm_counts(mm);
+    struct vm_counts c = mm_vm_counts_cached(mm);
     if (mm != NULL)
         mm_release(mm);
     return c;

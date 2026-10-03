@@ -32,9 +32,45 @@ final class IconPackScreenshots: XCTestCase {
                     sleep(1)
                     save(to: directory!, name: "\(pack)-\(style)-files-grid")
                 }
+                if environment["DESKTOP_ICON_SHOTS"] == "all" { captureMenus(app, directory: directory!, prefix: "\(pack)-\(style)") }
                 app.terminate()
+                if environment["DESKTOP_ICON_SHOTS"] == "all" {
+                    app.launchArguments = ["-desktop.resetSession", "YES", "-desktop.autostart", "settings",
+                                           "-desktop.style", style, "-desktop.onboarded", "YES",
+                                           "-desktop.iconCacheRoot", root]
+                    app.launch()
+                    sleep(3)
+                    save(to: directory!, name: "\(pack)-\(style)-settings")
+                    app.terminate()
+                }
             }
         }
+    }
+
+    /// Tray, Quick Settings, a file's context menu, the Command Menu and Settings.
+    private func captureMenus(_ app: XCUIApplication, directory: String, prefix: String) {
+        let quick = app.buttons["desktop.panel.quickSettings"].firstMatch
+        if quick.waitForExistence(timeout: 5) {
+            quick.tap()
+            sleep(1)
+            save(to: directory, name: "\(prefix)-quick-settings")
+            quick.tap()
+            sleep(1)
+        }
+        let file = app.staticTexts["hello.py"].firstMatch
+        if file.waitForExistence(timeout: 5) {
+            file.press(forDuration: 1.2)
+            sleep(2)
+            save(to: directory, name: "\(prefix)-context-menu")
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.9)).tap()
+            sleep(1)
+        }
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
+        app.typeKey("k", modifierFlags: .command)
+        sleep(2)
+        save(to: directory, name: "\(prefix)-command-menu")
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        sleep(1)
     }
 
     private func save(to directory: String, name: String) {

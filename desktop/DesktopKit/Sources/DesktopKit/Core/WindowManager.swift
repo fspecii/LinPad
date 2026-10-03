@@ -203,6 +203,14 @@ final class WindowManager {
         windows.filter(isVisible).sorted { stackingOrder(of: $0) > stackingOrder(of: $1) }
     }
 
+    /// The app's windows on every workspace, most recently focused first.
+    func recentWindows(ofApp appID: String) -> [DesktopWindow] {
+        func rank(_ window: DesktopWindow) -> Int {
+            focusHistory.firstIndex(of: window.id) ?? Int.max
+        }
+        return windows.filter { $0.appID == appID }.sorted { rank($0) < rank($1) }
+    }
+
     /// Windows of the current workspace, most recently focused first; minimized ones last.
     func recentWindowsInCurrentWorkspace() -> [DesktopWindow] {
         let candidates = windowsInCurrentWorkspace()

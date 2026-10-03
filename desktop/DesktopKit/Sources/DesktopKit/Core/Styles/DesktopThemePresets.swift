@@ -49,6 +49,8 @@ struct DesktopThemePreset: Identifiable, Equatable, Sendable {
     static let snapshotKey = "desktop.themePreset.snapshot"
     /// Widgets a preset put on the desktop, removed again when another preset or Revert applies.
     static let widgetsKey = "desktop.themePreset.widgets"
+    /// Appended to the stored preset id when its dark member is applied.
+    static let darkSuffix = ":dark"
 
     var hasDarkPair: Bool { darkColorTheme != nil || appearanceID == "system" }
 
@@ -124,6 +126,21 @@ struct DesktopThemePreset: Identifiable, Equatable, Sendable {
     static func preset(_ id: String) -> DesktopThemePreset? {
         all.first { $0.id == id }
     }
+
+    /// Every desktop theme (and the dark member of paired ones) as a built-in Look, so Looks,
+    /// the Command Menu and shared links apply them through the same path.
+    static let looks: [DesktopLook] = all.flatMap { preset -> [DesktopLook] in
+        func look(dark: Bool?) -> DesktopLook {
+            let isDark = dark == true
+            return DesktopLook(id: "desktop-theme-\(preset.id)\(isDark ? "-dark" : "")",
+                               name: preset.name + (isDark ? " Dark" : ""), styleID: preset.style.rawValue,
+                               colorThemeID: isDark ? (preset.darkColorTheme ?? preset.lightColorTheme) : preset.lightColorTheme,
+                               styling: preset.styling, wallpaperQuery: nil, appearanceID: preset.appearanceID,
+                               isBuiltIn: true, presetID: preset.id, presetDark: dark,
+                               brushedMetal: preset.brushedMetal)
+        }
+        return preset.darkColorTheme != nil ? [look(dark: false), look(dark: true)] : [look(dark: nil)]
+    }
 }
 
 /// What was set before the first desktop theme, so Revert can bring it back.
@@ -142,7 +159,10 @@ extension DesktopController {
         UserDefaults.standard.string(forKey: DesktopThemePreset.storageKey) ?? ""
     }
 
-    func applyDesktopThemePreset(_ preset: DesktopThemePreset) {
+    /// `dark` picks the dark member of a paired preset (Aero, Dot Matrix); nil uses the
+    /// preset's own default.
+    func applyDesktopThemePreset(_ preset: DesktopThemePreset, dark: Bool? = nil) {
+        let wantsDark = (dark ?? preset.startsDark) && (preset.darkColorTheme != nil || preset.startsDark || preset.appearanceID != nil)
         let defaults = UserDefaults.standard
         if defaults.data(forKey: DesktopThemePreset.snapshotKey) == nil {
             let snapshot = DesktopThemeSnapshot(
@@ -155,22 +175,25 @@ extension DesktopController {
         }
 
         defaults.set(preset.brushedMetal, forKey: EraSettings.brushedMetalKey)
-        defaults.set(preset.appearanceID ?? (preset.startsDark ? DesktopAppearance.dark.rawValue : DesktopAppearance.light.rawValue),
+        let appearanceID = dark == nil ? preset.appearanceID : nil
+        defaults.set(appearanceID ?? (wantsDark ? DesktopAppearance.dark.rawValue : DesktopAppearance.light.rawValue),
                      forKey: DesktopAppearance.storageKey)
         defaults.set(preset.style.rawValue, forKey: DesktopStyle.storageKey)
+        // The style switches before the colours so its defaults cannot override them later.
+        applyStyle(preset.style, dark: wantsDark)
 
+        // The pair is recorded for Themes › Light & Dark, but switching stays off: an enabled
+        // mode would pin one member and undo a later pick of the other (the Dot Matrix Dark bug).
         var appearance = themeAppearance
-        if let dark = preset.darkColorTheme {
+        if let darkID = preset.darkColorTheme {
             appearance.lightThemeID = preset.lightColorTheme
-            appearance.darkThemeID = dark
-            appearance.pairs[preset.lightColorTheme] = dark
-            appearance.mode = preset.startsDark ? .dark : .light
-            appearance.isEnabled = true
-        } else {
-            appearance.isEnabled = false
+            appearance.darkThemeID = darkID
+            appearance.pairs[preset.lightColorTheme] = darkID
+            appearance.mode = wantsDark ? .dark : .light
         }
+        appearance.isEnabled = false
         updateThemeAppearance(appearance)
-        let colors = preset.startsDark ? (preset.darkColorTheme ?? preset.lightColorTheme) : preset.lightColorTheme
+        let colors = wantsDark ? (preset.darkColorTheme ?? preset.lightColorTheme) : preset.lightColorTheme
         applyColorTheme(colors)
         updateStyling(preset.styling)
 
@@ -192,8 +215,16 @@ extension DesktopController {
             widgets.selectedID = nil
             defaults.set(added, forKey: DesktopThemePreset.widgetsKey)
         }
-        defaults.set(preset.id, forKey: DesktopThemePreset.storageKey)
-        notify("Desktop theme: \(preset.name)")
+        defaults.set(preset.id + (preset.darkColorTheme != nil && wantsDark ? DesktopThemePreset.darkSuffix : ""),
+                     forKey: DesktopThemePreset.storageKey)
+        notify("Desktop theme: \(preset.name)\(preset.darkColorTheme != nil && wantsDark ? " (Dark)" : "")")
+    }
+
+    /// A plain look or style pick leaves the desktop theme: its widgets go, the gallery stops
+    /// marking it applied; the Revert snapshot stays.
+    func clearDesktopThemePreset() {
+        removePresetWidgets()
+        UserDefaults.standard.removeObject(forKey: DesktopThemePreset.storageKey)
     }
 
     private func removePresetWidgets() {
@@ -264,7 +295,7 @@ struct DesktopThemesSection: View {
     }
 
     private func card(_ preset: DesktopThemePreset) -> some View {
-        let isActive = activeID == preset.id
+        let isActive = activeID == preset.id || activeID == preset.id + DesktopThemePreset.darkSuffix
         return VStack(alignment: .leading, spacing: 8) {
             DesktopThemePreviewCard(preset: preset, colors: controller.colorThemes)
                 .frame(height: 190)
@@ -286,10 +317,23 @@ struct DesktopThemesSection: View {
                         .font(.caption2).foregroundStyle(theme.secondaryText).lineLimit(2)
                 }
                 Spacer()
-                Button(isActive ? "Applied" : "Apply") { controller.applyDesktopThemePreset(preset) }
-                    .buttonStyle(.primary)
-                    .disabled(isActive)
-                    .accessibilityIdentifier("themes.desktop.apply.\(preset.id)")
+                if preset.darkColorTheme != nil {
+                    // Paired presets apply either member directly.
+                    let lightActive = activeID == preset.id, darkActive = activeID == preset.id + DesktopThemePreset.darkSuffix
+                    Button(lightActive ? "Light ✓" : "Light") { controller.applyDesktopThemePreset(preset, dark: false) }
+                        .buttonStyle(.primary)
+                        .disabled(lightActive)
+                        .accessibilityIdentifier("themes.desktop.apply.\(preset.id)")
+                    Button(darkActive ? "Dark ✓" : "Dark") { controller.applyDesktopThemePreset(preset, dark: true) }
+                        .buttonStyle(.primary)
+                        .disabled(darkActive)
+                        .accessibilityIdentifier("themes.desktop.apply.\(preset.id).dark")
+                } else {
+                    Button(isActive ? "Applied" : "Apply") { controller.applyDesktopThemePreset(preset) }
+                        .buttonStyle(.primary)
+                        .disabled(isActive)
+                        .accessibilityIdentifier("themes.desktop.apply.\(preset.id)")
+                }
             }
             .font(.system(size: 13))
         }
@@ -578,5 +622,83 @@ extension EnvironmentValues {
     var brushedMetalPreview: Bool {
         get { self[BrushedMetalPreviewKey.self] }
         set { self[BrushedMetalPreviewKey.self] = newValue }
+    }
+}
+
+extension DesktopLook {
+    /// "Save Current Look" also keeps the desktop theme (and its member), the wallpaper and
+    /// brushed metal, so applying the look later gives back the same desktop.
+    @MainActor
+    func capturingDesktopTheme(controller: DesktopController) -> DesktopLook {
+        var look = self
+        let active = controller.activeDesktopThemePresetID
+        if !active.isEmpty {
+            let isDark = active.hasSuffix(DesktopThemePreset.darkSuffix)
+            let id = isDark ? String(active.dropLast(DesktopThemePreset.darkSuffix.count)) : active
+            if let preset = DesktopThemePreset.preset(id), preset.style.rawValue == styleID {
+                look.presetID = id
+                look.presetDark = preset.darkColorTheme != nil ? isDark : nil
+            }
+        }
+        look.brushedMetal = UserDefaults.standard.bool(forKey: EraSettings.brushedMetalKey) ? true : nil
+        look.wallpaper = controller.wallpapers.settings.light
+        look.appearanceID = UserDefaults.standard.string(forKey: DesktopAppearance.storageKey)
+        return look
+    }
+}
+
+// MARK: - Tolerant decoding of saved looks and styling
+
+// Looks and styling are stored as JSON (and shared in links); a field added in a later build
+// must not make an older saved value undecodable, which would silently drop every user look.
+extension DesktopStyling {
+    /// The same names the synthesized encoder writes (its CodingKeys are private to the
+    /// type's file).
+    private enum DecodingKeys: String, CodingKey {
+        case cornerRadius, borderWidth, focusRing, innerGap, outerGap, windowShadows, panelOpacity, panelBlur, uiFont,
+             fontScale, linuxUIFont, linuxMonoFont, monoFontSize, animation, cursorSize
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: DecodingKeys.self)
+        self.init()
+        cornerRadius = try c.decodeIfPresent(Double.self, forKey: .cornerRadius)
+        borderWidth = try c.decodeIfPresent(Double.self, forKey: .borderWidth)
+        focusRing = (try? c.decodeIfPresent(FocusRing.self, forKey: .focusRing)) ?? .accent
+        innerGap = try c.decodeIfPresent(Double.self, forKey: .innerGap)
+        outerGap = try c.decodeIfPresent(Double.self, forKey: .outerGap)
+        windowShadows = try c.decodeIfPresent(Bool.self, forKey: .windowShadows) ?? true
+        panelOpacity = try c.decodeIfPresent(Double.self, forKey: .panelOpacity)
+        panelBlur = try c.decodeIfPresent(Bool.self, forKey: .panelBlur) ?? true
+        uiFont = (try? c.decodeIfPresent(UIFontDesign.self, forKey: .uiFont)) ?? .system
+        fontScale = try c.decodeIfPresent(Double.self, forKey: .fontScale) ?? 1
+        linuxUIFont = try c.decodeIfPresent(String.self, forKey: .linuxUIFont)
+        linuxMonoFont = try c.decodeIfPresent(String.self, forKey: .linuxMonoFont)
+        monoFontSize = try c.decodeIfPresent(Double.self, forKey: .monoFontSize)
+        animation = (try? c.decodeIfPresent(AnimationSpeed.self, forKey: .animation)) ?? .normal
+        cursorSize = try c.decodeIfPresent(Int.self, forKey: .cursorSize)
+    }
+}
+
+extension DesktopLook {
+    private enum DecodingKeys: String, CodingKey {
+        case id, name, styleID, colorThemeID, styling, wallpaperQuery, appearanceID, isBuiltIn, presetID, presetDark,
+             brushedMetal, wallpaper
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: DecodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        styleID = try c.decodeIfPresent(String.self, forKey: .styleID) ?? DesktopStyle.defaultStyle.rawValue
+        colorThemeID = try c.decodeIfPresent(String.self, forKey: .colorThemeID) ?? ""
+        styling = (try? c.decodeIfPresent(DesktopStyling.self, forKey: .styling)) ?? DesktopStyling()
+        wallpaperQuery = try c.decodeIfPresent(String.self, forKey: .wallpaperQuery)
+        appearanceID = try c.decodeIfPresent(String.self, forKey: .appearanceID)
+        isBuiltIn = try c.decodeIfPresent(Bool.self, forKey: .isBuiltIn) ?? false
+        presetID = try c.decodeIfPresent(String.self, forKey: .presetID)
+        presetDark = try c.decodeIfPresent(Bool.self, forKey: .presetDark)
+        brushedMetal = try c.decodeIfPresent(Bool.self, forKey: .brushedMetal)
+        wallpaper = try? c.decodeIfPresent(WallpaperSource.self, forKey: .wallpaper)
     }
 }

@@ -239,7 +239,7 @@ struct CommandMenuView: View {
                 .accessibilityHidden(true)
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(theme.secondaryText)
+                    ThemeGlyph(symbol: "magnifyingglass", size: 15).foregroundStyle(theme.secondaryText)
                     TextField("Apps, windows, commands, themes, linpad:// links", text: Binding(
                         get: { state.query },
                         set: { controller.commandMenu = CommandMenuState(query: $0, highlighted: 0) }))
@@ -308,7 +308,7 @@ struct CommandMenuView: View {
                         if item.iconName != nil || item.iconURL != nil {
                             AppIcon(iconName: item.iconName, url: item.iconURL, symbol: item.symbol, size: 22)
                         } else {
-                            Image(systemName: item.symbol).font(.system(size: 14)).frame(width: 22, height: 22)
+                            ThemeGlyph(symbol: item.symbol, size: 15).font(.system(size: 14)).frame(width: 22, height: 22)
                         }
                     }
                     VStack(alignment: .leading, spacing: 1) {

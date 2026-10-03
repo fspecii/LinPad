@@ -69,10 +69,16 @@ GTK app ──wl_shm buffer (shm_open file)──▶ ishwl ──damage-rect cop
   one, so a host mapping can never SIGBUS.
 - **Host copy.** The host makes one native copy per frame (memcpy of at most a few MB),
   so the guest can reuse the buffer straight after the ack.
+- **Frame log.** `ISHWL_FRAMELOG=FILE` appends `MS VIEW SEQ DAMAGE_W DAMAGE_H` per
+  composited frame (devtools/bench uses it for frame rates and input latency).
 - **HiDPI.** `wl_output` advertises scale 2 (`ishwl --scale N`, or `/etc/ishwl/options`).
   `/etc/ishwl/app-scale` overrides it per program: lines `PROGRAM SCALE`, matched on the
   basename of the client's executable (e.g. `firefox-esr 1`). That client renders a
   quarter of the pixels and the host scales the frame up.
+  An optional third column is the scale while the client has a fullscreen toplevel
+  (`firefox-esr 2 1`: sharp text, fullscreen video at scale 1). On `set_fullscreen` ishwl
+  re-sends `wl_output` mode/scale/done to that client and a configure with the
+  fullscreen state, which Firefox needs to resolve `requestFullscreen()`.
   Every displayed surface gets `wl_surface.enter(output)`, so GTK renders at 2x. A view is
   composited at its root surface's buffer scale; subsurfaces at another scale are
   nearest-neighbour scaled. Frames carry the scale and the host sets `contentsScale`,

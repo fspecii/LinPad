@@ -1,0 +1,6 @@
+{ "version": 1, "packs": [
+  { "id": "image-editor", "name": "GIMP", "description": "Raster image editor. Runs through Xwayland.", "category": "Graphics", "sizeMB": 90,
+    "packages": ["gimp", "xwayland"], "desktop": "gimp.desktop", "icon": "gimp", "launch": "ishwl-launch 'gimp'" },
+  { "id": "wine", "name": "Windows apps (Wine)", "description": "Runs Windows programs.", "category": "Utilities", "sizeMB": 1100,
+    "installer": "sh install-wine.sh", "check": "/usr/lib/wine/wine64", "experimental": true }
+] }

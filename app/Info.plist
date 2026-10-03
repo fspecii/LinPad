@@ -88,8 +88,10 @@
 	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Linux apps you run can use the camera, for example for video calls or to take pictures. The camera is only on while an app captures.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Record your voice with a screen recording, when you turn the microphone on for it.</string>
+	<string>Linux apps you run can record from the microphone, for example for calls or voice notes, and screen recordings can include your voice when you turn the microphone on. The microphone is only on while an app records.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save wallpapers, images and videos from Linux apps to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

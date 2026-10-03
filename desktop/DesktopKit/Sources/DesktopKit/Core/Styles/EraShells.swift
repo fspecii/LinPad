@@ -193,8 +193,8 @@ struct EraTaskbarBackground: View {
             ZStack(alignment: .top) {
                 EraSkin.classicFace
                 VStack(spacing: 0) {
-                    Color(rgb: 0xDFDFDF).frame(height: 1)
-                    Color.white.frame(height: 1)
+                    Color(rgb: 0xDFDFDF).frame(height: 1.5)
+                    Color.white.frame(height: 1.5)
                 }
             }
         }
@@ -445,10 +445,10 @@ struct EraMenuBar: View {
             .accessibilityIdentifier("desktop.panel.applications")
         } else {
             Menu {
-                Button("About This Desktop", systemImage: "info.circle") { controller.open(appID: AppID.settings, arguments: [:]) }
+                Button { controller.open(appID: AppID.settings, arguments: [:]) } label: { ThemedLabel("About This Desktop", systemImage: "info.circle") }
                 Divider()
-                Button("Run Command…", systemImage: "terminal") { controller.presentRunDialog() }
-                Button("Settings…", systemImage: "gearshape") { controller.open(appID: AppID.settings, arguments: [:]) }
+                Button { controller.presentRunDialog() } label: { ThemedLabel("Run Command…", systemImage: "terminal") }
+                Button { controller.open(appID: AppID.settings, arguments: [:]) } label: { ThemedLabel("Settings…", systemImage: "gearshape") }
                 Divider()
                 PowerMenuItems(controller: controller)
             } label: {
@@ -731,19 +731,7 @@ private struct EraDockItem: View {
         }
     }
 
-    /// Opens the app, or brings its most recent window forward; on the app in front it
-    /// cycles through its windows.
     private func activate() {
-        let recent = manager.recentWindowsInCurrentWorkspace().filter { $0.appID == app.id }
-        let candidates = recent.isEmpty ? windows : recent
-        guard let first = candidates.first else {
-            controller.open(appID: app.id, arguments: [:])
-            return
-        }
-        if first.id == manager.focusedWindowID, !first.isMinimized, candidates.count > 1 {
-            manager.focus(candidates[candidates.count - 1].id)
-        } else {
-            manager.focus(first.id)
-        }
+        controller.activateApp(app.id)
     }
 }

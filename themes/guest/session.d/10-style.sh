@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # Sourced by ishwl-session. Qt apps follow the GTK settings that ish-apply-style writes
 # (fonts, icon theme, palette, through Qt's gtk3 platform theme) and draw their widgets
 # with Kvantum, whose theme ish-apply-style also selects. The cursor theme only matters

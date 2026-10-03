@@ -27,6 +27,7 @@ final class DesktopIconStore {
         ThemesApp.id: ["preferences-desktop-theme", "preferences-desktop-color", "applications-graphics",
                        "preferences-desktop-appearance"],
         CalendarApp.id: ["office-calendar", "x-office-calendar", "calendar"],
+        LinPadStoreApp.id: ["software-store", "org.gnome.Software", "plasmadiscover", "system-software-install"],
     ]
 
     /// Icon themes name some apps differently; each list is tried in order.
@@ -61,13 +62,21 @@ final class DesktopIconStore {
     /// First match per candidate list, so a list view asks the disk once per file type.
     @ObservationIgnored private var resolved: [[String]: ThemeIconImage?] = [:]
     @ObservationIgnored private var cacheIndex: IconCacheIndex??
-    @ObservationIgnored private var resolvedDirectory: URL??
+    @ObservationIgnored private var resolvedDirectory: URL?
+    @ObservationIgnored private var isWatchingForCache = false
+    @ObservationIgnored private var bundledIcons: [String: ThemeIconImage] = [:]
+    /// Menu-sized copies (ThemeSymbolIcons.swift), by size and names.
+    @ObservationIgnored private var sizedImages: [String: UIImage] = [:]
     /// Image files read since the last reload (tests check scrolling does not read).
     @ObservationIgnored private(set) var fileReads = 0
+
+    /// The store of the desktop on screen, for UIKit menus that have no SwiftUI environment.
+    static weak var active: DesktopIconStore?
 
     init(guestRoot: URL?, style: DesktopStyle) {
         self.guestRoot = guestRoot ?? Self.debugGuestRoot
         self.style = style
+        Self.active = self
     }
 
     func image(named name: String?) -> UIImage? {
@@ -79,18 +88,48 @@ final class DesktopIconStore {
         return icon([name] + (Self.aliases[name] ?? []))?.image
     }
 
-    /// The first of `names` the icon pack has: a decoded image, and whether it is a
-    /// symbolic (one-colour) icon the caller should tint. Names are freedesktop icon names
-    /// in fallback order; nil when the pack has none of them.
+    /// The first of `names` the icon pack has, else the first the bundled default pack has
+    /// (Resources/Icons): a decoded image, and whether it is a symbolic (one-colour) icon the
+    /// caller should tint. Names are freedesktop icon names in fallback order; nil only when
+    /// neither pack has any of them.
     func icon(_ names: [String]) -> ThemeIconImage? {
         _ = generation
         if let hit = resolved[names] { return hit }
-        let icon = names.lazy.compactMap { self.load($0) }.first
-        resolved[names] = .some(icon)
+        let directory = directory
+        let icon = names.lazy.compactMap { self.load($0, in: directory) }.first
+            ?? names.lazy.compactMap { self.loadBundled($0) }.first
+        // Until the guest's cache exists (first boot, a style being rendered) the answer may
+        // change, so it is not remembered.
+        if directory != nil || guestRoot == nil { resolved[names] = .some(icon) }
         return icon
     }
 
-    private func load(_ name: String) -> ThemeIconImage? {
+    /// `icon` drawn aspect-fit into a `points` square, template when symbolic.
+    func sizedImage(_ icon: ThemeIconImage, names: [String], points: CGFloat) -> UIImage {
+        let key = "\(points)|" + names.joined(separator: "|")
+        if let image = sizedImages[key] { return image }
+        let source = icon.image.size
+        let scale = min(points / max(source.width, 1), points / max(source.height, 1))
+        let drawn = CGSize(width: source.width * scale, height: source.height * scale)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: points, height: points)).image { _ in
+            icon.image.draw(in: CGRect(x: (points - drawn.width) / 2, y: (points - drawn.height) / 2,
+                                       width: drawn.width, height: drawn.height))
+        }
+        .withRenderingMode(icon.isSymbolic ? .alwaysTemplate : .alwaysOriginal)
+        sizedImages[key] = image
+        return image
+    }
+
+    private func loadBundled(_ name: String) -> ThemeIconImage? {
+        if let icon = bundledIcons[name] { return icon }
+        guard let directory = BundledIcons.directory, let entry = BundledIcons.index?.entry(for: name),
+              let image = UIImage(contentsOfFile: directory.appendingPathComponent(entry.file2x).path) else { return nil }
+        let icon = ThemeIconImage(image: image.preparingForDisplay() ?? image, isSymbolic: entry.isSymbolic)
+        bundledIcons[name] = icon
+        return icon
+    }
+
+    private func load(_ name: String, in directory: URL?) -> ThemeIconImage? {
         if let icon = icons[name] { return icon }
         guard !missingIcons.contains(name), let directory else { return nil }
         var files = ["\(name)@2x.png", "\(name).png"]
@@ -176,8 +215,9 @@ final class DesktopIconStore {
         icons.removeAll()
         missingIcons.removeAll()
         resolved.removeAll()
+        sizedImages.removeAll()
         cacheIndex = nil
-        resolvedDirectory = nil
+        if !isWatchingForCache { resolvedDirectory = nil }
         fileReads = 0
         generation += 1
     }
@@ -186,7 +226,30 @@ final class DesktopIconStore {
     /// yet, or a switch in progress), the cache of the style the guest last applied.
     private var directory: URL? {
         if let resolvedDirectory { return resolvedDirectory }
-        let directory = guestRoot.flatMap { root -> URL? in
+        guard guestRoot != nil, !isWatchingForCache else { return nil }
+        let directory = findDirectory()
+        if directory == nil { watchForCache() }
+        resolvedDirectory = directory
+        return directory
+    }
+
+    /// Polls (every 2 s) until the guest has written a cache, then redraws the icons.
+    private func watchForCache() {
+        isWatchingForCache = true
+        Task { @MainActor [weak self] in
+            while let self, self.isWatchingForCache {
+                try? await Task.sleep(for: .seconds(2))
+                if let found = self.findDirectory() {
+                    self.isWatchingForCache = false
+                    self.resolvedDirectory = found
+                    self.reload()
+                }
+            }
+        }
+    }
+
+    private func findDirectory() -> URL? {
+        guestRoot.flatMap { root -> URL? in
             let caches = root.appendingPathComponent(Self.cacheDirectory, isDirectory: true)
             let own = caches.appendingPathComponent(style.rawValue, isDirectory: true)
             if FileManager.default.fileExists(atPath: own.path) { return own }
@@ -194,8 +257,6 @@ final class DesktopIconStore {
             let fallback = caches.appendingPathComponent(current, isDirectory: true)
             return FileManager.default.fileExists(atPath: fallback.path) ? fallback : nil
         }
-        resolvedDirectory = .some(directory)
-        return directory
     }
 
     /// `-desktop.iconCacheRoot PATH`: a directory laid out like the guest's "/" whose icon
@@ -225,6 +286,8 @@ struct IconCacheIndex {
     }
 
     private let entries: [String: Entry]
+    /// Names the guest could not resolve when it rendered the cache.
+    let missing: Set<String>
     /// Entries by file stem: an `Icon=/path/app.png` key is looked up as "app".
     private let byStem: [String: Entry]
 
@@ -243,7 +306,10 @@ struct IconCacheIndex {
         }
         self.entries = entries
         self.byStem = byStem
+        missing = Set(json["missing"] as? [String] ?? [])
     }
+
+    var names: Set<String> { Set(entries.keys) }
 
     func entry(for name: String) -> Entry? {
         entries[name] ?? byStem[name]
@@ -295,7 +361,12 @@ struct AppIcon: View {
                 .frame(width: size, height: size)
                 .accessibilityHidden(true)
         } else {
-            DesktopAppTile(symbol: symbol, size: size)
+            // Only for a name neither the pack nor the bundled default pack has: a plain glyph.
+            Image(systemName: symbol)
+                .font(.system(size: size * 0.6, weight: .regular))
+                .foregroundStyle(.primary)
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
         }
     }
 }
@@ -324,4 +395,13 @@ struct AppGlyph: View {
                 .accessibilityHidden(true)
         }
     }
+}
+
+/// The default icon pack bundled with the app (Resources/Icons, Papirus, GPL-3.0; see
+/// LICENSE there): pre-rendered like a guest cache (themes/CONTRACT.md) for every name the
+/// shell asks for, so a real icon shows before Linux has booted and on hosts without a guest.
+/// Regenerate with themes/build-bundled-icons.sh when the guest's name lists change.
+enum BundledIcons {
+    static let directory: URL? = Bundle.module.url(forResource: "Icons", withExtension: nil)
+    static let index: IconCacheIndex? = directory.flatMap { IconCacheIndex(contentsOf: $0.appendingPathComponent("index.json")) }
 }

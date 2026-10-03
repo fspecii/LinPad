@@ -1,15 +1,12 @@
 #if __APPLE__
 #include <sys/sysctl.h>
-#include <TargetConditionals.h>
-#if TARGET_OS_IPHONE
-#include <os/proc.h>
-#endif
 #endif
 #include <unistd.h>
 #include <string.h>
 #include <stdatomic.h>
 #include "debug.h"
 #include "kernel/calls.h"
+#include "platform/platform.h"
 #include "kernel/errno.h"
 #include "kernel/task.h"
 #include "fs/fd.h"
@@ -25,13 +22,8 @@ _Atomic long anon_page_count;
 // browser tab, a decoder) instead of the whole app.
 #define HOST_MEMORY_HEADROOM (192ull << 20)
 static bool host_memory_low(pages_t pages) {
-#if TARGET_OS_IPHONE
-    size_t available = os_proc_available_memory();
-    return available != 0 && available < HOST_MEMORY_HEADROOM + (uint64_t) pages * PAGE_SIZE;
-#else
-    (void) pages;
-    return false;
-#endif
+    uint64_t headroom = host_memory_headroom();
+    return headroom != 0 && headroom < HOST_MEMORY_HEADROOM + (uint64_t) pages * PAGE_SIZE;
 }
 
 long anon_page_limit(void) {

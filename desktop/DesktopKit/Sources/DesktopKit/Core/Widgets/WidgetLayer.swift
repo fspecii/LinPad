@@ -230,9 +230,9 @@ struct WidgetLayer: View {
         HStack(spacing: 10) {
             Menu {
                 ForEach(DesktopWidgetKind.allCases) { kind in
-                    Button(kind.title, systemImage: kind.symbol) {
+                    Button {
                         withAnimation(DesktopMotion.quick) { _ = store.add(kind, workspace: workspace) }
-                    }
+                    } label: { ThemedLabel(kind.title, systemImage: kind.symbol) }
                     .accessibilityIdentifier("widgets.gallery.\(kind.rawValue)")
                 }
             } label: {

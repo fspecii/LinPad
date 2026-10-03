@@ -66,7 +66,7 @@ struct EraLauncher: View {
                       highlight: Color, highlightText: Color, action: @escaping () -> Void) -> some View {
         EraMenuRow(height: height, highlight: highlight, content: { hovered in
             HStack(spacing: 8) {
-                Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).frame(width: 22)
+                ThemeGlyph(symbol: symbol, size: 15).font(.system(size: 15, weight: .semibold)).frame(width: 22)
                 Text(title).font(font).lineLimit(1)
                 Spacer(minLength: 0)
             }
@@ -200,7 +200,7 @@ struct EraLauncher: View {
                         .autocorrectionDisabled().textInputAutocapitalization(.never)
                         .onSubmit { if let first = apps.first { launch(first) } }
                         .accessibilityIdentifier("desktop.launcher.search")
-                    Image(systemName: "magnifyingglass").foregroundStyle(Color(rgb: 0x4A6A90))
+                    ThemeGlyph(symbol: "magnifyingglass", size: 14).foregroundStyle(Color(rgb: 0x4A6A90))
                 }
                 .padding(.horizontal, 10).frame(height: 30)
                 .background(RoundedRectangle(cornerRadius: 3).fill(.white))

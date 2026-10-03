@@ -30,6 +30,8 @@ final class DesktopBridge: NSObject {
         // Waits for the guest's PulseAudio FIFO, which the Linux session (ishwl-session)
         // creates; until sound plays it holds no audio session.
         ISHAudioBridge.shared.start(guestRoot: host.guestRootURL)
+        // Microphone for Linux apps: idle (no prompt, no indicator) until one records.
+        ISHMicBridge.shared.start(guestRoot: host.guestRootURL)
         // Light or dark is the desktop's choice (Settings > Desktop > Appearance); DesktopKit
         // sets the window's interface style itself.
         let root = DesktopRootView(host: host, apps: BuiltinApps.all(), systemControls: ISHSystemControls())

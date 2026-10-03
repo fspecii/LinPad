@@ -28,7 +28,7 @@ private struct LauncherSearchField: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
+            ThemeGlyph(symbol: "magnifyingglass", size: 14)
                 .foregroundStyle(theme.secondaryText)
             TextField(placeholder, text: $query)
                 .textFieldStyle(.plain)

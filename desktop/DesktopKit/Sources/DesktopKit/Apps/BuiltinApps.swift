@@ -9,6 +9,7 @@ public enum BuiltinApps {
             TextEditorApp.descriptor(),
             BrowserApp.descriptor(),
             TaskManagerApp.descriptor(),
+            LinPadStoreApp.descriptor(),
             PackagesApp.descriptor(),
             SettingsApp.descriptor(),
             WallpapersApp.descriptor(),

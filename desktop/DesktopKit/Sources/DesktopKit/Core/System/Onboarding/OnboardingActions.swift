@@ -63,7 +63,7 @@ extension DesktopController {
             let packs = choices.packs.filter { !installed.contains($0) }
             if catalog.unavailableReason == nil, !packs.isEmpty {
                 catalog.install(packs)
-                notify("Installing \(packs.count == 1 ? "1 app" : "\(packs.count) apps") in the background. Settings › Apps shows the progress.")
+                notify("Installing \(packs.count == 1 ? "1 app" : "\(packs.count) apps") in the background. LinPad Store shows the progress.")
             }
             if choices.browseWallhaven {
                 open(appID: WallpapersApp.id, arguments: [WallpapersApp.queryArgument: colorThemes.current?.wallhaven?.q ?? "minimal dark"])
@@ -87,6 +87,8 @@ extension DesktopController {
     /// so the tiling animation reveals them.
     func arrangeDemoWorkspace() async {
         windowManager.setTiling(true, workspace: windowManager.currentWorkspace)
+        // The terminal runs one plain program, so it reads like someone just typed it.
+        let fetch = await host.run("command -v linpad-fetch >/dev/null 2>&1").succeeded ? "linpad-fetch" : "fastfetch"
         var steps: [() -> Void] = []
         if linux != nil, hasLinuxApplication("firefox-esr") {
             steps.append { [weak self] in self?.open(appID: LinuxAppID.prefix + "firefox", arguments: [:]) }
@@ -96,7 +98,7 @@ extension DesktopController {
             }
         }
         steps.append { [weak self] in
-            self?.open(appID: AppID.terminal, arguments: [AppArgument.command: Self.demoFetchCommand])
+            self?.open(appID: AppID.terminal, arguments: [AppArgument.command: fetch])
         }
         steps.append { [weak self] in self?.open(appID: AppID.files, arguments: [:]) }
         if linux != nil, hasLinuxApplication("code") {
@@ -107,9 +109,6 @@ extension DesktopController {
             withAnimation(DesktopMotion.tile) { step() }
         }
     }
-
-    /// The guest's own summary, LinPad's when it has one.
-    static let demoFetchCommand = "clear; if command -v linpad-fetch >/dev/null 2>&1; then linpad-fetch; else fastfetch; fi"
 }
 
 extension WallpaperSource {

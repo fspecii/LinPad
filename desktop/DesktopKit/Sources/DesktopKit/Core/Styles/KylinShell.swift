@@ -58,10 +58,10 @@ struct KylinPanel: View {
                     .foregroundStyle(theme.accent)
             } action: { controller.toggleLauncher() }
             tile(label: "Search", identifier: "desktop.panel.search", isActive: false) {
-                Image(systemName: "magnifyingglass").font(.system(size: 17, weight: .medium))
+                ThemeGlyph(symbol: "magnifyingglass", size: 17).font(.system(size: 17, weight: .medium))
             } action: { controller.toggleLauncher() }
             tile(label: "Task View", identifier: "desktop.panel.overview", isActive: controller.isOverviewPresented) {
-                Image(systemName: "rectangle.on.rectangle").font(.system(size: 16, weight: .medium))
+                ThemeGlyph(symbol: "rectangle.on.rectangle", size: 16).font(.system(size: 16, weight: .medium))
             } action: { controller.toggleOverview() }
             theme.separator.frame(width: 1, height: 24)
             ForEach(apps) { app in
@@ -152,22 +152,10 @@ private struct KylinTaskButton: View {
         .accessibilityIdentifier(windows.isEmpty ? "desktop.dock.item" : "desktop.taskbar.item")
     }
 
-    /// No window launches; the active window minimizes; several windows take turns (spec §10).
+    /// This panel shows the current workspace, so its windows are the ones it cycles.
     private func activate() {
-        let windows = windows
-        guard !windows.isEmpty else {
-            controller.open(appID: app.id, arguments: [:])
-            return
-        }
-        if let index = windows.firstIndex(where: { $0.id == manager.focusedWindowID && !$0.isMinimized }) {
-            if windows.count == 1 {
-                manager.minimize(windows[0].id)
-            } else {
-                manager.focus(windows[(index + 1) % windows.count].id)
-            }
-        } else {
-            manager.focus(manager.recentWindowsInCurrentWorkspace().first { $0.appID == app.id }?.id ?? windows[0].id)
-        }
+        let workspace = manager.currentWorkspace
+        controller.activateApp(app.id, windows: manager.recentWindows(ofApp: app.id).filter { $0.workspace == workspace })
     }
 }
 
@@ -250,7 +238,7 @@ struct KylinStartMenu: View {
     private var appList: some View {
         VStack(spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").foregroundStyle(theme.secondaryText)
+                ThemeGlyph(symbol: "magnifyingglass", size: 14).foregroundStyle(theme.secondaryText)
                 TextField("Search App", text: $query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14))
@@ -365,7 +353,7 @@ struct KylinStartMenu: View {
             controller.isLauncherPresented = false
             action()
         } label: {
-            Image(systemName: symbol).font(.system(size: 16)).frame(width: 36, height: 36).contentShape(Rectangle())
+            ThemeGlyph(symbol: symbol, size: 16).font(.system(size: 16)).frame(width: 36, height: 36).contentShape(Rectangle())
         }
         .buttonStyle(KylinTileStyle(isActive: false))
         .help(label)

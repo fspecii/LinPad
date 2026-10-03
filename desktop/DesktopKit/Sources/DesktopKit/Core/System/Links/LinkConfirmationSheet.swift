@@ -144,7 +144,7 @@ struct LinkConfirmationSheet: View {
             "Style: \(look.style.displayName). Colour theme: \(lookThemeName(look)). Your current style, colours and window styling are replaced; save them as a Look first if you want to keep them."
         case .installApp(let id):
             pack(id).map { "\($0.description) About \($0.sizeText) is downloaded with apk on this iPad." }
-                ?? "The app is installed from LinPad's optional-apps catalog (Settings › Apps)."
+                ?? "The app is installed from LinPad Store."
         case .open:
             ""
         }
@@ -238,8 +238,9 @@ enum LinPadLinkActions {
                 return nil
             }
             catalog.install([id])
-            controller.open(appID: AppID.settings, arguments: [SettingsApp.pageArgument: SettingsApp.appsPage])
-            controller.notify("Installing \(pack.name)… Settings › Apps shows the progress.")
+            controller.open(appID: LinPadStoreApp.id, arguments: [LinPadStoreApp.appArgument: id])
+            NotificationCenter.default.post(name: LinPadStoreApp.showAppNotification, object: id)
+            controller.notify("Installing \(pack.name)… LinPad Store shows the progress.")
             return nil
         }
     }

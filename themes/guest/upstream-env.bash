@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced (BASH_ENV) by the upstream theme install scripts that install.sh runs.
 #
 # 1. Under iSH a process whose argv+envp exceed ~68 KB segfaults at startup (the

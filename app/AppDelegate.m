@@ -354,6 +354,11 @@ static void RequestFastMode(BOOL afterBoot, void (^done)(BOOL on)) {
 @end
 #endif
 
+/// app/Desktop/ISHCameraBridge.swift
+@protocol ISHCameraInstalling <NSObject>
++ (void)install;
+@end
+
 @implementation AppDelegate
 
 - (int)boot {
@@ -374,6 +379,13 @@ static void RequestFastMode(BOOL afterBoot, void (^done)(BOOL on)) {
 
     fs_register(&iosfs);
     fs_register(&iosfs_unsafe);
+
+    // The cameras become /dev/video0 and /dev/video1 (fs/dev_video.c); they must be
+    // registered before the first process creates the device nodes. By name, because
+    // this file is also built into targets without Swift.
+    Class<ISHCameraInstalling> cameraBridge = (Class<ISHCameraInstalling>) NSClassFromString(@"ISHCameraBridge");
+    if ([cameraBridge respondsToSelector:@selector(install)])
+        [cameraBridge install];
 
     // need to do this first so that we can have a valid current for the generic_mknod calls
     err = become_first_process();

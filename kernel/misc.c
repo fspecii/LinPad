@@ -16,6 +16,7 @@ int_t sys_prctl(dword_t option, addr_t arg2, addr_t UNUSED(arg3), addr_t UNUSED(
             name[sizeof(name) - 1] = '\0';
             STRACE("prctl(PRCTL_SET_NAME, \"%s\")", name);
             strcpy(current->comm, name);
+            update_thread_name();
             return 0;
         }
         default:

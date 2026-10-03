@@ -3,7 +3,7 @@ import SwiftUI
 /// Colour themes, light/dark pairing, a theme editor, styling knobs and saved looks.
 enum ThemesApp {
     static let id = "themes"
-    /// Launch argument: the section to open ("gallery", "appearance", "editor", "styling", "icons", "looks").
+    /// Launch argument: the section to open ("gallery", "appearance", "editor", "styling", "icons", "looks", "wallpaper").
     static let sectionArgument = "section"
 
     static func descriptor() -> DesktopAppDescriptor {
@@ -17,7 +17,7 @@ enum ThemesApp {
 }
 
 enum ThemesSection: String, CaseIterable, Identifiable {
-    case gallery, appearance, editor, styling, icons, looks
+    case gallery, appearance, editor, styling, icons, looks, wallpaper
 
     var id: String { rawValue }
 
@@ -29,6 +29,7 @@ enum ThemesSection: String, CaseIterable, Identifiable {
         case .styling: "Styling"
         case .icons: "Icons"
         case .looks: "Looks"
+        case .wallpaper: "Wallpaper"
         }
     }
 
@@ -40,6 +41,7 @@ enum ThemesSection: String, CaseIterable, Identifiable {
         case .styling: "slider.horizontal.3"
         case .icons: "app.badge"
         case .looks: "sparkles"
+        case .wallpaper: "photo.on.rectangle"
         }
     }
 }
@@ -47,6 +49,7 @@ enum ThemesSection: String, CaseIterable, Identifiable {
 struct ThemesAppView: View {
     let context: AppLaunchContext
     @Environment(\.desktopTheme) private var theme
+    @Environment(\.desktopStyle) private var eraStyle
     @Environment(\.desktopController) private var controller
     @State private var section: ThemesSection
 
@@ -74,6 +77,9 @@ struct ThemesAppView: View {
         .onAppear { context.window.setTitle("Themes") }
         .onDisappear { controller?.colorThemes.previewID = nil }
         .onChange(of: section) { _, _ in controller?.colorThemes.previewID = nil }
+        .onReceive(NotificationCenter.default.publisher(for: ThemesApp.sectionRequested)) { note in
+            if let requested = (note.userInfo?[ThemesApp.sectionArgument] as? String).flatMap(ThemesSection.init) { section = requested }
+        }
         .task { if let controller { await controller.colorThemes.load(host: context.host) } }
     }
 
@@ -83,11 +89,13 @@ struct ThemesAppView: View {
                 Button { section = item } label: {
                     Label(item.title, systemImage: item.symbol)
                         .font(.system(size: 13, weight: section == item ? .semibold : .regular))
+                        .foregroundStyle(EraSelectionBackground.textColor(isSelected: section == item, style: eraStyle, theme: theme)
+                                         ?? theme.primaryText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)
-                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(section == item ? theme.accent.opacity(0.18) : Color.clear))
+                        .background(EraSelectionBackground(isSelected: section == item, cornerRadius: 7,
+                                                           modernFill: section == item ? theme.accent.opacity(0.18) : Color.clear))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -117,6 +125,7 @@ struct ThemesAppView: View {
                     .frame(maxWidth: .infinity)
             }
         case .looks: ThemeLooksView(controller: controller)
+        case .wallpaper: ThemeWallpaperView(controller: controller, context: context, onEdit: { section = .editor })
         }
     }
 }
@@ -151,6 +160,7 @@ struct ThemeGalleryView: View {
     @State private var installURL = ""
     @State private var isInstallPromptPresented = false
     @State private var message: String?
+    @State private var installFailed = false
     @State private var pendingRemoval: ColorTheme?
     @State private var sharing: ColorTheme?
 
@@ -172,6 +182,13 @@ struct ThemeGalleryView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolbar
+            if installFailed, let message {
+                // The whole reason, with a retry; it used to be cut to one caption line.
+                InlineBanner(kind: .error, message: message, actionTitle: "Retry", action: install,
+                             onDismiss: { installFailed = false; self.message = nil })
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+            }
             theme.separator.frame(height: 1)
             ScrollView {
                 if filter == .all && search.isEmpty {
@@ -225,7 +242,9 @@ struct ThemeGalleryView: View {
                 .frame(maxWidth: 220)
                 .accessibilityIdentifier("themes.search")
             Spacer()
-            if let message { Text(message).font(.caption).foregroundStyle(theme.secondaryText).lineLimit(1) }
+            if let message, !installFailed {
+                Text(message).font(.caption).foregroundStyle(theme.secondaryText).lineLimit(1)
+            }
             if store.isInstalling { ProgressView().controlSize(.small) }
             if store.guestSupportsThemes {
                 Button("Install from URL…") {
@@ -316,7 +335,9 @@ struct ThemeGalleryView: View {
     private func install() {
         let url = installURL
         Task {
-            message = await store.install(url: url, host: host) ?? "Installed."
+            let failure = await store.install(url: url, host: host)
+            installFailed = failure != nil
+            message = failure ?? "Installed."
         }
     }
 
@@ -632,6 +653,7 @@ struct ThemeLooksView: View {
     @Environment(\.desktopTheme) private var theme
     @AppStorage(DesktopStyle.storageKey) private var styleID = DesktopStyle.defaultStyle.rawValue
     @State private var userLooks = DesktopLook.loadUserLooks()
+    @State private var pendingLookRemoval: DesktopLook?
     @State private var isNaming = false
     @State private var name = ""
 
@@ -675,11 +697,23 @@ struct ThemeLooksView: View {
                 Spacer()
                 if !look.isBuiltIn {
                     Button(role: .destructive) {
-                        userLooks.removeAll { $0.id == look.id }
-                        DesktopLook.saveUserLooks(userLooks)
-                    } label: { Image(systemName: "trash") }
+                        pendingLookRemoval = look
+                    } label: {
+                        Image(systemName: "trash")
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                    }
                     .buttonStyle(.plain)
+                    .hoverEffect(.highlight)
                     .accessibilityLabel("Delete \(look.name)")
+                    .confirmationDialog("Delete \(look.name)?", isPresented: Binding(
+                        get: { pendingLookRemoval?.id == look.id }, set: { if !$0 { pendingLookRemoval = nil } }),
+                                        titleVisibility: .visible) {
+                        Button("Delete Look", role: .destructive) {
+                            userLooks.removeAll { $0.id == look.id }
+                            DesktopLook.saveUserLooks(userLooks)
+                        }
+                    }
                 }
                 if let query = look.wallpaperQuery {
                     Button("Wallpapers") {
@@ -700,9 +734,10 @@ struct ThemeLooksView: View {
     private func save() {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        let look = DesktopLook(id: "user-\(UUID().uuidString.prefix(8).lowercased())", name: trimmed, styleID: styleID,
+        var look = DesktopLook(id: "user-\(UUID().uuidString.prefix(8).lowercased())", name: trimmed, styleID: styleID,
                                colorThemeID: controller.colorThemes.currentID, styling: controller.styling,
                                wallpaperQuery: controller.colorThemes.current?.wallhaven?.q)
+        look = look.capturingDesktopTheme(controller: controller)
         userLooks.append(look)
         DesktopLook.saveUserLooks(userLooks)
     }

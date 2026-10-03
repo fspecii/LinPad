@@ -75,7 +75,7 @@ struct WallpaperSettingsSection: View {
             ThemedSeparator()
             slideshow
             if let errorMessage {
-                InlineBanner(kind: .error, message: errorMessage)
+                InlineBanner(kind: .error, message: errorMessage, onDismiss: { self.errorMessage = nil })
             }
         }
         .photosPicker(isPresented: $showsPhotos, selection: Binding(get: { nil }, set: { item in

@@ -26,6 +26,17 @@ enum LinuxKeyboardMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// The Terminal's row of extra keys (Esc, Tab, Ctrl, arrows) above the on-screen keyboard.
+/// It belongs to the keyboard: shown only while the on-screen keyboard is up, never with a
+/// hardware keyboard, and never for Linux windows. The iSH terminal reads the same key.
+enum ExtraKeysRow {
+    static let storageKey = "desktop.keyboard.extraKeysRow"
+
+    static var isEnabled: Bool {
+        UserDefaults.standard.object(forKey: storageKey) as? Bool ?? true
+    }
+}
+
 @Observable @MainActor
 final class OnScreenKeyboard {
     static let shared = OnScreenKeyboard()
@@ -109,6 +120,15 @@ final class OnScreenKeyboard {
 }
 
 extension LinuxSurfaceView {
+    /// iPadOS draws its shortcuts bar (undo, redo, paste) along the bottom of the screen for
+    /// a text responder whose keyboard is down, right over the dock and taskbar. Linux apps
+    /// have their own undo and paste, so the bar gets nothing to show and stays away; IME
+    /// candidates still appear in it.
+    func hideShortcutsBar() {
+        inputAssistantItem.leadingBarButtonGroups = []
+        inputAssistantItem.trailingBarButtonGroups = []
+    }
+
     override var inputView: UIView? {
         MainActor.assumeIsolated { OnScreenKeyboard.shared.inputView(for: self) }
     }

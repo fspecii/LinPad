@@ -266,7 +266,7 @@ struct EraTitleBarBackground: View {
             LinearGradient(colors: isFocused ? [Color(rgb: 0x000080), Color(rgb: 0x1084D0)]
                                              : [Color(rgb: 0x808080), Color(rgb: 0xB5B5B5)],
                            startPoint: .leading, endPoint: .trailing)
-                .padding(EdgeInsets(top: 3, leading: 3, bottom: 1, trailing: 3))
+                .padding(EdgeInsets(top: 4.5, leading: 4.5, bottom: 1.5, trailing: 4.5))
         }
     }
 
@@ -382,10 +382,14 @@ struct EraWindowFrame<S: InsettableShape>: View {
                 shape.inset(by: 4).strokeBorder(Color.white.opacity(0.55), lineWidth: 1)
             }
         case .classic:
-            ClassicBevel(raised: true, thick: true)
+            ZStack {
+                Rectangle().strokeBorder(EraSkin.classicFace, lineWidth: 4.5)
+                ClassicBevel(raised: true, thick: true)
+            }
         case .platinum:
             ZStack {
-                Rectangle().strokeBorder(Color(rgb: 0xDDDDDD), lineWidth: 3)
+                Rectangle().strokeBorder(Color(rgb: 0xDDDDDD), lineWidth: 4)
+                ClassicBevel(raised: true, thick: false, palette: .platinum).padding(1)
                 Rectangle().strokeBorder(isFocused ? Color.black : Color(rgb: 0x777777), lineWidth: 1)
             }
         case .aqua:
@@ -399,48 +403,61 @@ struct EraWindowFrame<S: InsettableShape>: View {
     }
 }
 
-/// The 98-era 3D edge: light top-left, dark bottom-right, two pixels deep when `thick`.
+/// The 98-era 3D edge: light top-left, dark bottom-right, two lines deep when `thick`
+/// (raised: light grey + white over black + dark grey; sunken: the reverse). Platinum's
+/// softer edge uses white and mid grey. Lines are 1.5 pt so the bevel reads on Retina.
 struct ClassicBevel: View {
+    enum Palette { case classic, platinum }
+
     var raised = true
     var thick = false
+    var palette = Palette.classic
+    var line: CGFloat = 1.5
 
     var body: some View {
         GeometryReader { proxy in
             let w = proxy.size.width, h = proxy.size.height
-            let colors: (Color, Color, Color, Color) = switch (raised, thick) {
-            case (true, true): (Color(rgb: 0xDFDFDF), .black, .white, Color(rgb: 0x808080))
-            case (true, false): (.white, Color(rgb: 0x808080), .clear, .clear)
-            case (false, true): (Color(rgb: 0x808080), .white, .black, Color(rgb: 0xDFDFDF))
-            case (false, false): (Color(rgb: 0x808080), .white, .clear, .clear)
-            }
+            let colors = self.colors
             ZStack(alignment: .topLeading) {
                 edge(colors.0, colors.1, w, h, inset: 0)
-                if thick { edge(colors.2, colors.3, w, h, inset: 1) }
+                if thick { edge(colors.2, colors.3, w, h, inset: line) }
             }
         }
         .allowsHitTesting(false)
     }
 
+    private var colors: (Color, Color, Color, Color) {
+        switch (palette, raised, thick) {
+        case (.classic, true, true): (Color(rgb: 0xDFDFDF), .black, .white, Color(rgb: 0x808080))
+        case (.classic, true, false): (.white, Color(rgb: 0x808080), .clear, .clear)
+        case (.classic, false, true): (Color(rgb: 0x808080), .white, .black, Color(rgb: 0xDFDFDF))
+        case (.classic, false, false): (Color(rgb: 0x808080), .white, .clear, .clear)
+        case (.platinum, true, _): (.white, Color(rgb: 0x777777), Color(rgb: 0xEEEEEE), Color(rgb: 0xAAAAAA))
+        case (.platinum, false, _): (Color(rgb: 0x777777), .white, Color(rgb: 0xAAAAAA), Color(rgb: 0xEEEEEE))
+        }
+    }
+
     private func edge(_ light: Color, _ dark: Color, _ w: CGFloat, _ h: CGFloat, inset i: CGFloat) -> some View {
         ZStack(alignment: .topLeading) {
-            light.frame(width: max(w - 2 * i, 0), height: 1).offset(x: i, y: i)
-            light.frame(width: 1, height: max(h - 2 * i, 0)).offset(x: i, y: i)
-            dark.frame(width: max(w - 2 * i, 0), height: 1).offset(x: i, y: h - 1 - i)
-            dark.frame(width: 1, height: max(h - 2 * i, 0)).offset(x: w - 1 - i, y: i)
+            light.frame(width: max(w - 2 * i, 0), height: line).offset(x: i, y: i)
+            light.frame(width: line, height: max(h - 2 * i, 0)).offset(x: i, y: i)
+            dark.frame(width: max(w - 2 * i, 0), height: line).offset(x: i, y: h - line - i)
+            dark.frame(width: line, height: max(h - 2 * i, 0)).offset(x: w - line - i, y: i)
         }
     }
 }
 
-/// A grey 98-era box: face colour plus a bevel, raised or sunken.
+/// A grey 98-era (or Platinum) box: face colour plus a bevel, raised or sunken.
 struct ClassicBox: ViewModifier {
     var sunken = false
     var thick = true
     var face = EraSkin.classicFace
+    var palette = ClassicBevel.Palette.classic
 
     func body(content: Content) -> some View {
         content
             .background(face)
-            .overlay(ClassicBevel(raised: !sunken, thick: thick))
+            .overlay(ClassicBevel(raised: !sunken, thick: thick, palette: palette))
     }
 }
 
@@ -498,5 +515,64 @@ struct WindowShape: InsettableShape {
         var shape = self
         shape.inset += amount
         return shape
+    }
+}
+
+extension DesktopStyle {
+    /// Style pickers' sections: today's layouts, then the desktop themes' era styles.
+    struct Group: Identifiable {
+        let title: String
+        let styles: [DesktopStyle]
+        var id: String { title }
+    }
+
+    static var groups: [Group] {
+        [Group(title: "Modern", styles: allCases.filter { $0.spec.skin == nil }),
+         Group(title: "Retro", styles: allCases.filter { $0.spec.skin != nil })]
+    }
+}
+
+/// Every layout style as wrapping chips under "Modern" and "Retro" headers: fits any window
+/// width (Settings, the Themes app) where a segmented control of 14 no longer does.
+struct DesktopStyleChooser: View {
+    @Binding var selection: String
+    @Environment(\.desktopTheme) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(DesktopStyle.groups) { group in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(group.title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.secondaryText)
+                        .accessibilityAddTraits(.isHeader)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 6)], alignment: .leading, spacing: 6) {
+                        ForEach(group.styles) { chip($0) }
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("settings.style")
+    }
+
+    private func chip(_ style: DesktopStyle) -> some View {
+        let isSelected = selection == style.rawValue
+        return Button { selection = style.rawValue } label: {
+            Text(style.displayName)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .foregroundStyle(isSelected ? theme.accent.readableLabel : theme.primaryText)
+                .frame(maxWidth: .infinity, minHeight: 32)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? theme.accent : theme.primaryText.opacity(0.07)))
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .accessibilityLabel(style.displayName)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("settings.style.\(style.rawValue)")
     }
 }

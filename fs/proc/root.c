@@ -4,6 +4,9 @@
 #include "kernel/calls.h"
 #include "fs/proc.h"
 #include "platform/platform.h"
+#ifdef GUEST_ARM64
+#include "asbestos/guest-arm64/hwcap.h"
+#endif
 
 static int proc_show_version(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     struct uname uts;
@@ -40,8 +43,9 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
 #ifdef GUEST_ARM64
         // ARM64 format
         proc_printf(buf, "BogoMIPS\t: 48.00\n");
-        // Include crypto features that iSH ARM64 emulates
-        proc_printf(buf, "Features\t: fp asimd evtstrm aes pmull atomics\n");
+        char features[512];
+        arm64_guest_cpu_features(features, sizeof(features));
+        proc_printf(buf, "Features\t: %s\n", features);
         proc_printf(buf, "CPU implementer\t: 0x00\n");
         proc_printf(buf, "CPU architecture: 8\n");
         proc_printf(buf, "CPU variant\t: 0x0\n");

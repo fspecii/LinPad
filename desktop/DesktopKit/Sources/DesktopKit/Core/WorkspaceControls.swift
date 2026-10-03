@@ -64,20 +64,20 @@ struct WorkspaceMenu: ViewModifier {
     func body(content: Content) -> some View {
         content
             .contextMenu {
-                Button("Rename…", systemImage: "pencil") {
+                Button {
                     name = manager.workspaceNames.indices.contains(index) ? manager.workspaceNames[index] : ""
                     isRenaming = true
-                }
-                Button("New Workspace", systemImage: "plus") { addAndSwitch(manager) }
+                } label: { ThemedLabel("Rename…", systemImage: "pencil") }
+                Button { addAndSwitch(manager) } label: { ThemedLabel("New Workspace", systemImage: "plus") }
                     .disabled(manager.workspaceCount >= WindowManager.maximumWorkspaces)
                 Divider()
-                Button("Delete Workspace", systemImage: "trash", role: .destructive) {
+                Button(role: .destructive) {
                     if manager.hasWindows(inWorkspace: index) {
                         confirmsDelete = true
                     } else {
                         withAnimation(DesktopMotion.standard) { manager.removeWorkspace(index) }
                     }
-                }
+                } label: { ThemedLabel("Delete Workspace", systemImage: "trash") }
                 .disabled(manager.workspaceCount <= 1)
             }
             .alert("Rename \(manager.title(ofWorkspace: index))", isPresented: $isRenaming) {

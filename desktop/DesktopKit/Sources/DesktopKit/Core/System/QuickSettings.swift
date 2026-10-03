@@ -48,7 +48,7 @@ struct SystemTrayButtons: View {
         HStack(spacing: 2) {
             if controller.isRecordingScreen {
                 Button { controller.stopScreenRecording() } label: {
-                    Image(systemName: "record.circle.fill")
+                    ThemeGlyph(symbol: "record.circle.fill", size: 13)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(theme.urgent)
                         .symbolEffect(.pulse)
@@ -63,7 +63,7 @@ struct SystemTrayButtons: View {
             if controller.showsKeyboardButton {
                 let keyboard = OnScreenKeyboard.shared
                 Button { keyboard.toggle(for: controller) } label: {
-                    Image(systemName: keyboard.isVisible ? "keyboard.chevron.compact.down" : "keyboard")
+                    ThemeGlyph(symbol: keyboard.isVisible ? "keyboard.chevron.compact.down" : "keyboard", size: 12)
                         .font(.system(size: 12, weight: .semibold))
                         .frame(width: 32, height: 28)
                         .background(PanelItemBackground(isActive: keyboard.isVisible))
@@ -76,11 +76,11 @@ struct SystemTrayButtons: View {
             }
             Button { controller.toggleQuickSettings() } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: status.network.symbol)
+                    ThemeGlyph(symbol: status.network.symbol, size: 12)
                     if let volume = controller.systemControls?.volume {
-                        Image(systemName: volumeSymbol(volume))
+                        ThemeGlyph(symbol: volumeSymbol(volume), size: 12)
                     }
-                    Image(systemName: status.batterySymbol)
+                    ThemeGlyph(symbol: status.batterySymbol, size: 12)
                 }
                 .font(.system(size: 12, weight: .semibold))
                 .padding(.horizontal, 8)
@@ -94,7 +94,7 @@ struct SystemTrayButtons: View {
             .accessibilityIdentifier("desktop.panel.quickSettings")
 
             Button { controller.toggleNotificationCenter() } label: {
-                Image(systemName: controller.notifications.doNotDisturb ? "moon.fill" : "bell")
+                ThemeGlyph(symbol: controller.notifications.doNotDisturb ? "moon.fill" : "bell", size: 12)
                     .font(.system(size: 12, weight: .semibold))
                     .frame(width: 30, height: 28)
                     .background(PanelItemBackground(isActive: controller.isNotificationCenterPresented))
@@ -185,7 +185,11 @@ struct QuickSettingsPanel: View {
             Divider().overlay(theme.separator)
             infoRow(symbol: "paintpalette", title: "Style") {
                 Picker("Style", selection: $styleID) {
-                    ForEach(DesktopStyle.allCases) { Text($0.displayName).tag($0.rawValue) }
+                    ForEach(DesktopStyle.groups) { group in
+                        Section(group.title) {
+                            ForEach(group.styles) { Text($0.displayName).tag($0.rawValue) }
+                        }
+                    }
                 }
                 .pickerStyle(.menu)
                 .accessibilityIdentifier("quickSettings.style")
@@ -200,13 +204,13 @@ struct QuickSettingsPanel: View {
                 .foregroundStyle(theme.accent)
             }
             HStack {
-                Label(batteryText, systemImage: status.batterySymbol)
+                ThemedLabel(batteryText, systemImage: status.batterySymbol, points: 16)
                     .font(.system(size: 13))
                 Spacer()
                 Menu {
                     PowerMenuItems(controller: controller)
                 } label: {
-                    Image(systemName: "power").frame(width: 32, height: 32)
+                    ThemeGlyph(symbol: "power", size: 15).frame(width: 32, height: 32)
                 }
                 .menuStyle(.button)
                 .buttonStyle(.plain)
@@ -254,7 +258,7 @@ struct QuickSettingsPanel: View {
     private func tile(_ title: String, symbol: String, isOn: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 6) {
-                Image(systemName: symbol).font(.system(size: 16, weight: .semibold))
+                ThemeGlyph(symbol: symbol, size: 16).font(.system(size: 16, weight: .semibold))
                 Text(title).font(.system(size: 11, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8)
             }
             .foregroundStyle(isOn ? Color.white : theme.primaryText)
@@ -271,7 +275,7 @@ struct QuickSettingsPanel: View {
 
     private func sliderRow(symbol: String, label: String, value: Binding<Double>) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: symbol).frame(width: 20)
+            ThemeGlyph(symbol: symbol, size: 14).frame(width: 20)
             Slider(value: value, in: 0...1).tint(theme.accent)
                 .accessibilityLabel(label)
         }
@@ -279,7 +283,7 @@ struct QuickSettingsPanel: View {
 
     private func infoRow<Content: View>(symbol: String, title: String, @ViewBuilder content: () -> Content) -> some View {
         HStack {
-            Label(title, systemImage: symbol).font(.system(size: 13))
+            ThemedLabel(title, systemImage: symbol, points: 16).font(.system(size: 13))
             Spacer()
             content()
         }
@@ -346,7 +350,7 @@ struct NotificationCenterPanel: View {
 
     private func noticeCard(_ notice: DesktopNotice) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "bell.fill").foregroundStyle(theme.accent).font(.system(size: 13))
+            ThemeGlyph(symbol: "bell.fill", size: 13).foregroundStyle(theme.accent).font(.system(size: 13))
             VStack(alignment: .leading, spacing: 3) {
                 Text(notice.message).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
                 Text(notice.date, style: .relative).font(.system(size: 11)).foregroundStyle(theme.secondaryText)
@@ -355,15 +359,23 @@ struct NotificationCenterPanel: View {
             Button {
                 withAnimation(DesktopMotion.quick) { notifications.remove(notice.id) }
             } label: {
-                Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).frame(width: 24, height: 24)
+                Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .hoverEffect(.highlight)
+            .padding(-4)
             .accessibilityLabel("Dismiss")
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(theme.primaryText.opacity(0.06)))
         .background(theme.panelBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityElement(children: .combine)
+        // .combine folds the button into the card; keep Dismiss reachable for VoiceOver.
+        .accessibilityAction(named: "Dismiss") {
+            withAnimation(DesktopMotion.quick) { notifications.remove(notice.id) }
+        }
         .accessibilityIdentifier("desktop.notification")
         .noticeSwipeToDismiss { withAnimation(DesktopMotion.quick) { notifications.remove(notice.id) } }
     }

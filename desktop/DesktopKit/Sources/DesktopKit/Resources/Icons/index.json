@@ -1,0 +1,1663 @@
+{
+ "iconTheme": "Papirus",
+ "icons": {
+  "accessories-text-editor": {
+   "1x": "accessories-text-editor.png",
+   "2x": "accessories-text-editor@2x.png",
+   "source": "Papirus/128x128/apps/accessories-text-editor.svg"
+  },
+  "application-gzip": {
+   "1x": "application-gzip.png",
+   "2x": "application-gzip.png",
+   "source": "Papirus/128x128/mimetypes/application-gzip.svg"
+  },
+  "application-javascript": {
+   "1x": "application-javascript.png",
+   "2x": "application-javascript.png",
+   "source": "Papirus/128x128/mimetypes/application-javascript.svg"
+  },
+  "application-json": {
+   "1x": "application-json.png",
+   "2x": "application-json.png",
+   "source": "Papirus/128x128/mimetypes/application-json.svg"
+  },
+  "application-msword": {
+   "1x": "application-msword.png",
+   "2x": "application-msword.png",
+   "source": "Papirus/128x128/mimetypes/application-msword.svg"
+  },
+  "application-octet-stream": {
+   "1x": "application-octet-stream.png",
+   "2x": "application-octet-stream.png",
+   "source": "Papirus/128x128/mimetypes/application-octet-stream.svg"
+  },
+  "application-pdf": {
+   "1x": "application-pdf.png",
+   "2x": "application-pdf.png",
+   "source": "Papirus/128x128/mimetypes/application-pdf.svg"
+  },
+  "application-rtf": {
+   "1x": "application-rtf.png",
+   "2x": "application-rtf.png",
+   "source": "Papirus/128x128/mimetypes/application-rtf.svg"
+  },
+  "application-sql": {
+   "1x": "application-sql.png",
+   "2x": "application-sql.png",
+   "source": "Papirus/128x128/mimetypes/application-sql.svg"
+  },
+  "application-toml": {
+   "1x": "application-toml.png",
+   "2x": "application-toml.png",
+   "source": "Papirus/128x128/mimetypes/application-toml.svg"
+  },
+  "application-vnd.android.package-archive": {
+   "1x": "application-vnd.android.package-archive.png",
+   "2x": "application-vnd.android.package-archive.png",
+   "source": "Papirus/128x128/mimetypes/application-vnd.android.package-archive.svg"
+  },
+  "application-vnd.debian.binary-package": {
+   "1x": "application-vnd.debian.binary-package.png",
+   "2x": "application-vnd.debian.binary-package.png",
+   "source": "Papirus/128x128/mimetypes/application-vnd.debian.binary-package.svg"
+  },
+  "application-vnd.ms-excel": {
+   "1x": "application-vnd.ms-excel.png",
+   "2x": "application-vnd.ms-excel.png",
+   "source": "Papirus/128x128/mimetypes/application-vnd.ms-excel.svg"
+  },
+  "application-vnd.ms-powerpoint": {
+   "1x": "application-vnd.ms-powerpoint.png",
+   "2x": "application-vnd.ms-powerpoint.png",
+   "source": "Papirus/128x128/mimetypes/application-vnd.ms-powerpoint.svg"
+  },
+  "application-vnd.oasis.opendocument.presentation": {
+   "1x": "application-vnd.oasis.opendocument.presentation.png",
+   "2x": "application-vnd.oasis.opendocument.presentation.png",
+   "source": "Papirus/128x128/mimetypes/application-vnd.oasis.opendocument.presentation.svg"
+  },
+  "application-vnd.oasis.opendocument.spreadsheet": {
+   "1x": "application-vnd.oasis.opendocument.spreadsheet.png",
+   "2x": "application-vnd.oasis.opendocument.spreadsheet.png",
+   "source": "Papirus/128x128/mimetypes/application-vnd.oasis.opendocument.spreadsheet.svg"
+  },
+  "application-vnd.oasis.opendocument.text": {
+   "1x": "application-vnd.oasis.opendocument.text.png",
+   "2x": "application-vnd.oasis.opendocument.text.png",
+   "source": "Papirus/128x128/mimetypes/application-vnd.oasis.opendocument.text.svg"
+  },
+  "application-vnd.openxmlformats-officedocument.presentationml.presentation": {
+   "1x": "application-vnd.openxmlformats-officedocument.presentationml.presentation.png",
+   "2x": "application-vnd.openxmlformats-officedocument.presentationml.presentation.png",
+   "source": "Papirus/128x128/mimetypes/application-vnd.openxmlformats-officedocument.presentationml.presentation.svg"
+  },
+  "application-vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+   "1x": "application-vnd.openxmlformats-officedocument.spreadsheetml.sheet.png",
+   "2x": "application-vnd.openxmlformats-officedocument.spreadsheetml.sheet.png",
+   "source": "Papirus/128x128/mimetypes/application-vnd.openxmlformats-officedocument.spreadsheetml.sheet.svg"
+  },
+  "application-vnd.openxmlformats-officedocument.wordprocessingml.document": {
+   "1x": "application-vnd.openxmlformats-officedocument.wordprocessingml.document.png",
+   "2x": "application-vnd.openxmlformats-officedocument.wordprocessingml.document.png",
+   "source": "Papirus/128x128/mimetypes/application-vnd.openxmlformats-officedocument.wordprocessingml.document.svg"
+  },
+  "application-vnd.rar": {
+   "1x": "application-vnd.rar.png",
+   "2x": "application-vnd.rar.png",
+   "source": "Papirus/128x128/mimetypes/application-vnd.rar.svg"
+  },
+  "application-vnd.sqlite3": {
+   "1x": "application-vnd.sqlite3.png",
+   "2x": "application-vnd.sqlite3.png",
+   "source": "Papirus/128x128/mimetypes/application-vnd.sqlite3.svg"
+  },
+  "application-x-7z-compressed": {
+   "1x": "application-x-7z-compressed.png",
+   "2x": "application-x-7z-compressed.png",
+   "source": "Papirus/128x128/mimetypes/application-x-7z-compressed.svg"
+  },
+  "application-x-bzip": {
+   "1x": "application-x-bzip.png",
+   "2x": "application-x-bzip.png",
+   "source": "Papirus/128x128/mimetypes/application-x-bzip.svg"
+  },
+  "application-x-compressed-tar": {
+   "1x": "application-x-compressed-tar.png",
+   "2x": "application-x-compressed-tar.png",
+   "source": "Papirus/128x128/mimetypes/application-x-compressed-tar.svg"
+  },
+  "application-x-desktop": {
+   "1x": "application-x-desktop.png",
+   "2x": "application-x-desktop.png",
+   "source": "Papirus/128x128/mimetypes/application-x-desktop.svg"
+  },
+  "application-x-executable": {
+   "1x": "application-x-executable.png",
+   "2x": "application-x-executable@2x.png",
+   "source": "Papirus/128x128/mimetypes/application-x-executable.svg"
+  },
+  "application-x-object": {
+   "1x": "application-x-object.png",
+   "2x": "application-x-object.png",
+   "source": "Papirus/128x128/mimetypes/application-x-object.svg"
+  },
+  "application-x-php": {
+   "1x": "application-x-php.png",
+   "2x": "application-x-php.png",
+   "source": "Papirus/128x128/mimetypes/application-x-php.svg"
+  },
+  "application-x-rpm": {
+   "1x": "application-x-rpm.png",
+   "2x": "application-x-rpm.png",
+   "source": "Papirus/128x128/mimetypes/application-x-rpm.svg"
+  },
+  "application-x-sharedlib": {
+   "1x": "application-x-sharedlib.png",
+   "2x": "application-x-sharedlib.png",
+   "source": "Papirus/128x128/mimetypes/application-x-sharedlib.svg"
+  },
+  "application-x-shellscript": {
+   "1x": "application-x-shellscript.png",
+   "2x": "application-x-shellscript.png",
+   "source": "Papirus/128x128/mimetypes/application-x-shellscript.svg"
+  },
+  "application-x-sqlite3": {
+   "1x": "application-x-sqlite3.png",
+   "2x": "application-x-sqlite3.png",
+   "source": "Papirus/128x128/mimetypes/application-x-sqlite3.svg"
+  },
+  "application-x-tar": {
+   "1x": "application-x-tar.png",
+   "2x": "application-x-tar.png",
+   "source": "Papirus/128x128/mimetypes/application-x-tar.svg"
+  },
+  "application-x-yaml": {
+   "1x": "application-x-yaml.png",
+   "2x": "application-x-yaml.png",
+   "source": "Papirus/128x128/mimetypes/application-x-yaml.svg"
+  },
+  "application-xml": {
+   "1x": "application-xml.png",
+   "2x": "application-xml.png",
+   "source": "Papirus/128x128/mimetypes/application-xml.svg"
+  },
+  "application-zip": {
+   "1x": "application-zip.png",
+   "2x": "application-zip.png",
+   "source": "Papirus/128x128/mimetypes/application-zip.svg"
+  },
+  "applications-engineering-symbolic": {
+   "1x": "applications-engineering-symbolic.png",
+   "2x": "applications-engineering-symbolic.png",
+   "source": "Papirus/symbolic/categories/applications-engineering-symbolic.svg",
+   "symbolic": true
+  },
+  "applications-graphics": {
+   "1x": "applications-graphics.png",
+   "2x": "applications-graphics@2x.png",
+   "source": "Papirus/128x128/apps/applications-graphics.svg"
+  },
+  "applications-graphics-symbolic": {
+   "1x": "applications-graphics-symbolic.png",
+   "2x": "applications-graphics-symbolic.png",
+   "source": "Papirus/symbolic/categories/applications-graphics-symbolic.svg",
+   "symbolic": true
+  },
+  "applications-internet-symbolic": {
+   "1x": "applications-internet-symbolic.png",
+   "2x": "applications-internet-symbolic.png",
+   "source": "breeze/categories/22/applications-internet-symbolic.svg",
+   "symbolic": true
+  },
+  "audio-flac": {
+   "1x": "audio-flac.png",
+   "2x": "audio-flac.png",
+   "source": "Papirus/128x128/mimetypes/audio-flac.svg"
+  },
+  "audio-input-microphone-symbolic": {
+   "1x": "audio-input-microphone-symbolic.png",
+   "2x": "audio-input-microphone-symbolic.png",
+   "source": "Papirus/symbolic/devices/audio-input-microphone-symbolic.svg",
+   "symbolic": true
+  },
+  "audio-mp4": {
+   "1x": "audio-mp4.png",
+   "2x": "audio-mp4.png",
+   "source": "Papirus/128x128/mimetypes/audio-mp4.svg"
+  },
+  "audio-mpeg": {
+   "1x": "audio-mpeg.png",
+   "2x": "audio-mpeg.png",
+   "source": "Papirus/128x128/mimetypes/audio-mpeg.svg"
+  },
+  "audio-ogg": {
+   "1x": "audio-ogg.png",
+   "2x": "audio-ogg.png",
+   "source": "breeze/mimetypes/64/audio-ogg.svg"
+  },
+  "audio-volume-high-symbolic": {
+   "1x": "audio-volume-high-symbolic.png",
+   "2x": "audio-volume-high-symbolic.png",
+   "source": "Papirus/symbolic/status/audio-volume-high-symbolic.svg",
+   "symbolic": true
+  },
+  "audio-volume-low-symbolic": {
+   "1x": "audio-volume-low-symbolic.png",
+   "2x": "audio-volume-low-symbolic.png",
+   "source": "Papirus/symbolic/status/audio-volume-low-symbolic.svg",
+   "symbolic": true
+  },
+  "audio-volume-medium-symbolic": {
+   "1x": "audio-volume-medium-symbolic.png",
+   "2x": "audio-volume-medium-symbolic.png",
+   "source": "Papirus/symbolic/status/audio-volume-medium-symbolic.svg",
+   "symbolic": true
+  },
+  "audio-volume-muted-symbolic": {
+   "1x": "audio-volume-muted-symbolic.png",
+   "2x": "audio-volume-muted-symbolic.png",
+   "source": "Papirus/symbolic/status/audio-volume-muted-symbolic.svg",
+   "symbolic": true
+  },
+  "audio-x-generic": {
+   "1x": "audio-x-generic.png",
+   "2x": "audio-x-generic@2x.png",
+   "source": "Papirus/128x128/mimetypes/audio-x-generic.svg"
+  },
+  "audio-x-generic-symbolic": {
+   "1x": "audio-x-generic-symbolic.png",
+   "2x": "audio-x-generic-symbolic.png",
+   "source": "Papirus/symbolic/mimetypes/audio-x-generic-symbolic.svg",
+   "symbolic": true
+  },
+  "audio-x-wav": {
+   "1x": "audio-x-wav.png",
+   "2x": "audio-x-wav.png",
+   "source": "Papirus/128x128/mimetypes/audio-x-wav.svg"
+  },
+  "battery-caution-symbolic": {
+   "1x": "battery-caution-symbolic.png",
+   "2x": "battery-caution-symbolic.png",
+   "source": "Papirus/symbolic/status/battery-caution-symbolic.svg",
+   "symbolic": true
+  },
+  "battery-empty-symbolic": {
+   "1x": "battery-empty-symbolic.png",
+   "2x": "battery-empty-symbolic.png",
+   "source": "Papirus/symbolic/status/battery-empty-symbolic.svg",
+   "symbolic": true
+  },
+  "battery-full-charging-symbolic": {
+   "1x": "battery-full-charging-symbolic.png",
+   "2x": "battery-full-charging-symbolic.png",
+   "source": "Papirus/symbolic/status/battery-full-charging-symbolic.svg",
+   "symbolic": true
+  },
+  "battery-full-symbolic": {
+   "1x": "battery-full-symbolic.png",
+   "2x": "battery-full-symbolic.png",
+   "source": "Papirus/symbolic/status/battery-full-symbolic.svg",
+   "symbolic": true
+  },
+  "battery-good-symbolic": {
+   "1x": "battery-good-symbolic.png",
+   "2x": "battery-good-symbolic.png",
+   "source": "Papirus/symbolic/status/battery-good-symbolic.svg",
+   "symbolic": true
+  },
+  "battery-level-0-symbolic": {
+   "1x": "battery-level-0-symbolic.png",
+   "2x": "battery-level-0-symbolic.png",
+   "source": "Papirus/symbolic/status/battery-level-0-symbolic.svg",
+   "symbolic": true
+  },
+  "battery-level-100-charged-symbolic": {
+   "1x": "battery-level-100-charged-symbolic.png",
+   "2x": "battery-level-100-charged-symbolic.png",
+   "source": "Papirus/symbolic/status/battery-level-100-charged-symbolic.svg",
+   "symbolic": true
+  },
+  "battery-level-100-symbolic": {
+   "1x": "battery-level-100-symbolic.png",
+   "2x": "battery-level-100-symbolic.png",
+   "source": "Papirus/symbolic/status/battery-level-100-symbolic.svg",
+   "symbolic": true
+  },
+  "battery-level-20-symbolic": {
+   "1x": "battery-level-20-symbolic.png",
+   "2x": "battery-level-20-symbolic.png",
+   "source": "Papirus/symbolic/status/battery-level-20-symbolic.svg",
+   "symbolic": true
+  },
+  "battery-level-50-symbolic": {
+   "1x": "battery-level-50-symbolic.png",
+   "2x": "battery-level-50-symbolic.png",
+   "source": "Papirus/symbolic/status/battery-level-50-symbolic.svg",
+   "symbolic": true
+  },
+  "battery-level-70-symbolic": {
+   "1x": "battery-level-70-symbolic.png",
+   "2x": "battery-level-70-symbolic.png",
+   "source": "Papirus/symbolic/status/battery-level-70-symbolic.svg",
+   "symbolic": true
+  },
+  "battery-low-symbolic": {
+   "1x": "battery-low-symbolic.png",
+   "2x": "battery-low-symbolic.png",
+   "source": "Papirus/symbolic/status/battery-low-symbolic.svg",
+   "symbolic": true
+  },
+  "battery-medium-symbolic": {
+   "1x": "battery-medium-symbolic.png",
+   "2x": "battery-medium-symbolic.png",
+   "source": "Papirus/symbolic/status/battery-medium-symbolic.svg",
+   "symbolic": true
+  },
+  "camera-photo-symbolic": {
+   "1x": "camera-photo-symbolic.png",
+   "2x": "camera-photo-symbolic.png",
+   "source": "Papirus/symbolic/devices/camera-photo-symbolic.svg",
+   "symbolic": true
+  },
+  "changes-prevent-symbolic": {
+   "1x": "changes-prevent-symbolic.png",
+   "2x": "changes-prevent-symbolic.png",
+   "source": "Papirus/symbolic/status/changes-prevent-symbolic.svg",
+   "symbolic": true
+  },
+  "code": {
+   "1x": "code.png",
+   "2x": "code@2x.png",
+   "source": "Papirus/128x128/apps/code.svg"
+  },
+  "code-oss": {
+   "1x": "code-oss.png",
+   "2x": "code-oss@2x.png",
+   "source": "Papirus/128x128/apps/code-oss.svg"
+  },
+  "com.visualstudio.code": {
+   "1x": "com.visualstudio.code.png",
+   "2x": "com.visualstudio.code@2x.png",
+   "source": "Papirus/128x128/apps/com.visualstudio.code.svg"
+  },
+  "computer": {
+   "1x": "computer.png",
+   "2x": "computer@2x.png",
+   "source": "Papirus/128x128/devices/computer.svg"
+  },
+  "dialog-information-symbolic": {
+   "1x": "dialog-information-symbolic.png",
+   "2x": "dialog-information-symbolic.png",
+   "source": "Papirus/symbolic/status/dialog-information-symbolic.svg",
+   "symbolic": true
+  },
+  "dialog-warning-symbolic": {
+   "1x": "dialog-warning-symbolic.png",
+   "2x": "dialog-warning-symbolic.png",
+   "source": "Papirus/symbolic/status/dialog-warning-symbolic.svg",
+   "symbolic": true
+  },
+  "display-brightness-symbolic": {
+   "1x": "display-brightness-symbolic.png",
+   "2x": "display-brightness-symbolic.png",
+   "source": "Papirus/symbolic/status/display-brightness-symbolic.svg",
+   "symbolic": true
+  },
+  "document-edit-symbolic": {
+   "1x": "document-edit-symbolic.png",
+   "2x": "document-edit-symbolic.png",
+   "source": "Papirus/symbolic/actions/document-edit-symbolic.svg",
+   "symbolic": true
+  },
+  "document-new": {
+   "1x": "document-new.png",
+   "2x": "document-new.png",
+   "source": "Papirus/24x24@2x/actions/document-new.svg"
+  },
+  "document-new-symbolic": {
+   "1x": "document-new-symbolic.png",
+   "2x": "document-new-symbolic.png",
+   "source": "Papirus/symbolic/actions/document-new-symbolic.svg",
+   "symbolic": true
+  },
+  "document-open-symbolic": {
+   "1x": "document-open-symbolic.png",
+   "2x": "document-open-symbolic.png",
+   "source": "Papirus/symbolic/actions/document-open-symbolic.svg",
+   "symbolic": true
+  },
+  "document-save-symbolic": {
+   "1x": "document-save-symbolic.png",
+   "2x": "document-save-symbolic.png",
+   "source": "Papirus/symbolic/actions/document-save-symbolic.svg",
+   "symbolic": true
+  },
+  "document-send-symbolic": {
+   "1x": "document-send-symbolic.png",
+   "2x": "document-send-symbolic.png",
+   "source": "Papirus/symbolic/actions/document-send-symbolic.svg",
+   "symbolic": true
+  },
+  "drive-harddisk": {
+   "1x": "drive-harddisk.png",
+   "2x": "drive-harddisk@2x.png",
+   "source": "Papirus/128x128/devices/drive-harddisk.svg"
+  },
+  "drive-harddisk-symbolic": {
+   "1x": "drive-harddisk-symbolic.png",
+   "2x": "drive-harddisk-symbolic.png",
+   "source": "Papirus/symbolic/devices/drive-harddisk-symbolic.svg",
+   "symbolic": true
+  },
+  "drive-harddisk-system": {
+   "1x": "drive-harddisk-system.png",
+   "2x": "drive-harddisk-system.png",
+   "source": "Papirus/128x128/devices/drive-harddisk-system.svg"
+  },
+  "drive-optical": {
+   "1x": "drive-optical.png",
+   "2x": "drive-optical@2x.png",
+   "source": "Papirus/128x128/devices/drive-optical.svg"
+  },
+  "drive-removable-media": {
+   "1x": "drive-removable-media.png",
+   "2x": "drive-removable-media@2x.png",
+   "source": "Papirus/128x128/devices/drive-removable-media.svg"
+  },
+  "edit-clear-all-symbolic": {
+   "1x": "edit-clear-all-symbolic.png",
+   "2x": "edit-clear-all-symbolic.png",
+   "source": "Papirus/symbolic/actions/edit-clear-all-symbolic.svg",
+   "symbolic": true
+  },
+  "edit-clear-symbolic": {
+   "1x": "edit-clear-symbolic.png",
+   "2x": "edit-clear-symbolic.png",
+   "source": "Papirus/symbolic/actions/edit-clear-symbolic.svg",
+   "symbolic": true
+  },
+  "edit-copy-symbolic": {
+   "1x": "edit-copy-symbolic.png",
+   "2x": "edit-copy-symbolic.png",
+   "source": "Papirus/symbolic/actions/edit-copy-symbolic.svg",
+   "symbolic": true
+  },
+  "edit-cut-symbolic": {
+   "1x": "edit-cut-symbolic.png",
+   "2x": "edit-cut-symbolic.png",
+   "source": "Papirus/symbolic/actions/edit-cut-symbolic.svg",
+   "symbolic": true
+  },
+  "edit-delete-symbolic": {
+   "1x": "edit-delete-symbolic.png",
+   "2x": "edit-delete-symbolic.png",
+   "source": "Papirus/symbolic/actions/edit-delete-symbolic.svg",
+   "symbolic": true
+  },
+  "edit-find-symbolic": {
+   "1x": "edit-find-symbolic.png",
+   "2x": "edit-find-symbolic.png",
+   "source": "Papirus/symbolic/actions/edit-find-symbolic.svg",
+   "symbolic": true
+  },
+  "edit-paste-symbolic": {
+   "1x": "edit-paste-symbolic.png",
+   "2x": "edit-paste-symbolic.png",
+   "source": "Papirus/symbolic/actions/edit-paste-symbolic.svg",
+   "symbolic": true
+  },
+  "edit-redo-symbolic": {
+   "1x": "edit-redo-symbolic.png",
+   "2x": "edit-redo-symbolic.png",
+   "source": "Papirus/symbolic/actions/edit-redo-symbolic.svg",
+   "symbolic": true
+  },
+  "edit-undo-symbolic": {
+   "1x": "edit-undo-symbolic.png",
+   "2x": "edit-undo-symbolic.png",
+   "source": "Papirus/symbolic/actions/edit-undo-symbolic.svg",
+   "symbolic": true
+  },
+  "emblem-favorite-symbolic": {
+   "1x": "emblem-favorite-symbolic.png",
+   "2x": "emblem-favorite-symbolic.png",
+   "source": "Papirus/symbolic/emblems/emblem-favorite-symbolic.svg",
+   "symbolic": true
+  },
+  "emblem-ok-symbolic": {
+   "1x": "emblem-ok-symbolic.png",
+   "2x": "emblem-ok-symbolic.png",
+   "source": "Papirus/symbolic/emblems/emblem-ok-symbolic.svg",
+   "symbolic": true
+  },
+  "emblem-shared-symbolic": {
+   "1x": "emblem-shared-symbolic.png",
+   "2x": "emblem-shared-symbolic.png",
+   "source": "Papirus/symbolic/emblems/emblem-shared-symbolic.svg",
+   "symbolic": true
+  },
+  "emblem-system-symbolic": {
+   "1x": "emblem-system-symbolic.png",
+   "2x": "emblem-system-symbolic.png",
+   "source": "Papirus/symbolic/emblems/emblem-system-symbolic.svg",
+   "symbolic": true
+  },
+  "falkon": {
+   "1x": "falkon.png",
+   "2x": "falkon@2x.png",
+   "source": "Papirus/128x128/apps/falkon.svg"
+  },
+  "firefox": {
+   "1x": "firefox.png",
+   "2x": "firefox@2x.png",
+   "source": "Papirus/128x128/apps/firefox.svg"
+  },
+  "firefox-esr": {
+   "1x": "firefox-esr.png",
+   "2x": "firefox-esr@2x.png",
+   "source": "Papirus/128x128/apps/firefox-esr.svg"
+  },
+  "focus-windows-symbolic": {
+   "1x": "focus-windows-symbolic.png",
+   "2x": "focus-windows-symbolic.png",
+   "source": "Papirus/symbolic/actions/focus-windows-symbolic.svg",
+   "symbolic": true
+  },
+  "folder": {
+   "1x": "folder.png",
+   "2x": "folder@2x.png",
+   "source": "Papirus/128x128/places/folder.svg"
+  },
+  "folder-desktop": {
+   "1x": "folder-desktop.png",
+   "2x": "folder-desktop@2x.png",
+   "source": "Papirus/128x128/places/folder-desktop.svg"
+  },
+  "folder-documents": {
+   "1x": "folder-documents.png",
+   "2x": "folder-documents@2x.png",
+   "source": "Papirus/128x128/places/folder-documents.svg"
+  },
+  "folder-download": {
+   "1x": "folder-download.png",
+   "2x": "folder-download@2x.png",
+   "source": "Papirus/128x128/places/folder-download.svg"
+  },
+  "folder-home": {
+   "1x": "folder-home.png",
+   "2x": "folder-home.png",
+   "source": "Papirus/128x128/places/folder-home.svg"
+  },
+  "folder-music": {
+   "1x": "folder-music.png",
+   "2x": "folder-music@2x.png",
+   "source": "Papirus/128x128/places/folder-music.svg"
+  },
+  "folder-new": {
+   "1x": "folder-new.png",
+   "2x": "folder-new.png",
+   "source": "Papirus/24x24@2x/actions/folder-new.svg"
+  },
+  "folder-new-symbolic": {
+   "1x": "folder-new-symbolic.png",
+   "2x": "folder-new-symbolic.png",
+   "source": "Papirus/symbolic/actions/folder-new-symbolic.svg",
+   "symbolic": true
+  },
+  "folder-open": {
+   "1x": "folder-open.png",
+   "2x": "folder-open@2x.png",
+   "source": "Papirus/128x128/places/folder-open.svg"
+  },
+  "folder-open-symbolic": {
+   "1x": "folder-open-symbolic.png",
+   "2x": "folder-open-symbolic.png",
+   "source": "Papirus/symbolic/status/folder-open-symbolic.svg",
+   "symbolic": true
+  },
+  "folder-pictures": {
+   "1x": "folder-pictures.png",
+   "2x": "folder-pictures@2x.png",
+   "source": "Papirus/128x128/places/folder-pictures.svg"
+  },
+  "folder-publicshare": {
+   "1x": "folder-publicshare.png",
+   "2x": "folder-publicshare@2x.png",
+   "source": "Papirus/128x128/places/folder-publicshare.svg"
+  },
+  "folder-recent": {
+   "1x": "folder-recent.png",
+   "2x": "folder-recent.png",
+   "source": "Papirus/128x128/places/folder-recent.svg"
+  },
+  "folder-remote": {
+   "1x": "folder-remote.png",
+   "2x": "folder-remote@2x.png",
+   "source": "Papirus/128x128/places/folder-remote.svg"
+  },
+  "folder-symbolic": {
+   "1x": "folder-symbolic.png",
+   "2x": "folder-symbolic.png",
+   "source": "Papirus/symbolic/places/folder-symbolic.svg",
+   "symbolic": true
+  },
+  "folder-temp": {
+   "1x": "folder-temp.png",
+   "2x": "folder-temp.png",
+   "source": "Papirus/128x128/places/folder-temp.svg"
+  },
+  "folder-templates": {
+   "1x": "folder-templates.png",
+   "2x": "folder-templates@2x.png",
+   "source": "Papirus/128x128/places/folder-templates.svg"
+  },
+  "folder-videos": {
+   "1x": "folder-videos.png",
+   "2x": "folder-videos@2x.png",
+   "source": "Papirus/128x128/places/folder-videos.svg"
+  },
+  "font-otf": {
+   "1x": "font-otf.png",
+   "2x": "font-otf.png",
+   "source": "Papirus/128x128/mimetypes/font-otf.svg"
+  },
+  "font-ttf": {
+   "1x": "font-ttf.png",
+   "2x": "font-ttf.png",
+   "source": "Papirus/128x128/mimetypes/font-ttf.svg"
+  },
+  "font-x-generic": {
+   "1x": "font-x-generic.png",
+   "2x": "font-x-generic.png",
+   "source": "Papirus/128x128/mimetypes/font-x-generic.svg"
+  },
+  "foot": {
+   "1x": "foot.png",
+   "2x": "foot@2x.png",
+   "source": "Papirus/128x128/apps/foot.svg"
+  },
+  "go-next": {
+   "1x": "go-next.png",
+   "2x": "go-next.png",
+   "source": "Papirus/24x24@2x/actions/go-next.svg"
+  },
+  "go-next-symbolic": {
+   "1x": "go-next-symbolic.png",
+   "2x": "go-next-symbolic.png",
+   "source": "Papirus/symbolic/actions/go-next-symbolic.svg",
+   "symbolic": true
+  },
+  "go-previous": {
+   "1x": "go-previous.png",
+   "2x": "go-previous.png",
+   "source": "Papirus/24x24@2x/actions/go-previous.svg"
+  },
+  "go-previous-symbolic": {
+   "1x": "go-previous-symbolic.png",
+   "2x": "go-previous-symbolic.png",
+   "source": "Papirus/symbolic/actions/go-previous-symbolic.svg",
+   "symbolic": true
+  },
+  "go-up": {
+   "1x": "go-up.png",
+   "2x": "go-up.png",
+   "source": "Papirus/24x24@2x/actions/go-up.svg"
+  },
+  "go-up-symbolic": {
+   "1x": "go-up-symbolic.png",
+   "2x": "go-up-symbolic.png",
+   "source": "Papirus/symbolic/actions/go-up-symbolic.svg",
+   "symbolic": true
+  },
+  "help-about-symbolic": {
+   "1x": "help-about-symbolic.png",
+   "2x": "help-about-symbolic.png",
+   "source": "Papirus/symbolic/actions/help-about-symbolic.svg",
+   "symbolic": true
+  },
+  "image-bmp": {
+   "1x": "image-bmp.png",
+   "2x": "image-bmp.png",
+   "source": "Papirus/128x128/mimetypes/image-bmp.svg"
+  },
+  "image-gif": {
+   "1x": "image-gif.png",
+   "2x": "image-gif.png",
+   "source": "Papirus/128x128/mimetypes/image-gif.svg"
+  },
+  "image-jpeg": {
+   "1x": "image-jpeg.png",
+   "2x": "image-jpeg.png",
+   "source": "Papirus/128x128/mimetypes/image-jpeg.svg"
+  },
+  "image-png": {
+   "1x": "image-png.png",
+   "2x": "image-png.png",
+   "source": "Papirus/128x128/mimetypes/image-png.svg"
+  },
+  "image-svg+xml": {
+   "1x": "image-svg+xml.png",
+   "2x": "image-svg+xml.png",
+   "source": "Papirus/128x128/mimetypes/image-svg+xml.svg"
+  },
+  "image-tiff": {
+   "1x": "image-tiff.png",
+   "2x": "image-tiff.png",
+   "source": "Papirus/128x128/mimetypes/image-tiff.svg"
+  },
+  "image-vnd.microsoft.icon": {
+   "1x": "image-vnd.microsoft.icon.png",
+   "2x": "image-vnd.microsoft.icon.png",
+   "source": "Papirus/128x128/mimetypes/image-vnd.microsoft.icon.svg"
+  },
+  "image-x-generic": {
+   "1x": "image-x-generic.png",
+   "2x": "image-x-generic@2x.png",
+   "source": "Papirus/128x128/mimetypes/image-x-generic.svg"
+  },
+  "image-x-generic-symbolic": {
+   "1x": "image-x-generic-symbolic.png",
+   "2x": "image-x-generic-symbolic.png",
+   "source": "Papirus/symbolic/mimetypes/image-x-generic-symbolic.svg",
+   "symbolic": true
+  },
+  "inode-directory": {
+   "1x": "inode-directory.png",
+   "2x": "inode-directory.png",
+   "source": "Papirus/128x128/places/inode-directory.svg"
+  },
+  "inode-symlink": {
+   "1x": "inode-symlink.png",
+   "2x": "inode-symlink.png",
+   "source": "Papirus/128x128/mimetypes/inode-symlink.svg"
+  },
+  "input-keyboard-symbolic": {
+   "1x": "input-keyboard-symbolic.png",
+   "2x": "input-keyboard-symbolic.png",
+   "source": "Papirus/symbolic/devices/input-keyboard-symbolic.svg",
+   "symbolic": true
+  },
+  "input-mouse-symbolic": {
+   "1x": "input-mouse-symbolic.png",
+   "2x": "input-mouse-symbolic.png",
+   "source": "Papirus/symbolic/devices/input-mouse-symbolic.svg",
+   "symbolic": true
+  },
+  "input-touchpad-symbolic": {
+   "1x": "input-touchpad-symbolic.png",
+   "2x": "input-touchpad-symbolic.png",
+   "source": "Papirus/symbolic/devices/input-touchpad-symbolic.svg",
+   "symbolic": true
+  },
+  "insert-link-symbolic": {
+   "1x": "insert-link-symbolic.png",
+   "2x": "insert-link-symbolic.png",
+   "source": "Papirus/symbolic/actions/insert-link-symbolic.svg",
+   "symbolic": true
+  },
+  "internet-web-browser": {
+   "1x": "internet-web-browser.png",
+   "2x": "internet-web-browser@2x.png",
+   "source": "Papirus/128x128/apps/internet-web-browser.svg"
+  },
+  "list-add-symbolic": {
+   "1x": "list-add-symbolic.png",
+   "2x": "list-add-symbolic.png",
+   "source": "Papirus/symbolic/actions/list-add-symbolic.svg",
+   "symbolic": true
+  },
+  "list-remove-symbolic": {
+   "1x": "list-remove-symbolic.png",
+   "2x": "list-remove-symbolic.png",
+   "source": "Papirus/symbolic/actions/list-remove-symbolic.svg",
+   "symbolic": true
+  },
+  "mail-client": {
+   "1x": "mail-client.png",
+   "2x": "mail-client@2x.png",
+   "source": "Papirus/128x128/apps/mail-client.svg"
+  },
+  "mark-location-symbolic": {
+   "1x": "mark-location-symbolic.png",
+   "2x": "mark-location-symbolic.png",
+   "source": "Papirus/symbolic/actions/mark-location-symbolic.svg",
+   "symbolic": true
+  },
+  "media-eject-symbolic": {
+   "1x": "media-eject-symbolic.png",
+   "2x": "media-eject-symbolic.png",
+   "source": "Papirus/symbolic/actions/media-eject-symbolic.svg",
+   "symbolic": true
+  },
+  "media-playback-stop-symbolic": {
+   "1x": "media-playback-stop-symbolic.png",
+   "2x": "media-playback-stop-symbolic.png",
+   "source": "Papirus/symbolic/actions/media-playback-stop-symbolic.svg",
+   "symbolic": true
+  },
+  "media-playlist-shuffle-symbolic": {
+   "1x": "media-playlist-shuffle-symbolic.png",
+   "2x": "media-playlist-shuffle-symbolic.png",
+   "source": "Papirus/symbolic/status/media-playlist-shuffle-symbolic.svg",
+   "symbolic": true
+  },
+  "media-record-symbolic": {
+   "1x": "media-record-symbolic.png",
+   "2x": "media-record-symbolic.png",
+   "source": "Papirus/symbolic/actions/media-record-symbolic.svg",
+   "symbolic": true
+  },
+  "media-removable": {
+   "1x": "media-removable.png",
+   "2x": "media-removable@2x.png",
+   "source": "Papirus/128x128/devices/media-removable.svg"
+  },
+  "multimedia-video-player": {
+   "1x": "multimedia-video-player.png",
+   "2x": "multimedia-video-player@2x.png",
+   "source": "Papirus/128x128/apps/multimedia-video-player.svg"
+  },
+  "network-cellular-signal-excellent-symbolic": {
+   "1x": "network-cellular-signal-excellent-symbolic.png",
+   "2x": "network-cellular-signal-excellent-symbolic.png",
+   "source": "Papirus/symbolic/status/network-cellular-signal-excellent-symbolic.svg",
+   "symbolic": true
+  },
+  "network-cellular-symbolic": {
+   "1x": "network-cellular-symbolic.png",
+   "2x": "network-cellular-symbolic.png",
+   "source": "Papirus/symbolic/devices/network-cellular-symbolic.svg",
+   "symbolic": true
+  },
+  "network-error-symbolic": {
+   "1x": "network-error-symbolic.png",
+   "2x": "network-error-symbolic.png",
+   "source": "Papirus/symbolic/status/network-error-symbolic.svg",
+   "symbolic": true
+  },
+  "network-offline-symbolic": {
+   "1x": "network-offline-symbolic.png",
+   "2x": "network-offline-symbolic.png",
+   "source": "Papirus/symbolic/status/network-offline-symbolic.svg",
+   "symbolic": true
+  },
+  "network-server": {
+   "1x": "network-server.png",
+   "2x": "network-server@2x.png",
+   "source": "Papirus/128x128/devices/network-server.svg"
+  },
+  "network-transmit-receive-symbolic": {
+   "1x": "network-transmit-receive-symbolic.png",
+   "2x": "network-transmit-receive-symbolic.png",
+   "source": "Papirus/symbolic/status/network-transmit-receive-symbolic.svg",
+   "symbolic": true
+  },
+  "network-wired-symbolic": {
+   "1x": "network-wired-symbolic.png",
+   "2x": "network-wired-symbolic.png",
+   "source": "Papirus/symbolic/status/network-wired-symbolic.svg",
+   "symbolic": true
+  },
+  "network-wireless-no-route-symbolic": {
+   "1x": "network-wireless-no-route-symbolic.png",
+   "2x": "network-wireless-no-route-symbolic.png",
+   "source": "Papirus/symbolic/status/network-wireless-no-route-symbolic.svg",
+   "symbolic": true
+  },
+  "network-wireless-offline-symbolic": {
+   "1x": "network-wireless-offline-symbolic.png",
+   "2x": "network-wireless-offline-symbolic.png",
+   "source": "Papirus/symbolic/status/network-wireless-offline-symbolic.svg",
+   "symbolic": true
+  },
+  "network-wireless-signal-excellent-symbolic": {
+   "1x": "network-wireless-signal-excellent-symbolic.png",
+   "2x": "network-wireless-signal-excellent-symbolic.png",
+   "source": "Papirus/symbolic/status/network-wireless-signal-excellent-symbolic.svg",
+   "symbolic": true
+  },
+  "network-wireless-symbolic": {
+   "1x": "network-wireless-symbolic.png",
+   "2x": "network-wireless-symbolic.png",
+   "source": "Papirus/symbolic/devices/network-wireless-symbolic.svg",
+   "symbolic": true
+  },
+  "network-workgroup": {
+   "1x": "network-workgroup.png",
+   "2x": "network-workgroup@2x.png",
+   "source": "Papirus/128x128/places/network-workgroup.svg"
+  },
+  "notifications-disabled-symbolic": {
+   "1x": "notifications-disabled-symbolic.png",
+   "2x": "notifications-disabled-symbolic.png",
+   "source": "Papirus/symbolic/status/notifications-disabled-symbolic.svg",
+   "symbolic": true
+  },
+  "notifications-symbolic": {
+   "1x": "notifications-symbolic.png",
+   "2x": "notifications-symbolic.png",
+   "source": "breeze/actions/22@3x/notifications-symbolic.svg",
+   "symbolic": true
+  },
+  "object-flip-horizontal-symbolic": {
+   "1x": "object-flip-horizontal-symbolic.png",
+   "2x": "object-flip-horizontal-symbolic.png",
+   "source": "Papirus/symbolic/actions/object-flip-horizontal-symbolic.svg",
+   "symbolic": true
+  },
+  "object-select-symbolic": {
+   "1x": "object-select-symbolic.png",
+   "2x": "object-select-symbolic.png",
+   "source": "Papirus/symbolic/actions/object-select-symbolic.svg",
+   "symbolic": true
+  },
+  "office-calendar": {
+   "1x": "office-calendar.png",
+   "2x": "office-calendar@2x.png",
+   "source": "Papirus/128x128/apps/office-calendar.svg"
+  },
+  "open-menu": {
+   "1x": "open-menu.png",
+   "2x": "open-menu.png",
+   "source": "Papirus/24x24@2x/actions/open-menu.svg"
+  },
+  "open-menu-symbolic": {
+   "1x": "open-menu-symbolic.png",
+   "2x": "open-menu-symbolic.png",
+   "source": "Papirus/symbolic/actions/open-menu-symbolic.svg",
+   "symbolic": true
+  },
+  "org.gnome.Nautilus": {
+   "1x": "org.gnome.Nautilus.png",
+   "2x": "org.gnome.Nautilus@2x.png",
+   "source": "Papirus/128x128/apps/org.gnome.Nautilus.svg"
+  },
+  "org.gnome.Settings": {
+   "1x": "org.gnome.Settings.png",
+   "2x": "org.gnome.Settings@2x.png",
+   "source": "Papirus/128x128/apps/org.gnome.Settings.svg"
+  },
+  "org.gnome.Software": {
+   "1x": "org.gnome.Software.png",
+   "2x": "org.gnome.Software@2x.png",
+   "source": "Papirus/128x128/apps/org.gnome.Software.svg"
+  },
+  "org.gnome.SystemMonitor": {
+   "1x": "org.gnome.SystemMonitor.png",
+   "2x": "org.gnome.SystemMonitor@2x.png",
+   "source": "Papirus/128x128/apps/org.gnome.SystemMonitor.svg"
+  },
+  "org.gnome.SystemMonitor-symbolic": {
+   "1x": "org.gnome.SystemMonitor-symbolic.png",
+   "2x": "org.gnome.SystemMonitor-symbolic.png",
+   "source": "Papirus/symbolic/apps/org.gnome.SystemMonitor-symbolic.svg",
+   "symbolic": true
+  },
+  "org.gnome.Terminal": {
+   "1x": "org.gnome.Terminal.png",
+   "2x": "org.gnome.Terminal@2x.png",
+   "source": "Papirus/128x128/apps/org.gnome.Terminal.svg"
+  },
+  "org.gnome.TextEditor": {
+   "1x": "org.gnome.TextEditor.png",
+   "2x": "org.gnome.TextEditor@2x.png",
+   "source": "Papirus/128x128/apps/org.gnome.TextEditor.svg"
+  },
+  "org.kde.falkon": {
+   "1x": "org.kde.falkon.png",
+   "2x": "org.kde.falkon@2x.png",
+   "source": "Papirus/128x128/apps/org.kde.falkon.svg"
+  },
+  "org.mozilla.firefox": {
+   "1x": "org.mozilla.firefox.png",
+   "2x": "org.mozilla.firefox@2x.png",
+   "source": "Papirus/128x128/apps/org.mozilla.firefox.svg"
+  },
+  "org.videolan.VLC": {
+   "1x": "org.videolan.VLC.png",
+   "2x": "org.videolan.VLC@2x.png",
+   "source": "Papirus/128x128/apps/org.videolan.VLC.svg"
+  },
+  "package-x-generic": {
+   "1x": "package-x-generic.png",
+   "2x": "package-x-generic.png",
+   "source": "Papirus/128x128/mimetypes/package-x-generic.svg"
+  },
+  "package-x-generic-symbolic": {
+   "1x": "package-x-generic-symbolic.png",
+   "2x": "package-x-generic-symbolic.png",
+   "source": "Papirus/symbolic/mimetypes/package-x-generic-symbolic.svg",
+   "symbolic": true
+  },
+  "preferences-desktop": {
+   "1x": "preferences-desktop.png",
+   "2x": "preferences-desktop@2x.png",
+   "source": "Papirus/128x128/apps/preferences-desktop.svg"
+  },
+  "preferences-desktop-appearance": {
+   "1x": "preferences-desktop-appearance.png",
+   "2x": "preferences-desktop-appearance@2x.png",
+   "source": "Papirus/128x128/apps/preferences-desktop.svg"
+  },
+  "preferences-desktop-background": {
+   "1x": "preferences-desktop-background.png",
+   "2x": "preferences-desktop-background@2x.png",
+   "source": "Papirus/128x128/apps/preferences-desktop.svg"
+  },
+  "preferences-desktop-color": {
+   "1x": "preferences-desktop-color.png",
+   "2x": "preferences-desktop-color@2x.png",
+   "source": "Papirus/128x128/apps/preferences-desktop-color.svg"
+  },
+  "preferences-desktop-font-symbolic": {
+   "1x": "preferences-desktop-font-symbolic.png",
+   "2x": "preferences-desktop-font-symbolic.png",
+   "source": "Papirus/symbolic/apps/preferences-desktop-font-symbolic.svg",
+   "symbolic": true
+  },
+  "preferences-desktop-symbolic": {
+   "1x": "preferences-desktop-symbolic.png",
+   "2x": "preferences-desktop-symbolic.png",
+   "source": "Papirus/128x128/apps/preferences-desktop.svg"
+  },
+  "preferences-desktop-theme": {
+   "1x": "preferences-desktop-theme.png",
+   "2x": "preferences-desktop-theme@2x.png",
+   "source": "Papirus/128x128/apps/preferences-desktop-theme.svg"
+  },
+  "preferences-desktop-theme-symbolic": {
+   "1x": "preferences-desktop-theme-symbolic.png",
+   "2x": "preferences-desktop-theme-symbolic.png",
+   "source": "Papirus/128x128/apps/preferences-desktop-theme.svg"
+  },
+  "preferences-desktop-wallpaper": {
+   "1x": "preferences-desktop-wallpaper.png",
+   "2x": "preferences-desktop-wallpaper@2x.png",
+   "source": "Papirus/128x128/apps/preferences-desktop-wallpaper.svg"
+  },
+  "preferences-desktop-wallpaper-symbolic": {
+   "1x": "preferences-desktop-wallpaper-symbolic.png",
+   "2x": "preferences-desktop-wallpaper-symbolic.png",
+   "source": "Papirus/symbolic/apps/preferences-desktop-wallpaper-symbolic.svg",
+   "symbolic": true
+  },
+  "preferences-other-symbolic": {
+   "1x": "preferences-other-symbolic.png",
+   "2x": "preferences-other-symbolic.png",
+   "source": "Papirus/symbolic/categories/preferences-other-symbolic.svg",
+   "symbolic": true
+  },
+  "preferences-system": {
+   "1x": "preferences-system.png",
+   "2x": "preferences-system@2x.png",
+   "source": "Papirus/128x128/apps/preferences-system.svg"
+  },
+  "preferences-system-notifications-symbolic": {
+   "1x": "preferences-system-notifications-symbolic.png",
+   "2x": "preferences-system-notifications-symbolic.png",
+   "source": "Papirus/symbolic/apps/preferences-system-notifications-symbolic.svg",
+   "symbolic": true
+  },
+  "preferences-system-power-symbolic": {
+   "1x": "preferences-system-power-symbolic.png",
+   "2x": "preferences-system-power-symbolic.png",
+   "source": "Papirus/128x128/apps/preferences-system-power.svg"
+  },
+  "preferences-system-symbolic": {
+   "1x": "preferences-system-symbolic.png",
+   "2x": "preferences-system-symbolic.png",
+   "source": "Papirus/symbolic/categories/preferences-system-symbolic.svg",
+   "symbolic": true
+  },
+  "preferences-system-time-symbolic": {
+   "1x": "preferences-system-time-symbolic.png",
+   "2x": "preferences-system-time-symbolic.png",
+   "source": "Papirus/symbolic/apps/preferences-system-time-symbolic.svg",
+   "symbolic": true
+  },
+  "preferences-system-windows-symbolic": {
+   "1x": "preferences-system-windows-symbolic.png",
+   "2x": "preferences-system-windows-symbolic.png",
+   "source": "Papirus/128x128/apps/preferences-system-windows.svg"
+  },
+  "sidebar-show-symbolic": {
+   "1x": "sidebar-show-symbolic.png",
+   "2x": "sidebar-show-symbolic.png",
+   "source": "Papirus/symbolic/actions/sidebar-show-symbolic.svg",
+   "symbolic": true
+  },
+  "software-store": {
+   "1x": "software-store.png",
+   "2x": "software-store@2x.png",
+   "source": "Papirus/128x128/apps/software-store.svg"
+  },
+  "software-update-available-symbolic": {
+   "1x": "software-update-available-symbolic.png",
+   "2x": "software-update-available-symbolic.png",
+   "source": "Papirus/symbolic/status/software-update-available-symbolic.svg",
+   "symbolic": true
+  },
+  "starred-symbolic": {
+   "1x": "starred-symbolic.png",
+   "2x": "starred-symbolic.png",
+   "source": "Papirus/symbolic/status/starred-symbolic.svg",
+   "symbolic": true
+  },
+  "start-here": {
+   "1x": "start-here.png",
+   "2x": "start-here@2x.png",
+   "source": "Papirus/24x24@2x/panel/start-here.svg"
+  },
+  "start-here-symbolic": {
+   "1x": "start-here-symbolic.png",
+   "2x": "start-here-symbolic.png",
+   "source": "Papirus/symbolic/places/start-here-symbolic.svg",
+   "symbolic": true
+  },
+  "system-file-manager": {
+   "1x": "system-file-manager.png",
+   "2x": "system-file-manager@2x.png",
+   "source": "Papirus/128x128/apps/system-file-manager.svg"
+  },
+  "system-lock-screen-symbolic": {
+   "1x": "system-lock-screen-symbolic.png",
+   "2x": "system-lock-screen-symbolic.png",
+   "source": "Papirus/symbolic/status/system-lock-screen-symbolic.svg",
+   "symbolic": true
+  },
+  "system-reboot-symbolic": {
+   "1x": "system-reboot-symbolic.png",
+   "2x": "system-reboot-symbolic.png",
+   "source": "Papirus/symbolic/actions/system-reboot-symbolic.svg",
+   "symbolic": true
+  },
+  "system-run-symbolic": {
+   "1x": "system-run-symbolic.png",
+   "2x": "system-run-symbolic.png",
+   "source": "Papirus/symbolic/actions/system-run-symbolic.svg",
+   "symbolic": true
+  },
+  "system-search-symbolic": {
+   "1x": "system-search-symbolic.png",
+   "2x": "system-search-symbolic.png",
+   "source": "Papirus/symbolic/actions/system-search-symbolic.svg",
+   "symbolic": true
+  },
+  "system-shutdown-symbolic": {
+   "1x": "system-shutdown-symbolic.png",
+   "2x": "system-shutdown-symbolic.png",
+   "source": "Papirus/symbolic/actions/system-shutdown-symbolic.svg",
+   "symbolic": true
+  },
+  "system-software-install": {
+   "1x": "system-software-install.png",
+   "2x": "system-software-install@2x.png",
+   "source": "Papirus/128x128/apps/system-software-install.svg"
+  },
+  "system-software-install-symbolic": {
+   "1x": "system-software-install-symbolic.png",
+   "2x": "system-software-install-symbolic.png",
+   "source": "Papirus/symbolic/apps/system-software-install-symbolic.svg",
+   "symbolic": true
+  },
+  "system-software-update": {
+   "1x": "system-software-update.png",
+   "2x": "system-software-update@2x.png",
+   "source": "Papirus/128x128/apps/system-software-update.svg"
+  },
+  "tab-new-symbolic": {
+   "1x": "tab-new-symbolic.png",
+   "2x": "tab-new-symbolic.png",
+   "source": "Papirus/symbolic/actions/tab-new-symbolic.svg",
+   "symbolic": true
+  },
+  "text-css": {
+   "1x": "text-css.png",
+   "2x": "text-css.png",
+   "source": "Papirus/128x128/mimetypes/text-css.svg"
+  },
+  "text-csv": {
+   "1x": "text-csv.png",
+   "2x": "text-csv.png",
+   "source": "Papirus/128x128/mimetypes/text-csv.svg"
+  },
+  "text-editor": {
+   "1x": "text-editor.png",
+   "2x": "text-editor@2x.png",
+   "source": "Papirus/128x128/apps/text-editor.svg"
+  },
+  "text-html": {
+   "1x": "text-html.png",
+   "2x": "text-html.png",
+   "source": "Papirus/128x128/mimetypes/text-html.svg"
+  },
+  "text-javascript": {
+   "1x": "text-javascript.png",
+   "2x": "text-javascript.png",
+   "source": "Papirus/128x128/mimetypes/text-javascript.svg"
+  },
+  "text-markdown": {
+   "1x": "text-markdown.png",
+   "2x": "text-markdown.png",
+   "source": "Papirus/128x128/mimetypes/text-markdown.svg"
+  },
+  "text-plain": {
+   "1x": "text-plain.png",
+   "2x": "text-plain.png",
+   "source": "Papirus/128x128/mimetypes/text-plain.svg"
+  },
+  "text-x-c++hdr": {
+   "1x": "text-x-c++hdr.png",
+   "2x": "text-x-c++hdr.png",
+   "source": "Papirus/128x128/mimetypes/text-x-c++hdr.svg"
+  },
+  "text-x-c++src": {
+   "1x": "text-x-c++src.png",
+   "2x": "text-x-c++src.png",
+   "source": "Papirus/128x128/mimetypes/text-x-c++src.svg"
+  },
+  "text-x-chdr": {
+   "1x": "text-x-chdr.png",
+   "2x": "text-x-chdr.png",
+   "source": "Papirus/128x128/mimetypes/text-x-chdr.svg"
+  },
+  "text-x-csrc": {
+   "1x": "text-x-csrc.png",
+   "2x": "text-x-csrc.png",
+   "source": "Papirus/128x128/mimetypes/text-x-csrc.svg"
+  },
+  "text-x-generic": {
+   "1x": "text-x-generic.png",
+   "2x": "text-x-generic@2x.png",
+   "source": "Papirus/128x128/mimetypes/text-x-generic.svg"
+  },
+  "text-x-generic-symbolic": {
+   "1x": "text-x-generic-symbolic.png",
+   "2x": "text-x-generic-symbolic.png",
+   "source": "Papirus/symbolic/mimetypes/text-x-generic-symbolic.svg",
+   "symbolic": true
+  },
+  "text-x-go": {
+   "1x": "text-x-go.png",
+   "2x": "text-x-go.png",
+   "source": "Papirus/128x128/mimetypes/text-x-go.svg"
+  },
+  "text-x-java": {
+   "1x": "text-x-java.png",
+   "2x": "text-x-java.png",
+   "source": "Papirus/128x128/mimetypes/text-x-java.svg"
+  },
+  "text-x-log": {
+   "1x": "text-x-log.png",
+   "2x": "text-x-log.png",
+   "source": "Papirus/128x128/mimetypes/text-x-log.svg"
+  },
+  "text-x-lua": {
+   "1x": "text-x-lua.png",
+   "2x": "text-x-lua.png",
+   "source": "Papirus/128x128/mimetypes/text-x-lua.svg"
+  },
+  "text-x-makefile": {
+   "1x": "text-x-makefile.png",
+   "2x": "text-x-makefile.png",
+   "source": "Papirus/128x128/mimetypes/text-x-makefile.svg"
+  },
+  "text-x-markdown": {
+   "1x": "text-x-markdown.png",
+   "2x": "text-x-markdown.png",
+   "source": "Papirus/128x128/mimetypes/text-x-markdown.svg"
+  },
+  "text-x-patch": {
+   "1x": "text-x-patch.png",
+   "2x": "text-x-patch.png",
+   "source": "Papirus/128x128/mimetypes/text-x-patch.svg"
+  },
+  "text-x-perl": {
+   "1x": "text-x-perl.png",
+   "2x": "text-x-perl.png",
+   "source": "Papirus/128x128/mimetypes/text-x-perl.svg"
+  },
+  "text-x-python": {
+   "1x": "text-x-python.png",
+   "2x": "text-x-python.png",
+   "source": "Papirus/128x128/mimetypes/text-x-python.svg"
+  },
+  "text-x-ruby": {
+   "1x": "text-x-ruby.png",
+   "2x": "text-x-ruby.png",
+   "source": "Papirus/128x128/mimetypes/text-x-ruby.svg"
+  },
+  "text-x-rust": {
+   "1x": "text-x-rust.png",
+   "2x": "text-x-rust.png",
+   "source": "Papirus/128x128/mimetypes/text-x-rust.svg"
+  },
+  "text-x-script": {
+   "1x": "text-x-script.png",
+   "2x": "text-x-script.png",
+   "source": "Papirus/128x128/mimetypes/text-x-script.svg"
+  },
+  "text-xml": {
+   "1x": "text-xml.png",
+   "2x": "text-xml.png",
+   "source": "Papirus/128x128/mimetypes/text-xml.svg"
+  },
+  "thunderbird": {
+   "1x": "thunderbird.png",
+   "2x": "thunderbird@2x.png",
+   "source": "Papirus/128x128/apps/thunderbird.svg"
+  },
+  "user-bookmarks": {
+   "1x": "user-bookmarks.png",
+   "2x": "user-bookmarks@2x.png",
+   "source": "Papirus/128x128/places/user-bookmarks.svg"
+  },
+  "user-desktop": {
+   "1x": "user-desktop.png",
+   "2x": "user-desktop@2x.png",
+   "source": "Papirus/128x128/places/user-desktop.svg"
+  },
+  "user-desktop-symbolic": {
+   "1x": "user-desktop-symbolic.png",
+   "2x": "user-desktop-symbolic.png",
+   "source": "Papirus/symbolic/places/user-desktop-symbolic.svg",
+   "symbolic": true
+  },
+  "user-home": {
+   "1x": "user-home.png",
+   "2x": "user-home@2x.png",
+   "source": "Papirus/128x128/places/user-home.svg"
+  },
+  "user-trash": {
+   "1x": "user-trash.png",
+   "2x": "user-trash@2x.png",
+   "source": "Papirus/128x128/places/user-trash.svg"
+  },
+  "user-trash-full": {
+   "1x": "user-trash-full.png",
+   "2x": "user-trash-full@2x.png",
+   "source": "Papirus/128x128/places/user-trash-full.svg"
+  },
+  "user-trash-symbolic": {
+   "1x": "user-trash-symbolic.png",
+   "2x": "user-trash-symbolic.png",
+   "source": "Papirus/symbolic/places/user-trash-symbolic.svg",
+   "symbolic": true
+  },
+  "utilities-system-monitor": {
+   "1x": "utilities-system-monitor.png",
+   "2x": "utilities-system-monitor@2x.png",
+   "source": "Papirus/128x128/apps/utilities-system-monitor.svg"
+  },
+  "utilities-system-monitor-symbolic": {
+   "1x": "utilities-system-monitor-symbolic.png",
+   "2x": "utilities-system-monitor-symbolic.png",
+   "source": "Papirus/symbolic/apps/utilities-system-monitor-symbolic.svg",
+   "symbolic": true
+  },
+  "utilities-terminal": {
+   "1x": "utilities-terminal.png",
+   "2x": "utilities-terminal@2x.png",
+   "source": "Papirus/128x128/apps/utilities-terminal.svg"
+  },
+  "utilities-terminal-symbolic": {
+   "1x": "utilities-terminal-symbolic.png",
+   "2x": "utilities-terminal-symbolic.png",
+   "source": "Papirus/symbolic/apps/utilities-terminal-symbolic.svg",
+   "symbolic": true
+  },
+  "video-mp4": {
+   "1x": "video-mp4.png",
+   "2x": "video-mp4.png",
+   "source": "Papirus/128x128/mimetypes/video-mp4.svg"
+  },
+  "video-webm": {
+   "1x": "video-webm.png",
+   "2x": "video-webm.png",
+   "source": "Papirus/128x128/mimetypes/video-webm.svg"
+  },
+  "video-x-generic": {
+   "1x": "video-x-generic.png",
+   "2x": "video-x-generic@2x.png",
+   "source": "Papirus/128x128/mimetypes/video-x-generic.svg"
+  },
+  "video-x-matroska": {
+   "1x": "video-x-matroska.png",
+   "2x": "video-x-matroska.png",
+   "source": "Papirus/128x128/mimetypes/video-x-matroska.svg"
+  },
+  "video-x-msvideo": {
+   "1x": "video-x-msvideo.png",
+   "2x": "video-x-msvideo.png",
+   "source": "Papirus/128x128/mimetypes/video-x-msvideo.svg"
+  },
+  "view-app-grid-symbolic": {
+   "1x": "view-app-grid-symbolic.png",
+   "2x": "view-app-grid-symbolic.png",
+   "source": "Papirus/symbolic/actions/view-app-grid-symbolic.svg",
+   "symbolic": true
+  },
+  "view-column-symbolic": {
+   "1x": "view-column-symbolic.png",
+   "2x": "view-column-symbolic.png",
+   "source": "Papirus/symbolic/actions/view-column-symbolic.svg",
+   "symbolic": true
+  },
+  "view-dual-symbolic": {
+   "1x": "view-dual-symbolic.png",
+   "2x": "view-dual-symbolic.png",
+   "source": "Papirus/symbolic/actions/view-dual-symbolic.svg",
+   "symbolic": true
+  },
+  "view-fullscreen-symbolic": {
+   "1x": "view-fullscreen-symbolic.png",
+   "2x": "view-fullscreen-symbolic.png",
+   "source": "Papirus/symbolic/actions/view-fullscreen-symbolic.svg",
+   "symbolic": true
+  },
+  "view-grid": {
+   "1x": "view-grid.png",
+   "2x": "view-grid.png",
+   "source": "Papirus/24x24@2x/actions/view-grid.svg"
+  },
+  "view-grid-symbolic": {
+   "1x": "view-grid-symbolic.png",
+   "2x": "view-grid-symbolic.png",
+   "source": "Papirus/symbolic/actions/view-grid-symbolic.svg",
+   "symbolic": true
+  },
+  "view-list": {
+   "1x": "view-list.png",
+   "2x": "view-list.png",
+   "source": "Papirus/24x24@2x/actions/view-list.svg"
+  },
+  "view-list-symbolic": {
+   "1x": "view-list-symbolic.png",
+   "2x": "view-list-symbolic.png",
+   "source": "Papirus/symbolic/actions/view-list-symbolic.svg",
+   "symbolic": true
+  },
+  "view-more-symbolic": {
+   "1x": "view-more-symbolic.png",
+   "2x": "view-more-symbolic.png",
+   "source": "Papirus/symbolic/actions/view-more-symbolic.svg",
+   "symbolic": true
+  },
+  "view-paged-symbolic": {
+   "1x": "view-paged-symbolic.png",
+   "2x": "view-paged-symbolic.png",
+   "source": "Papirus/symbolic/actions/view-paged-symbolic.svg",
+   "symbolic": true
+  },
+  "view-pin-symbolic": {
+   "1x": "view-pin-symbolic.png",
+   "2x": "view-pin-symbolic.png",
+   "source": "Papirus/symbolic/actions/view-pin-symbolic.svg",
+   "symbolic": true
+  },
+  "view-refresh": {
+   "1x": "view-refresh.png",
+   "2x": "view-refresh.png",
+   "source": "Papirus/24x24@2x/actions/view-refresh.svg"
+  },
+  "view-refresh-symbolic": {
+   "1x": "view-refresh-symbolic.png",
+   "2x": "view-refresh-symbolic.png",
+   "source": "Papirus/symbolic/actions/view-refresh-symbolic.svg",
+   "symbolic": true
+  },
+  "view-restore-symbolic": {
+   "1x": "view-restore-symbolic.png",
+   "2x": "view-restore-symbolic.png",
+   "source": "Papirus/symbolic/actions/view-restore-symbolic.svg",
+   "symbolic": true
+  },
+  "view-reveal-symbolic": {
+   "1x": "view-reveal-symbolic.png",
+   "2x": "view-reveal-symbolic.png",
+   "source": "Papirus/symbolic/actions/view-reveal-symbolic.svg",
+   "symbolic": true
+  },
+  "view-sort-ascending-symbolic": {
+   "1x": "view-sort-ascending-symbolic.png",
+   "2x": "view-sort-ascending-symbolic.png",
+   "source": "Papirus/symbolic/actions/view-sort-ascending-symbolic.svg",
+   "symbolic": true
+  },
+  "view-visible-symbolic": {
+   "1x": "view-visible-symbolic.png",
+   "2x": "view-visible-symbolic.png",
+   "source": "breeze/actions/22@3x/view-visible-symbolic.svg",
+   "symbolic": true
+  },
+  "visual-studio-code": {
+   "1x": "visual-studio-code.png",
+   "2x": "visual-studio-code@2x.png",
+   "source": "Papirus/128x128/apps/visual-studio-code.svg"
+  },
+  "vlc": {
+   "1x": "vlc.png",
+   "2x": "vlc@2x.png",
+   "source": "Papirus/128x128/apps/vlc.svg"
+  },
+  "weather-clear-night-symbolic": {
+   "1x": "weather-clear-night-symbolic.png",
+   "2x": "weather-clear-night-symbolic.png",
+   "source": "Papirus/symbolic/status/weather-clear-night-symbolic.svg",
+   "symbolic": true
+  },
+  "weather-clear-symbolic": {
+   "1x": "weather-clear-symbolic.png",
+   "2x": "weather-clear-symbolic.png",
+   "source": "Papirus/symbolic/status/weather-clear-symbolic.svg",
+   "symbolic": true
+  },
+  "web-browser": {
+   "1x": "web-browser.png",
+   "2x": "web-browser@2x.png",
+   "source": "Papirus/128x128/apps/web-browser.svg"
+  },
+  "web-browser-symbolic": {
+   "1x": "web-browser-symbolic.png",
+   "2x": "web-browser-symbolic.png",
+   "source": "Papirus/symbolic/apps/web-browser-symbolic.svg",
+   "symbolic": true
+  },
+  "window-close": {
+   "1x": "window-close.png",
+   "2x": "window-close.png",
+   "source": "Papirus/24x24@2x/actions/window-close.svg"
+  },
+  "window-close-symbolic": {
+   "1x": "window-close-symbolic.png",
+   "2x": "window-close-symbolic.png",
+   "source": "Papirus/symbolic/actions/window-close-symbolic.svg",
+   "symbolic": true
+  },
+  "window-maximize": {
+   "1x": "window-maximize.png",
+   "2x": "window-maximize.png",
+   "source": "Papirus/24x24@2x/actions/window-maximize.svg"
+  },
+  "window-maximize-symbolic": {
+   "1x": "window-maximize-symbolic.png",
+   "2x": "window-maximize-symbolic.png",
+   "source": "Papirus/symbolic/actions/window-maximize-symbolic.svg",
+   "symbolic": true
+  },
+  "window-minimize": {
+   "1x": "window-minimize.png",
+   "2x": "window-minimize.png",
+   "source": "Papirus/24x24@2x/actions/window-minimize.svg"
+  },
+  "window-minimize-symbolic": {
+   "1x": "window-minimize-symbolic.png",
+   "2x": "window-minimize-symbolic.png",
+   "source": "Papirus/symbolic/actions/window-minimize-symbolic.svg",
+   "symbolic": true
+  },
+  "window-new-symbolic": {
+   "1x": "window-new-symbolic.png",
+   "2x": "window-new-symbolic.png",
+   "source": "breeze/actions/22@3x/window-new-symbolic.svg",
+   "symbolic": true
+  },
+  "window-restore": {
+   "1x": "window-restore.png",
+   "2x": "window-restore.png",
+   "source": "Papirus/24x24@2x/actions/window-restore.svg"
+  },
+  "window-restore-symbolic": {
+   "1x": "window-restore-symbolic.png",
+   "2x": "window-restore-symbolic.png",
+   "source": "Papirus/symbolic/actions/window-restore-symbolic.svg",
+   "symbolic": true
+  },
+  "x-office-calendar": {
+   "1x": "x-office-calendar.png",
+   "2x": "x-office-calendar@2x.png",
+   "source": "Papirus/128x128/mimetypes/x-office-calendar.svg"
+  },
+  "x-office-calendar-symbolic": {
+   "1x": "x-office-calendar-symbolic.png",
+   "2x": "x-office-calendar-symbolic.png",
+   "source": "Papirus/symbolic/mimetypes/x-office-calendar-symbolic.svg",
+   "symbolic": true
+  },
+  "x-office-document": {
+   "1x": "x-office-document.png",
+   "2x": "x-office-document.png",
+   "source": "Papirus/128x128/mimetypes/x-office-document.svg"
+  },
+  "x-office-presentation": {
+   "1x": "x-office-presentation.png",
+   "2x": "x-office-presentation.png",
+   "source": "Papirus/128x128/mimetypes/x-office-presentation.svg"
+  },
+  "x-office-spreadsheet": {
+   "1x": "x-office-spreadsheet.png",
+   "2x": "x-office-spreadsheet.png",
+   "source": "Papirus/128x128/mimetypes/x-office-spreadsheet.svg"
+  },
+  "zoom-fit-best-symbolic": {
+   "1x": "zoom-fit-best-symbolic.png",
+   "2x": "zoom-fit-best-symbolic.png",
+   "source": "Papirus/symbolic/actions/zoom-fit-best-symbolic.svg",
+   "symbolic": true
+  }
+ },
+ "missing": [
+  "application-x-generic",
+  "application-x-iso9660-image",
+  "application-x-xz",
+  "image-heif",
+  "image-webp",
+  "preferences-desktop-appearance-symbolic",
+  "text-x-sh",
+  "text-x-typescript",
+  "video-quicktime",
+  "view-app-grid",
+  "vscode"
+ ],
+ "version": 1
+}

@@ -61,6 +61,10 @@ final class OSDObserver: NSObject {
             let language = (note.object as? UITextInputMode)?.primaryLanguage
             MainActor.assumeIsolated { self?.inputLanguageChanged(language) }
         })
+        observers.append(center.addObserver(forName: .linuxKeyboardLayoutDidChange, object: nil, queue: .main) { [weak self] note in
+            let title = note.object as? String
+            MainActor.assumeIsolated { self?.linuxLayoutChanged(title) }
+        })
         // Reported while the app's audio session is active (the Linux audio bridge keeps one).
         volumeObservation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] _, change in
             guard let volume = change.newValue else { return }
@@ -73,6 +77,17 @@ final class OSDObserver: NSObject {
         let isFirst = lastLanguage == nil
         lastLanguage = language
         if !isFirst { controller?.showOSD(.layout(language)) }
+    }
+
+    /// The Linux keymap follows the iPad's layout; a change from the Globe key joins the
+    /// iPad's own layout OSD shown a moment earlier.
+    private func linuxLayoutChanged(_ title: String?) {
+        guard let title, let controller else { return }
+        if let shown = controller.osd, shown.kind == .layout, !shown.label.contains("Linux") {
+            controller.showOSD(OSDState(kind: .layout, level: nil, label: "\(shown.label) · Linux: \(title)"))
+        } else {
+            controller.showOSD(OSDState(kind: .layout, level: nil, label: "Linux: \(title)"))
+        }
     }
 }
 

@@ -52,6 +52,24 @@ extension DesktopController {
 
     /// Applies a saved look: style, colour theme, styling, and optionally a wallpaper search.
     func applyLook(_ look: DesktopLook) {
+        // A desktop theme's look goes through the preset, so it is applied exactly as from the
+        // gallery (wallpaper, brushed metal, widgets, the dark member).
+        if let id = look.presetID, let preset = DesktopThemePreset.preset(id) {
+            applyDesktopThemePreset(preset, dark: look.presetDark)
+            if look.styling != preset.styling { updateStyling(look.styling) }
+            if let wallpaper = look.wallpaper { wallpapers.update { $0.light = wallpaper; $0.dark = wallpaper } }
+            return
+        }
+        clearDesktopThemePreset()
+        UserDefaults.standard.set(look.brushedMetal ?? false, forKey: EraSettings.brushedMetalKey)
+        if let wallpaper = look.wallpaper {
+            wallpapers.update { settings in
+                settings.light = wallpaper
+                settings.dark = wallpaper
+                settings.perWorkspace = [:]
+                settings.usesPerWorkspace = false
+            }
+        }
         UserDefaults.standard.set(look.style.rawValue, forKey: DesktopStyle.storageKey)
         if let appearance = look.appearanceID { UserDefaults.standard.set(appearance, forKey: DesktopAppearance.storageKey) }
         if themeAppearance.isEnabled {
@@ -59,6 +77,11 @@ extension DesktopController {
             appearance.isEnabled = false
             updateThemeAppearance(appearance)
         }
+        // Switch the style now, so its own defaults (a style's colour theme, auto-tiling) run
+        // before the look's colours instead of overriding them when the view catches up.
+        let appearance = DesktopAppearance(rawValue: look.appearanceID ?? "") ?? .styleDefault
+        applyStyle(look.style, dark: colorThemes.theme(look.colorThemeID)?.isDark
+                   ?? appearance.isDark(style: look.style, system: systemIsDark ? .dark : .light))
         applyColorTheme(look.colorThemeID)
         updateStyling(look.styling)
         notify("Look: \(look.name)")

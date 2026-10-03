@@ -30,6 +30,16 @@ final class OnboardingUITests: XCTestCase {
         XCTAssertTrue(element("onboarding.step.\(step)").waitForExistence(timeout: 5), "step \(step) is showing")
     }
 
+    /// The screen as the user sees it: the raw buffer is portrait, the image carries the
+    /// orientation, and drawing it applies that.
+    private func save(name: String, in directory: String) {
+        let image = XCUIScreen.main.screenshot().image
+        let upright = UIGraphicsImageRenderer(size: image.size).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+        try? upright.pngData()?.write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name).png"))
+    }
+
     private func launchToIntro() {
         app.launch()
         XCTAssertTrue(onboarding.waitForExistence(timeout: 15), "onboarding opens at first launch")
@@ -144,10 +154,7 @@ final class OnboardingUITests: XCTestCase {
     func testCaptureEveryStep() throws {
         let directory = try XCTUnwrap(ProcessInfo.processInfo.environment["DESKTOP_SCREENSHOT_DIR"]
             .map { $0 }, "DESKTOP_SCREENSHOT_DIR not set")
-        func shot(_ name: String) {
-            try? XCUIScreen.main.screenshot().pngRepresentation
-                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("onboarding-\(name).png"))
-        }
+        func shot(_ name: String) { save(name: "onboarding-\(name)", in: directory) }
         launchToIntro()
         sleep(1)
         shot("01-intro-drawing")
@@ -167,6 +174,7 @@ final class OnboardingUITests: XCTestCase {
         sleep(1)
         shot("04-personalize")
         let tokyo = element("onboarding.theme.tokyo-night")
+        XCTAssertTrue(tokyo.waitForExistence(timeout: 3), "Tokyo Night is in the theme strip")
         if tokyo.exists {
             tokyo.tap()
             sleep(1)
@@ -213,10 +221,7 @@ final class OnboardingUITests: XCTestCase {
     func testCapturePolishSurfaces() throws {
         let directory = try XCTUnwrap(ProcessInfo.processInfo.environment["DESKTOP_SCREENSHOT_DIR"], "DESKTOP_SCREENSHOT_DIR not set")
         let tag = ProcessInfo.processInfo.environment["DESKTOP_SHOT_TAG"] ?? "current"
-        func shot(_ name: String) {
-            try? XCUIScreen.main.screenshot().pngRepresentation
-                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("polish-\(tag)-\(name).png"))
-        }
+        func shot(_ name: String) { save(name: "polish-\(tag)-\(name)", in: directory) }
         func launch(style: String, appearance: String, autostart: String = "") {
             app.terminate()
             app.launchArguments = ["-desktop.resetSession", "YES", "-desktop.autostart", autostart, "-desktop.tiling", "",

@@ -74,6 +74,8 @@ struct InlineBanner: View {
 struct ToolbarIconButton: View {
     @Environment(\.desktopTheme) private var theme
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.desktopStyle) private var style
+    @State private var isHovered = false
     let symbol: String
     /// Freedesktop icon names drawn from the icon pack in place of the symbol (ThemeIconNames).
     var icon: [String] = []
@@ -93,14 +95,21 @@ struct ToolbarIconButton: View {
         Button(action: action) {
             ThemeGlyph(icon, symbol: symbol, size: 14)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(isActive ? theme.accent : theme.primaryText)
+                .foregroundStyle(style.spec.skin.map { EraButtonFace.label($0, isActive: false, isProminent: false, theme: theme) }
+                                 ?? (isActive ? theme.accent : theme.primaryText))
                 .frame(width: 30, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(isActive ? theme.accent.opacity(0.18) : Color.clear))
+                .background {
+                    if let skin = style.spec.skin {
+                        EraToolbarButtonFace(skin: skin, isActive: isActive, isHovered: isHovered)
+                    } else {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(isActive ? theme.accent.opacity(0.18) : Color.clear)
+                    }
+                }
                 .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
         .opacity(isEnabled ? 1 : 0.35)
         .hoverEffect(.highlight)
         .help(help)
@@ -112,6 +121,7 @@ struct ToolbarIconButton: View {
 struct ToolbarTextButton: View {
     @Environment(\.desktopTheme) private var theme
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.desktopStyle) private var style
     let title: String
     var symbol: String?
     var prominent = false
@@ -125,12 +135,18 @@ struct ToolbarTextButton: View {
                 }
                 Text(title).font(.system(size: 13, weight: .medium))
             }
-            .foregroundStyle(prominent && isEnabled ? theme.accent.readableLabel : theme.primaryText)
+            .foregroundStyle(style.spec.skin.map { EraButtonFace.label($0, isActive: false, isProminent: prominent, theme: theme) }
+                             ?? (prominent && isEnabled ? theme.accent.readableLabel : theme.primaryText))
             .padding(.horizontal, 10)
             .frame(height: 26)
-            .background(
-                Capsule().fill(prominent && isEnabled ? theme.accent : theme.primaryText.opacity(prominent ? 0 : 0.08)))
-            .overlay(Capsule().strokeBorder(prominent && !isEnabled ? theme.separator : Color.clear, lineWidth: 1))
+            .background {
+                if let skin = style.spec.skin {
+                    EraButtonFace(skin: skin, isProminent: prominent)
+                } else {
+                    Capsule().fill(prominent && isEnabled ? theme.accent : theme.primaryText.opacity(prominent ? 0 : 0.08))
+                }
+            }
+            .overlay(Capsule().strokeBorder(prominent && !isEnabled && style.spec.skin == nil ? theme.separator : Color.clear, lineWidth: 1))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -141,6 +157,7 @@ struct ToolbarTextButton: View {
 
 struct AppToolbar<Content: View>: View {
     @Environment(\.desktopTheme) private var theme
+    @Environment(\.desktopStyle) private var style
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -150,15 +167,18 @@ struct AppToolbar<Content: View>: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity)
-        .background(theme.titleBarInactive)
+        .background {
+            if let skin = style.spec.skin { EraBarBackground(skin: skin) } else { theme.titleBarInactive }
+        }
         .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.separator).frame(height: 1)
+            if style.spec.skin == nil { Rectangle().fill(theme.separator).frame(height: 1) }
         }
     }
 }
 
 struct AppStatusBar<Content: View>: View {
     @Environment(\.desktopTheme) private var theme
+    @Environment(\.desktopStyle) private var style
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -171,7 +191,9 @@ struct AppStatusBar<Content: View>: View {
         .padding(.horizontal, 12)
         .frame(height: 24)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.titleBarInactive)
+        .background {
+            if let skin = style.spec.skin { EraBarBackground(skin: skin, isStatusBar: true) } else { theme.titleBarInactive }
+        }
         .overlay(alignment: .top) {
             Rectangle().fill(theme.separator).frame(height: 1)
         }
@@ -191,6 +213,7 @@ struct ThemedSeparator: View {
 
 struct AppSearchField: View {
     @Environment(\.desktopTheme) private var theme
+    @Environment(\.desktopStyle) private var style
     let prompt: String
     @Binding var text: String
     var onSubmit: () -> Void = {}
@@ -220,8 +243,14 @@ struct AppSearchField: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 28)
-        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(theme.windowBackground))
-        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(theme.separator, lineWidth: 1))
+        .background {
+            if let skin = style.spec.skin {
+                EraFieldBackground(skin: skin)
+            } else {
+                RoundedRectangle(cornerRadius: 7, style: .continuous).fill(theme.windowBackground)
+                RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(theme.separator, lineWidth: 1)
+            }
+        }
     }
 }
 
@@ -255,6 +284,7 @@ struct AppEmptyState: View {
 /// Clickable column header with a sort direction chevron.
 struct SortableHeader: View {
     @Environment(\.desktopTheme) private var theme
+    @Environment(\.desktopStyle) private var style
     let title: String
     let isActive: Bool
     let ascending: Bool
@@ -273,7 +303,10 @@ struct SortableHeader: View {
                 if alignment == .leading { Spacer(minLength: 0) }
             }
             .font(.caption.weight(.semibold))
-            .foregroundStyle(isActive ? theme.primaryText : theme.secondaryText)
+            .foregroundStyle(style.spec.skin?.isBevelled == true ? Color.black : (isActive ? theme.primaryText : theme.secondaryText))
+            .padding(.horizontal, style.spec.skin?.isBevelled == true ? 4 : 0)
+            .frame(maxHeight: style.spec.skin == nil ? nil : .infinity)
+            .background { if let skin = style.spec.skin { EraHeaderBackground(skin: skin) } }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

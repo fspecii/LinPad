@@ -8,7 +8,7 @@ let package = Package(
         .library(name: "DesktopKit", targets: ["DesktopKit"]),
     ],
     targets: [
-        .target(name: "DesktopKit", resources: [.copy("Resources/Wallpapers"), .copy("Resources/ColorThemes"), .copy("Resources/Fonts")]),
+        .target(name: "DesktopKit", resources: [.copy("Resources/Wallpapers"), .copy("Resources/ColorThemes"), .copy("Resources/Fonts"), .copy("Resources/Icons"), .copy("Resources/Store")]),
         .testTarget(name: "DesktopKitTests", dependencies: ["DesktopKit"], exclude: ["Fixtures"]),
     ]
 )

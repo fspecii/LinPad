@@ -2,6 +2,7 @@
 #include <string.h>
 #include <poll.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <limits.h>
 #include <time.h>
 #include "misc.h"
@@ -74,6 +75,14 @@ static inline bool poll_fd_is_epoll(struct poll_fd *pollfd) {
 static inline bool poll_fd_is_real(struct poll_fd *pollfd) {
     // An epoll fd is registered through its own host kqueue/epoll fd, which
     // becomes readable when one of its host fds has an event.
+    // Regular files and directories are not: they are always ready, which
+    // realfs_poll reports on every pass, and a host read filter on one fires
+    // whenever the offset is short of EOF. When the guest asked for neither
+    // POLLIN nor POLLOUT (Rust's start-up poll of fds 0-2, timeout 0) that event
+    // matched nothing and poll_wait looped on it forever.
+    mode_t_ type = pollfd->fd->type;
+    if (S_ISREG(type) || S_ISDIR(type))
+        return false;
     return pollfd->fd->ops->poll == realfs_poll || poll_fd_is_epoll(pollfd);
 }
 

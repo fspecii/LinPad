@@ -13,8 +13,12 @@ set-default-sink ishaudio
 # the host gives the iOS audio session back to other apps once data stops.
 load-module module-suspend-on-idle timeout=3
 
+# The iPad microphone. The iOS side (app/Desktop/ISHMicBridge.swift) writes s16le mono
+# 48 kHz into /tmp/ishaudio/mic. The source only reads while a client records, so the
+# host sees the FIFO drain and starts the microphone then, and stops it when data piles up.
+load-module module-pipe-source file=/tmp/ishaudio/mic source_name=ipad_mic format=s16le rate=48000 channels=1 source_properties=device.description="iPad\ Microphone"
+set-default-source ipad_mic
+
 .nofail
-load-module module-null-source source_name=silence
-set-default-source silence
 load-module module-stream-restore restore_device=false
 load-module module-position-event-sounds

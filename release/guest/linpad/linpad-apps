@@ -1,12 +1,22 @@
 #!/usr/bin/env node
-// LinPad optional apps: installs and removes the packs in /usr/share/linpad/catalog.json.
-// Nothing in the catalog is preinstalled; the user ticks packs in onboarding or in
-// Settings › Apps, and the desktop runs this command in the guest.
+// LinPad optional apps: installs and removes the packs in /usr/share/linpad/catalog.json and
+// any desktop app in Alpine's repositories that LinPad Store lists ("apk:<package>").
+// Nothing in the catalog is preinstalled; the user ticks apps in onboarding or in the Store,
+// and the desktop runs this command in the guest.
 //
 //   linpad-apps list [--json]      catalog with installed state
-//   linpad-apps install ID...      install packs (idempotent)
-//   linpad-apps remove ID...       remove packs
-//   linpad-apps pending            packs chosen in onboarding (/etc/ish/firstrun.json)
+//   linpad-apps install ID...      install packs or apk:<package> apps (idempotent)
+//   linpad-apps remove ID...       remove them
+//   linpad-apps plan ID...         JSON: the packages an install adds, with download and
+//                                  installed sizes (apk add --simulate + the local index)
+//   linpad-apps state              JSON: world, installed versions, installed packs
+//   linpad-apps updates            JSON: packages with a newer version in the repositories
+//   linpad-apps upgrade [ID...]    upgrade those apps' packages, or everything
+//   linpad-apps cancel             stop the running install while it is still downloading
+//   linpad-apps refresh-index      apk update, then rebuild the Store's app index
+//   linpad-apps refresh-icons      re-render the icon cache (LINPAD_NO_ICON_REFRESH=1 skips
+//                                  it in install/remove/upgrade, for a queue of installs)
+//   linpad-apps pending            apps chosen in onboarding (/etc/ish/firstrun.json)
 //                                  that are not installed yet, plus "reinstall" after
 //                                  a system update
 //   linpad-apps firstrun           install everything `pending` prints
@@ -14,17 +24,27 @@
 // A pack counts as installed when its "check" file exists, else when all its packages are
 // in apk's world (explicitly added), so installing or removing by hand with apk is seen.
 // /var/lib/linpad/apps/<id>.installed records when the desktop installed it.
-// Output lines starting with "==>" are progress for the desktop; everything else is the
-// package manager's own log.
+// Output lines starting with "==>" are progress for the desktop; "==> @phase ID NAME" and
+// "==> @progress ID DONE TOTAL UNIT" are machine-readable. Everything else is the package
+// manager's own log, whose "(3/45) Installing x" lines the desktop also reads.
 'use strict';
 const fs = require('fs');
+const path = require('path');
 const { spawnSync } = require('child_process');
 
 const CATALOG = process.env.LINPAD_CATALOG || '/usr/share/linpad/catalog.json';
+const STORE_INDEXES = (process.env.LINPAD_STORE_INDEX || '/var/lib/linpad/store-index.json:/usr/share/linpad/store-index.json').split(':');
+const STORE_MODULE = process.env.LINPAD_STORE_MODULE || '/usr/local/share/linpad/store/linpad-store-index.mjs';
 const STATE = '/var/lib/linpad/apps';
 const FIRSTRUN = '/etc/ish/firstrun.json';
 const REINSTALL = '/etc/ish/reinstall-packages';
 const EDGE = 'https://dl-cdn.alpinelinux.org/alpine/edge/main';
+const APK_CACHE = '/var/cache/apk';
+const DOWNLOADS = '/var/cache/linpad-store/apk';
+const CANCEL = '/run/linpad-apps.cancel';
+const INDEX_MAX_AGE_MS = 6 * 3600 * 1000;
+const RULES = '/usr/local/share/linpad/packs/x11-rule.sh';
+const FIXUPS = '/usr/local/share/linpad/store/fixups';
 
 const catalog = JSON.parse(fs.readFileSync(CATALOG, 'utf8'));
 const packs = new Map(catalog.packs.map(p => [p.id, p]));
@@ -35,15 +55,24 @@ function run(command, { quiet = false } = {}) {
     return result.status === 0;
 }
 
+function capture(command) {
+    const result = spawnSync('/bin/sh', ['-c', command], { encoding: 'utf8', maxBuffer: 64 << 20 });
+    return { ok: result.status === 0, out: result.stdout || '', err: result.stderr || '' };
+}
+
 function apkHas(name) {
     return run(`apk info -e ${name} >/dev/null 2>&1`, { quiet: true });
 }
+
+const quote = s => `'${String(s).replace(/'/g, `'\\''`)}'`;
+const validPackage = s => /^[A-Za-z0-9][A-Za-z0-9+._-]*$/.test(s);
 
 let worldCache = null;
 function world() {
     if (worldCache === null) {
         try {
-            worldCache = new Set(fs.readFileSync('/etc/apk/world', 'utf8').split(/\s+/).filter(Boolean));
+            worldCache = new Set(fs.readFileSync('/etc/apk/world', 'utf8').split(/\s+/).filter(Boolean)
+                .map(w => w.replace(/[<>=~].*$/, '')));
         } catch {
             worldCache = new Set();
         }
@@ -51,10 +80,46 @@ function world() {
     return worldCache;
 }
 
+// ---------------------------------------------------------------- store apps
+
+let storeIndex;
+function store() {
+    if (storeIndex !== undefined) return storeIndex;
+    storeIndex = null;
+    for (const file of STORE_INDEXES) {
+        try {
+            const index = JSON.parse(fs.readFileSync(file, 'utf8'));
+            if (!storeIndex || (index.generated || '') > (storeIndex.generated || '')) storeIndex = index;
+        } catch {}
+    }
+    return storeIndex;
+}
+
+/** A catalog pack, or a pack made from a Store entry for "apk:<package>". */
+function packFor(id) {
+    if (packs.has(id)) return packs.get(id);
+    if (!id.startsWith('apk:')) return null;
+    const name = id.slice(4);
+    if (!validPackage(name)) return null;
+    const entry = store()?.apps?.find(a => a.id === id);
+    return {
+        id,
+        name: entry?.name || name,
+        packages: (entry?.packages || [name]).filter(validPackage),
+        x11: entry?.x11 === true,
+        fixup: typeof entry?.fixup === 'string' ? entry.fixup : undefined,
+        store: true,
+    };
+}
+
+const stateFile = (id, ext) => `${STATE}/${id.replace(/[^A-Za-z0-9._-]/g, '_')}.${ext}`;
+
 // Installed means: its check file exists, or every one of its packages was explicitly
-// added (is in apk's world), not merely pulled in as a dependency of something else.
+// added (is in apk's world), not merely pulled in as a dependency of something else. A
+// Store app is installed when its own package is in world (its helpers may be anyway).
 function isInstalled(pack) {
     if (pack.check) return fs.existsSync(pack.check);
+    if (pack.store) return world().has(pack.packages[0]);
     return (pack.packages || []).every(p => world().has(p));
 }
 
@@ -67,6 +132,8 @@ function repinMesaLibraries() {
 }
 
 function refreshIcons() {
+    // The Store installs a queue of apps one command each and refreshes icons once at the end.
+    if (process.env.LINPAD_NO_ICON_REFRESH) return;
     run('command -v ish-apply-style >/dev/null && ish-apply-style --cache-only >/dev/null 2>&1', { quiet: true });
 }
 
@@ -80,40 +147,261 @@ function say(text) {
     out(`==> ${text}\n`);
 }
 
-function install(pack) {
+function phase(id, name) {
+    out(`==> @phase ${id} ${name}\n`);
+}
+
+function progress(id, done, total, unit) {
+    out(`==> @progress ${id} ${done} ${total} ${unit}\n`);
+}
+
+// ---------------------------------------------------------------- package plans
+
+function indexIsFresh() {
+    try {
+        const files = fs.readdirSync(APK_CACHE).filter(f => /^APKINDEX\..*\.tar\.gz$/.test(f));
+        return files.length > 0 && files.every(f => Date.now() - fs.statSync(`${APK_CACHE}/${f}`).mtimeMs < INDEX_MAX_AGE_MS);
+    } catch {
+        return false;
+    }
+}
+
+function updateIndexIfStale() {
+    if (!indexIsFresh()) run('apk update -q');
+}
+
+let localIndex;
+async function loadLocalIndex() {
+    if (localIndex) return localIndex;
+    const { parseApkIndex } = await import(STORE_MODULE);
+    localIndex = new Map();
+    for (const f of fs.readdirSync(APK_CACHE).filter(f => /^APKINDEX\..*\.tar\.gz$/.test(f))) {
+        for (const [k, v] of parseApkIndex(fs.readFileSync(`${APK_CACHE}/${f}`), '')) {
+            if (!localIndex.has(k)) localIndex.set(k, v);
+            else localIndex.set(`${k}=${v.version}`, v);
+        }
+    }
+    return localIndex;
+}
+
+/** What `apk add packages` would install or upgrade: [{name, version, upgrade}]. */
+function simulate(packages) {
+    const result = capture(`apk add --simulate ${packages.map(quote).join(' ')} 2>&1`);
+    const steps = [];
+    for (const m of result.out.matchAll(/^\(\d+\/\d+\) (Installing|Upgrading|Downgrading|Replacing) (\S+) \((?:\S+ -> )?([^)\s]+)\)/gm)) {
+        steps.push({ name: m[2], version: m[3], upgrade: m[1] !== 'Installing' });
+    }
+    return { ok: result.ok, steps, log: result.out };
+}
+
+async function plan(pack) {
+    if (!pack.packages) return { id: pack.id, estimateMB: pack.sizeMB || 0, packages: [], downloadBytes: 0, installedBytes: 0 };
+    updateIndexIfStale();
+    const sim = simulate(pack.packages);
+    if (!sim.ok) return { id: pack.id, error: sim.log.trim().split('\n').slice(-3).join('\n') };
+    const index = await loadLocalIndex();
+    const packages = sim.steps.map(s => {
+        const p = index.get(s.name);
+        return { ...s, downloadBytes: p?.downloadBytes || 0, installedBytes: p?.installedBytes || 0 };
+    });
+    return {
+        id: pack.id,
+        packages,
+        downloadBytes: packages.reduce((n, p) => n + p.downloadBytes, 0),
+        installedBytes: packages.reduce((n, p) => n + (p.upgrade ? 0 : p.installedBytes), 0),
+    };
+}
+
+// ---------------------------------------------------------------- installs
+
+class Cancelled extends Error {}
+
+function cancelRequested() {
+    return fs.existsSync(CANCEL);
+}
+
+async function download(url, file, expected, onBytes) {
+    const res = await fetch(url, { headers: { 'user-agent': 'linpad-apps' } });
+    if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+    const fd = fs.openSync(`${file}.part`, 'w');
+    try {
+        for await (const chunk of res.body) {
+            if (cancelRequested()) throw new Cancelled();
+            for (let at = 0; at < chunk.length;) at += fs.writeSync(fd, chunk, at, chunk.length - at);
+            onBytes(chunk.length);
+        }
+    } finally {
+        fs.closeSync(fd);
+    }
+    if (expected && fs.statSync(`${file}.part`).size !== expected) throw new Error(`${path.basename(file)}: size mismatch`);
+    fs.renameSync(`${file}.part`, file);
+}
+
+/**
+ * Downloads every package an install needs into a private apk cache (cancellable, with
+ * byte progress), then runs `apk add` from that cache without the network. Falls back to a
+ * plain `apk add` when the downloads cannot be planned (e.g. an older apk).
+ */
+async function addPackages(pack) {
+    const id = pack.id;
+    phase(id, 'resolving');
+    updateIndexIfStale();
+    const sim = simulate(pack.packages);
+    if (!sim.ok) {
+        out(sim.log);
+        return false;
+    }
+    let staged = false;
+    if (sim.steps.length) {
+        try {
+            staged = await stage(id, sim.steps);
+        } catch (e) {
+            fs.rmSync(DOWNLOADS, { recursive: true, force: true });
+            if (e instanceof Cancelled) throw e;
+            say(`Download from the app's mirror failed (${e.message}); installing with apk directly`);
+        }
+    }
+    if (cancelRequested()) {
+        fs.rmSync(DOWNLOADS, { recursive: true, force: true });
+        throw new Cancelled();
+    }
+    phase(id, 'installing');
+    const before = new Set(world());
+    const names = pack.packages.map(quote).join(' ');
+    const ok = staged
+        ? run(`apk --cache-dir ${DOWNLOADS} add --no-network --no-progress ${names}`)
+        : run(`apk add --no-progress ${names}`);
+    fs.rmSync(DOWNLOADS, { recursive: true, force: true });
+    // apk keeps a failed add in world; take it back out so the app does not look installed.
+    const added = pack.packages.filter(p => !before.has(p));
+    if (!ok && added.length) run(`apk del -q --no-progress ${added.map(quote).join(' ')}`);
+    return ok;
+}
+
+async function stage(id, steps) {
+    const index = await loadLocalIndex();
+    const urls = capture(`apk fetch --simulate --url ${steps.map(s => quote(s.name)).join(' ')} 2>/dev/null`);
+    // apk prints the URLs in its own order: match them to packages by file name.
+    const byFile = new Map(urls.out.split('\n').filter(u => /^https?:\/\/.*\.apk$/.test(u)).map(u => [u.slice(u.lastIndexOf('/') + 1), u]));
+    if (!urls.ok || byFile.size !== steps.length) throw new Error('could not list package URLs');
+    fs.rmSync(DOWNLOADS, { recursive: true, force: true });
+    fs.mkdirSync(DOWNLOADS, { recursive: true });
+    for (const f of fs.readdirSync(APK_CACHE).filter(f => f.startsWith('APKINDEX.'))) {
+        fs.copyFileSync(`${APK_CACHE}/${f}`, `${DOWNLOADS}/${f}`);
+    }
+    const { cacheFileName } = await import(STORE_MODULE);
+    const total = steps.reduce((n, s) => n + (index.get(s.name)?.downloadBytes || 0), 0);
+    let done = 0;
+    let reported = 0;
+    phase(id, 'downloading');
+    progress(id, 0, total, 'bytes');
+    for (let i = 0; i < steps.length; i++) {
+        const first = index.get(steps[i].name);
+        const pkg = first?.version === steps[i].version ? first : index.get(`${steps[i].name}=${steps[i].version}`);
+        if (!pkg) throw new Error(`${steps[i].name} is not in the local index`);
+        say(`Downloading ${pkg.name} ${pkg.version} (${i + 1} of ${steps.length})`);
+        const url = byFile.get(`${pkg.name}-${pkg.version}.apk`);
+        if (!url) throw new Error(`no URL for ${pkg.name}`);
+        await download(url, `${DOWNLOADS}/${cacheFileName(pkg)}`, pkg.downloadBytes, n => {
+            done += n;
+            if (done - reported >= 256 * 1024 || done === total) {
+                reported = done;
+                progress(id, done, total, 'bytes');
+            }
+        });
+    }
+    progress(id, total, total, 'bytes');
+    return true;
+}
+
+/** "sysvipc audacity" -> fixups/sysvipc.sh install audacity */
+function runFixup(fixup, action) {
+    const [script, ...args] = fixup.split(/\s+/).filter(Boolean);
+    if (!/^[a-z0-9-]+$/.test(script) || !args.every(validPackage)) return false;
+    return run(`sh ${FIXUPS}/${script}.sh ${action} ${args.map(quote).join(' ')}`);
+}
+
+/** "NAME x11" launch rules for the programs a package's .desktop files start. */
+function x11Programs(pkg) {
+    const files = capture(`apk info -Lq ${quote(pkg)} 2>/dev/null`).out.split('\n')
+        .filter(f => /^usr\/share\/applications\/.*\.desktop$/.test(f));
+    const programs = new Set();
+    for (const f of files) {
+        let text = '';
+        try { text = fs.readFileSync(`/${f}`, 'utf8'); } catch { continue; }
+        const exec = text.match(/^Exec=(.*)$/m)?.[1];
+        const program = exec?.split(/\s+/).find(t => t !== 'env' && !t.includes('='));
+        if (program) programs.add(path.basename(program));
+    }
+    return [...programs];
+}
+
+async function install(pack) {
     if (isInstalled(pack)) {
         say(`${pack.name}: already installed`);
         return true;
     }
     say(`Installing ${pack.name}`);
     let ok = true;
-    if (pack.packages) ok = run(`apk update -q && apk add ${pack.packages.join(' ')}`);
-    if (ok && pack.installer) ok = run(pack.installer);
+    try {
+        if (pack.packages) ok = await addPackages(pack);
+    } catch (e) {
+        if (!(e instanceof Cancelled)) throw e;
+        phase(pack.id, 'cancelled');
+        say(`${pack.name}: cancelled`);
+        return false;
+    }
+    if (ok && pack.installer) {
+        phase(pack.id, 'installing');
+        ok = run(pack.installer);
+    }
+    phase(pack.id, 'configuring');
     if (ok && pack.postinstall) ok = run(pack.postinstall);
+    if (ok && pack.fixup) ok = runFixup(pack.fixup, 'install');
+    if (ok && pack.x11) {
+        const programs = x11Programs(pack.packages[0]);
+        for (const program of programs) run(`${RULES} ${quote(program)}`);
+        fs.mkdirSync(STATE, { recursive: true });
+        fs.writeFileSync(stateFile(pack.id, 'x11'), programs.join('\n'));
+    }
     repinMesaLibraries();
     if (!ok) {
+        phase(pack.id, 'failed');
         say(`${pack.name}: FAILED`);
         return false;
     }
     fs.mkdirSync(STATE, { recursive: true });
-    fs.writeFileSync(`${STATE}/${pack.id}.installed`, `${new Date().toISOString()}\n`);
+    fs.writeFileSync(stateFile(pack.id, 'installed'), `${new Date().toISOString()}\n`);
+    phase(pack.id, 'done');
     say(`${pack.name}: installed`);
     return true;
 }
 
 function remove(pack) {
     say(`Removing ${pack.name}`);
+    phase(pack.id, 'removing');
     let ok = true;
     if (pack.uninstaller) ok = run(pack.uninstaller);
-    // Packages another installed pack still needs stay (e.g. qt6-qtwayland).
+    if (pack.fixup) runFixup(pack.fixup, 'remove');
+    // Packages another installed pack still needs stay (e.g. qt6-qtwayland), and so do
+    // the helpers a Store app brought along (shared toolkits, Xwayland).
     const needed = new Set();
     for (const other of packs.values())
         if (other.id !== pack.id && isInstalled(other)) (other.packages || []).forEach(p => needed.add(p));
-    const toRemove = (pack.packages || []).filter(p => !needed.has(p) && apkHas(p));
-    if (ok && toRemove.length) ok = run(`apk del ${toRemove.join(' ')}`);
+    const candidates = pack.store ? pack.packages.slice(0, 1) : (pack.packages || []);
+    const toRemove = candidates.filter(p => !needed.has(p) && apkHas(p));
+    if (ok && toRemove.length) ok = run(`apk del --no-progress ${toRemove.map(quote).join(' ')}`);
     if (ok && pack.postremove) ok = run(pack.postremove);
+    if (pack.store) {
+        try {
+            for (const program of fs.readFileSync(stateFile(pack.id, 'x11'), 'utf8').split('\n').filter(Boolean))
+                run(`${RULES} --remove ${quote(program)}`);
+        } catch {}
+        fs.rmSync(stateFile(pack.id, 'x11'), { force: true });
+    }
     repinMesaLibraries();
-    fs.rmSync(`${STATE}/${pack.id}.installed`, { force: true });
+    fs.rmSync(stateFile(pack.id, 'installed'), { force: true });
+    phase(pack.id, ok ? 'done' : 'failed');
     say(`${pack.name}: ${ok ? 'removed' : 'FAILED'}`);
     return ok;
 }
@@ -130,7 +418,7 @@ function pending() {
     const ids = [];
     if (fs.existsSync(REINSTALL) && fs.statSync(REINSTALL).size > 0) ids.push('reinstall');
     for (const id of chosenInOnboarding()) {
-        const pack = packs.get(id);
+        const pack = packFor(id);
         if (pack && !isInstalled(pack)) ids.push(id);
     }
     return ids;
@@ -145,63 +433,152 @@ function reinstallUserPackages() {
     return ok;
 }
 
-function installMany(ids) {
+async function installMany(ids) {
+    fs.rmSync(CANCEL, { force: true });
     let ok = true;
     for (const id of ids) {
         if (id === 'reinstall') {
             ok = reinstallUserPackages() && ok;
             continue;
         }
-        const pack = packs.get(id);
+        const pack = packFor(id);
         if (!pack) {
             say(`unknown app '${id}', skipped`);
             continue;
         }
-        ok = install(pack) && ok;
+        ok = (await install(pack)) && ok;
+        if (cancelRequested()) break;
     }
+    fs.rmSync(CANCEL, { force: true });
     refreshIcons();
     return ok;
 }
 
-const [command, ...args] = process.argv.slice(2);
-switch (command) {
-case 'list': {
-    const rows = catalog.packs.map(p => ({ ...p, installed: isInstalled(p) }));
-    if (args.includes('--json')) {
-        out(JSON.stringify({ version: catalog.version, packs: rows }) + '\n');
-    } else {
-        for (const r of rows)
-            out(`${r.installed ? '[x]' : '[ ]'} ${r.id.padEnd(13)} ${r.name} (~${r.sizeMB} MB)\n`);
+// ---------------------------------------------------------------- queries
+
+/** name -> version of every installed package, from apk's database. */
+function installedVersions() {
+    const versions = {};
+    let name = null;
+    try {
+        for (const line of fs.readFileSync('/lib/apk/db/installed', 'utf8').split('\n')) {
+            if (line.startsWith('P:')) name = line.slice(2);
+            else if (line.startsWith('V:') && name) versions[name] = line.slice(2);
+            else if (!line) name = null;
+        }
+    } catch {}
+    return versions;
+}
+
+function updates() {
+    updateIndexIfStale();
+    const result = capture(`apk version -l '<' 2>/dev/null`);
+    const installed = installedVersions();
+    const list = [];
+    for (const line of result.out.split('\n')) {
+        const m = line.match(/^(\S+)\s+<\s+(\S+)/);
+        if (!m) continue;
+        const name = Object.keys(installed).find(n => m[1] === `${n}-${installed[n]}`);
+        if (name) list.push({ name, installed: installed[name], available: m[2] });
     }
-    break;
+    return list;
 }
-case 'install':
-    process.exit(installMany(args) ? 0 : 1);
-    break;
-case 'remove': {
-    let ok = true;
-    for (const id of args) {
-        const pack = packs.get(id);
-        if (pack) ok = remove(pack) && ok;
-        else say(`unknown app '${id}', skipped`);
+
+async function refreshIndex() {
+    say('Refreshing the package index');
+    if (!run('apk update -q')) return false;
+    say('Rebuilding the Store index');
+    const result = spawnSync(process.execPath, [STORE_MODULE, 'refresh'], { stdio: 'inherit' });
+    return result.status === 0;
+}
+
+// ---------------------------------------------------------------- main
+
+async function main() {
+    const [command, ...args] = process.argv.slice(2);
+    switch (command) {
+    case 'list': {
+        const rows = catalog.packs.map(p => ({ ...p, installed: isInstalled(p) }));
+        if (args.includes('--json')) {
+            out(JSON.stringify({ version: catalog.version, packs: rows }) + '\n');
+        } else {
+            for (const r of rows)
+                out(`${r.installed ? '[x]' : '[ ]'} ${r.id.padEnd(13)} ${r.name} (~${r.sizeMB} MB)\n`);
+        }
+        return 0;
     }
-    refreshIcons();
-    process.exit(ok ? 0 : 1);
-    break;
-}
-case 'pending':
-    for (const id of pending()) out(`${id}\n`);
-    break;
-case 'firstrun': {
-    const ids = pending();
-    if (!ids.length) {
-        say('Nothing to install');
-        break;
+    case 'install':
+        return (await installMany(args)) ? 0 : 1;
+    case 'remove': {
+        let ok = true;
+        for (const id of args) {
+            const pack = packFor(id);
+            if (pack) ok = remove(pack) && ok;
+            else say(`unknown app '${id}', skipped`);
+        }
+        refreshIcons();
+        return ok ? 0 : 1;
     }
-    process.exit(installMany(ids) ? 0 : 1);
-    break;
+    case 'plan': {
+        const plans = [];
+        for (const id of args) {
+            const pack = packFor(id);
+            plans.push(pack ? await plan(pack) : { id, error: 'unknown app' });
+        }
+        out(JSON.stringify({ plans }) + '\n');
+        return 0;
+    }
+    case 'state': {
+        const packStates = {};
+        for (const p of catalog.packs) packStates[p.id] = isInstalled(p);
+        out(JSON.stringify({ world: [...world()], installed: installedVersions(), packs: packStates }) + '\n');
+        return 0;
+    }
+    case 'updates':
+        out(JSON.stringify({ updates: updates() }) + '\n');
+        return 0;
+    case 'upgrade': {
+        let ok;
+        if (!args.length) {
+            say('Upgrading every package');
+            ok = run('apk upgrade --no-progress');
+        } else {
+            const names = args.map(packFor).filter(Boolean).flatMap(p => (p.store ? p.packages.slice(0, 1) : p.packages || []));
+            say(`Updating ${args.length === 1 ? (packFor(args[0])?.name || args[0]) : `${args.length} apps`}`);
+            ok = !names.length || run(`apk add --upgrade --no-progress ${names.map(quote).join(' ')}`);
+        }
+        repinMesaLibraries();
+        refreshIcons();
+        say(ok ? 'Up to date' : 'Update FAILED');
+        return ok ? 0 : 1;
+    }
+    case 'refresh-icons':
+        delete process.env.LINPAD_NO_ICON_REFRESH;
+        refreshIcons();
+        return 0;
+    case 'cancel':
+        fs.writeFileSync(CANCEL, `${Date.now()}\n`);
+        return 0;
+    case 'refresh-index':
+        return (await refreshIndex()) ? 0 : 1;
+    case 'pending':
+        for (const id of pending()) out(`${id}\n`);
+        return 0;
+    case 'firstrun': {
+        const ids = pending();
+        if (!ids.length) {
+            say('Nothing to install');
+            return 0;
+        }
+        return (await installMany(ids)) ? 0 : 1;
+    }
+    default:
+        console.error('usage: linpad-apps list [--json] | install ID... | remove ID... | plan ID... | state | updates | upgrade [ID...] | cancel | refresh-index | refresh-icons | pending | firstrun');
+        return 2;
+    }
 }
-default:
-    console.error('usage: linpad-apps list [--json] | install ID... | remove ID... | pending | firstrun');
-    process.exit(2);
-}
+
+main().then(code => process.exit(code), e => {
+    say(`error: ${e.message}`);
+    process.exit(1);
+});

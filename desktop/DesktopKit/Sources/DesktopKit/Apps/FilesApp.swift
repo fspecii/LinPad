@@ -56,6 +56,9 @@ final class FilesModel {
     private(set) var backStack: [String] = []
     private(set) var forwardStack: [String] = []
     var errorMessage: String?
+    /// The current folder could not be read; unlike `errorMessage`, dismissing the banner
+    /// keeps it, so an unreadable folder never shows as empty.
+    private(set) var loadFailed = false
     var showHidden = false
     var sortKey: FilesSortKey = .name
     var ascending = true
@@ -179,9 +182,11 @@ final class FilesModel {
                 entries = list
                 selection.formIntersection(Set(list.map(\.path)))
                 errorMessage = nil
+                loadFailed = false
             } catch {
                 guard !Task.isCancelled, requested == path else { return }
                 entries = []
+                loadFailed = true
                 errorMessage = "Couldn't open \(requested): \(error.localizedDescription)"
             }
             isLoading = false
@@ -790,6 +795,7 @@ struct PropertiesTarget: Identifiable {
 
 struct FilesAppView: View {
     @Environment(\.desktopTheme) private var theme
+    @Environment(\.desktopStyle) private var eraStyle
     @Environment(\.desktopWindowIsFocused) private var isWindowFocused
     @State private var model: FilesModel
     @State private var prompt: FilesPrompt?
@@ -1068,8 +1074,8 @@ struct FilesAppView: View {
         }
         Menu {
             Picker("View", selection: $model.viewMode) {
-                Label("Icons", systemImage: "square.grid.2x2").tag(FilesViewMode.grid)
-                Label("List", systemImage: "list.bullet").tag(FilesViewMode.list)
+                ThemedLabel("Icons", systemImage: "square.grid.2x2").tag(FilesViewMode.grid)
+                ThemedLabel("List", systemImage: "list.bullet").tag(FilesViewMode.list)
             }
         } label: {
             Label("View", systemImage: "rectangle.grid.1x2")
@@ -1132,12 +1138,12 @@ struct FilesAppView: View {
                               dimmed: Bool = false) -> some View {
         Label { Text(title) } icon: { ThemeGlyph(icon, symbol: symbol, size: 15) }
             .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
-            .foregroundStyle(theme.primaryText.opacity(dimmed ? 0.45 : (isCurrent ? 1 : 0.85)))
+            .foregroundStyle(EraSelectionBackground.textColor(isSelected: isCurrent, style: eraStyle, theme: theme)
+                             ?? theme.primaryText.opacity(dimmed ? 0.45 : (isCurrent ? 1 : 0.85)))
             .lineLimit(1)
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(isCurrent ? theme.accent.opacity(0.22) : Color.clear))
+            .background(EraSelectionBackground(isSelected: isCurrent, modernFill: isCurrent ? theme.accent.opacity(0.22) : Color.clear))
             .contentShape(Rectangle())
     }
 
@@ -1179,14 +1185,14 @@ struct FilesAppView: View {
         .onDrop(of: DragItemProviders.acceptedTypes, delegate: dropDelegate(for: place.mountPoint))
         .contextMenu {
             if available {
-                Button { model.openInNewWindow(place.mountPoint) } label: { Label("Open in New Window", systemImage: "macwindow.badge.plus") }
-                Button { model.openTerminal(at: place.mountPoint) } label: { Label("Open Terminal Here", systemImage: "terminal") }
+                Button { model.openInNewWindow(place.mountPoint) } label: { ThemedLabel("Open in New Window", systemImage: "macwindow.badge.plus") }
+                Button { model.openTerminal(at: place.mountPoint) } label: { ThemedLabel("Open Terminal Here", systemImage: "terminal") }
                 Divider()
-                Button { model.eject(place) } label: { Label("Eject", systemImage: "eject") }
+                Button { model.eject(place) } label: { ThemedLabel("Eject", systemImage: "eject") }
             } else {
-                Button { model.reconnect(place) } label: { Label("Reconnect", systemImage: "arrow.clockwise") }
+                Button { model.reconnect(place) } label: { ThemedLabel("Reconnect", systemImage: "arrow.clockwise") }
             }
-            Button(role: .destructive) { model.eject(place) } label: { Label("Remove from Sidebar", systemImage: "minus.circle") }
+            Button(role: .destructive) { model.eject(place) } label: { ThemedLabel("Remove from Sidebar", systemImage: "minus.circle") }
         }
         .accessibilityIdentifier("files.place.ipad.\(place.name)")
     }
@@ -1200,13 +1206,13 @@ struct FilesAppView: View {
         } label: {
             Label { Text(place.name) } icon: { ThemeGlyph(place.iconNames, symbol: place.symbol, size: 15) }
                 .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
-                .foregroundStyle(isCurrent ? theme.primaryText : theme.primaryText.opacity(0.85))
+                .foregroundStyle(EraSelectionBackground.textColor(isSelected: isCurrent, style: eraStyle, theme: theme)
+                                 ?? (isCurrent ? theme.primaryText : theme.primaryText.opacity(0.85)))
                 .lineLimit(1)
                 .padding(.horizontal, 10)
                 .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(isDropTarget ? theme.accent.opacity(0.45) : (isCurrent ? theme.accent.opacity(0.22) : Color.clear)))
+                .background(EraSelectionBackground(isSelected: isCurrent && !isDropTarget,
+                                                   modernFill: isDropTarget ? theme.accent.opacity(0.45) : (isCurrent ? theme.accent.opacity(0.22) : Color.clear)))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1215,15 +1221,15 @@ struct FilesAppView: View {
         .onDrop(of: DragItemProviders.acceptedTypes, delegate: dropDelegate(for: place.path))
         .contextMenu {
             Button { model.openInNewWindow(place.path) } label: {
-                Label("Open in New Window", systemImage: "macwindow.badge.plus")
+                ThemedLabel("Open in New Window", systemImage: "macwindow.badge.plus")
             }
             Button { model.openTerminal(at: place.path) } label: {
-                Label("Open Terminal Here", systemImage: "terminal")
+                ThemedLabel("Open Terminal Here", systemImage: "terminal")
             }
             if place.path == model.trash.filesDirectory {
                 Divider()
                 Button(role: .destructive) { confirmsEmptyTrash = true } label: {
-                    Label("Empty Trash…", systemImage: "trash.slash")
+                    ThemedLabel("Empty Trash…", systemImage: "trash.slash")
                 }
             }
         }
@@ -1238,14 +1244,15 @@ struct FilesAppView: View {
                 if items.isEmpty {
                     if model.isLoading {
                         ProgressView().controlSize(.large)
-                    } else if model.errorMessage == nil {
+                    } else if !model.loadFailed {
                         AppEmptyState(symbol: model.isTrash ? "trash" : "folder",
                                       title: model.isTrash ? "Trash is empty" : "Folder is empty",
                                       message: model.hiddenCount > 0 && !model.showHidden && !model.isTrash
                                           ? "\(model.hiddenCount) hidden item(s). Use View Options to show them."
                                           : nil)
                     } else {
-                        AppEmptyState(symbol: "exclamationmark.triangle", title: "Can't show this folder")
+                        AppEmptyState(symbol: "exclamationmark.triangle", title: "Can't show this folder",
+                                      message: "Go back, or pick another place in the sidebar.")
                     }
                 } else if model.viewMode == .list {
                     listView(items)
@@ -1541,10 +1548,10 @@ struct FilesAppView: View {
         let linuxApps = catalog.linuxApplications(for: mime)
         Menu {
             if entry.isDirectory {
-                Button { model.openInNewWindow(entry.path) } label: { Label("Files", systemImage: "folder") }
+                Button { model.openInNewWindow(entry.path) } label: { ThemedLabel("Files", systemImage: "folder") }
             } else {
-                Button { model.openInEditor(entry.path) } label: { Label("Text Editor", systemImage: "doc.text") }
-                Button { model.quickLook([entry]) } label: { Label("Quick Look", systemImage: "eye") }
+                Button { model.openInEditor(entry.path) } label: { ThemedLabel("Text Editor", systemImage: "doc.text") }
+                Button { model.quickLook([entry]) } label: { ThemedLabel("Quick Look", systemImage: "eye") }
             }
             if !linuxApps.isEmpty {
                 Section("Linux Applications") {
@@ -1568,10 +1575,10 @@ struct FilesAppView: View {
         } else {
             Menu {
                 Button { beginPrompt(.newFolder, text: "New Folder") } label: {
-                    Label("Folder", systemImage: "folder.badge.plus")
+                    ThemedLabel("Folder", systemImage: "folder.badge.plus")
                 }
                 Button { beginPrompt(.newFile, text: "untitled.txt") } label: {
-                    Label("Text File", systemImage: "doc.badge.plus")
+                    ThemedLabel("Text File", systemImage: "doc.badge.plus")
                 }
             } label: {
                 Label("Create New", systemImage: "plus")
@@ -1697,6 +1704,10 @@ struct EntryInteractions<MenuContent: View>: ViewModifier {
             .onDrag { model.dragProvider(for: entry) }
             .modifier(OptionalDrop(delegate: dropDelegate))
             .contextMenu { menu() }
+            // Taps are gestures, not Buttons: one element per item, read as a button.
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(model.selection.contains(entry.path) ? [.isButton, .isSelected] : .isButton)
+            .accessibilityAction { model.open(entry) }
             .accessibilityIdentifier("files.entry.\(entry.name)")
     }
 }

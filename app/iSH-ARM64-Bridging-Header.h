@@ -4,3 +4,4 @@
 #import "TerminalViewController.h"
 #import "UserPreferences.h"
 #import "iOSFS.h"
+#include "fs/dev_video.h"

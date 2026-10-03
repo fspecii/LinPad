@@ -25,6 +25,8 @@
 		DE5C00000000000000000012 /* ISHLinuxHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE5C00000000000000000004 /* ISHLinuxHost.swift */; };
 		DE5C00000000000000000013 /* DesktopBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE5C00000000000000000005 /* DesktopBridge.swift */; };
 		DE5C000000000000000000A2 /* ISHAudioBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE5C000000000000000000A1 /* ISHAudioBridge.swift */; };
+		DE5C0000000000000000AF02 /* ISHMicBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE5C0000000000000000AF01 /* ISHMicBridge.swift */; };
+		DE5C0000000000000000AF04 /* ISHCameraBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE5C0000000000000000AF03 /* ISHCameraBridge.swift */; };
 		DE5C00000000000000000014 /* DesktopKit in Frameworks */ = {isa = PBXBuildFile; productRef = DE5C00000000000000000021 /* DesktopKit */; };
 		0FC2383C2991FBA6004C09EC /* mmx.c in Sources */ = {isa = PBXBuildFile; fileRef = 0FC2383B2991FB82004C09EC /* mmx.c */; };
 		491B31E62883BF22008EEFB0 /* ThemeViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 491B31E52883BF22008EEFB0 /* ThemeViewController.m */; };
@@ -506,6 +508,8 @@
 		DE5C00000000000000000004 /* ISHLinuxHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISHLinuxHost.swift; sourceTree = "<group>"; };
 		DE5C00000000000000000005 /* DesktopBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopBridge.swift; sourceTree = "<group>"; };
 		DE5C000000000000000000A1 /* ISHAudioBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISHAudioBridge.swift; sourceTree = "<group>"; };
+		DE5C0000000000000000AF01 /* ISHMicBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISHMicBridge.swift; sourceTree = "<group>"; };
+		DE5C0000000000000000AF03 /* ISHCameraBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISHCameraBridge.swift; sourceTree = "<group>"; };
 		0FC2383B2991FB82004C09EC /* mmx.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = mmx.c; sourceTree = "<group>"; };
 		408A2639236440F8008A4E81 /* iOSFS.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = iOSFS.m; sourceTree = "<group>"; };
 		408A263B23644102008A4E81 /* iOSFS.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = iOSFS.h; sourceTree = "<group>"; };
@@ -1154,6 +1158,8 @@
 			children = (
 				DE5C00000000000000000005 /* DesktopBridge.swift */,
 				DE5C000000000000000000A1 /* ISHAudioBridge.swift */,
+				DE5C0000000000000000AF03 /* ISHCameraBridge.swift */,
+				DE5C0000000000000000AF01 /* ISHMicBridge.swift */,
 				DE5C00000000000000000004 /* ISHLinuxHost.swift */,
 			);
 			path = Desktop;
@@ -2447,6 +2453,8 @@
 				DE5C00000000000000000012 /* ISHLinuxHost.swift in Sources */,
 				DE5C00000000000000000013 /* DesktopBridge.swift in Sources */,
 				DE5C000000000000000000A2 /* ISHAudioBridge.swift in Sources */,
+				DE5C0000000000000000AF02 /* ISHMicBridge.swift in Sources */,
+				DE5C0000000000000000AF04 /* ISHCameraBridge.swift in Sources */,
 				AA000113AF96D90D00FFB7A4 /* AboutExternalKeyboardViewController.m in Sources */,
 				AA000114AF96D90D00FFB7A4 /* PassthroughView.m in Sources */,
 				AA000115AF96D90D00FFB7A4 /* UserPreferences.m in Sources */,

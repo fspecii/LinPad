@@ -103,6 +103,8 @@ final class LinuxGUIBridge {
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var pendingAcks: [String] = []
     @ObservationIgnored private var displayLink: CADisplayLink?
+    /// Sends the iPad's keyboard layout to ishwl; LinuxSurfaceView feeds it key presses.
+    @ObservationIgnored let keyboardLayout = LinuxKeyboardLayoutMonitor()
 
     /// "firefox" opens guest URL requests in Firefox; anything else in Quick Preview.
     static let urlHandlerKey = "desktop.linux.urlHandler"
@@ -144,6 +146,7 @@ final class LinuxGUIBridge {
         textInputProbe = textInputProbe ?? LinuxTextInputProbe.startIfEnabled { [weak self] in
             self?.textInputSurfaceID.flatMap { self?.surfaces[$0]?.view }
         }
+        if showFakeToplevelIfRequested() { return }
         #endif
         startTask = Task { [weak self] in
             await self?.connect()
@@ -194,6 +197,7 @@ final class LinuxGUIBridge {
         }
         state = .running
         send("hello")
+        keyboardLayout.attach { [weak self] line in self?.send(line) }
         for command in pendingLaunches { spawn(command) }
         pendingLaunches.removeAll()
         monitorSession(runtimeURL)
@@ -603,6 +607,36 @@ final class LinuxGUIBridge {
             layoutPopup(surface)
         }
     }
+
+    #if DEBUG || DESKTOP_AUTOMATION
+    /// UI tests: `-desktop.fakeLinuxWindow APPID[:text]` maps one toplevel with a blank
+    /// frame and no guest behind it, so keyboard behaviour over a Linux window can be
+    /// checked in the harness. ":text" reports a focused text field.
+    private func showFakeToplevelIfRequested() -> Bool {
+        guard let spec = UserDefaults.standard.string(forKey: "desktop.fakeLinuxWindow"), !spec.isEmpty else { return false }
+        let parts = spec.split(separator: ":").map(String.init)
+        let surface = LinuxSurface(id: 1, kind: .toplevel, parentID: 0)
+        surface.appID = parts[0]
+        surface.title = parts[0]
+        if parts.contains("text") { surface.textInput = LinuxTextInputState() }
+        let size = CGSize(width: 900, height: 560)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        surface.image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.systemGray5.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: size.width, height: 44))
+        }.cgImage
+        surface.size = size
+        surfaces[surface.id] = surface
+        surface.view = LinuxSurfaceView(surface: surface, bridge: self)
+        surface.view?.showFrame()
+        state = .running
+        delegate?.linuxBridge(self, didMap: surface)
+        return true
+    }
+    #endif
 
     private func unmap(_ surface: LinuxSurface) {
         releaseMapping(surface)

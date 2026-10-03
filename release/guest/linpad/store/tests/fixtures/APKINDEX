@@ -1,0 +1,72 @@
+C:Q1UomuczO32c79n568JPuvykVJa8I=
+P:filezilla
+V:3.68.1-r0
+A:aarch64
+S:2729453
+I:5714655
+T:FTP Client
+U:https://filezilla-project.org/
+L:GPL-2.0-or-later
+o:filezilla
+D:so:libc.musl-aarch64.so.1 so:libgtk-3.so.0 so:libwx_gtk3u_core-3.2.so.0
+
+C:Q1VXB/KYMWutQaTelBGHZ+cdXBgK4=
+P:dillo
+V:3.1.1-r0
+A:aarch64
+S:600000
+I:1500000
+T:Lightweight web browser
+U:https://dillo-browser.github.io/
+L:GPL-3.0-or-later
+o:dillo
+D:so:libfltk.so.1.3 so:libX11.so.6
+
+C:Q1aaaaaaaaaaaaaaaaaaaaaaaaaaaa=
+P:gimp
+V:2.10.38-r2
+A:aarch64
+S:20000000
+I:60000000
+T:GNU Image Manipulation Program
+U:https://www.gimp.org/
+L:GPL-3.0-or-later
+o:gimp
+D:so:libgtk-x11-2.0.so.0
+
+C:Q1bbbbbbbbbbbbbbbbbbbbbbbbbbbb=
+P:qtapp
+V:1.0-r0
+A:aarch64
+S:1000
+I:2000
+T:A Qt5 app
+U:https://example.org/
+L:MIT
+o:qtapp
+D:so:libQt5Widgets.so.5
+
+C:Q1cccccccccccccccccccccccccccc=
+P:asteroid-calculator
+V:1.0-r0
+A:aarch64
+S:1000
+I:2000
+T:Watch calculator
+U:https://asteroidos.org/
+L:GPL-3.0
+o:asteroid-calculator
+D:
+
+C:Q1dddddddddddddddddddddddddddd=
+P:filezilla-doc
+V:3.68.1-r0
+A:aarch64
+S:1000
+I:2000
+T:FTP Client (documentation)
+U:https://filezilla-project.org/
+L:GPL-2.0-or-later
+o:filezilla
+D:
+

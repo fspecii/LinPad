@@ -11,6 +11,7 @@
 # Icon cache contract: themes/CONTRACT.md in the iSH-ARM64 repo.
 set -eu
 
+SELF=$0
 SHARE=/usr/share/ish
 STYLES=$SHARE/themes/styles
 CACHE_ROOT=$SHARE/icon-cache
@@ -39,10 +40,11 @@ org.gnome.Terminal org.gnome.Nautilus org.gnome.TextEditor text-editor
 org.gnome.SystemMonitor org.gnome.Settings internet-web-browser
 firefox firefox-esr org.mozilla.firefox vscode com.visualstudio.code code
 visual-studio-code code-oss foot falkon org.kde.falkon vlc org.videolan.VLC
-thunderbird mail-client multimedia-video-player"
+thunderbird mail-client multimedia-video-player office-calendar x-office-calendar"
 
 # Places, file types (freedesktop mimetype names, with the shared-mime-info generic icons)
-# and toolbar/window actions the shell draws from the pack. Looked up exactly, without
+# and the actions of toolbars, tray, menus and Settings the shell draws from the pack
+# (DesktopKit ThemeIconNames). Looked up exactly, without
 # GTK's dash fallback: the shell walks its own fallback chain, and "text-x-python" must
 # not become "text" nor "user-home" become "user". Rendered at 128 px only; "2x" in
 # index.json names the same file.
@@ -79,7 +81,45 @@ document-edit-symbolic edit-clear-all-symbolic user-trash-symbolic media-eject-s
 drive-harddisk-symbolic list-add-symbolic start-here-symbolic window-minimize-symbolic
 window-maximize-symbolic window-restore-symbolic window-close-symbolic
 go-previous go-next go-up folder-new document-new view-refresh view-grid view-list
-open-menu window-minimize window-maximize window-restore window-close"
+open-menu window-minimize window-maximize window-restore window-close
+applications-engineering-symbolic applications-graphics-symbolic
+applications-internet-symbolic audio-input-microphone-symbolic audio-volume-high-symbolic
+audio-volume-low-symbolic audio-volume-medium-symbolic audio-volume-muted-symbolic
+audio-x-generic-symbolic battery-caution-symbolic battery-empty-symbolic
+battery-full-charging-symbolic battery-full-symbolic battery-good-symbolic
+battery-level-0-symbolic battery-level-100-charged-symbolic battery-level-100-symbolic
+battery-level-20-symbolic battery-level-50-symbolic battery-level-70-symbolic
+battery-low-symbolic battery-medium-symbolic camera-photo-symbolic
+changes-prevent-symbolic dialog-information-symbolic dialog-warning-symbolic
+display-brightness-symbolic document-open-symbolic document-save-symbolic
+document-send-symbolic edit-clear-symbolic edit-copy-symbolic edit-cut-symbolic
+edit-delete-symbolic edit-find-symbolic edit-paste-symbolic edit-redo-symbolic
+edit-undo-symbolic emblem-favorite-symbolic emblem-shared-symbolic emblem-system-symbolic
+focus-windows-symbolic folder-open-symbolic folder-symbolic help-about-symbolic
+image-x-generic-symbolic input-keyboard-symbolic input-mouse-symbolic
+input-touchpad-symbolic insert-link-symbolic list-remove-symbolic
+media-playback-stop-symbolic media-playlist-shuffle-symbolic media-record-symbolic
+network-cellular-signal-excellent-symbolic network-cellular-symbolic
+network-error-symbolic network-offline-symbolic network-transmit-receive-symbolic
+network-wired-symbolic network-wireless-no-route-symbolic
+network-wireless-offline-symbolic network-wireless-signal-excellent-symbolic
+network-wireless-symbolic notifications-disabled-symbolic notifications-symbolic
+object-flip-horizontal-symbolic object-select-symbolic org.gnome.SystemMonitor-symbolic
+package-x-generic-symbolic preferences-desktop-appearance-symbolic
+preferences-desktop-font-symbolic preferences-desktop-symbolic
+preferences-desktop-theme-symbolic preferences-desktop-wallpaper-symbolic
+preferences-other-symbolic preferences-system-notifications-symbolic
+preferences-system-power-symbolic preferences-system-symbolic
+preferences-system-time-symbolic preferences-system-windows-symbolic
+software-update-available-symbolic starred-symbolic system-lock-screen-symbolic
+system-reboot-symbolic system-run-symbolic system-search-symbolic system-shutdown-symbolic
+system-software-install-symbolic tab-new-symbolic user-desktop-symbolic
+utilities-system-monitor-symbolic utilities-terminal-symbolic view-column-symbolic
+view-dual-symbolic view-fullscreen-symbolic view-paged-symbolic view-pin-symbolic
+view-restore-symbolic view-reveal-symbolic view-sort-ascending-symbolic
+view-visible-symbolic weather-clear-night-symbolic weather-clear-symbolic
+web-browser-symbolic window-new-symbolic x-office-calendar-symbolic
+emblem-ok-symbolic mark-location-symbolic text-x-generic-symbolic zoom-fit-best-symbolic"
 
 die() { echo "ish-apply-style: $*" >&2; exit 1; }
 
@@ -311,7 +351,6 @@ theme_dirs_cached() { # theme-dir
 # Prints the best source file for an icon name, or nothing.
 find_icon_in_chain() { # name
     name=$1
-    best_png= best_png_size=0 small_svg=
     for tdir in $CHAIN; do
         dirs=$(theme_dirs_cached "$tdir")
         found=$(echo "$dirs" | while read -r size dir; do
@@ -371,9 +410,11 @@ resolve_exact() { # name
 }
 
 rasterize() { # src dest size
+    # stdin from /dev/null: under iSH, rsvg-convert never returns while its stdin is a
+    # regular file (it hung on the worker's name list; `rsvg-convert ... < file` hangs too).
     case $1 in
-    *.svg|*.svgz) rsvg-convert -a -w "$3" -h "$3" -f png -o "$2" "$1" 2>/dev/null ;;
-    *) gdk-pixbuf-thumbnailer -s "$3" "$1" "$2" 2>/dev/null ;;
+    *.svg|*.svgz) rsvg-convert -a -w "$3" -h "$3" -f png -o "$2" "$1" </dev/null 2>/dev/null ;;
+    *) gdk-pixbuf-thumbnailer -s "$3" "$1" "$2" </dev/null 2>/dev/null ;;
     esac
 }
 
@@ -394,6 +435,43 @@ desktop_entries() { # "<file> <icon>" for every entry with an Icon=
     done
 }
 
+# One worker of build_icon_cache: renders the names listed in a file into $RENDER_DIR and
+# prints "ok<TAB><index.json entry>" or "missing<TAB><name>" per name.
+render_worker() { # names-file
+    tab=$(printf '\t')
+    while IFS= read -r name <&3; do
+        [ -n "$name" ] || continue
+        case $RENDER_EXACT in
+        *" $name "*)
+            src=$(resolve_exact "$name")
+            case $RENDER_NATIVE in *" $name "*) sizes=$SIZES ;; *) sizes=128 ;; esac ;;
+        *) src=$(resolve_icon "$name"); sizes=$SIZES ;;
+        esac
+        if [ -z "$src" ]; then
+            printf 'missing%s%s\n' "$tab" "$name"
+            continue
+        fi
+        stem=$(safe_file_name "$name")
+        ok=1
+        for size in $sizes; do
+            [ "$size" = 128 ] && file=$stem.png || file=$stem@2x.png
+            rasterize "$src" "$RENDER_DIR/$file" "$size" || ok=0
+            [ -s "$RENDER_DIR/$file" ] || ok=0
+        done
+        file2x=$stem@2x.png
+        [ -f "$RENDER_DIR/$file2x" ] || file2x=$stem.png
+        # Symbolic icons are one-colour masks; the shell tints them with the theme's text colour.
+        case $src in *-symbolic.*|*/symbolic/*) symbolic=', "symbolic": true' ;; *) symbolic= ;; esac
+        if [ "$ok" = 1 ]; then
+            printf 'ok%s%s: {"1x": %s, "2x": %s, "source": %s%s}\n' "$tab" "$(json_str "$name")" \
+                "$(json_str "$stem.png")" "$(json_str "$file2x")" "$(json_str "$src")" "$symbolic"
+        else
+            rm -f "$RENDER_DIR/$stem.png" "$RENDER_DIR/$stem@2x.png"
+            printf 'missing%s%s\n' "$tab" "$name"
+        fi
+    done 3< "$1"
+}
+
 build_icon_cache() {
     CHAIN=$(theme_chain "$ICON_THEME" | tr '\n' ' ')
     out=$CACHE_ROOT/$STYLE
@@ -402,54 +480,42 @@ build_icon_cache() {
     mkdir -p "$tmp"
 
     entries=$(desktop_entries)
-    names=$( { echo "$NATIVE_ICONS $EXACT_ICONS" | tr ' ' '\n'; echo "$entries" | cut -f2; } | sed '/^$/d' | sort -u)
-    exact=" $(echo $EXACT_ICONS) " native=" $(echo $NATIVE_ICONS) "
+    # LinPad Store's featured apps, so the Store draws them from the pack before they are
+    # installed (release/guest/linpad/store/store-icons.txt; looked up exactly, 128 px).
+    # Installed apps keep their full-size rendering from the .desktop list.
+    store_icons=$(cat /usr/share/linpad/store-icons.txt 2>/dev/null | grep -vxF "$(echo "$entries" | cut -f2)" | tr '\n' ' ')
+    names=$( { echo "$NATIVE_ICONS $EXACT_ICONS $store_icons" | tr ' ' '\n'; echo "$entries" | cut -f2; } | sed '/^$/d' | sort -u)
+    exact=" $(echo $EXACT_ICONS $store_icons) " native=" $(echo $NATIVE_ICONS) "
     DIRS_MEMO=$tmp/.dirs
     mkdir -p "$DIRS_MEMO"
 
-    icons_json=
-    resolved=0 missing=
-    old_ifs=$IFS
-    IFS='
-'
-    for name in $names; do
-        IFS=$old_ifs
-        case $exact in
-        *" $name "*)
-            src=$(resolve_exact "$name")
-            case $native in *" $name "*) sizes=$SIZES ;; *) sizes=128 ;; esac ;;
-        *) src=$(resolve_icon "$name"); sizes=$SIZES ;;
-        esac
-        if [ -z "$src" ]; then
-            missing="$missing $name"
-            IFS='
-'
-            continue
-        fi
-        stem=$(safe_file_name "$name")
-        ok=1
-        for size in $sizes; do
-            [ "$size" = 128 ] && file=$stem.png || file=$stem@2x.png
-            rasterize "$src" "$tmp/$file" "$size" || ok=0
-            [ -s "$tmp/$file" ] || ok=0
+    # Every theme's directory list once, before the workers share the memo.
+    for tdir in $CHAIN; do theme_dirs_cached "$tdir" >/dev/null; done
+    # Rasterising is one process per icon and size, so the names are split over parallel
+    # workers (this script again, --render-worker), one result file each. Under iSH on an
+    # M-series host a pack took 68-131 s with one worker, 19-26 s with four to eight.
+    jobs=${ISH_ICON_JOBS:-$(nproc 2>/dev/null || echo 4)}
+    case $jobs in ''|*[!0-9]*) jobs=4 ;; esac
+    [ "$jobs" -gt 6 ] && jobs=6
+    [ "$jobs" -lt 1 ] && jobs=1
+    printf '%s\n' "$names" | awk -v n="$jobs" -v dir="$tmp" '{ print > (dir "/.names." (NR % n)) }'
+    export CHAIN DIRS_MEMO SIZES
+    RENDER_EXACT=$exact RENDER_NATIVE=$native RENDER_DIR=$tmp
+    export RENDER_EXACT RENDER_NATIVE RENDER_DIR
+    if [ "$jobs" = 1 ]; then
+        render_worker "$tmp/.names.0" > "$tmp/.names.0.out"
+    else
+        for list in "$tmp"/.names.*; do
+            sh "$SELF" --render-worker "$list" > "$list.out" &
         done
-        file2x=$stem@2x.png
-        [ -f "$tmp/$file2x" ] || file2x=$stem.png
-        # Symbolic icons are one-colour masks; the shell tints them with the theme's text colour.
-        case $src in *-symbolic.*|*/symbolic/*) symbolic=', "symbolic": true' ;; *) symbolic= ;; esac
-        if [ "$ok" = 1 ]; then
-            resolved=$((resolved + 1))
-            entry="$(json_str "$name"): {\"1x\": $(json_str "$stem.png"), \"2x\": $(json_str "$file2x"), \"source\": $(json_str "$src")$symbolic}"
-            icons_json="${icons_json:+$icons_json,
-    }$entry"
-        else
-            rm -f "$tmp/$stem.png" "$tmp/$stem@2x.png"
-            missing="$missing $name"
-        fi
-        IFS='
-'
-    done
-    IFS=$old_ifs
+        wait
+    fi
+
+    tab=$(printf '\t')
+    icons_json=$(cat "$tmp"/.names.*.out | sed -n "s/^ok$tab//p" | sed '2,$s/^/    /' | sed '$!s/$/,/')
+    resolved=$(cat "$tmp"/.names.*.out | grep -c '^ok' || true)
+    missing=$(cat "$tmp"/.names.*.out | sed -n "s/^missing$tab//p" | sort | tr '\n' ' ')
+    rm -f "$tmp"/.names.*
 
     apps_json=
     printf '%s\n' "$entries" | {
@@ -490,7 +556,7 @@ EOF
     [ -d "$out" ] && mv "$out" "$out.old"
     mv "$tmp" "$out"
     rm -rf "$out.old"
-    echo "icon cache: $out ($resolved icons${missing:+, missing:$missing})"
+    echo "icon cache: $out ($resolved icons${missing:+, missing: $missing})"
 }
 
 # A colour theme (ish-apply-colors) recolours on top of the settings written here, so it
@@ -505,11 +571,12 @@ refresh_colors() {
 # --- main -----------------------------------------------------------------------------
 
 case ${1:-} in
+--render-worker) render_worker "$2"; exit 0 ;;
 --list) for f in "$STYLES"/*.conf; do n=${f##*/}; echo "${n%.conf}"; done; exit 0 ;;
 --current) cat "$CURRENT" 2>/dev/null || echo ish; exit 0 ;;
 --cache-only)
     cur=$(cat "$CURRENT" 2>/dev/null || echo ish)
-    var=$(sed -n 's/^ISH_STYLE_VARIANT=//p' "$SHARE/current-style.env" 2>/dev/null)
+    var=$(sed -n 's/^ISH_STYLE_VARIANT=//p' "$SHARE/current-style.env" 2>/dev/null || true)
     load_style "$cur" "$var"
     build_icon_cache
     exit 0 ;;
@@ -526,7 +593,7 @@ case ${1:-} in
         mv "$ICON_OVERRIDE.tmp" "$ICON_OVERRIDE"
     fi
     cur=$(cat "$CURRENT" 2>/dev/null || echo ish)
-    var=$(sed -n 's/^ISH_STYLE_VARIANT=//p' "$SHARE/current-style.env" 2>/dev/null)
+    var=$(sed -n 's/^ISH_STYLE_VARIANT=//p' "$SHARE/current-style.env" 2>/dev/null || true)
     load_style "$cur" "$var"
     apply_settings
     build_icon_cache

@@ -7,14 +7,20 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		196D84E45CA7F4DABF4F5438 /* StoreUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E10F8CF5AC46056D919F8A5 /* StoreUITests.swift */; };
 		2B33A885D10821ABEBCCE783 /* StyleScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8EB04400C7FF26AA9C17D3 /* StyleScreenshots.swift */; };
 		2CAA187C22A74C4D6D805DE0 /* DesktopUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA42D54ACE41A9C571FC4AB /* DesktopUITests.swift */; };
 		2CF0767EF677E45DD338B6D5 /* HarnessApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE2A2A78AF0D7C4142E4F4D2 /* HarnessApp.swift */; };
 		36098F4958FA1BEC0AB2F7F5 /* OnboardingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E49C199BBB023D15AB1DE /* OnboardingUITests.swift */; };
+		37F098674C4600B6E73BB1AF /* KeyboardFrameProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DB023E128CCE8B0AD6797B2 /* KeyboardFrameProbe.swift */; };
 		427B6E473B1869A9336F521C /* WidgetsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38DE4AC7D1BB2AFB38216E07 /* WidgetsUITests.swift */; };
 		715FCE4456EEABB4351479EB /* IconPackScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C1DCBD79251B0B9A13A772 /* IconPackScreenshots.swift */; };
 		8D86F8A89EED996EBF66BEF6 /* DesktopKit in Frameworks */ = {isa = PBXBuildFile; productRef = 59EFA4C0450AFEE98FFD2EBC /* DesktopKit */; };
+		9ABA09955DC7AF3574A54130 /* DockTapUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A6AA220E11DB730546C126D /* DockTapUITests.swift */; };
+		9D7D261D0E2E9682AEE57ADE /* KeyboardChromeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEFD8C64C5D38CD32548624A /* KeyboardChromeUITests.swift */; };
 		B644889ABB41FDE2E90E062F /* LiveWallhavenScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B1A430120A572ABD1A0BD75 /* LiveWallhavenScreenshots.swift */; };
+		D2ECC9FBA3BA11E5B4E7AF4E /* HarnessGraphicsHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = E739007D988ACB2BF6F0357E /* HarnessGraphicsHost.swift */; };
+		F2A5005FA53ED805E2C5CF83 /* WallpaperMatchScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF55FC3FC5F50DCCCB810FD8 /* WallpaperMatchScreenshots.swift */; };
 		FDB89417314278B38772EDAA /* RealAppScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 717FEA742F25D083F27BEC8B /* RealAppScreenshots.swift */; };
 /* End PBXBuildFile section */
 
@@ -31,11 +37,17 @@
 /* Begin PBXFileReference section */
 		2D53A07B448DDFEFE0982BD2 /* DesktopHarness.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = DesktopHarness.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		38DE4AC7D1BB2AFB38216E07 /* WidgetsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetsUITests.swift; sourceTree = "<group>"; };
+		6A6AA220E11DB730546C126D /* DockTapUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockTapUITests.swift; sourceTree = "<group>"; };
 		717FEA742F25D083F27BEC8B /* RealAppScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealAppScreenshots.swift; sourceTree = "<group>"; };
 		774B3726C143C053A03833F3 /* DesktopKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DesktopKit; path = ../DesktopKit; sourceTree = SOURCE_ROOT; };
+		7DB023E128CCE8B0AD6797B2 /* KeyboardFrameProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardFrameProbe.swift; sourceTree = "<group>"; };
+		7E10F8CF5AC46056D919F8A5 /* StoreUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreUITests.swift; sourceTree = "<group>"; };
 		8B1A430120A572ABD1A0BD75 /* LiveWallhavenScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveWallhavenScreenshots.swift; sourceTree = "<group>"; };
 		AE2A2A78AF0D7C4142E4F4D2 /* HarnessApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessApp.swift; sourceTree = "<group>"; };
+		BEFD8C64C5D38CD32548624A /* KeyboardChromeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardChromeUITests.swift; sourceTree = "<group>"; };
 		DA4E3C8D783502C2C25F12E8 /* DesktopUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = DesktopUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		DF55FC3FC5F50DCCCB810FD8 /* WallpaperMatchScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WallpaperMatchScreenshots.swift; sourceTree = "<group>"; };
+		E739007D988ACB2BF6F0357E /* HarnessGraphicsHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarnessGraphicsHost.swift; sourceTree = "<group>"; };
 		EA8EB04400C7FF26AA9C17D3 /* StyleScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StyleScreenshots.swift; sourceTree = "<group>"; };
 		F11E49C199BBB023D15AB1DE /* OnboardingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingUITests.swift; sourceTree = "<group>"; };
 		F3C1DCBD79251B0B9A13A772 /* IconPackScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IconPackScreenshots.swift; sourceTree = "<group>"; };
@@ -58,11 +70,15 @@
 			isa = PBXGroup;
 			children = (
 				FFA42D54ACE41A9C571FC4AB /* DesktopUITests.swift */,
+				6A6AA220E11DB730546C126D /* DockTapUITests.swift */,
 				F3C1DCBD79251B0B9A13A772 /* IconPackScreenshots.swift */,
+				BEFD8C64C5D38CD32548624A /* KeyboardChromeUITests.swift */,
 				8B1A430120A572ABD1A0BD75 /* LiveWallhavenScreenshots.swift */,
 				F11E49C199BBB023D15AB1DE /* OnboardingUITests.swift */,
 				717FEA742F25D083F27BEC8B /* RealAppScreenshots.swift */,
+				7E10F8CF5AC46056D919F8A5 /* StoreUITests.swift */,
 				EA8EB04400C7FF26AA9C17D3 /* StyleScreenshots.swift */,
+				DF55FC3FC5F50DCCCB810FD8 /* WallpaperMatchScreenshots.swift */,
 				38DE4AC7D1BB2AFB38216E07 /* WidgetsUITests.swift */,
 			);
 			path = UITests;
@@ -89,6 +105,8 @@
 			isa = PBXGroup;
 			children = (
 				AE2A2A78AF0D7C4142E4F4D2 /* HarnessApp.swift */,
+				E739007D988ACB2BF6F0357E /* HarnessGraphicsHost.swift */,
+				7DB023E128CCE8B0AD6797B2 /* KeyboardFrameProbe.swift */,
 			);
 			path = Harness;
 			sourceTree = "<group>";
@@ -186,6 +204,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				2CF0767EF677E45DD338B6D5 /* HarnessApp.swift in Sources */,
+				D2ECC9FBA3BA11E5B4E7AF4E /* HarnessGraphicsHost.swift in Sources */,
+				37F098674C4600B6E73BB1AF /* KeyboardFrameProbe.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -194,11 +214,15 @@
 			buildActionMask = 2147483647;
 			files = (
 				2CAA187C22A74C4D6D805DE0 /* DesktopUITests.swift in Sources */,
+				9ABA09955DC7AF3574A54130 /* DockTapUITests.swift in Sources */,
 				715FCE4456EEABB4351479EB /* IconPackScreenshots.swift in Sources */,
+				9D7D261D0E2E9682AEE57ADE /* KeyboardChromeUITests.swift in Sources */,
 				B644889ABB41FDE2E90E062F /* LiveWallhavenScreenshots.swift in Sources */,
 				36098F4958FA1BEC0AB2F7F5 /* OnboardingUITests.swift in Sources */,
 				FDB89417314278B38772EDAA /* RealAppScreenshots.swift in Sources */,
+				196D84E45CA7F4DABF4F5438 /* StoreUITests.swift in Sources */,
 				2B33A885D10821ABEBCCE783 /* StyleScreenshots.swift in Sources */,
+				F2A5005FA53ED805E2C5CF83 /* WallpaperMatchScreenshots.swift in Sources */,
 				427B6E473B1869A9336F521C /* WidgetsUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -84,13 +84,13 @@ final class BrowserWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         let navigation = navigationMenu
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
             let link = UIMenu(options: .displayInline, children: [
-                UIAction(title: "Open Link", image: UIImage(systemName: "arrow.up.right.square")) { _ in
+                UIAction(title: "Open Link", image: UIImage.themed(systemName: "arrow.up.right.square")) { _ in
                     webView.load(URLRequest(url: url))
                 },
-                UIAction(title: "Open in Safari", image: UIImage(systemName: "safari")) { _ in
+                UIAction(title: "Open in Safari", image: UIImage.themed(systemName: "safari")) { _ in
                     UIApplication.shared.open(url)
                 },
-                UIAction(title: "Copy Link", image: UIImage(systemName: "link")) { _ in
+                UIAction(title: "Copy Link", image: UIImage.themed(systemName: "link")) { _ in
                     UIPasteboard.general.url = url
                 },
             ])
@@ -171,19 +171,19 @@ final class BrowserModel {
     func navigationMenu() -> UIMenu {
         let page = webView.url
         return UIMenu(options: .displayInline, children: [
-            UIAction(title: "Back", image: UIImage(systemName: "chevron.left"),
+            UIAction(title: "Back", image: UIImage.themed(systemName: "chevron.left"),
                      attributes: webView.canGoBack ? [] : .disabled) { [weak self] _ in self?.goBack() },
-            UIAction(title: "Forward", image: UIImage(systemName: "chevron.right"),
+            UIAction(title: "Forward", image: UIImage.themed(systemName: "chevron.right"),
                      attributes: webView.canGoForward ? [] : .disabled) { [weak self] _ in self?.goForward() },
-            UIAction(title: "Reload", image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in
+            UIAction(title: "Reload", image: UIImage.themed(systemName: "arrow.clockwise")) { [weak self] _ in
                 self?.webView.reload()
             },
             UIMenu(options: .displayInline, children: [
-                UIAction(title: "Open in Safari", image: UIImage(systemName: "safari"),
+                UIAction(title: "Open in Safari", image: UIImage.themed(systemName: "safari"),
                          attributes: page?.scheme?.hasPrefix("http") == true ? [] : .disabled) { _ in
                     if let page { UIApplication.shared.open(page) }
                 },
-                UIAction(title: "Copy Link", image: UIImage(systemName: "link"), attributes: page == nil ? .disabled : []) { _ in
+                UIAction(title: "Copy Link", image: UIImage.themed(systemName: "link"), attributes: page == nil ? .disabled : []) { _ in
                     UIPasteboard.general.url = page
                 },
             ]),

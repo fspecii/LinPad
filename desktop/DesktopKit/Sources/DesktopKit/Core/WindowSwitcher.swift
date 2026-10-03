@@ -152,9 +152,8 @@ struct WindowThumbnail: View {
                     .interpolation(.medium)
                     .aspectRatio(contentMode: .fit)
             } else {
-                Image(systemName: window.symbol)
-                    .font(.system(size: 34, weight: .regular))
-                    .foregroundStyle(theme.secondaryText)
+                AppIcon(iconName: controller.iconName(forAppID: window.appID), url: controller.iconURL(forAppID: window.appID),
+                        symbol: window.symbol, size: 48)
             }
         }
     }

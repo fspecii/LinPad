@@ -1,0 +1,546 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<playlist xmlns="http://xspf.org/ns/0/" xmlns:vlc="http://www.videolan.org/vlc/playlist/ns/0/" version="1">
+  <title>LinPad Radio</title>
+  <creator>LinPad</creator>
+  <annotation>Internet radio stations from the community Radio Browser directory (https://www.radio-browser.info), checked 2026-10-03. Each track's info link is the station's own website; more stations: VLC › View › Playlist › Internet › Icecast Radio Directory.</annotation>
+  <info>https://www.radio-browser.info</info>
+  <trackList>
+    <track>
+      <location>https://stream.live.vc.bbcmedia.co.uk/bbc_world_service</location>
+      <title>BBC World Service</title>
+      <annotation>GB · MP3 · 56 kbps</annotation>
+      <info>https://www.bbc.co.uk/sounds/play/live:bbc_world_service</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">598c4d0e-6b06-43fb-bff4-717c591213a9</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>0</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3?aggregator=web</location>
+      <title>Deutschlandfunk</title>
+      <annotation>DE · MP3 · 128 kbps</annotation>
+      <info>https://www.deutschlandfunk.de/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">1c3e8be2-5b14-4933-bad3-87cbc227cba4</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>1</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://stream.europe1.fr/europe1.aac</location>
+      <title>Europe 1</title>
+      <annotation>FR · AAC · 128 kbps</annotation>
+      <info>https://www.europe1.fr/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">dfcef843-6bf9-40f6-b3fe-2b224df86e48</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>2</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://tunein.cdnstream1.com/2868_96.mp3</location>
+      <title>CNN (audio)</title>
+      <annotation>US · MP3 · 96 kbps</annotation>
+      <info>https://www.cnn.com/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">33178054-56cd-449c-8cf7-412cc7be936a</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>3</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://ice6.somafm.com/groovesalad-128-mp3</location>
+      <title>SomaFM Groove Salad</title>
+      <annotation>US · MP3 · 128 kbps</annotation>
+      <info>https://somafm.com/groovesalad/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">960cf833-0601-11e8-ae97-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>4</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://media-ssl.musicradio.com/ChillMP3</location>
+      <title>Smooth Chill</title>
+      <annotation>GB · MP3 · 128 kbps</annotation>
+      <info>https://www.smoothradio.com/chill/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">478fd7f4-dc36-11e9-a8ba-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>5</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://listen.reyfm.de/lofi_128kbps.mp3</location>
+      <title>REYFM #lofi</title>
+      <annotation>DE · MP3 · 128 kbps</annotation>
+      <info>https://www.reyfm.de/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">02338a64-da59-4db6-a1c1-639fdc74d65b</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>6</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://radio.plaza.one/ogg</location>
+      <title>Nightwave Plaza</title>
+      <annotation>RU · OGG · 64 kbps</annotation>
+      <info>https://plaza.one/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">e35e3676-58e2-48ba-94bf-e32cc024b7cb</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>7</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://ice5.somafm.com/dronezone-128-mp3</location>
+      <title>SomaFM Drone Zone</title>
+      <annotation>US · MP3 · 128 kbps</annotation>
+      <info>https://somafm.com/dronezone/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">960eb2e9-0601-11e8-ae97-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>8</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://streams.radio.co/se1a320b47/listen</location>
+      <title>Café del Mar</title>
+      <annotation>ES · MP3 · 192 kbps</annotation>
+      <info>https://cafedelmar.com/radio/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">3fd18c3f-8157-11e9-aa30-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>9</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://icecast.walmradio.com:8443/jazz</location>
+      <title>Adroit Jazz Underground</title>
+      <annotation>US · MP3 · 320 kbps</annotation>
+      <info>https://walmradio.com/jazz</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">ea8059be-d119-4de3-b27b-0d9bd6aedb17</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>10</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://ice5.somafm.com/secretagent-128-mp3</location>
+      <title>SomaFM Secret Agent</title>
+      <annotation>US · MP3 · 128 kbps</annotation>
+      <info>https://somafm.com/secretagent/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">960c7c81-0601-11e8-ae97-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>11</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://smoothjazz.cdnstream1.com/2585_128.mp3</location>
+      <title>SmoothJazz.com</title>
+      <annotation>US · MP3 · 128 kbps</annotation>
+      <info>https://www.smoothjazz.com/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">0eb3dbcf-05f7-480e-83f4-7718102a4820</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>12</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://centova5.transmissaodigital.com:20104/live</location>
+      <title>Bossa Jazz Brasil</title>
+      <annotation>BR · AAC+ · 64 kbps</annotation>
+      <info>https://bossajazzbrasil.com/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">7ada8a81-5ae1-418c-8f18-51d2f38d86a4</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>13</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://stream.srg-ssr.ch/m/rsc_de/mp3_128</location>
+      <title>Radio Swiss Classic</title>
+      <annotation>CH · MP3 · 128 kbps</annotation>
+      <info>http://www.radioswissclassic.ch/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">96077079-0601-11e8-ae97-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>14</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://media-ssl.musicradio.com/ClassicFMMP3</location>
+      <title>Classic FM</title>
+      <annotation>GB · MP3 · 128 kbps</annotation>
+      <info>http://www.classicfm.com/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">96063f25-0601-11e8-ae97-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>15</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://uk2.streamingpulse.com/ssl/vcr1</location>
+      <title>Venice Classic Radio</title>
+      <annotation>IT · MP3 · 128 kbps</annotation>
+      <info>https://www.veniceclassicradio.eu/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">6b4d2d9d-1435-44aa-b5ee-1db50f833ddc</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>16</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://icecast.walmradio.com:8443/walm2</location>
+      <title>WALM 2</title>
+      <annotation>US · MP3 · 320 kbps</annotation>
+      <info>https://walmradio.com/walm2</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">64bb1467-2585-4454-a96f-34cfbc864d41</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>17</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://as-hls-ww-live.akamaized.net/pool_23461179/live/ww/bbc_radio_three/bbc_radio_three.isml/bbc_radio_three-audio%3d128000.norewind.m3u8</location>
+      <title>BBC Radio 3</title>
+      <annotation>GB · UNKNOWN</annotation>
+      <info>https://www.bbc.co.uk/radio3</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">03e68f6d-1ca3-459f-891a-c55d84711646</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>18</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://ice2.somafm.com/seventies-320-mp3</location>
+      <title>SomaFM Left Coast 70s</title>
+      <annotation>US · MP3 · 320 kbps</annotation>
+      <info>https://somafm.com/seventies/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">961e37ee-0601-11e8-ae97-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>19</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://0n-classicrock.radionetz.de/0n-classicrock.mp3</location>
+      <title>0N Classic Rock</title>
+      <annotation>DE · MP3 · 128 kbps</annotation>
+      <info>http://www.0nradio.com/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">d7f5a497-40ec-11e9-aa55-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>20</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://ice2.somafm.com/indiepop-128-aac</location>
+      <title>SomaFM Indie Pop Rocks!</title>
+      <annotation>US · AAC · 128 kbps</annotation>
+      <info>https://somafm.com/indiepop/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">96394224-0601-11e8-ae97-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>21</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://streaming.exclusive.radio/er/pinkfloyd/icecast.audio</location>
+      <title>Exclusively Pink Floyd</title>
+      <annotation>AE · MP3 · 128 kbps</annotation>
+      <info>https://exclusive.radio/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">501e4f18-fd92-441e-b4c6-4bd4a8435672</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>22</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://radiostreaming.ert.gr/ert-zeppelin</location>
+      <title>ERT Zeppelin 106.7</title>
+      <annotation>GR · MP3 · 192 kbps</annotation>
+      <info>https://webradio.ert.gr/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">605b2521-e764-42ba-8be0-473fc096a3b3</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>23</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://dancewave.online/dance.mp3</location>
+      <title>Dance Wave!</title>
+      <annotation>HU · MP3 · 128 kbps</annotation>
+      <info>https://dancewave.online/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">962cc6df-0601-11e8-ae97-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>24</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://secure.live-streams.nl/main</location>
+      <title>Intense Radio</title>
+      <annotation>NL · MP3 · 256 kbps</annotation>
+      <info>https://www.intenseradio.net/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">af6f51b1-0ca9-11ea-a87e-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>25</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://ice5.somafm.com/spacestation-128-aac</location>
+      <title>SomaFM Space Station Soma</title>
+      <annotation>US · AAC · 128 kbps</annotation>
+      <info>https://somafm.com/spacestation/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">960d3f6f-0601-11e8-ae97-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>26</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://ice6.somafm.com/lush-128-mp3</location>
+      <title>SomaFM Lush</title>
+      <annotation>US · MP3 · 128 kbps</annotation>
+      <info>https://somafm.com/lush/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">961173b5-0601-11e8-ae97-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>27</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://stream.technolovers.fm/deep-house?ref=radiobrowser</location>
+      <title>Technolovers Deep House</title>
+      <annotation>DE · MP3 · 192 kbps</annotation>
+      <info>https://technolovers.fm/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">cc0fdbe3-a2fb-4f0a-b67d-b47acd6354c7</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>28</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://as-hls-ww-live.akamaized.net/pool_55057080/live/ww/bbc_radio_fourfm/bbc_radio_fourfm.isml/bbc_radio_fourfm-audio%3d128000.norewind.m3u8</location>
+      <title>BBC Radio 4</title>
+      <annotation>GB · UNKNOWN</annotation>
+      <info>https://www.bbc.co.uk/radio4</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">98137c2d-ce68-4e33-8cb7-ddf3692ecc9d</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>29</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://media-ssl.musicradio.com/LBC973MP3Low</location>
+      <title>LBC</title>
+      <annotation>GB · MP3 · 48 kbps</annotation>
+      <info>http://www.lbc.co.uk/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">9614bbb6-0601-11e8-ae97-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>30</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://audio.bfmtv.com/rmcradio_128.mp3</location>
+      <title>RMC</title>
+      <annotation>FR · MP3 · 128 kbps</annotation>
+      <info>https://rmc.bfmtv.com/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">7a3a3989-8f26-44f7-9ae5-fa91e5cf4f9d</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>31</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://radio.talksport.com/stream</location>
+      <title>talkSPORT</title>
+      <annotation>GB · AAC · 63 kbps</annotation>
+      <info>https://talksport.com/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">177dda8f-ce5f-4f18-a19e-c6c8b6f5319a</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>32</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://stream4.srr.ro:8443/romania-actualitati</location>
+      <title>Radio România Actualități</title>
+      <annotation>RO · AAC+ · 96 kbps</annotation>
+      <info>https://www.romania-actualitati.ro/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">8158142a-c13e-4073-ace3-ab574f0285bb</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>33</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://edge76.rcs-rds.ro/digifm/digi24fm.mp3</location>
+      <title>Digi24 FM</title>
+      <annotation>RO · MP3</annotation>
+      <info>https://www.digi24.ro/live/digi24-fm</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">73ee836b-e9f2-4758-9cd6-2886da6db476</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>34</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://live.kissfm.ro/kissfm.aacp</location>
+      <title>Kiss FM România</title>
+      <annotation>RO · AAC · 80 kbps</annotation>
+      <info>https://www.kissfm.ro/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">99ac4423-0307-11ea-bbf2-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>35</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://astreaming.edi.ro:8443/EuropaFM_aac</location>
+      <title>Europa FM</title>
+      <annotation>RO · AAC · 64 kbps</annotation>
+      <info>http://www.europafm.ro/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">c63f7402-f143-4f92-9cc9-e2d49f2a0bc5</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>36</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://astreaming.edi.ro:8443/VirginRadio_aac</location>
+      <title>Virgin Radio România</title>
+      <annotation>RO · AAC · 64 kbps</annotation>
+      <info>https://virginradio.ro/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">1d6d9870-b554-4919-a0a9-93457d3de6da</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>37</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://live.guerrillaradio.ro:8443/guerrilla.aac</location>
+      <title>Radio Guerrilla</title>
+      <annotation>RO · AAC+ · 96 kbps</annotation>
+      <info>https://www.guerrillaradio.ro/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">331f8e7c-a7ca-4c19-b1f2-1998cca09d4c</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>38</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://live.magicfm.ro/magicfm.aacp</location>
+      <title>Magic FM România</title>
+      <annotation>RO · AAC · 80 kbps</annotation>
+      <info>https://www.magicfm.ro/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">5e7667bc-98db-4772-be99-cf6e2e10d73f</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>39</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://live.rockfm.ro/hard.rock</location>
+      <title>Rock FM Hard Rock</title>
+      <annotation>RO · AAC · 80 kbps</annotation>
+      <info>https://www.rockfm.ro/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">2eb897a7-b86b-4bb2-b245-94a43829b7e5</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>40</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://as-hls-ww-live.akamaized.net/pool_74208725/live/ww/bbc_radio_two/bbc_radio_two.isml/bbc_radio_two-audio%3d128000.norewind.m3u8</location>
+      <title>BBC Radio 2</title>
+      <annotation>GB · UNKNOWN</annotation>
+      <info>https://www.bbc.co.uk/radio2</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">3606ef8c-cd58-4440-8c47-dbf1e0cacdac</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>41</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://media-ssl.musicradio.com/Heart80sMP3</location>
+      <title>Heart 80s</title>
+      <annotation>GB · MP3 · 128 kbps</annotation>
+      <info>https://www.heart.co.uk/80s</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">c4077677-dc2f-11e9-a8ba-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>42</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://media-ssl.musicradio.com/GoldMP3</location>
+      <title>Gold</title>
+      <annotation>GB · MP3 · 128 kbps</annotation>
+      <info>https://www.mygoldmusic.co.uk/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">0a1e0bb0-dc37-11e9-a8ba-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>43</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://media-ssl.musicradio.com/Heart90sMP3</location>
+      <title>Heart 90s</title>
+      <annotation>GB · MP3 · 128 kbps</annotation>
+      <info>https://www.heart.co.uk/90s</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">52bb00fe-dc31-11e9-a8ba-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>44</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://media-ssl.musicradio.com/RadioXUK</location>
+      <title>Radio X</title>
+      <annotation>GB · AAC · 48 kbps</annotation>
+      <info>http://www.radiox.co.uk/</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">9617bbd8-0601-11e8-ae97-52543be04c81</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>45</vlc:id>
+      </extension>
+    </track>
+    <track>
+      <location>https://stream-ar.hellorayo.co.uk/absolute80shigh.aac?aw_0_1st.skey=1602676850&amp;direct=true&amp;rp_source=1</location>
+      <title>Absolute Radio 80s</title>
+      <annotation>GB · AAC · 128 kbps</annotation>
+      <info>https://www.hellorayo.co.uk/absolute-80s</info>
+      <meta rel="https://api.radio-browser.info/#stationuuid">c6c204d3-3ffd-4e85-b0f9-29bf6de7ddf4</meta>
+      <extension application="http://www.videolan.org/vlc/playlist/0">
+        <vlc:id>46</vlc:id>
+      </extension>
+    </track>
+  </trackList>
+  <extension application="http://www.videolan.org/vlc/playlist/0">
+    <vlc:node title="News">
+      <vlc:item tid="0"/>
+      <vlc:item tid="1"/>
+      <vlc:item tid="2"/>
+      <vlc:item tid="3"/>
+    </vlc:node>
+    <vlc:node title="Chill / Lo-fi">
+      <vlc:item tid="4"/>
+      <vlc:item tid="5"/>
+      <vlc:item tid="6"/>
+      <vlc:item tid="7"/>
+      <vlc:item tid="8"/>
+      <vlc:item tid="9"/>
+    </vlc:node>
+    <vlc:node title="Jazz">
+      <vlc:item tid="10"/>
+      <vlc:item tid="11"/>
+      <vlc:item tid="12"/>
+      <vlc:item tid="13"/>
+    </vlc:node>
+    <vlc:node title="Classical">
+      <vlc:item tid="14"/>
+      <vlc:item tid="15"/>
+      <vlc:item tid="16"/>
+      <vlc:item tid="17"/>
+      <vlc:item tid="18"/>
+    </vlc:node>
+    <vlc:node title="Rock">
+      <vlc:item tid="19"/>
+      <vlc:item tid="20"/>
+      <vlc:item tid="21"/>
+      <vlc:item tid="22"/>
+      <vlc:item tid="23"/>
+    </vlc:node>
+    <vlc:node title="Electronic">
+      <vlc:item tid="24"/>
+      <vlc:item tid="25"/>
+      <vlc:item tid="26"/>
+      <vlc:item tid="27"/>
+      <vlc:item tid="28"/>
+    </vlc:node>
+    <vlc:node title="Talk">
+      <vlc:item tid="29"/>
+      <vlc:item tid="30"/>
+      <vlc:item tid="31"/>
+      <vlc:item tid="32"/>
+    </vlc:node>
+    <vlc:node title="Romania">
+      <vlc:item tid="33"/>
+      <vlc:item tid="34"/>
+      <vlc:item tid="35"/>
+      <vlc:item tid="36"/>
+      <vlc:item tid="37"/>
+      <vlc:item tid="38"/>
+      <vlc:item tid="39"/>
+      <vlc:item tid="40"/>
+    </vlc:node>
+    <vlc:node title="UK">
+      <vlc:item tid="41"/>
+      <vlc:item tid="42"/>
+      <vlc:item tid="43"/>
+      <vlc:item tid="44"/>
+      <vlc:item tid="45"/>
+      <vlc:item tid="46"/>
+    </vlc:node>
+  </extension>
+</playlist>

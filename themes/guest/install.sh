@@ -78,7 +78,7 @@ apk add -q \
     papirus-icon-theme adwaita-icon-theme hicolor-icon-theme \
     font-inter font-ubuntu font-cantarell font-noto \
     kvantum kvantum-qt5 \
-    pulseaudio pulseaudio-utils alsa-plugins-pulse alsa-utils \
+    pulseaudio pulseaudio-utils alsa-plugins-pulse alsa-utils v4l-utils \
     vlc vlc-qt qt5-qtwayland qt6-qtwayland ffmpeg
 
 # --- macOS: WhiteSur -------------------------------------------------------------------
@@ -146,11 +146,11 @@ extract_deb() { # deb dest
 if ! installed yaru; then
     for p in yaru-theme-gtk yaru-theme-icon; do
         fetch "$UBUNTU_POOL/y/yaru-theme/${p}_${YARU_VERSION}_all.deb" "$WORK/$p.deb"
-        rm -rf "$WORK/$p"
+        rm -rf "${WORK:?}/$p"
         extract_deb "$WORK/$p.deb" "$WORK/$p"
     done
     for v in Yaru Yaru-dark; do
-        rm -rf "$THEMES/$v" "$ICONS/$v"
+        rm -rf "${THEMES:?}/$v" "${ICONS:?}/$v"
         cp -R "$WORK/yaru-theme-gtk/usr/share/themes/$v" "$THEMES/$v"
         prune_gtk_theme "$THEMES/$v"
         cp -R "$WORK/yaru-theme-icon/usr/share/icons/$v" "$ICONS/$v"
@@ -171,16 +171,16 @@ fi
 if ! installed ukui; then
     for p in ukui-gtk-theme ukui-icons-theme; do
         fetch "$DEBIAN_POOL/u/ukui-themes/${p}_${UKUI_THEMES_VERSION}_all.deb" "$WORK/$p.deb"
-        rm -rf "$WORK/$p"
+        rm -rf "${WORK:?}/$p"
         extract_deb "$WORK/$p.deb" "$WORK/$p"
     done
     for v in ukui-white ukui-black; do
-        rm -rf "$THEMES/$v"
+        rm -rf "${THEMES:?}/$v"
         cp -R "$WORK/ukui-gtk-theme/usr/share/themes/$v" "$THEMES/$v"
         prune_gtk_theme "$THEMES/$v"
     done
     for t in ukui-icon-theme-default dark-sense; do
-        rm -rf "$ICONS/$t"
+        rm -rf "${ICONS:?}/$t"
         cp -R "$WORK/ukui-icons-theme/usr/share/icons/$t" "$ICONS/$t"
     done
     # index.theme lists "NNxNN@2/<ctx>" but the directories are "NNxNN@2x", so the @2x

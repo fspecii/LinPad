@@ -21,6 +21,12 @@ struct mem_usage {
 };
 struct mem_usage get_mem_usage(void);
 
+// How much more memory this process may use before the host kills it, or 0 when there
+// is no such limit. iOS: os_proc_available_memory(). Elsewhere ISH_MEM_LIMIT_MB=<n>
+// emulates an iOS per-process limit of n MB (n minus this process's phys_footprint),
+// so the iPad's low-memory behaviour can be tested on the Mac.
+uint64_t host_memory_headroom(void);
+
 struct uptime_info {
     uint64_t uptime_ticks;
     uint64_t load_1m, load_5m, load_15m;

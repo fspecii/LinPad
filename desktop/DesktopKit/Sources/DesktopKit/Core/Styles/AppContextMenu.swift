@@ -11,26 +11,26 @@ struct AppContextMenu: View {
     var body: some View {
         let windows = windows
         ForEach(windows) { window in
-            Button(window.title, systemImage: window.isMinimized ? "minus.square" : "macwindow") {
+            Button {
                 manager.focus(window.id)
-            }
+            } label: { ThemedLabel(window.title, systemImage: window.isMinimized ? "minus.square" : "macwindow") }
         }
         if !windows.isEmpty { Divider() }
-        Button("New Window", systemImage: "plus.rectangle.on.rectangle") {
+        Button {
             controller.open(appID: appID, arguments: [:])
-        }
-        Button(controller.isPinned(appID) ? "Unpin" : "Pin", systemImage: controller.isPinned(appID) ? "pin.slash" : "pin") {
+        } label: { ThemedLabel("New Window", systemImage: "plus.rectangle.on.rectangle") }
+        Button {
             controller.togglePinned(appID)
-        }
+        } label: { ThemedLabel(controller.isPinned(appID) ? "Unpin" : "Pin", systemImage: controller.isPinned(appID) ? "pin.slash" : "pin") }
         let onDesktop = controller.isOnDesktop(appID)
-        Button(onDesktop ? "Remove from Desktop" : "Add to Desktop", systemImage: onDesktop ? "minus.circle" : "plus.circle") {
+        Button {
             controller.toggleOnDesktop(appID)
-        }
+        } label: { ThemedLabel(onDesktop ? "Remove from Desktop" : "Add to Desktop", systemImage: onDesktop ? "minus.circle" : "plus.circle") }
         if !windows.isEmpty {
             Divider()
-            Button(windows.count > 1 ? "Close All Windows" : "Close", systemImage: "xmark", role: .destructive) {
+            Button(role: .destructive) {
                 for window in windows { manager.requestClose(window.id) }
-            }
+            } label: { ThemedLabel(windows.count > 1 ? "Close All Windows" : "Close", systemImage: "xmark") }
         }
     }
 }

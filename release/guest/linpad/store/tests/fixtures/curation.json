@@ -1,0 +1,7 @@
+{ "version": 1,
+  "hero": [ { "app": "filezilla", "title": "Move files", "subtitle": "FTP", "tint": "#B4271F" } ],
+  "collections": [ { "id": "internet", "title": "Internet", "apps": ["filezilla", "dillo", "nonexistent"] },
+                   { "id": "windows", "title": "Windows apps (Wine)", "apps": ["pack:wine"] } ],
+  "compat": { "filezilla": { "status": "works", "note": "Tested." }, "pack:wine": { "status": "experimental" } },
+  "fixups": { "filezilla": "sysvipc filezilla" },
+  "warnSizeMB": 400 }

@@ -1,0 +1,14 @@
+Default icon pack bundled with LinPad's desktop (pre-rendered PNGs).
+
+Papirus icon theme, https://github.com/PapirusDevelopmentTeam/papirus-icon-theme
+(Alpine 3.21 papirus-icon-theme 20231201-r0). Licence: GPL-3.0.
+Copyright Papirus Development Team.
+
+A few names Papirus takes from its parent theme come from Breeze icons,
+https://invent.kde.org/frameworks/breeze-icons (Alpine 3.21 breeze-icons).
+Licence: LGPL-3.0-or-later. Copyright KDE Visual Design Group.
+
+The theme a file was rendered from is the "source" of its entry in index.json.
+The full licence texts: https://www.gnu.org/licenses/gpl-3.0.txt and
+https://www.gnu.org/licenses/lgpl-3.0.txt. Source: the upstream repositories above.
+Regenerate with themes/build-bundled-icons.sh.

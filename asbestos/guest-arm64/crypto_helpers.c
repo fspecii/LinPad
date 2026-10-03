@@ -685,21 +685,6 @@ void sm4e_helper(uint32_t *vd, uint32_t *vn) {
 }
 
 /*
- * SVE helpers (modeled as 128-bit vectors)
- */
-void sve_eor_d_helper(uint64_t *vd, uint64_t *vn, uint64_t *vm) {
-    vd[0] = vn[0] ^ vm[0];
-    vd[1] = vn[1] ^ vm[1];
-}
-
-void sve_xar_d_helper(uint64_t *vd, uint64_t *vn, uint64_t *vm, uint32_t imm) {
-    // XAR: Vd = ROR(Vn XOR Vm, imm) - XOR first, then rotate
-    unsigned n = imm & 63;
-    vd[0] = ror64(vn[0] ^ vm[0], n);
-    vd[1] = ror64(vn[1] ^ vm[1], n);
-}
-
-/*
  * PMULL: Polynomial Multiply Long
  * Performs carry-less multiplication (used in GCM mode of AES)
  *

@@ -1,3 +1,5 @@
+# Every variable here is read by the scripts that source this file.
+# shellcheck shell=sh disable=SC2034
 # Pinned upstream sources. MANIFEST.md lists the same versions with their licenses;
 # update both together.
 WHITESUR_GTK_REF=2026-09-10

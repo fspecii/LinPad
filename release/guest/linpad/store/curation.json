@@ -1,0 +1,259 @@
+{
+  "version": 1,
+  "_comment": "Hand-curated layer of LinPad Store over store-index.json: home collections, hero banners and the 'Runs on LinPad' list. Entries name Alpine packages (aarch64, v3.21 main+community) or catalog.json pack ids prefixed with 'pack:'. compat status: works | experimental | broken; anything not listed shows 'Not tested'. 'verified' says where and when the status was checked.",
+  "hero": [
+    {
+      "app": "filezilla",
+      "title": "Move files to any server",
+      "subtitle": "FileZilla: FTP, FTPS and SFTP in a real desktop window.",
+      "tint": "#B4271F"
+    },
+    {
+      "app": "pack:image-editor",
+      "title": "Edit photos like a pro",
+      "subtitle": "GIMP 2.10 with layers, masks and filters.",
+      "tint": "#5C5543"
+    },
+    {
+      "app": "audacity",
+      "title": "Record and edit audio",
+      "subtitle": "Audacity: cut, mix and clean up recordings.",
+      "tint": "#1C3F95"
+    },
+    {
+      "app": "pack:wine",
+      "title": "Run Windows apps",
+      "subtitle": "Notepad++, 7-Zip and PuTTY through Wine.",
+      "tint": "#6B2B9E"
+    }
+  ],
+  "collections": [
+    {
+      "id": "developer",
+      "title": "Developer essentials",
+      "subtitle": "Editors, diffs and toolchains",
+      "apps": [
+        "pack:vscode",
+        "geany",
+        "meld",
+        "gitg",
+        "sqlitebrowser",
+        "pack:claude-code",
+        "pack:dev-extras",
+        "ghex",
+        "bluefish",
+        "thonny",
+        "pack:gpu"
+      ]
+    },
+    {
+      "id": "internet",
+      "title": "Internet",
+      "subtitle": "Browse, mail, chat and transfer",
+      "apps": [
+        "firefox-esr",
+        "filezilla",
+        "pack:mail",
+        "pack:mail-light",
+        "transmission-gtk",
+        "hexchat",
+        "pidgin",
+        "remmina",
+        "pack:browsers",
+        "liferea",
+        "dino"
+      ]
+    },
+    {
+      "id": "office",
+      "title": "Office",
+      "subtitle": "Documents, spreadsheets and PDFs",
+      "apps": [
+        "pack:office",
+        "gnumeric",
+        "abiword",
+        "pack:pdf",
+        "evince",
+        "xournalpp",
+        "foliate",
+        "ghostwriter",
+        "zim",
+        "scribus"
+      ]
+    },
+    {
+      "id": "graphics",
+      "title": "Graphics",
+      "subtitle": "Paint, draw and organise photos",
+      "apps": [
+        "pack:image-editor",
+        "inkscape",
+        "krita",
+        "pack:image-viewer",
+        "shotwell",
+        "gthumb",
+        "pinta",
+        "kolourpaint",
+        "gpick",
+        "fontforge-gui"
+      ]
+    },
+    {
+      "id": "audio-video",
+      "title": "Audio & Video",
+      "subtitle": "Play, record and edit",
+      "apps": [
+        "pack:multimedia",
+        "audacity",
+        "mpv",
+        "celluloid",
+        "kdenlive",
+        "obs-studio",
+        "handbrake-gtk",
+        "audacious",
+        "strawberry",
+        "easytag"
+      ]
+    },
+    {
+      "id": "creators",
+      "title": "Creators",
+      "subtitle": "Make music, video and art",
+      "apps": [
+        "audacity",
+        "kdenlive",
+        "krita",
+        "inkscape",
+        "lmms",
+        "musescore",
+        "hydrogen",
+        "obs-studio",
+        "blender",
+        "ardour"
+      ]
+    },
+    {
+      "id": "utilities",
+      "title": "Utilities",
+      "subtitle": "Small tools that help every day",
+      "apps": [
+        "pack:archives",
+        "galculator",
+        "gnome-calculator",
+        "keepassxc",
+        "xfce4-taskmanager",
+        "baobab",
+        "simple-scan",
+        "gparted"
+      ]
+    },
+    {
+      "id": "games",
+      "title": "Games that run well",
+      "subtitle": "Light 2D games for a quick break",
+      "apps": [
+        "aisleriot",
+        "gnome-mines",
+        "gnome-sudoku",
+        "gnome-chess",
+        "gnome-2048",
+        "kpat",
+        "supertux",
+        "pingus",
+        "lbreakout2",
+        "xboard"
+      ]
+    },
+    {
+      "id": "windows",
+      "title": "Windows apps (Wine)",
+      "subtitle": "Programs built for Windows",
+      "apps": [
+        "pack:wine",
+        "pack:wine-x86"
+      ]
+    }
+  ],
+  "compat": {
+    "firefox-esr": {
+      "status": "works",
+      "note": "Ships with LinPad."
+    },
+    "pack:mail-light": {
+      "status": "works"
+    },
+    "pack:pdf": {
+      "status": "works"
+    },
+    "pack:image-viewer": {
+      "status": "works"
+    },
+    "pack:archives": {
+      "status": "works"
+    },
+    "pack:multimedia": {
+      "status": "works",
+      "note": "LinPad's own Wayland video output and sound."
+    },
+    "pack:vscode": {
+      "status": "works",
+      "note": "Needs 2-3 GB of memory while running."
+    },
+    "pack:claude-code": {
+      "status": "works"
+    },
+    "pack:gpu": {
+      "status": "works"
+    },
+    "pack:office": {
+      "status": "experimental",
+      "note": "Very large; first start is slow under emulation."
+    },
+    "pack:browsers": {
+      "status": "experimental",
+      "note": "Falkon does not start yet; Dillo works."
+    },
+    "pack:dev-extras": {
+      "status": "experimental"
+    },
+    "pack:wine": {
+      "status": "experimental",
+      "note": "Direct3D 10/11/12 games do not run."
+    },
+    "pack:wine-x86": {
+      "status": "experimental",
+      "note": "Needs fast mode for usable speed."
+    }
+  },
+  "warnSizeMB": 400,
+  "flathub": {
+    "filezilla": "org.filezillaproject.Filezilla",
+    "transmission-gtk": "com.transmissionbt.Transmission",
+    "pack:mail": "org.mozilla.Thunderbird",
+    "pack:mail-light": "org.claws_mail.Claws-Mail",
+    "pack:multimedia": "org.videolan.VLC",
+    "pack:office": "org.libreoffice.LibreOffice",
+    "pack:image-editor": "org.gimp.GIMP",
+    "pack:vscode": "com.visualstudio.code",
+    "pack:pdf": "org.pwmt.zathura",
+    "pack:archives": "org.xfce.xarchiver",
+    "pack:image-viewer": "org.xfce.ristretto",
+    "firefox-esr": "org.mozilla.firefox",
+    "hexchat": "io.github.Hexchat",
+    "pidgin": "im.pidgin.Pidgin",
+    "geany": "org.geany.Geany",
+    "meld": "org.gnome.meld",
+    "sqlitebrowser": "org.sqlitebrowser.sqlitebrowser",
+    "abiword": "com.abisource.AbiWord",
+    "galculator": "com.github.galculator",
+    "handbrake-gtk": "fr.handbrake.ghb",
+    "lmms": "io.lmms.LMMS",
+    "pinta": "com.github.PintaProject.Pinta",
+    "keepassxc": "org.keepassxc.KeePassXC",
+    "gparted": "org.gnome.GParted",
+    "pack:wine": "org.winehq.Wine"
+  },
+  "fixups": {
+    "audacity": "sysvipc audacity"
+  }
+}

@@ -124,6 +124,10 @@ public struct DesktopRootView: View {
         .onChange(of: isDark, initial: true) { _, dark in
             controller.isDarkAppearance = dark
             controller.wallpapers.isDark = dark
+            // A colour theme that turns the desktop dark (or light) also switches the style's
+            // GTK/Qt variant in the guest (e.g. Aero's light GTK theme to the dark one).
+            // Not while a theme is only being previewed: that would close the picker.
+            if controller.colorThemes.previewID == nil { controller.applyStyle(style, dark: dark) }
             // Automatic leaves the window alone so the system's choice keeps coming through.
             let followsSystem = DesktopAppearance(rawValue: appearanceID) == .system || followsSystemThemeMode
             controller.input.setInterfaceStyle(followsSystem ? .unspecified : (dark ? .dark : .light))
@@ -332,6 +336,7 @@ public struct DesktopRootView: View {
         .overlay(alignment: .topTrailing) {
             ToastStack(controller: controller)
         }
+        .overlay(alignment: .bottomTrailing) { WallpaperMatchPrompt(controller: controller) }
         .overlay(alignment: style.quickSettingsAlignment) {
             if controller.isQuickSettingsPresented {
                 ZStack(alignment: style.quickSettingsAlignment) {

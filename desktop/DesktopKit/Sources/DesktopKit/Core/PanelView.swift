@@ -83,7 +83,7 @@ struct OverviewButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "rectangle.3.group")
+            ThemeGlyph(symbol: "rectangle.3.group", size: 13)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(isActive ? theme.accent : theme.secondaryText)
                 .frame(width: 32, height: 26)
@@ -185,12 +185,12 @@ struct WorkspaceSwitcher: View {
             ForEach(0..<manager.workspaceCount, id: \.self) { index in
                 let isCurrent = index == manager.currentWorkspace
                 Button {
-                    withAnimation(.snappy(duration: 0.2)) { manager.switchToWorkspace(index) }
+                    withAnimation(DesktopMotion.quick) { manager.switchToWorkspace(index) }
                 } label: {
                     Text("\(index + 1)")
                         .font(.system(size: 11, weight: .bold, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(isCurrent ? Color.white : theme.secondaryText)
+                        .foregroundStyle(isCurrent ? theme.accent.readableLabel : theme.secondaryText)
                         .frame(width: 22, height: 20)
                         .background {
                             RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -206,10 +206,15 @@ struct WorkspaceSwitcher: View {
                                 Circle().fill(theme.accent).frame(width: 3, height: 3).offset(y: -2)
                             }
                         }
+                        // A taller hit area than the drawn chip, without changing the panel's layout.
+                        .padding(.horizontal, 1.5)
+                        .padding(.vertical, 7)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .hoverEffect(.highlight)
+                .padding(.horizontal, -1.5)
+                .padding(.vertical, -7)
                 .help(manager.title(ofWorkspace: index))
                 .onDrag { WorkspaceDrag.provider(for: index) }
                 .onDrop(of: [.plainText], delegate: WorkspaceReorderDropDelegate(manager: manager, index: index, hovered: $dropHover))
@@ -224,10 +229,14 @@ struct WorkspaceSwitcher: View {
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(theme.secondaryText)
                         .frame(width: 20, height: 20)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 7)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .hoverEffect(.highlight)
+                .padding(.horizontal, -4)
+                .padding(.vertical, -7)
                 .help("New Workspace (⌃⌥N)")
                 .accessibilityLabel("New Workspace")
                 .accessibilityIdentifier("desktop.workspace.add")
@@ -262,7 +271,7 @@ private struct Meter: View {
     var body: some View {
         HStack(spacing: 5) {
             Text(label)
-                .font(.system(size: 9, weight: .bold))
+                .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(theme.secondaryText)
             ZStack(alignment: .leading) {
                 Capsule().fill(theme.primaryText.opacity(0.1))

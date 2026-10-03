@@ -175,12 +175,15 @@ struct ThemeDraft: Equatable {
 struct ThemeEditorView: View {
     /// Set by the gallery's "Duplicate & Edit" before switching here.
     @MainActor static var pendingDuplicate: ColorTheme?
+    /// Set by "Customize" on a wallpaper match: opens that theme as is, under its own name.
+    @MainActor static var pendingEdit: ColorTheme?
 
     let controller: DesktopController
     let host: any LinuxHost
     @Environment(\.desktopTheme) private var theme
     @State private var draft = ThemeDraft()
     @State private var status: String?
+    @State private var statusIsError = false
     @State private var isSaving = false
     @State private var isImporting = false
 
@@ -272,7 +275,11 @@ struct ThemeEditorView: View {
                     .accessibilityIdentifier("themes.editor.save")
             }
             .font(.system(size: 13))
-            if let status {
+            if let status, statusIsError {
+                InlineBanner(kind: .error, message: status, onDismiss: { self.status = nil })
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .accessibilityIdentifier("themes.editor.status")
+            } else if let status {
                 Text(status).font(.caption).foregroundStyle(theme.secondaryText)
                     .accessibilityIdentifier("themes.editor.status")
             }
@@ -330,6 +337,11 @@ struct ThemeEditorView: View {
     }
 
     private func takePendingDuplicate() {
+        if let edit = Self.pendingEdit {
+            Self.pendingEdit = nil
+            draft = ThemeDraft(theme: edit, name: edit.name)
+            return
+        }
         guard let source = Self.pendingDuplicate else { return }
         Self.pendingDuplicate = nil
         draft = ThemeDraft(theme: source, name: "\(source.name) Copy")
@@ -345,8 +357,10 @@ struct ThemeEditorView: View {
                 controller.colorThemes.upsertLocal(candidate)
                 await controller.colorThemes.load(host: host)
                 controller.applyColorTheme(candidate.id)
+                statusIsError = false
                 status = "Saved \(candidate.name) and applied it."
             } catch {
+                statusIsError = true
                 status = "Couldn't save: \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)"
             }
         }
@@ -359,8 +373,10 @@ struct ThemeEditorView: View {
                 controller.colorThemes.upsertLocal(imported)
                 await controller.colorThemes.load(host: host)
                 draft = ThemeDraft(theme: imported, name: imported.name)
+                statusIsError = false
                 status = "Imported \(imported.name)."
             } catch {
+                statusIsError = true
                 status = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
         }
@@ -370,6 +386,7 @@ struct ThemeEditorView: View {
         do {
             HostPresenter.share([try make()])
         } catch {
+            statusIsError = true
             status = "Couldn't export: \(error.localizedDescription)"
         }
     }

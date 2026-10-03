@@ -132,6 +132,7 @@ struct SettingsAppView: View {
     @AppStorage(DesktopSettings.performanceOverlayKey) private var showsPerformance = false
     @AppStorage(DesktopShortcutModifier.storageKey) private var shortcutModifier = DesktopShortcutModifier.controlOption
     @AppStorage(LinuxKeyboardMode.storageKey) private var linuxKeyboardMode = LinuxKeyboardMode.onDemand
+    @AppStorage(ExtraKeysRow.storageKey) private var showsExtraKeys = true
     @AppStorage(DesktopStyle.storageKey) private var styleID = DesktopStyle.defaultStyle.rawValue
     @AppStorage(DesktopSettings.taskbarCenteredKey) private var taskbarCentered = true
     @AppStorage(DesktopSettings.dockAutoHideKey) private var dockAutoHides = false
@@ -167,7 +168,7 @@ struct SettingsAppView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     if let fastMode { FastModeSettingsSection(fastMode: fastMode) }
                     appearanceSection
-                    AppsSettingsSection(catalog: AppCatalogModel.shared(for: host))
+                    StoreSettingsSection(store: StoreModel.shared(for: host), desktop: desktop)
                         .id(SettingsApp.appsPage)
                     if let icons {
                         IconPackSettingsSection(store: icons.packs, icons: icons, host: host, desktop: desktop)
@@ -176,6 +177,7 @@ struct SettingsAppView: View {
                     if let wallpapers {
                         WallpaperSettingsSection(store: wallpapers, host: host)
                             .id(SettingsApp.wallpaperPage)
+                        if let desktopController { WallpaperAutoMatchToggle(model: desktopController.wallpaperMatch).padding(.horizontal, 4) }
                     }
                     desktopSection
                     tilingSection
@@ -299,16 +301,8 @@ struct SettingsAppView: View {
 
     private var desktopSection: some View {
         SettingsSection(title: "Desktop", symbol: "macwindow.on.rectangle") {
-            SettingsRow(title: "Style") {
-                Picker("Style", selection: $styleID) {
-                    ForEach(DesktopStyle.allCases) { style in
-                        Text(style.displayName).tag(style.rawValue)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-                .accessibilityIdentifier("settings.style")
-            }
+            Text("Style").font(.callout)
+            DesktopStyleChooser(selection: $styleID)
             Text("Changes the panels, window buttons, launcher and the Linux apps' GTK, Qt and icon themes. Shortcuts and window management stay the same.")
                 .font(.caption)
                 .foregroundStyle(theme.secondaryText)
@@ -437,7 +431,17 @@ struct SettingsAppView: View {
                 .font(.caption)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
+            SettingsRow(title: "Show extra keys row") {
+                Toggle("Show extra keys row", isOn: $showsExtraKeys)
+                    .labelsHidden()
+                    .accessibilityIdentifier("settings.extraKeysRow")
+            }
+            Text("Esc, Tab, Ctrl and arrow keys above the on-screen keyboard in the Terminal. Hidden with a hardware keyboard and in Linux apps.")
+                .font(.caption)
+                .foregroundStyle(theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
             LinuxOptionKeySettingsView()
+            LinuxKeyboardLayoutSettingsView()
             ForEach(DesktopCommand.Group.allCases, id: \.self) { group in
                 Text(group.rawValue)
                     .font(.subheadline.weight(.semibold))
@@ -569,9 +573,14 @@ private struct FastModeSettingsSection: View {
                 .accessibilityIdentifier("settings.fastModeCodeCache")
             }
             SettingsRow(title: "Status") {
-                Text(fastMode.statusText)
+                // A green mark carries the state; green text read at under 2:1 on light themes.
+                Label {
+                    Text(fastMode.statusText)
+                } icon: {
+                    if fastModeIsOn { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.green) }
+                }
                     .font(.callout)
-                    .foregroundStyle(fastModeIsOn ? Color.green : theme.secondaryText)
+                    .foregroundStyle(fastModeIsOn ? theme.primaryText : theme.secondaryText)
                     .multilineTextAlignment(.trailing)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("settings.fastModeStatus")
@@ -608,6 +617,7 @@ private struct FastModeSettingsSection: View {
 
 struct SettingsSection<Trailing: View, Content: View>: View {
     @Environment(\.desktopTheme) private var theme
+    @Environment(\.desktopStyle) private var style
     let title: String
     let symbol: String
     @ViewBuilder let trailing: () -> Trailing
@@ -625,7 +635,7 @@ struct SettingsSection<Trailing: View, Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label(title, systemImage: symbol)
+                ThemedLabel(title, systemImage: symbol, points: 20)
                     .font(.headline)
                 Spacer()
                 trailing()
@@ -635,10 +645,14 @@ struct SettingsSection<Trailing: View, Content: View>: View {
                 content()
             }
             .padding(14)
-            .background(RoundedRectangle(cornerRadius: theme.cornerRadius, style: .continuous)
-                .fill(theme.titleBarInactive))
-            .overlay(RoundedRectangle(cornerRadius: theme.cornerRadius, style: .continuous)
-                .stroke(theme.separator, lineWidth: 1))
+            .background {
+                if let skin = style.spec.skin {
+                    EraGroupBox(skin: skin)
+                } else {
+                    RoundedRectangle(cornerRadius: theme.cornerRadius, style: .continuous).fill(theme.titleBarInactive)
+                    RoundedRectangle(cornerRadius: theme.cornerRadius, style: .continuous).stroke(theme.separator, lineWidth: 1)
+                }
+            }
         }
     }
 }

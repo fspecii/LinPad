@@ -20,6 +20,9 @@
 #include "kernel/mm.h"
 #include "kernel/native_offload.h"
 #include "tools/ptraceomatic-config.h"
+#ifdef GUEST_ARM64
+#include "asbestos/guest-arm64/hwcap.h"
+#endif
 
 #define ARGV_MAX 32 * PAGE_SIZE
 
@@ -385,7 +388,7 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
 #endif
         {AX_SYSINFO_EHDR, current->mm->vdso},
 #if defined(GUEST_ARM64)
-        {AX_HWCAP, 0x11f}, // FP|ASIMD|EVTSTRM|AES|PMULL|ATOMICS — AES+PMULL enables ring's gcm_ghash_clmul (64-bit CLMUL) path
+        {AX_HWCAP, arm64_guest_hwcap()},
 #else
         {AX_HWCAP, 0x00000000}, // suck that
 #endif
@@ -403,7 +406,11 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
         {AX_EGID, 0},
         {AX_SECURE, 0},
         {AX_RANDOM, random_addr},
+#if defined(GUEST_ARM64)
+        {AX_HWCAP2, arm64_guest_hwcap2()},
+#else
         {AX_HWCAP2, 0}, // suck that too
+#endif
         {AX_EXECFN, file_addr},
         {AX_PLATFORM, platform_addr},
         {0, 0}

@@ -72,6 +72,7 @@ final class LinuxSurfaceView: UIView {
             layer.shadowOffset = CGSize(width: 0, height: 4)
         }
         installGestures()
+        hideShortcutsBar()
     }
 
     @available(*, unavailable)
@@ -298,6 +299,7 @@ final class LinuxSurfaceView: UIView {
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         if presses.contains(where: { $0.key != nil }) { HardwareKeyboardMonitor.noteHardwareKeyPress() }
+        bridge?.keyboardLayout.observe(presses, inputMode: textInputMode)
         let toText = presses.filter(routesToTextSystem)
         textSystemPresses.formUnion(toText.map(ObjectIdentifier.init))
         let unhandled = forward(presses.subtracting(toText), pressed: true).union(toText)
@@ -338,6 +340,7 @@ final class LinuxSurfaceView: UIView {
     var smartQuotesType: UITextSmartQuotesType = .no
     var smartDashesType: UITextSmartDashesType = .no
     var smartInsertDeleteType: UITextSmartInsertDeleteType = .no
+    var inlinePredictionType: UITextInlinePredictionType = .no
 }
 
 /// A desktop window's content for a Linux toplevel.

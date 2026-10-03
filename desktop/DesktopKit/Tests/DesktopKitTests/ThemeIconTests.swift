@@ -77,7 +77,12 @@ final class FileTypeIconTests: XCTestCase {
             [ThemeIconNames.windowButton($0, isMaximized: false), ThemeIconNames.windowButton($0, isMaximized: true)]
         }
         asked.formUnion(controls.joined())
+        asked.formUnion(ThemeIconNames.bySymbol.values.joined())
+        asked.formUnion(DesktopIconStore.builtinIconCandidates.values.compactMap(\.first))
         XCTAssertEqual(asked.subtracting(rendered).sorted(), [])
+        let bundled = try XCTUnwrap(BundledIcons.index)
+        XCTAssertEqual(rendered.subtracting(bundled.names).subtracting(bundled.missing).sorted(), [],
+                       "Resources/Icons is stale: run themes/build-bundled-icons.sh")
     }
 }
 
@@ -123,9 +128,24 @@ final class ThemeIconStoreTests: XCTestCase {
         let back = try XCTUnwrap(store.icon(ThemeIconNames.goBack))
         XCTAssertTrue(back.isSymbolic)
         XCTAssertFalse(try XCTUnwrap(store.icon(["folder"])).isSymbolic)
-        XCTAssertNil(store.icon(["never-indexed"]))
+        XCTAssertNil(store.icon(["never-indexed"]), "neither the cache's index nor the bundled pack has it")
         XCTAssertNil(store.icon([]))
         XCTAssertNotNil(store.image(named: "/opt/app/app.png"), "Icon= paths resolve through their file stem")
+    }
+
+    func testSymbolsMapToPackIconsSizedForMenus() throws {
+        let store = DesktopIconStore(guestRoot: root, style: .ish)
+        XCTAssertEqual(ThemeIconNames.names(forSymbol: "chevron.left").first, "go-previous-symbolic")
+        XCTAssertEqual(ThemeIconNames.names(forSymbol: "no.such.symbol"), [])
+        let menu = try XCTUnwrap(store.menuImage(ThemeIconNames.names(forSymbol: "chevron.left"), points: 18))
+        XCTAssertEqual(menu.size, CGSize(width: 18, height: 18))
+        XCTAssertEqual(menu.renderingMode, .alwaysTemplate, "symbolic icons are tinted like symbols")
+        XCTAssertEqual(try XCTUnwrap(store.menuImage(["folder"])).renderingMode, .alwaysOriginal)
+        XCTAssertTrue(store.menuImage(["folder"]) === store.menuImage(["folder"]), "menu images are cached")
+        XCTAssertNil(store.menuImage(["no-such-icon"]))
+        XCTAssertNotNil(store.menuImage(["edit-copy-symbolic"]), "names the pack lacks come from the bundled pack")
+        XCTAssertTrue(DesktopIconStore.active === store)
+        XCTAssertNotNil(UIImage.themed(systemName: "doc.on.doc", icons: store), "falls back to the SF Symbol")
     }
 
     func testUnknownStyleUsesTheCacheTheGuestLastApplied() throws {

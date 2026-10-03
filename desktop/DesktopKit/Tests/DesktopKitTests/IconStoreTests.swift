@@ -33,8 +33,30 @@ final class IconStoreTests: XCTestCase {
         XCTAssertNotNil(store.image(at: root.appendingPathComponent("thunar.png")), "iconURL renders")
 
         let other = DesktopIconStore(guestRoot: root, style: .windows)
-        XCTAssertNil(other.image(named: "utilities-terminal"), "each style has its own cache")
-        XCTAssertNil(DesktopIconStore(guestRoot: nil, style: .macos).image(named: "utilities-terminal"))
+        XCTAssertGreaterThan(other.image(named: "utilities-terminal")?.size.width ?? 0, 8,
+                       "each style has its own cache; without one the bundled pack's icon is drawn")
+        XCTAssertNotNil(DesktopIconStore(guestRoot: nil, style: .macos).image(named: "utilities-terminal"),
+                        "no guest: the bundled default pack")
+    }
+
+    /// Every built-in app, Trash and the featured Linux apps have a real icon even before
+    /// Linux has booted: the bundled default pack has one of their names.
+    func testBuiltinAppsHaveABundledPackIcon() throws {
+        let index = try XCTUnwrap(BundledIcons.index, "Resources/Icons/index.json is bundled")
+        var lists = BuiltinApps.all().map { DesktopIconStore.builtinIconCandidates[$0.id] ?? [] }
+        lists.append(["user-trash"])
+        lists.append(["user-trash-full"])
+        for list in lists {
+            XCTAssertNotNil(list.first { index.entry(for: $0) != nil }, "bundled icon for \(list)")
+        }
+        for app in LinuxFeaturedApp.all {
+            let names = app.iconNames.flatMap { [$0] + (DesktopIconStore.aliases[$0] ?? []) }
+            XCTAssertNotNil(names.first { index.entry(for: $0) != nil }, "bundled icon for \(app.id)")
+        }
+        let store = DesktopIconStore(guestRoot: nil, style: .ish)
+        for app in BuiltinApps.all() {
+            XCTAssertNotNil(store.image(named: DesktopIconStore.builtinIconNames[app.id]), "\(app.id) draws a pack icon")
+        }
     }
 
     func testBuiltinAppsMapToFreedesktopNames() {

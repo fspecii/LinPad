@@ -22,11 +22,21 @@ struct PrimaryButtonStyle: ButtonStyle {
     var fill: Color?
     @Environment(\.desktopTheme) private var theme
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.desktopStyle) private var style
 
+    @ViewBuilder
     func makeBody(configuration: Configuration) -> some View {
+        if let skin = style.spec.skin, fill == nil {
+            EraPrimaryButton(skin: skin, configuration: configuration)
+        } else {
+            modernBody(configuration: configuration)
+        }
+    }
+
+    private func modernBody(configuration: Configuration) -> some View {
         let color = fill ?? theme.accent
         let shape = RoundedRectangle(cornerRadius: min(theme.cornerRadius, 8), style: .continuous)
-        configuration.label
+        return configuration.label
             .font(.system(size: 13, weight: .semibold))
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

@@ -188,23 +188,23 @@ private final class TerminalContainerController: UIViewController, UIContextMenu
         UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             guard let self else { return nil }
             let edit = UIMenu(options: .displayInline, children: [
-                UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in
+                UIAction(title: "Copy", image: UIImage.themed(systemName: "doc.on.doc")) { _ in
                     self.perform(#selector(UIResponderStandardEditActions.copy(_:)))
                 },
-                UIAction(title: "Paste", image: UIImage(systemName: "doc.on.clipboard"),
+                UIAction(title: "Paste", image: UIImage.themed(systemName: "doc.on.clipboard"),
                          attributes: UIPasteboard.general.hasStrings ? [] : .disabled) { _ in
                     self.perform(#selector(UIResponderStandardEditActions.paste(_:)))
                 },
-                UIAction(title: "Select All", image: UIImage(systemName: "checkmark.circle")) { _ in
+                UIAction(title: "Select All", image: UIImage.themed(systemName: "checkmark.circle")) { _ in
                     self.webView?.evaluateJavaScript(
                         "(() => { const d = term.getDocument(); const r = d.createRange(); r.selectNodeContents(d.body); const s = d.getSelection(); s.removeAllRanges(); s.addRange(r); })()")
                 },
             ])
             let terminal = UIMenu(options: .displayInline, children: [
-                UIAction(title: "Clear Scrollback", image: UIImage(systemName: "eraser")) { _ in
+                UIAction(title: "Clear Scrollback", image: UIImage.themed(systemName: "eraser")) { _ in
                     self.webView?.evaluateJavaScript("exports.clearScrollback()")
                 },
-                UIAction(title: "New Terminal Window", image: UIImage(systemName: "plus.rectangle.on.rectangle")) { _ in
+                UIAction(title: "New Terminal Window", image: UIImage.themed(systemName: "plus.rectangle.on.rectangle")) { _ in
                     self.openNewWindow?()
                 },
             ])

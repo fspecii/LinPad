@@ -9,6 +9,7 @@
 #include "fs/tty.h"
 #include "kernel/calls.h"
 #include "fs/sysfs.h"
+#include "fs/dev_video.h"
 #include "kernel/init.h"
 #include "kernel/personality.h"
 #ifdef ISH_VIRTGPU
@@ -112,6 +113,7 @@ int become_first_process() {
 #ifdef ISH_VIRTGPU
     virtgpu_create_nodes();
 #endif
+    video_create_nodes();
     return 0;
 }
 

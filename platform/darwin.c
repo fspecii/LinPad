@@ -4,8 +4,38 @@
 #if TARGET_OS_IPHONE
 #include <os/proc.h>
 #endif
+#include <stdlib.h>
 #include <sys/time.h>
 #include "platform/platform.h"
+
+static uint64_t phys_footprint(void) {
+    task_vm_info_data_t info;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t) &info, &count) != KERN_SUCCESS)
+        return 0;
+    return info.phys_footprint;
+}
+
+static uint64_t emulated_limit(void) {
+    static uint64_t limit = UINT64_MAX;
+    if (limit == UINT64_MAX) {
+        const char *env = getenv("ISH_MEM_LIMIT_MB");
+        limit = env ? (uint64_t) atoll(env) << 20 : 0;
+    }
+    return limit;
+}
+
+uint64_t host_memory_headroom(void) {
+#if TARGET_OS_IPHONE
+    if (emulated_limit() == 0)
+        return os_proc_available_memory();
+#endif
+    uint64_t limit = emulated_limit();
+    if (limit == 0)
+        return 0;
+    uint64_t used = phys_footprint();
+    return used < limit ? limit - used : 1;
+}
 
 struct cpu_usage get_cpu_usage() {
     host_cpu_load_info_data_t load;
@@ -42,15 +72,20 @@ struct mem_usage get_mem_usage() {
     usage.cached = (uint64_t) vm.external_page_count * vm_page_size;
     usage.available = (uint64_t) (vm.free_count + vm.inactive_count +
             vm.purgeable_count + vm.speculative_count) * vm_page_size;
-#if TARGET_OS_IPHONE
-    // An iOS app is killed by jetsam long before the device runs out of
-    // memory; what matters is this process's remaining allowance.
-    size_t headroom = os_proc_available_memory();
-    if (headroom != 0)
+    // An iOS app is killed by jetsam long before the device runs out of memory.
+    // What limits the guest is this process's allowance, so MemTotal is that
+    // allowance (footprint + headroom) and MemAvailable what is left of it:
+    // Firefox, V8 and allocators size their caches and heaps from MemTotal, and
+    // Firefox's low-memory watcher compares MemAvailable with it.
+    uint64_t headroom = host_memory_headroom();
+    if (headroom != 0) {
+        uint64_t allowance = phys_footprint() + headroom;
+        if (allowance < usage.total)
+            usage.total = allowance;
         usage.available = headroom;
-    if (usage.free > usage.available)
-        usage.free = usage.available;
-#endif
+        usage.free = headroom;
+        usage.cached = 0;   // the host's file cache is not part of this allowance
+    }
     if (usage.available > usage.total)
         usage.available = usage.total;
     return usage;

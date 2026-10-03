@@ -103,12 +103,16 @@ prefs=/usr/lib/firefox-esr/defaults/pref
 bad_prefs='pref\("media\.(rdd|utility)-process\.enabled", *false\)'
 if [ -d "$prefs" ]; then
     tmp=$(mktemp -d)
-    mkdir -p "$tmp/usr/lib/firefox-esr/defaults/pref"
-    # gecko-tune.sh writes into $dir; run it against a scratch copy and install the result.
-    sed "s|^dir=/usr/lib/firefox-esr/defaults/pref|dir=$tmp/usr/lib/firefox-esr/defaults/pref|" \
-        "$G/gecko-tune.sh" > "$tmp/gecko-tune.sh"
-    if sh "$tmp/gecko-tune.sh" >/dev/null && [ -s "$tmp$prefs/ish-tune.js" ]; then
-        put 644 "$tmp$prefs/ish-tune.js" "$prefs/ish-tune.js"
+    # gecko-tune.sh writes into GECKO_PREFS_DIR; run it against a scratch dir and install
+    # the result. Its prefs belong in browser/defaults/preferences: in defaults/pref,
+    # Firefox's own browser defaults override them (repair kit 2026100305).
+    appprefs=/usr/lib/firefox-esr/browser/defaults/preferences
+    if GECKO_PREFS_DIR="$tmp" sh "$G/gecko-tune.sh" >/dev/null && [ -s "$tmp/ish-tune.js" ]; then
+        mkdir -p "$appprefs"
+        put 644 "$tmp/ish-tune.js" "$appprefs/ish-tune.js"
+        if [ -f "$prefs/ish-tune.js" ]; then
+            rm -f "$prefs/ish-tune.js" && changed "$prefs/ish-tune.js (moved to $appprefs)"
+        fi
     else
         fail "gecko-tune.sh did not produce ish-tune.js"
     fi
@@ -149,6 +153,14 @@ for f in "$G"/linpad/packs/*.sh; do
 done
 for f in "$G"/linpad/packs/vlc/*.sh; do
     put 755 "$f" "/usr/local/share/linpad/packs/vlc/${f##*/}"
+done
+# LinPad Store: its app index, curation, generator and the apps' fixups.
+put 644 "$G/linpad/store/store-index.json" /usr/share/linpad/store-index.json
+put 644 "$G/linpad/store/curation.json" /usr/share/linpad/store-curation.json
+put 644 "$G/linpad/store/store-icons.txt" /usr/share/linpad/store-icons.txt
+put 644 "$G/linpad/store/linpad-store-index.mjs" /usr/local/share/linpad/store/linpad-store-index.mjs
+for f in "$G"/linpad/store/fixups/*.sh "$G"/linpad/store/fixups/*.so; do
+    [ -e "$f" ] && put 755 "$f" "/usr/local/share/linpad/store/fixups/${f##*/}"
 done
 if [ -x /usr/local/bin/code ]; then
     [ -e /usr/share/applications/ish-install-vscode.desktop ] &&
@@ -221,12 +233,14 @@ fi
 # --- 5. Packages -----------------------------------------------------------------------
 # The base set of release/build-rootfs.sh (stage 1) and themes/guest/install.sh that
 # the desktop needs at run time. Only missing ones are installed; nothing is upgraded.
+# xkeyboard-config builds the keymap the iPad's layout selects; libx11 carries the
+# Compose tables (/usr/share/X11/locale) that make dead keys work in Linux apps.
 step "Packages"
 required="adwaita-icon-theme bash curl dbus fastfetch firefox-esr font-dejavu font-jetbrains-mono
     font-noto font-noto-cjk font-noto-emoji foot git libxkbcommon mousepad nodejs npm playerctl
-    thunar wayland-libs-server xkeyboard-config zlib ffmpeg-libavcodec
+    thunar wayland-libs-server xkeyboard-config libx11 zlib ffmpeg-libavcodec
     papirus-icon-theme hicolor-icon-theme gdk-pixbuf font-inter font-ubuntu font-cantarell
-    kvantum kvantum-qt5 pulseaudio pulseaudio-utils alsa-plugins-pulse jq"
+    kvantum kvantum-qt5 pulseaudio pulseaudio-utils alsa-plugins-pulse jq v4l-utils"
 missing=
 for p in $required; do
     apk info -e "$p" >/dev/null 2>&1 || missing="$missing $p"

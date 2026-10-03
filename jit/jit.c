@@ -1407,6 +1407,12 @@ static struct jit_block *get_block_slow(struct jit_ctx *ctx, addr_t pc) {
 }
 
 static void chain(struct jit_mm *mm, uint32_t *slot, uint64_t flush_gen, struct jit_block *target) {
+    // Unlocked pre-check (repeated under the lock): another thread chained this
+    // slot already, or the target died. Saves mm->lock round trips when many
+    // threads run the same code.
+    if (__atomic_load_n(slot, __ATOMIC_RELAXED) != e_nop() || __atomic_load_n(&target->invalid, __ATOMIC_RELAXED) ||
+        __atomic_load_n(&mm->stats_flush, __ATOMIC_RELAXED) != flush_gen)
+        return;
     pthread_mutex_lock(&mm->lock);
     if (mm->stats_flush == flush_gen && !target->invalid && target->rx && *slot == e_nop()) {
         int64_t woff = target->rx - slot;

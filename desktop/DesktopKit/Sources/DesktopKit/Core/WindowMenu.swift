@@ -102,7 +102,7 @@ struct WindowMenu {
     @ViewBuilder
     private static func label(for entry: Entry) -> some View {
         if let symbol = entry.symbol {
-            Label(entry.title, systemImage: symbol)
+            ThemedLabel(entry.title, systemImage: symbol)
         } else {
             Text(entry.title)
         }

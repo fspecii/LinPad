@@ -216,6 +216,8 @@ if get_option('kernel') == 'ish'
         'fs/lock.c',
 
         'fs/dev.c',
+        'fs/dev_video.c',
+        'fs/dev_video_fake.c',
         'fs/mem.c',
         'fs/tty.c',
         'fs/tty-real.c',

@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # Sourced by ishwl-session: starts PulseAudio (ishaudio) and points every app at it.
 # libishaudio-compat is preloaded session-wide because every libpulse client (VLC,
 # Firefox, GStreamer apps) needs it under iSH; see themes/guest/audio/ishaudio-compat.c.

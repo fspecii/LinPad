@@ -220,8 +220,9 @@ final class ISHAudioBridge: @unchecked Sendable {
         let session = AVAudioSession.sharedInstance()
         do {
             // .playback without .mixWithOthers: Linux media (VLC) behaves like a media app
-            // and keeps playing with the ringer switch on silent.
-            try session.setCategory(.playback, mode: .default, options: [])
+            // and keeps playing with the ringer switch on silent. While a Linux app records,
+            // the microphone bridge needs .playAndRecord instead.
+            try ISHMicBridge.configureSession(session, recording: ISHMicBridge.shared.isCapturing)
             try session.setPreferredIOBufferDuration(0.01)
             try session.setActive(true)
         } catch {
@@ -262,7 +263,8 @@ final class ISHAudioBridge: @unchecked Sendable {
         }
         guard let engine else { return }
         engine.stop()
-        if deactivate {
+        // A Linux app still recording keeps the session (and the microphone) alive.
+        if deactivate && !ISHMicBridge.shared.isCapturing {
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
         log.info("stopped")
@@ -307,10 +309,15 @@ final class ISHAudioBridge: @unchecked Sendable {
             }
         })
         // A route or sample-rate change stops the engine; rebuild it on the next chunk.
+        // The microphone bridge's engine posts this too; that one is not ours.
         observers.append(center.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil,
-                                            queue: nil) { [weak self] _ in
+                                            queue: nil) { [weak self] note in
             guard let self else { return }
-            engineQueue.async { self.stopEngine(deactivate: false) }
+            engineQueue.async {
+                guard let engine = self.lock.withLockUnchecked({ self.engine }),
+                      note.object as AnyObject? === engine else { return }
+                self.stopEngine(deactivate: false)
+            }
         })
     }
 

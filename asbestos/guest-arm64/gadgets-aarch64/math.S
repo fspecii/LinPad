@@ -15922,6 +15922,66 @@ make_widening_accum umlsl, umlsl
     str q0, [x14]
     gret
 
+/*
+ * hostop_nzcv / hostop_cmp - hostop for forms that read the guest NZCV (FCSEL) or
+ * read and write it with no vector result (FCMP, FCCMP). Same code stream as hostop.
+ */
+.gadget hostop_nzcv
+    ldp x9, x8, [_pc]
+    add _pc, _pc, #16
+    add x13, _cpu, #CPU_fp
+    and x10, x8, #0x1f
+    add x14, x13, x10, lsl #4
+    ubfx x10, x8, #8, #5
+    add x15, x13, x10, lsl #4
+    ubfx x10, x8, #16, #5
+    add x16, x13, x10, lsl #4
+    ldr q0, [x14]
+    ldr q1, [x15]
+    ldr q2, [x16]
+    load_flags
+    br x9
+.Lhostop_nzcv_done:
+    str q0, [x14]
+    gret
+
+.gadget hostop_cmp
+    ldp x9, x8, [_pc]
+    add _pc, _pc, #16
+    add x13, _cpu, #CPU_fp
+    ubfx x10, x8, #8, #5
+    add x15, x13, x10, lsl #4
+    ubfx x10, x8, #16, #5
+    add x16, x13, x10, lsl #4
+    ldr q1, [x15]
+    ldr q2, [x16]
+    load_flags
+    br x9
+.Lhostop_cmp_done:
+    store_flags
+    gret
+
+/*
+ * hostop_f2g_nzcv - hostop_f2g for FJCVTZS, which also sets NZCV.
+ */
+.gadget hostop_f2g_nzcv
+    ldp x9, x8, [_pc]
+    add _pc, _pc, #16
+    add x13, _cpu, #CPU_fp
+    ubfx x10, x8, #8, #5
+    add x15, x13, x10, lsl #4
+    ldr q1, [x15]
+    and x14, x8, #0x1f
+    load_flags
+    br x9
+.Lhostop_f2g_nzcv_done:
+    store_flags
+    cmp x14, #31
+    b.eq 1f
+    add x15, _cpu, #CPU_x0
+    str x0, [x15, x14, lsl #3]
+1:  gret
+
 .macro hostop_tab name, count, enc, done=.Lhostop_done
     .p2align 3
     .global NAME(\name)
@@ -16003,3 +16063,5 @@ hostop_tab hostop_elem_scalar, 1024, (0x5f020020|(((hix>>9)&1)<<29)|(((hix>>7)&3
 2:  ubfx x9, x8, #24, #5
     str x16, [x14, x9, lsl #3]
     gret
+
+#include "hostop_tables.inc"

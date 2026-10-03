@@ -1,0 +1,56 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>gum</title>
+<video id="v" autoplay muted playsinline></video>
+<canvas id="c" width="640" height="480"></canvas>
+<script>
+// getUserMedia against the fake sources: reports the camera's bar colours and the
+// microphone's dominant frequency through dump() (browser.dom.window.dump.enabled).
+const out = (msg) => { dump("GUM " + msg + "\n"); document.title = msg; };
+(async () => {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480 }, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    out("devices " + JSON.stringify((await navigator.mediaDevices.enumerateDevices()).map(d => d.kind + ":" + d.label)));
+    out("tracks " + stream.getTracks().map(t => t.kind + ":" + t.label).join(", "));
+    const video = document.getElementById("v");
+    video.srcObject = stream;
+    await new Promise(r => video.onplaying = r);
+    await new Promise(r => setTimeout(r, 2000));
+    const canvas = document.getElementById("c");
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, 640, 480);
+    const bars = [];
+    for (let i = 0; i < 8; i++) {
+      const p = ctx.getImageData(Math.floor((i + 0.5) * 80), 210, 1, 1).data;
+      bars.push([p[0], p[1], p[2]]);
+    }
+    out("video " + video.videoWidth + "x" + video.videoHeight + " bars " + JSON.stringify(bars));
+    // Real-time Web Audio needs an output device; record and decode offline instead.
+    const recorder = new MediaRecorder(new MediaStream(stream.getAudioTracks()));
+    const chunks = [];
+    recorder.ondataavailable = (e) => chunks.push(e.data);
+    const stopped = new Promise(r => recorder.onstop = r);
+    recorder.start();
+    await new Promise(r => setTimeout(r, 3000));
+    recorder.stop();
+    await stopped;
+    const encoded = await new Blob(chunks).arrayBuffer();
+    const decoded = await new OfflineAudioContext(1, 48000, 48000).decodeAudioData(encoded);
+    const data = decoded.getChannelData(0).subarray(Math.floor(decoded.sampleRate * 0.5));
+    let crossings = 0, energy = 0;
+    for (let i = 1; i < data.length; i++) {
+      if ((data[i - 1] < 0) !== (data[i] < 0)) crossings++;
+      energy += data[i] * data[i];
+    }
+    const seconds = data.length / decoded.sampleRate;
+    out("audio " + decoded.duration.toFixed(2) + " s, rms " + Math.sqrt(energy / data.length).toFixed(3) +
+        ", zero-crossing frequency " + (crossings / 2 / seconds).toFixed(1) + " Hz");
+    stream.getTracks().forEach(t => t.stop());
+    out("DONE");
+  } catch (e) {
+    out("ERROR " + e.name + ": " + e.message);
+  }
+})();
+</script>
