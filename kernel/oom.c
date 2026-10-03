@@ -28,6 +28,13 @@
 // What one guest thread costs the emulator on the host besides guest memory
 // (JIT context, TLBs, fiber stack; ipad-jit/emulator-fixes.md row 59).
 #define THREAD_COST (1300ull << 10)
+// Helper processes (a child running its parent's executable: Firefox content, RDD and
+// utility processes, Chromium/Electron renderers, GPU and utility processes, VS Code's
+// extension host) count with an oom_score_adj of at least this, as Chromium sets for
+// its renderers: closing one costs a tab or a window, closing the parent costs the
+// whole app. Firefox 128 on desktop Linux leaves them at 0 or 100.
+#define HELPER_ADJ 300
+#define MIN_VICTIM (96 * MB)
 
 void (*oom_kill_hook)(const char *app, const char *message);
 
@@ -208,7 +215,10 @@ static size_t mm_read_argv(struct mm *mm, char *out, size_t size) {
 
 struct candidate {
     int pid;
+    int ppid;
     int adj;
+    int effective_adj; // adj, raised to HELPER_ADJ for a helper process
+    bool has_helpers;  // the app's main process: some child is a helper (see kill_one)
     int threads;
     struct mm *mm;
     char comm[16];
@@ -242,7 +252,9 @@ static void friendly_name(const struct candidate *c, char *out, size_t size) {
             snprintf(out, size, "a Firefox helper process");
     } else if (strcmp(base, "code") == 0 || strcmp(base, "code-oss") == 0 || strcmp(base, "electron") == 0) {
         const char *app = strcmp(base, "electron") == 0 ? "Electron" : "VS Code";
-        if (has_arg(c, "--type=renderer"))
+        // Renderers are forked from the zygote and may still show its command line;
+        // Chromium gives them oom_score_adj 300 and up, its other helpers less.
+        if (has_arg(c, "--type=renderer") || (has_arg(c, "--type=zygote") && c->adj >= 300))
             snprintf(out, size, "a %s window", app);
         else if (has_arg(c, "--type="))
             snprintf(out, size, "a %s helper process", app);
@@ -355,6 +367,7 @@ static struct candidate *list_candidates(int *count, uint64_t allowance, int onl
         memset(c, 0, sizeof(*c));
         c->pid = pid;
         c->adj = task->group->oom_score_adj;
+        c->ppid = task->parent != NULL ? task->parent->tgid : 0;
         struct task *t;
         list_for_each_entry(&task->group->threads, t, group_links)
             c->threads++;
@@ -370,7 +383,6 @@ static struct candidate *list_candidates(int *count, uint64_t allowance, int onl
     }
     unlock(&pids_lock);
 
-    long long allowance_pages = (long long) (allowance / PAGE_SIZE);
     for (int i = 0; i < n; i++) {
         struct candidate *c = &list[i];
         bool shared_mm = false;
@@ -380,8 +392,26 @@ static struct candidate *list_candidates(int *count, uint64_t allowance, int onl
         measure(c, shared_mm);
         c->footprint += (uint64_t) c->threads * THREAD_COST;
         c->protected = is_protected(c);
+    }
+    long long allowance_pages = (long long) (allowance / PAGE_SIZE);
+    for (int i = 0; i < n; i++) {
+        struct candidate *c = &list[i];
+        c->effective_adj = c->adj;
+        if (c->argv[0] != '\0') {
+            for (int j = 0; j < n; j++) {
+                if (list[j].pid != c->ppid || list[j].argv[0] == '\0')
+                    continue;
+                if (strcmp(c->argv, list[j].argv) == 0 || strcmp(c->argv, "/proc/self/exe") == 0) {
+                    if (c->adj >= 0 && c->adj < HELPER_ADJ)
+                        c->effective_adj = HELPER_ADJ;
+                    if (!c->protected)
+                        list[j].has_helpers = true;
+                }
+                break;
+            }
+        }
         // Linux oom_badness: pages charged + oom_score_adj thousandths of all memory.
-        c->score = (long long) (c->footprint / PAGE_SIZE) + (long long) c->adj * allowance_pages / 1000;
+        c->score = (long long) (c->footprint / PAGE_SIZE) + (long long) c->effective_adj * allowance_pages / 1000;
         if (c->score < 1)
             c->score = 1;
     }
@@ -413,10 +443,17 @@ static int kill_one(const struct limits *l) {
     struct candidate *list = list_candidates(&n, l->allowance, 0);
     if (list == NULL)
         return 0;
+    // An app's main process is only closed once none of its helpers is left, as
+    // Chrome and Android protect the browser process: closing a helper costs a tab.
+    // A process that would give back less than MIN_VICTIM is only picked when there is
+    // nothing bigger, so a high oom_score_adj alone doesn't cost a process per round.
     struct candidate *victim = NULL;
-    for (int i = 0; i < n; i++)
-        if (!list[i].protected && (victim == NULL || list[i].score > victim->score))
-            victim = &list[i];
+    for (int pass = 0; pass < 3 && victim == NULL; pass++)
+        for (int i = 0; i < n; i++)
+            if (!list[i].protected && (pass == 2 || !list[i].has_helpers) &&
+                    (pass >= 1 || list[i].footprint >= MIN_VICTIM) &&
+                    (victim == NULL || list[i].score > victim->score))
+                victim = &list[i];
     int pid = 0;
     if (victim != NULL) {
         lock(&pids_lock);
@@ -432,9 +469,9 @@ static int kill_one(const struct limits *l) {
         friendly_name(victim, app, sizeof(app));
         format_gb(used, sizeof(used), l->footprint);
         format_gb(total, sizeof(total), l->allowance);
-        printk("Out of memory: Killed process %d (%s) total-vm-charged:%llukB oom_score_adj:%d; "
+        printk("Out of memory: Killed process %d (%s) total-vm-charged:%llukB oom_score_adj:%d (as %d); "
                "host footprint %lluMB of %lluMB\n", pid, victim->comm,
-               (unsigned long long) (victim->footprint >> 10), victim->adj,
+               (unsigned long long) (victim->footprint >> 10), victim->adj, victim->effective_adj,
                (unsigned long long) (l->footprint / MB), (unsigned long long) (l->allowance / MB));
         snprintf(message, sizeof(message),
                  "Closed %s to free memory. LinPad was using %s of the %s iPadOS allows it.",

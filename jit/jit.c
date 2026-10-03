@@ -264,6 +264,15 @@ struct ss_entry {
     struct ss_entry *next;
 };
 
+// An empty indirect-table slot. Not 0: the lookup in JIT code only compares the pc,
+// so an empty {0, 0} slot matched a guest branch to address 0 (a call through a NULL
+// function pointer) and jumped to host address 0, a host crash instead of the guest's
+// SIGSEGV. Guest pcs are 4-aligned, so 1 never matches.
+#define ITAB_EMPTY_PC 1
+static inline void itab_clear(struct jit_itab_entry *e) {
+    __asm__ volatile("stp %0, xzr, [%1]" :: "r"((uint64_t) ITAB_EMPTY_PC), "r"(e) : "memory");
+}
+
 static pthread_mutex_t mm_list_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct jit_mm *mm_list;
 
@@ -299,7 +308,8 @@ struct jit_mm *jit_mm_new(struct mmu *mmu) {
         free(mm);
         return NULL;
     }
-    memset(mm->itab, 0, sizeof(struct jit_itab_entry) << JIT_ITAB_BITS);
+    for (size_t i = 0; i < ((size_t) 1 << JIT_ITAB_BITS); i++)
+        mm->itab[i] = (struct jit_itab_entry) {ITAB_EMPTY_PC, 0};
     mm->htpub->tab = mm->hash;
     mm->htpub->size = mm->hash_size;
     pthread_mutex_init(&mm->lock, NULL);
@@ -572,8 +582,8 @@ static void retire_all_locked(struct jit_mm *mm) {
     mm->nblocks = 0;
     for (size_t i = 0; i < ((size_t) 1 << JIT_ITAB_BITS); i++) {
         struct jit_itab_entry *e = &mm->itab[i];
-        if (e->pc)
-            __asm__ volatile("stp xzr, xzr, [%0]" :: "r"(e) : "memory");
+        if (e->pc != ITAB_EMPTY_PC)
+            itab_clear(e);
     }
     struct jit_chunk *last = mm->chunks;
     if (last) {
@@ -798,7 +808,7 @@ static void invalidate_block_nosync(struct jit_mm *mm, struct jit_block *b) {
     b->invalid = true;
     struct jit_itab_entry *e = &mm->itab[(b->pc >> 2) & ((1 << JIT_ITAB_BITS) - 1)];
     if (e->pc == b->pc)
-        __asm__ volatile("stp xzr, xzr, [%0]" :: "r"(e) : "memory");
+        itab_clear(e);
     if (b->rx) {
         int64_t woff = b->reentry - b->rx;
         patch_word_nosync(b->rx, e_b((int32_t) woff));
@@ -819,7 +829,7 @@ static void invalidate_block_locked(struct jit_mm *mm, struct jit_block *b) {
     b->invalid = true;
     struct jit_itab_entry *e = &mm->itab[(b->pc >> 2) & ((1 << JIT_ITAB_BITS) - 1)];
     if (e->pc == b->pc)
-        __asm__ volatile("stp xzr, xzr, [%0]" :: "r"(e) : "memory");
+        itab_clear(e);
     if (b->rx) {
         jit_patch_branch(b->rx, b->reentry);
         struct jit_block_ext *x = block_ext(b);

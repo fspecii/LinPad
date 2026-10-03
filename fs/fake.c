@@ -27,6 +27,7 @@
 #include "fs/real.h"
 #define ISH_INTERNAL
 #include "fs/fake.h"
+#include "fs/fake-flush.h"
 
 // TODO document database
 
@@ -250,6 +251,71 @@ static inode_t bind_mount_ensure_inode(struct fakefs_db *fs, struct mount *mount
     return ino;
 }
 
+// A namespace change is two steps: the host operation, then the db rows, committed
+// together only on the db side. When iOS kills the app between the two (it gives no
+// warning), a file or directory exists on disk with no metadata: invisible to stat and
+// readdir, yet "File exists" to create, so `mkdir -p` fails on it forever and a
+// document renamed into place by an editor's atomic save disappears. Such an entry is
+// adopted on the first lookup that misses in the db: a directory gets 0755, a file
+// 0644, both owned by the parent directory's owner. Creates hold the db write lock
+// across their host step, so a create in progress is never adopted. Only regular files
+// and directories exist on the host side; a torn symlink comes back as the file that
+// holds its target.
+static bool fakefs_adopt_host_only(struct mount *mount, const char *path,
+                                   struct ish_stat *stat_out, ino_t *inode_out) {
+    if (path[0] == '\0' || is_under_bind_mount(path))
+        return false;
+    struct stat host;
+    if (fstatat(mount->root_fd, fix_path(path), &host, AT_SYMLINK_NOFOLLOW) < 0)
+        return false;
+    if (!S_ISDIR(host.st_mode) && !S_ISREG(host.st_mode))
+        return false;
+
+    struct fakefs_db *fs = &mount->fakefs;
+    char parent[MAX_PATH];
+    snprintf(parent, sizeof(parent), "%s", path);
+    char *slash = strrchr(parent, '/');
+    if (slash != NULL)
+        *slash = '\0';
+    else
+        parent[0] = '\0';
+
+    db_begin_write(fs);
+    struct ish_stat ishstat;
+    inode_t inode = path_get_inode(fs, path);
+    if (inode != 0) {
+        // adopted or created meanwhile
+        bool known = inode_read_stat_if_exist(fs, inode, &ishstat);
+        db_commit(fs);
+        if (!known)
+            return false;
+        if (stat_out != NULL)
+            *stat_out = ishstat;
+        if (inode_out != NULL)
+            *inode_out = inode;
+        return true;
+    }
+    if (fstatat(mount->root_fd, fix_path(path), &host, AT_SYMLINK_NOFOLLOW) < 0 ||
+            (!S_ISDIR(host.st_mode) && !S_ISREG(host.st_mode))) {
+        db_rollback(fs);
+        return false;
+    }
+    struct ish_stat parent_stat = {.uid = 0, .gid = 0};
+    path_read_stat(fs, parent, &parent_stat, NULL);
+    ishstat.mode = S_ISDIR(host.st_mode) ? (S_IFDIR | 0755) : (S_IFREG | 0644);
+    ishstat.uid = parent_stat.uid;
+    ishstat.gid = parent_stat.gid;
+    ishstat.rdev = 0;
+    inode = path_create(fs, path, &ishstat);
+    db_commit(fs);
+    ish_printk_diag("fakefs: adopted %s left without metadata by an interrupted operation\n", path);
+    if (stat_out != NULL)
+        *stat_out = ishstat;
+    if (inode_out != NULL)
+        *inode_out = inode;
+    return inode != 0;
+}
+
 // this exists only to override readdir to fix the returned inode numbers
 static struct fd_ops fakefs_fdops;
 
@@ -295,11 +361,22 @@ static struct fd *fakefs_open(struct mount *mount, const char *path, int flags, 
         fd->real_fd = fd_no;
         fd->dir = NULL;
     } else {
+        // A create holds the db write lock across the host step, so the new file is
+        // never seen without its metadata (fakefs_adopt_host_only).
+        if (flags & O_CREAT_)
+            db_begin_write(fs);
         fd = realfs.open(mount, path, flags, 0666);
-        if (IS_ERR(fd))
+        if (IS_ERR(fd)) {
+            if (flags & O_CREAT_)
+                db_rollback(fs);
             return fd;
+        }
+        if (!(flags & O_CREAT_))
+            db_begin_write(fs);
+        goto locked;
     }
     db_begin_write(fs);
+locked:
     fd->fake_inode = path_get_inode(fs, path);
     if (flags & O_CREAT_) {
         struct ish_stat ishstat;
@@ -461,11 +538,12 @@ static int fakefs_mknod(struct mount *mount, const char *path, mode_t_ mode, dev
         real_mode |= S_IFREG;
     else
         real_mode |= mode & S_IFMT;
+    db_begin_write(fs);
     int err = realfs.mknod(mount, path, real_mode, 0);
     if (err < 0 && err != _EEXIST) {
+        db_rollback(fs);
         return err;
     }
-    db_begin_write(fs);
     struct ish_stat stat;
     stat.mode = mode;
     stat.uid = current->euid;
@@ -494,6 +572,8 @@ static int fakefs_stat(struct mount *mount, const char *path, struct statbuf *fa
             db_commit(fs);
         else
             db_rollback(fs);
+        if (!known)
+            known = fakefs_adopt_host_only(mount, path, &ishstat, &inode);
     }
     if (!known) {
         /* Auto-create for bind-mounted paths */
@@ -749,6 +829,10 @@ retry:
         /* Auto-create for bind-mounted paths */
         if (is_under_bind_mount(entry_path)) {
             entry->inode = bind_mount_ensure_inode(fs, fd->mount, entry_path);
+        } else if (strcmp(entry->name, ".") != 0 && strcmp(entry->name, "..") != 0) {
+            ino_t adopted = 0;
+            if (fakefs_adopt_host_only(fd->mount, entry_path, NULL, &adopted))
+                entry->inode = adopted;
         }
         /* Still no inode? Skip this entry to avoid crashes */
         if (entry->inode == 0)
@@ -1237,3 +1321,56 @@ uint64_t fakefs_change_dropped_count(void) {
 }
 
 #endif /* __APPLE__ */
+
+// === flush (fs/fake-flush.h) ===
+// WAL with synchronous=NORMAL already survives the process being killed: commits are
+// in the OS page cache. What it does not survive is the iPad losing power or the
+// kernel panicking before the cache reaches flash, so the app calls this when it goes
+// to the background.
+static void fakefs_flush_db(struct fakefs_db *fs) {
+    sqlite3_mutex_enter(fs->lock);
+    int log_frames = 0, checkpointed = 0;
+    int err = sqlite3_wal_checkpoint_v2(fs->db, NULL, SQLITE_CHECKPOINT_PASSIVE, &log_frames, &checkpointed);
+    const char *path = sqlite3_db_filename(fs->db, "main");
+    char db_path[PATH_MAX];
+    snprintf(db_path, sizeof(db_path), "%s", path != NULL ? path : "");
+    sqlite3_mutex_leave(fs->lock);
+    if (err != SQLITE_OK)
+        ish_printk_diag("fakefs: checkpoint failed: %d\n", err);
+    if (db_path[0] == '\0')
+        return;
+    // The WAL first: frames a busy reader kept from being checkpointed live only there.
+    char wal_path[PATH_MAX + 8];
+    snprintf(wal_path, sizeof(wal_path), "%s-wal", db_path);
+    const char *files[] = {wal_path, db_path};
+    for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
+        int fd = open(files[i], O_RDONLY | O_CLOEXEC);
+        if (fd < 0)
+            continue;
+#ifdef F_FULLFSYNC
+        if (fcntl(fd, F_FULLFSYNC) < 0)
+#endif
+            fsync(fd);
+        close(fd);
+    }
+}
+
+int ish_fakefs_flush(void) {
+    sync();
+    struct fakefs_db *dbs[16];
+    int count = 0;
+    lock(&mounts_lock);
+    struct mount *mount;
+    list_for_each_entry(&mounts, mount, mounts) {
+        if (mount->fs == &fakefs && count < (int) (sizeof(dbs) / sizeof(dbs[0]))) {
+            mount->refcount++; // mount_retain, which takes mounts_lock itself
+            dbs[count++] = &mount->fakefs;
+        }
+    }
+    unlock(&mounts_lock);
+    for (int i = 0; i < count; i++) {
+        fakefs_flush_db(dbs[i]);
+        mount_release(container_of(dbs[i], struct mount, fakefs));
+    }
+    return count;
+}

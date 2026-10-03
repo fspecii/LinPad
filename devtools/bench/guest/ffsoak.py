@@ -190,7 +190,20 @@ class Soak(Bench):
             self.check_tab()
 
     def run(self):
-        self.launch()
+        for attempt in range(3):
+            try:
+                self.launch()
+                break
+            except Exception as e:
+                # a slow start (interpreter, a loaded host) can miss ffbench's 180 s
+                self.event("launch_failed", attempt=attempt, error=repr(e)[:200])
+                try:
+                    os.killpg(self.ff.pid, signal.SIGKILL)
+                except Exception:
+                    pass
+                time.sleep(5)
+        else:
+            raise RuntimeError("Firefox did not start three times")
         end = self.t0 + self.args.minutes * 60
         i = 0
         while time.time() < end:

@@ -35,6 +35,7 @@
 #include <os/proc.h>
 #endif
 #include "jit/jit_internal.h"
+#include "platform/platform.h"
 
 #define CHUNK_SIZE (2u << 20)
 
@@ -290,11 +291,12 @@ done_ios:
 done:
 #endif
     nchunks = arena_size / CHUNK_SIZE;
-#if TARGET_OS_IPHONE
-    min_budget = nchunks < 16 ? nchunks : 16;   // 32 MB
-#else
-    min_budget = nchunks;
-#endif
+    // The iOS policy also applies where an iOS memory limit is emulated
+    // (ISH_MEM_LIMIT_MB on the Mac), so soaks there see the same code cache.
+    if (TARGET_OS_IPHONE || host_memory_headroom() != 0)
+        min_budget = nchunks < 16 ? nchunks : 16;   // 32 MB
+    else
+        min_budget = nchunks;
     const char *mb = getenv("ISH_JIT_BUDGET_MB");   // minimum budget, e.g. to test the iOS policy
     if (mb && atol(mb) >= 2 && (size_t) atol(mb) / 2 < nchunks)
         min_budget = atol(mb) / 2;
@@ -308,15 +310,13 @@ done:
 
 // Adaptive budget: the arena is reserved up front, but only `budget`
 // chunks may be in use. On iOS the budget starts at 32 MB and grows in 16 MB
-// steps while os_proc_available_memory() leaves at least 768 MB; a memory
+// steps while os_proc_available_memory() leaves at least 768 MB (also where
+// ISH_MEM_LIMIT_MB emulates a limit); a memory
 // warning (jit_codemem_trim) drops it back. Elsewhere it is the whole arena.
 
 static bool may_grow(void) {
-#if TARGET_OS_IPHONE
-    return os_proc_available_memory() > (768ull << 20);
-#else
-    return true;
-#endif
+    uint64_t headroom = host_memory_headroom();   // os_proc_available_memory() on iOS
+    return headroom == 0 || headroom > (768ull << 20);
 }
 
 // anchor: the address space's first chunk (or NULL). Chunks of one address

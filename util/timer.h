@@ -2,6 +2,7 @@
 #define UTIL_TIMER_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <time.h>
 #include <pthread.h>
 #include <assert.h>
@@ -65,6 +66,9 @@ struct timer {
     cond_t cond; // signalled when the timer is changed, wakes the timer thread
 
     bool dead; // set by timer_free, the thread will free the timer if this is set when it finishes
+    // While the callback runs: further periods that had already elapsed and were folded
+    // into this expiration (the process was suspended or the iPad slept).
+    uint64_t overrun;
 };
 
 struct timer *timer_new(clockid_t clockid, timer_callback_t callback, void *data);

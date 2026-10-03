@@ -228,8 +228,31 @@ static int tty_push_char(struct tty *tty, char ch, bool flag, int blocking) {
     return 0;
 }
 
-static void tty_echo(struct tty *tty, const char *data, size_t size) {
-    tty->driver->ops->write(tty, data, size, false);
+// Echo is collected while tty->lock is held and written after it is released.
+// Writing it right away (pty: into the master, which wakes the master's pollers)
+// held the slave's lock across poll_wakeup: a thread in epoll_wait holding the
+// poll set's lock and calling tty_poll on the slave then deadlocked with it. That
+// stalled VS Code's pty host on the first keystroke into a foreground `cat`.
+struct echo_buf {
+    char *data;
+    size_t len, cap;
+    char inline_data[256];
+};
+
+static void tty_echo(struct echo_buf *echo, const char *data, size_t size) {
+    if (echo->len + size > echo->cap) {
+        size_t cap = (echo->len + size) * 2;
+        char *bigger = malloc(cap);
+        if (bigger == NULL)
+            return;   // echo is lost, input is not
+        memcpy(bigger, echo->data, echo->len);
+        if (echo->data != echo->inline_data)
+            free(echo->data);
+        echo->data = bigger;
+        echo->cap = cap;
+    }
+    memcpy(echo->data + echo->len, data, size);
+    echo->len += size;
 }
 
 static bool tty_send_input_signal(struct tty *tty, char ch, sigset_t_ *queue) {
@@ -260,6 +283,12 @@ ssize_t tty_input(struct tty *tty, const char *input, size_t size, bool blocking
     int err = 0;
     size_t done_size = 0;
     sigset_t_ queue = 0; // to prevent having to lock tty->lock and pids_lock at the same time
+    struct echo_buf echo_out;
+    echo_out.data = echo_out.inline_data;
+    echo_out.len = 0;
+    echo_out.cap = sizeof(echo_out.inline_data);
+
+    bool line_ready = false;   // a canonical line (or EOF) to wake readers for
 
     lock(&tty->lock);
     dword_t lflags = tty->termios.lflags;
@@ -304,9 +333,9 @@ ssize_t tty_input(struct tty *tty, const char *input, size_t size, bool blocking
                         break;
                     tty->bufsize--;
                     if (echo) {
-                        tty_echo(tty, "\b \b", 3);
+                        tty_echo(&echo_out, "\b \b", 3);
                         if (SHOULD_ECHOCTL(tty->buf[tty->bufsize]))
-                            tty_echo(tty, "\b \b", 3);
+                            tty_echo(&echo_out, "\b \b", 3);
                     }
                 }
                 echo = false;
@@ -316,7 +345,7 @@ ssize_t tty_input(struct tty *tty, const char *input, size_t size, bool blocking
             } else if (ch == '\n' || ch == cc[VEOL_]) {
                 // echo it now, before the read call goes through
                 if (echo)
-                    tty_echo(tty, "\r\n", 2);
+                    tty_echo(&echo_out, "\r\n", 2);
 canon_wake:
                 err = tty_push_char(tty, ch, /*flag*/true, blocking);
                 if (err < 0) {
@@ -324,7 +353,7 @@ canon_wake:
                     break;
                 }
                 echo = false;
-                tty_input_wakeup(tty);
+                line_ready = true;
             } else {
                 if (!tty_send_input_signal(tty, ch, &queue)) {
 no_special:
@@ -338,10 +367,10 @@ no_special:
 
             if (echo) {
                 if (SHOULD_ECHOCTL(ch)) {
-                    tty_echo(tty, "^", 1);
+                    tty_echo(&echo_out, "^", 1);
                     ch ^= '\100';
                 }
-                tty_echo(tty, &ch, 1);
+                tty_echo(&echo_out, &ch, 1);
             }
         }
     } else {
@@ -371,6 +400,18 @@ no_special:
     pid_t_ fg_group = tty->fg_group;
     assert(tty->bufsize <= sizeof(tty->buf));
     unlock(&tty->lock);
+
+    // The echo goes out before readers are woken, so it precedes whatever they
+    // print in reply (cat's copy of the line comes after the echoed newline).
+    if (echo_out.len > 0)
+        tty->driver->ops->write(tty, echo_out.data, echo_out.len, false);
+    if (echo_out.data != echo_out.inline_data)
+        free(echo_out.data);
+    if (line_ready) {
+        lock(&tty->lock);
+        tty_input_wakeup(tty);
+        unlock(&tty->lock);
+    }
 
     if (fg_group != 0) {
         for (int sig = 1; sig < NUM_SIGS; sig++) {

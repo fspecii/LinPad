@@ -60,7 +60,7 @@ run_one() {  # FAKEFS OUTDIR MEM JIT
         left=$(( (end - $(date +%s)) / 60 ))
         rm -f "$f/data/root/bench/out.json"
         rc=0
-        env ISH_CRASHLOG=1 ISH_MEM_LIMIT_MB=$mem ISH_JIT=$j ISH_JIT_CACHE_MB=${JIT_CACHE_MB:-256} \
+        env ISH_CRASHLOG=${ISH_CRASHLOG:-1} ISH_MEM_LIMIT_MB=$mem ISH_JIT=$j ISH_JIT_CACHE_MB=${JIT_CACHE_MB:-256} \
             ISH_JIT_PCACHE_DIR="$src.pcache" \
             "$ISH" -f "$f" /bin/sh -lc "cd /root/bench && python3 ffsoak.py /root/bench/out.json --minutes $left \
                 $([ "${MINIDUMPS:-1}" = 1 ] && echo --minidumps) ${FFSOAK_ARGS:-}" \

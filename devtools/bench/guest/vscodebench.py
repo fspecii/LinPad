@@ -63,7 +63,7 @@ class VSBench:
         for d in (RT, XDG, PNG):
             shutil.rmtree(d, ignore_errors=True)
             os.makedirs(d, mode=0o700)
-        for f in (FLOG, "/tmp/vscb-term.txt", "/tmp/vscb-ext.txt", "/tmp/vscb-ext.sh"):
+        for f in (FLOG, "/tmp/vscb-term.txt", "/tmp/vscb-ext.txt"):
             try:
                 os.unlink(f)
             except FileNotFoundError:
@@ -279,14 +279,9 @@ class VSBench:
 
     def extension(self):
         pub, name = self.args.extension.split(".", 1)
-        # The commands go through a script: ishwl cannot type '$' into Chromium apps yet
-        # (it picks a keycode Chromium drops).
-        with open("/tmp/vscb-ext.sh", "w") as f:
-            f.write(f'url=$(curl -fsSL https://open-vsx.org/api/{pub}/{name}/latest | jq -r .files.download)\n'
-                    'curl -fsSL -o /tmp/vscb-ext.vsix "$url" &&\n'
-                    '    code --install-extension /tmp/vscb-ext.vsix > /tmp/vscb-ext.txt 2>&1\n'
-                    'echo "rc=$?" >> /tmp/vscb-ext.txt\n')
-        self.text("sh /tmp/vscb-ext.sh\n")
+        self.text(f"curl -fsSL -o /tmp/vscb-ext.vsix \"$(curl -fsSL https://open-vsx.org/api/{pub}/{name}/latest"
+                  f" | jq -r .files.download)\" && code --install-extension /tmp/vscb-ext.vsix > /tmp/vscb-ext.txt 2>&1;"
+                  f" echo \"rc=$?\" >> /tmp/vscb-ext.txt\n")
         ok = self.wait(lambda: "rc=" in read("/tmp/vscb-ext.txt"), 600, "extension install")
         out = read("/tmp/vscb-ext.txt")
         self.res["extension_output"] = out.strip()[-300:]

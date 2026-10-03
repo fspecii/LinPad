@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Low-memory scenarios for LinPad (devtools/bench/lowmem.sh runs this in the guest).
 
-    lowmem.py SCENARIO OUT.json      SCENARIO: idle, ff5, ffcode, yt720
+    lowmem.py SCENARIO OUT.json      SCENARIO: idle, ff5, ffcode, yt720, ffcodeyt
 
 The desktop session is started the way the iPad starts it (ishwl-session: session bus,
 PulseAudio, /etc/ishwl/session.d), headless, and apps are launched through ishwl's
@@ -11,6 +11,7 @@ PulseAudio, /etc/ishwl/session.d), headless, and apps are launched through ishwl
           tab shown once more
   ffcode  ff5, then VS Code on a small TypeScript project
   yt720   Firefox playing a YouTube video at 720p for 60 s
+  ffcodeyt  ffcode, then the YouTube video at 720p in the last tab (the heaviest case)
 Every 2 s the guest's view is logged (MemAvailable, /proc/pressure/memory, the
 processes), and at the end which processes died and how. The host footprint is
 sampled outside (devtools/bench/memsample.c).
@@ -44,15 +45,33 @@ def mark(text):
     LOG.append(line)
 
 
+ENOMEM_SEEN = [0]
+
+
 def read(path):
+    # Without the OOM monitor, whichever process allocates when the emulator refuses
+    # memory gets ENOMEM; this driver must survive that to keep measuring.
     try:
         with open(path) as f:
             return f.read()
     except OSError:
         return ""
+    except MemoryError:
+        ENOMEM_SEEN[0] += 1
+        time.sleep(0.5)
+        return ""
 
 
 def processes():
+    try:
+        return _processes()
+    except MemoryError:
+        ENOMEM_SEEN[0] += 1
+        time.sleep(0.5)
+        return {}
+
+
+def _processes():
     out = {}
     for pid in os.listdir("/proc"):
         if not pid.isdigit():
@@ -258,12 +277,13 @@ def main():
         res["firefox_prefs"] = firefox_prefs(m)
         mark(f"prefs {res['firefox_prefs']}")
         watch()
-        if scenario in ("ff5", "ffcode"):
+        if scenario in ("ff5", "ffcode", "ffcodeyt"):
             five_tabs(m, res)
         watch()
-        if scenario == "ffcode":
+        if scenario in ("ffcode", "ffcodeyt"):
             vscode(session, res)
-        if scenario == "yt720":
+        watch()
+        if scenario in ("yt720", "ffcodeyt"):
             youtube(m, res)
         watch()
         try:
@@ -279,6 +299,7 @@ def main():
     res["dmesg_oom"] = [l for l in subprocess.run(["dmesg"], capture_output=True, text=True).stdout.splitlines()
                         if "Out of memory" in l]
     snapshot("end")
+    res["driver_enomem"] = ENOMEM_SEEN[0]
     res["log"] = LOG
     with open(out, "w") as f:
         json.dump(res, f, indent=1)

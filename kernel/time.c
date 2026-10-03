@@ -318,7 +318,7 @@ static void posix_timer_callback(struct posix_timer *timer) {
     struct siginfo_ info = {
         .code = SI_TIMER_,
         .timer.timer = timer->timer_id,
-        .timer.overrun = 0,
+        .timer.overrun = timer->timer->overrun > INT32_MAX ? INT32_MAX : (int) timer->timer->overrun,
         .timer.value = timer->sig_value,
     };
     lock(&pids_lock);
@@ -477,7 +477,7 @@ static struct fd_ops timerfd_ops;
 
 static void timerfd_callback(struct fd *fd) {
     lock(&fd->lock);
-    fd->timerfd.expirations++;
+    fd->timerfd.expirations += 1 + fd->timerfd.timer->overrun;
     notify(&fd->cond);
     unlock(&fd->lock);
     poll_wakeup(fd, POLL_READ);

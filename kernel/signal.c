@@ -376,13 +376,18 @@ static void setup_rt_sigframe(struct siginfo_ *info, struct rt_sigframe_ *frame)
 // ISH_CRASHLOG=1 (or ISH_LOG): a process killed by a crash signal is logged on the
 // host's stderr with where it was, the mapping (library + offset) of its pc and lr,
 // and the thread's last syscalls, so a soak can tell which process died and why.
-static bool crashlog_enabled(void) {
-    static int on = -1;
-    if (on < 0) {
+// ISH_CRASHLOG=2 also logs crash signals that go to a handler (a program's own
+// crash handler may then _exit, which the plain log cannot see).
+static int crashlog_level(void) {
+    static int level = -1;
+    if (level < 0) {
         const char *e = getenv("ISH_CRASHLOG");
-        on = (e != NULL && e[0] == '1') || ish_log_enabled();
+        level = e != NULL && e[0] >= '1' && e[0] <= '9' ? e[0] - '0' : ish_log_enabled() ? 1 : 0;
     }
-    return on;
+    return level;
+}
+static bool crashlog_enabled(void) {
+    return crashlog_level() > 0;
 }
 
 static void describe_addr(addr_t addr, char *out, size_t size) {
@@ -404,10 +409,16 @@ static void describe_addr(addr_t addr, char *out, size_t size) {
     read_wrunlock(&mem->lock);
 }
 
+static void log_crash_line(const char *what, int sig, int code, addr_t fault_addr);
+
 void log_crash(int sig, int code, addr_t fault_addr) {
     if (!crashlog_enabled() || current == NULL || current->crash_logged)
         return;
     current->crash_logged = true;
+    log_crash_line("ish crash", sig, code, fault_addr);
+}
+
+static void log_crash_line(const char *what, int sig, int code, addr_t fault_addr) {
     struct cpu_state *cpu = &current->cpu;
     char pc_where[MAX_PATH + 32], lr_where[MAX_PATH + 32];
 #ifdef GUEST_ARM64
@@ -419,11 +430,11 @@ void log_crash(int sig, int code, addr_t fault_addr) {
     describe_addr(lr, lr_where, sizeof(lr_where));
     char line[2048];
     int n = snprintf(line, sizeof(line),
-            "ish crash: pid %d tgid %d (%s) signal %d code %d addr %#llx pc %#llx %s lr %#llx %s sp %#llx\n"
-            "ish crash:   last syscalls (oldest first):",
-            current->pid, current->tgid, current->comm, sig, code,
+            "%s: pid %d tgid %d (%s) signal %d code %d addr %#llx pc %#llx %s lr %#llx %s sp %#llx\n"
+            "%s:   last syscalls (oldest first):",
+            what, current->pid, current->tgid, current->comm, sig, code,
             (unsigned long long) fault_addr, (unsigned long long) pc, pc_where,
-            (unsigned long long) lr, lr_where, (unsigned long long) sp);
+            (unsigned long long) lr, lr_where, (unsigned long long) sp, what);
     unsigned count = current->recent_syscall_pos < 16 ? current->recent_syscall_pos : 16;
     for (unsigned i = 0; i < count && n < (int) sizeof(line) - 64; i++) {
         unsigned slot = (current->recent_syscall_pos - count + i) % 16;
@@ -532,6 +543,12 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
             do_exit_group(sig);
     }
 
+    if (crashlog_level() >= 2 && (sig == SIGSEGV_ || sig == SIGBUS_ || sig == SIGILL_ || sig == SIGABRT_ ||
+            sig == SIGFPE_ || sig == SIGTRAP_ || sig == SIGSYS_)) {
+        unlock(&sighand->lock);
+        log_crash_line("ish signal to handler", sig, info->code, info->fault.addr);
+        lock(&sighand->lock);
+    }
     struct sigaction_ *action = &sighand->action[info->sig];
     bool need_siginfo = action->flags & SA_SIGINFO_;
 #if defined(GUEST_ARM64)

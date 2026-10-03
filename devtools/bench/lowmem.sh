@@ -2,7 +2,7 @@
 # Low-memory scenarios on the Mac CLI emulator under an emulated iPad memory limit.
 #
 #   devtools/bench/lowmem.sh run FAKEFS OUTDIR [SCENARIO...]
-#       SCENARIO: idle ff5 ffcode yt720 (default: all four). Each runs on a fresh clone
+#       SCENARIO: idle ff5 ffcode yt720 ffcodeyt (default: the first four). Each runs on a fresh clone
 #       of FAKEFS (FAKEFS.run) with guest/lowmem.py, while memsample records the host
 #       footprint every 250 ms. Writes OUTDIR/<TAG>-<scenario>-mem<MB>.{json,tsv,log}
 #       and appends a line to OUTDIR/summary.txt: peak footprint, how many times the

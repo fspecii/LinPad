@@ -5,6 +5,8 @@
 #include "kernel/fs.h"
 #include "util/sync.h"
 #include <sys/mman.h>
+#include <stdlib.h>
+#include <string.h>
 #ifdef ISH_JIT
 #include "asbestos/asbestos.h"
 #endif
@@ -35,7 +37,12 @@ void tlb_refresh(struct tlb *tlb, struct mmu *mmu) {
     // here, on every return from a syscall after any mmap in the process, wrote all
     // 256 KB of every thread's TLB (resident memory per guest thread, and CPU). Leave it
     // behind instead: changes only grows, so the entries stay unused until a flush.
-    if (mmu->asbestos != NULL && mmu->asbestos->jit != NULL) {
+    static int lazy = -1;
+    if (lazy < 0) {
+        const char *env = getenv("ISH_TLB_LAZY");
+        lazy = env == NULL || strcmp(env, "0") != 0;
+    }
+    if (lazy && mmu->asbestos != NULL && mmu->asbestos->jit != NULL) {
         tlb->mem_changes = (unsigned) (mmu->changes - 1);
         return;
     }
