@@ -49,6 +49,7 @@ install -D -m 644 "$src/ish-code.svg" /usr/share/icons/hicolor/scalable/apps/ish
 echo "finalize: optional apps catalog"
 install -D -m 644 "$src/linpad/catalog.json" /usr/share/linpad/catalog.json
 install -D -m 755 "$src/linpad/linpad-apps" /usr/local/bin/linpad-apps
+install -D -m 755 "$src/linpad/linpad" /usr/local/bin/linpad
 mkdir -p /usr/local/share/linpad/packs/vlc
 install -m 644 "$src/linpad/sample.pdf" "$src/ish-install-vscode.desktop" /usr/local/share/linpad/
 install -m 755 "$src/linpad/packs/vscode-uninstall.sh" "$src/linpad/packs/x11-rule.sh" \
