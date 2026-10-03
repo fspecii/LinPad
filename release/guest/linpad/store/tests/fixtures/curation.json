@@ -3,5 +3,5 @@
   "collections": [ { "id": "internet", "title": "Internet", "apps": ["filezilla", "dillo", "nonexistent"] },
                    { "id": "windows", "title": "Windows apps (Wine)", "apps": ["pack:wine"] } ],
   "compat": { "filezilla": { "status": "works", "note": "Tested." }, "pack:wine": { "status": "experimental" } },
-  "fixups": { "filezilla": "sysvipc filezilla" },
+  "fixups": { "filezilla": "wrap filezilla --sysvipc" },
   "warnSizeMB": 400 }

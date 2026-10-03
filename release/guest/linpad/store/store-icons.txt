@@ -36,6 +36,7 @@ mscore
 net.sourceforge.liferea
 org.fontforge.FontForge
 org.gnome.Calculator
+org.gnome.Cheese
 org.gnome.Chess
 org.gnome.Evince
 org.gnome.GHex
@@ -43,6 +44,7 @@ org.gnome.Meld
 org.gnome.Mines
 org.gnome.Shotwell
 org.gnome.SimpleScan
+org.gnome.SoundRecorder
 org.gnome.Sudoku
 org.gnome.TwentyFortyEight
 org.gnome.baobab
@@ -58,6 +60,7 @@ org.xfce.taskmanager
 pidgin
 pingus
 pinta
+scanner
 scribus
 sqlitebrowser
 strawberry
@@ -69,5 +72,4 @@ user-desktop
 vlc
 vscode
 xarchiver
-xboard
 zim

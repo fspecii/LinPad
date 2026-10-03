@@ -179,11 +179,15 @@ static struct jit_ctx *get_ctx(void) {
     if (ctx)
         return ctx;
     if (posix_memalign((void **) &ctx, 64, sizeof(*ctx)) != 0)
-        abort();
+        return NULL;
     memset(ctx, 0, sizeof(*ctx));
+    ctx->frame = calloc(1, sizeof(struct fiber_frame));
+    if (ctx->frame == NULL) {
+        free(ctx);
+        return NULL;
+    }
     ctx->nfilled = JIT_FILLED_MAX + 1;   // force a full initialization
     tlb_flush_ctx(ctx);
-    ctx->frame = calloc(1, sizeof(struct fiber_frame));
     pthread_setspecific(ctx_key, ctx);
     tls_ctx = ctx;
     pthread_mutex_lock(&reg_lock);
@@ -263,34 +267,49 @@ struct ss_entry {
 static pthread_mutex_t mm_list_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct jit_mm *mm_list;
 
+// NULL when the host is out of memory: the address space then runs in the
+// gadget engine only (asbestos->jit == NULL).
 struct jit_mm *jit_mm_new(struct mmu *mmu) {
-    struct jit_mm *mm = calloc(1, sizeof(*mm));
+    struct jit_mm *mm = mem_host_alloc_fails() ? NULL : calloc(1, sizeof(*mm));
+    if (mm == NULL)
+        return NULL;
     mm->mmu = mmu;
+    mm->hash_size = 1024;
+    mm->hash = calloc(mm->hash_size, sizeof(*mm->hash));
+    mm->counters = mmap(NULL, JIT_COUNTERS * sizeof(uint32_t), PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANON, -1, 0);
+    mm->htpub = calloc(1, sizeof(*mm->htpub));
+    mm->page_hash_size = 65536;   // ~1 code page per bucket: racy empty-bucket check stays exact
+    mm->page_hash = calloc(mm->page_hash_size, sizeof(*mm->page_hash));
+    mm->bucket_page = calloc(mm->page_hash_size, sizeof(*mm->bucket_page));
+    if (posix_memalign((void **) &mm->itab, 64, sizeof(struct jit_itab_entry) << JIT_ITAB_BITS) != 0)
+        mm->itab = NULL;
+    mm->ss_size = 256;
+    mm->ss_hash = calloc(mm->ss_size, sizeof(*mm->ss_hash));
+    if (mm->hash == NULL || mm->counters == MAP_FAILED || mm->htpub == NULL || mm->page_hash == NULL ||
+            mm->bucket_page == NULL || mm->itab == NULL || mm->ss_hash == NULL) {
+        free(mm->hash);
+        if (mm->counters != MAP_FAILED)
+            munmap(mm->counters, JIT_COUNTERS * sizeof(uint32_t));
+        free(mm->htpub);
+        free(mm->page_hash);
+        free(mm->bucket_page);
+        free(mm->itab);
+        free(mm->ss_hash);
+        free(mm);
+        return NULL;
+    }
+    memset(mm->itab, 0, sizeof(struct jit_itab_entry) << JIT_ITAB_BITS);
+    mm->htpub->tab = mm->hash;
+    mm->htpub->size = mm->hash_size;
+    pthread_mutex_init(&mm->lock, NULL);
+    atomic_init(&mm->gen, 1);
     pthread_mutex_lock(&mm_list_lock);
     mm->list_next = mm_list;
     if (mm_list)
         mm_list->list_prev = mm;
     mm_list = mm;
     pthread_mutex_unlock(&mm_list_lock);
-    pthread_mutex_init(&mm->lock, NULL);
-    mm->hash_size = 1024;
-    mm->hash = calloc(mm->hash_size, sizeof(*mm->hash));
-    mm->counters = mmap(NULL, JIT_COUNTERS * sizeof(uint32_t), PROT_READ | PROT_WRITE,
-                        MAP_PRIVATE | MAP_ANON, -1, 0);
-    if (mm->counters == MAP_FAILED)
-        abort();
-    mm->htpub = calloc(1, sizeof(*mm->htpub));
-    mm->htpub->tab = mm->hash;
-    mm->htpub->size = mm->hash_size;
-    mm->page_hash_size = 65536;   // ~1 code page per bucket: racy empty-bucket check stays exact
-    mm->page_hash = calloc(mm->page_hash_size, sizeof(*mm->page_hash));
-    mm->bucket_page = calloc(mm->page_hash_size, sizeof(*mm->bucket_page));
-    if (posix_memalign((void **) &mm->itab, 64, sizeof(struct jit_itab_entry) << JIT_ITAB_BITS) != 0)
-        abort();
-    memset(mm->itab, 0, sizeof(struct jit_itab_entry) << JIT_ITAB_BITS);
-    mm->ss_size = 256;
-    mm->ss_hash = calloc(mm->ss_size, sizeof(*mm->ss_hash));
-    atomic_init(&mm->gen, 1);
     return mm;
 }
 
@@ -405,9 +424,20 @@ static struct jit_block *lookup_locked(struct jit_mm *mm, addr_t pc) {
 }
 
 static void hash_insert(struct jit_mm *mm, struct jit_block *b) {
+    struct jit_block **nh = NULL;
+    struct jit_htpub *pub = NULL;
     if (++mm->nblocks > mm->hash_size) {
+        nh = mem_host_alloc_fails() ? NULL : calloc(mm->hash_size * 2, sizeof(*nh));
+        pub = calloc(1, sizeof(*pub));
+        if (nh == NULL || pub == NULL) {
+            // out of host memory: keep the current table (longer chains)
+            free(nh);
+            free(pub);
+            nh = NULL;
+        }
+    }
+    if (nh != NULL) {
         size_t ns = mm->hash_size * 2;
-        struct jit_block **nh = calloc(ns, sizeof(*nh));
         for (size_t i = 0; i < mm->hash_size; i++) {
             struct jit_block *x = mm->hash[i];
             while (x) {
@@ -421,7 +451,6 @@ static void hash_insert(struct jit_mm *mm, struct jit_block *b) {
         // Lock-free readers may still walk the old table: keep it until the
         // mm is freed (nodes are relinked, so a reader may miss: it then
         // takes the locked path).
-        struct jit_htpub *pub = calloc(1, sizeof(*pub));
         pub->tab = nh;
         pub->size = ns;
         pub->older = mm->htpub;
@@ -470,20 +499,31 @@ static void block_free(struct jit_block *b) {
     free(b);
 }
 
-void jit_block_insert(struct jit_mm *mm, struct jit_block *b, struct jit_chunk *c) {
+// False when the host is out of memory; the caller frees the block.
+bool jit_block_insert(struct jit_mm *mm, struct jit_block *b, struct jit_chunk *c) {
     // grow the map allocation to hold the ext struct
-    b->map = realloc(b->map, b->nmap * sizeof(*b->map) + sizeof(struct jit_block_ext));
+    struct jit_map_entry *map = mem_host_alloc_fails() ? NULL : realloc(b->map, b->nmap * sizeof(*b->map) + sizeof(struct jit_block_ext));
+    if (map == NULL)
+        return false;
+    b->map = map;
     memset(block_ext(b), 0, sizeof(struct jit_block_ext));
     if (c->nblocks == c->blocks_cap) {
-        c->blocks_cap = c->blocks_cap ? c->blocks_cap * 2 : 256;
-        c->blocks = realloc(c->blocks, c->blocks_cap * sizeof(*c->blocks));
+        uint32_t cap = c->blocks_cap ? c->blocks_cap * 2 : 256;
+        struct jit_block **blocks = realloc(c->blocks, cap * sizeof(*c->blocks));
+        if (blocks == NULL)
+            return false;
+        c->blocks = blocks;
+        c->blocks_cap = cap;
     }
     c->blocks[c->nblocks++] = b;
     hash_insert(mm, b);
+    return true;
 }
 
 static void insert_negative(struct jit_mm *mm, addr_t pc) {
-    struct jit_block *b = calloc(1, sizeof(*b));
+    struct jit_block *b = mem_host_alloc_fails() ? NULL : calloc(1, sizeof(*b));
+    if (b == NULL)
+        return;   // no negative entry: the lookup just misses again
     b->pc = pc;
     b->end = pc + 4;
     hash_insert(mm, b);
@@ -668,13 +708,26 @@ uint32_t *jit_alloc_code(struct jit_mm *mm, uint32_t nwords, struct jit_chunk **
             mm->anchor = rx;
         if (rx == NULL)
             return NULL;   // arena full: the caller evicts (evict_for) and retries
-        struct jit_chunk *c = calloc(1, sizeof(*c));
+        struct jit_chunk *c = mem_host_alloc_fails() ? NULL : calloc(1, sizeof(*c));
+        if (c == NULL) {
+            if (mm->anchor == rx && mm->nchunks == 0)
+                mm->anchor = NULL;
+            jit_codemem_free_chunk(rx, size);
+            return NULL;
+        }
         c->rx = rx;
         c->size = size;
         c->mm = mm;
         jit_write_begin();
         uint32_t used = jit_emit_trampolines(c, jit_rw(rx), rx);
         jit_write_end(rx, used * 4);
+        if (used == 0) {   // out of host memory while emitting them
+            free(c);
+            if (mm->anchor == rx && mm->nchunks == 0)
+                mm->anchor = NULL;
+            jit_codemem_free_chunk(rx, size);
+            return NULL;
+        }
         c->next = mm->chunks;
         mm->chunks = c;
         mm->nchunks++;
@@ -1064,6 +1117,10 @@ uint32_t jit_emit_trampolines(struct jit_chunk *c, uint32_t *rw, uint32_t *rx) {
         }
     }
 
+    if (b.oom) {
+        free(b.w);
+        return 0;
+    }
     memcpy(rw, b.w, b.n * 4);
     for (int k = 0; k < JIT_NSTUBS; k++)
         c->t_stub[k] = rx + stub_at[k];
@@ -1295,7 +1352,14 @@ static struct fiber_block *ss_get(struct jit_mm *mm, addr_t pc, struct tlb *tlb)
     struct fiber_block *block = state.block;
 
     pthread_mutex_lock(&mm->lock);
-    struct ss_entry *e = malloc(sizeof(*e));
+    struct ss_entry *e = mem_host_alloc_fails() ? NULL : malloc(sizeof(*e));
+    if (e == NULL) {
+        // Out of host memory: the block cannot be tracked, so it cannot be
+        // freed later either. It is still valid for this one step.
+        mm->stats_fallback++;
+        pthread_mutex_unlock(&mm->lock);
+        return block;
+    }
     e->pc = pc;
     e->block = block;
     if (atomic_load(&mm->gen) == gen) {
@@ -1459,11 +1523,20 @@ static void chain(struct jit_mm *mm, uint32_t *slot, uint64_t flush_gen, struct 
         if (dest) {
             struct jit_block_ext *x = block_ext(target);
             if (x->nin == x->capin) {
-                x->capin = x->capin ? x->capin * 2 : 4;
-                x->in_slots = realloc(x->in_slots, x->capin * sizeof(*x->in_slots));
+                uint32_t cap = x->capin ? x->capin * 2 : 4;
+                uint32_t **in = mem_host_alloc_fails() ? NULL : realloc(x->in_slots, cap * sizeof(*x->in_slots));
+                if (in != NULL) {
+                    x->in_slots = in;
+                    x->capin = cap;
+                }
             }
-            x->in_slots[x->nin++] = slot;
-            jit_patch_branch(slot, dest);
+            // Out of host memory: leave the exit unchained (it still works,
+            // through the dispatcher), since an unrecorded chain could not be
+            // undone when the target is invalidated.
+            if (x->nin < x->capin) {
+                x->in_slots[x->nin++] = slot;
+                jit_patch_branch(slot, dest);
+            }
         }
     }
     pthread_mutex_unlock(&mm->lock);
@@ -1480,6 +1553,13 @@ static void itab_set(struct jit_mm *mm, addr_t pc, struct jit_block *b) {
 
 int jit_run(struct cpu_state *cpu, struct tlb *tlb, struct jit_mm *mm) {
     struct jit_ctx *ctx = get_ctx();
+    if (ctx == NULL) {
+        // Out of host memory for this thread's state: fail the guest (SIGSEGV
+        // at its pc), as the gadget engine does when it cannot get a frame.
+        cpu->segfault_addr = cpu->pc;
+        cpu->segfault_was_write = 0;
+        return INT_GPF;
+    }
     if (ctx->mm != mm || ctx->mmu_id != mm->mmu->id) {
         tlb_flush_ctx(ctx);
         ctx->mem_changes = __atomic_load_n(&mm->mmu->changes, __ATOMIC_ACQUIRE);

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Radio (VLC)
+GenericName=Internet Radio
+Comment=47 hand-picked internet radio stations by genre, plus the Icecast directory, in VLC
+Exec=ish-vlc --services-discovery=icecast /usr/share/linpad/radio/linpad-radio.xspf
+Icon=radio
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=radio;stream;internet radio;icecast;music;news;

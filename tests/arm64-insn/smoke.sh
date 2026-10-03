@@ -6,14 +6,14 @@
 #   ISH=build/ish FAKEFS=/path/to/fakefs tests/arm64-insn/smoke.sh
 # FAKEFS is an Alpine aarch64 fakefs with gcc and musl-dev installed. The ish binary
 # must be built with -Djit=enabled for the JIT pass to exercise the JIT.
-# The interpreter's difffuzz result is reported but does not fail the run while it has
-# known gaps (see the summary line); set STRICT_INTERP=1 to make it fail.
+# A difffuzz difference fails the run for both engines; STRICT_INTERP=0 only
+# reports the interpreter's.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 ISH=${ISH:?set ISH to the ish binary}
 FAKEFS=${FAKEFS:?set FAKEFS to the guest fakefs directory}
 OUT=${OUT:-/tmp/arm64-insn-smoke}
-STRICT_INTERP=${STRICT_INTERP:-0}
+STRICT_INTERP=${STRICT_INTERP:-1}
 export ISH FAKEFS
 CFLAGS="-O1 -march=armv8.2-a+fp16+aes -pthread"
 mkdir -p "$OUT"

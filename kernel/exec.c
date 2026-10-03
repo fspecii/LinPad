@@ -212,6 +212,14 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
         }
     }
 
+    // Allocate the new address space before the point of no return, so running
+    // out of host memory is an ENOMEM the caller sees, not a killed process.
+    struct mm *new_mm = mm_new();
+    if (new_mm == NULL) {
+        err = _ENOMEM;
+        goto out_free_interp;
+    }
+
     // other threads must be gone before their memory and fds go away
     de_thread();
 
@@ -225,7 +233,7 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
     // released.
     lock(&current->general_lock);
     mm_release(current->mm);
-    task_set_mm(current, mm_new());
+    task_set_mm(current, new_mm);
     unlock(&current->general_lock);
     write_wrlock(&current->mem->lock);
 

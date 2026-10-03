@@ -117,8 +117,14 @@ if [ -d "$prefs" ]; then
         fail "gecko-tune.sh did not produce ish-tune.js"
     fi
     rm -rf "$tmp"
-    [ -f "$KIT/wl-bridge/firefox-prefs.js" ] && put 644 "$KIT/wl-bridge/firefox-prefs.js" "$prefs/ishwl.js"
-    for js in "$prefs"/*.js; do
+    # The desktop's prefs (ishwl.js) moved there too, in repair kit 2026100306.
+    if [ -f "$KIT/wl-bridge/firefox-prefs.js" ]; then
+        put 644 "$KIT/wl-bridge/firefox-prefs.js" "$appprefs/ishwl.js"
+        if [ -f "$prefs/ishwl.js" ]; then
+            rm -f "$prefs/ishwl.js" && changed "$prefs/ishwl.js (moved to $appprefs)"
+        fi
+    fi
+    for js in "$prefs"/*.js "$appprefs"/*.js; do
         [ -f "$js" ] || continue
         if grep -Eq "$bad_prefs" "$js"; then
             sed -i -E "/$bad_prefs/d" "$js" && changed "$js (media processes enabled)"
@@ -130,7 +136,7 @@ if [ -d "$prefs" ]; then
             sed -i -E "/user_$bad_prefs/d" "$js" && changed "$js (media processes enabled)"
         fi
     done
-    if grep -Eqs "$bad_prefs" "$prefs"/*.js; then
+    if grep -Eqs "$bad_prefs" "$prefs"/*.js "$appprefs"/*.js; then
         fail "Firefox prefs still disable the media processes"
     fi
 else
@@ -154,6 +160,19 @@ done
 for f in "$G"/linpad/packs/vlc/*.sh; do
     put 755 "$f" "/usr/local/share/linpad/packs/vlc/${f##*/}"
 done
+# The other packs' own files (scripts, launchers, the radio playlist), executable or not
+# as in the kit; vlc/ also holds binaries the system build stashed, which are not in it.
+for f in "$G"/linpad/packs/*/*; do
+    case $f in "$G"/linpad/packs/vlc/*) continue ;; esac
+    [ -f "$f" ] || continue
+    if [ -x "$f" ]; then mode=755; else mode=644; fi
+    put "$mode" "$f" "/usr/local/share/linpad/packs/${f#"$G"/linpad/packs/}"
+done
+# Internet radio arrived after the VLC pack: give it to systems that already have VLC.
+if [ -x /usr/local/bin/ish-vlc ] && [ -f /usr/local/share/linpad/packs/radio/install.sh ] &&
+    ! cmp -s /usr/local/share/linpad/packs/radio/linpad-radio.xspf /usr/share/linpad/radio/linpad-radio.xspf; then
+    sh /usr/local/share/linpad/packs/radio/install.sh && changed "VLC internet radio"
+fi
 # LinPad Store: its app index, curation, generator and the apps' fixups.
 put 644 "$G/linpad/store/store-index.json" /usr/share/linpad/store-index.json
 put 644 "$G/linpad/store/curation.json" /usr/share/linpad/store-curation.json

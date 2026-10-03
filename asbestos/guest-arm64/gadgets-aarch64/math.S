@@ -3562,12 +3562,7 @@ msub_store:
 //   2 = DCZID_EL0 (Data Cache Zero ID)
 //   3 = FPCR (Floating-Point Control Register)
 //   4 = FPSR (Floating-Point Status Register)
-//   5 = RNDR (Random Number register)
-//   6 = RNDRRS (Reseeded Random Number register)
-//   7 = ID_AA64PFR0_EL1
 //   8 = ID_AA64PFR1_EL1
-//   9 = ID_AA64ISAR0_EL1
-//  10 = ID_AA64ISAR1_EL1
 //  11 = ID_AA64ZFR0_EL1
 .gadget mrs_sysreg
     ldr x8, [_pc]           // rt
@@ -3587,18 +3582,8 @@ msub_store:
     b.eq .Lmrs_fpcr
     cmp x11, #4
     b.eq .Lmrs_fpsr
-    cmp x11, #5
-    b.eq .Lmrs_rndr
-    cmp x11, #6
-    b.eq .Lmrs_rndrrs
-    cmp x11, #7
-    b.eq .Lmrs_id_aa64pfr0
     cmp x11, #8
     b.eq .Lmrs_id_aa64pfr1
-    cmp x11, #9
-    b.eq .Lmrs_id_aa64isar0
-    cmp x11, #10
-    b.eq .Lmrs_id_aa64isar1
     cmp x11, #11
     b.eq .Lmrs_id_aa64zfr0
     cmp x11, #12
@@ -3638,40 +3623,8 @@ msub_store:
     ldr w10, [_cpu, #CPU_fpsr]
     b .Lmrs_store
 
-.Lmrs_rndr:
-    // RNDR - Random Number register (ARMv8.5-RNG)
-    // Return 0 and set Z=1 to indicate failure (no RNG available).
-    mov x10, #0
-    movz w17, #0x4000, lsl #16
-    msr nzcv, x17
-    b .Lmrs_store
-
-.Lmrs_rndrrs:
-    // RNDRRS - Reseeded Random Number register (ARMv8.5-RNG)
-    // Return 0 and set Z=1 to indicate failure (no RNG available).
-    mov x10, #0
-    movz w17, #0x4000, lsl #16
-    msr nzcv, x17
-    b .Lmrs_store
-
-.Lmrs_id_aa64pfr0:
-    // ID_AA64PFR0_EL1:
-    // EL0/EL1 AArch64 supported (bits [3:0]=1, [7:4]=1), SVE=0.
-    mov x10, #0x11
-    b .Lmrs_store
-
 .Lmrs_id_aa64pfr1:
     // ID_AA64PFR1_EL1: report no optional features.
-    mov x10, #0
-    b .Lmrs_store
-
-.Lmrs_id_aa64isar0:
-    // ID_AA64ISAR0_EL1: report no optional crypto/SVE-related extensions.
-    mov x10, #0
-    b .Lmrs_store
-
-.Lmrs_id_aa64isar1:
-    // ID_AA64ISAR1_EL1: report no optional extensions.
     mov x10, #0
     b .Lmrs_store
 
@@ -15994,14 +15947,6 @@ NAME(\name):
     .endr
 .endm
 
-// AdvSIMD two-reg misc, vector: index = Q:U:size:opcode
-hostop_tab hostop_misc2_vec, 512, (0x0e200820|((hix>>8)<<30)|(((hix>>7)&1)<<29)|(((hix>>5)&3)<<22)|((hix&31)<<12))
-// AdvSIMD scalar two-reg misc: index = U:size:opcode
-hostop_tab hostop_misc2_scalar, 256, (0x5e200820|(((hix>>7)&1)<<29)|(((hix>>5)&3)<<22)|((hix&31)<<12))
-// AdvSIMD scalar three same: index = U:size:opcode
-hostop_tab hostop_same3_scalar, 256, (0x5e220420|(((hix>>7)&1)<<29)|(((hix>>5)&3)<<22)|((hix&31)<<11))
-// FP data-processing (1 source): index = ftype:opcode
-hostop_tab hostop_fp1, 256, (0x1e204020|((hix>>6)<<22)|((hix&63)<<15))
 // AdvSIMD shift by immediate, vector, one table per opcode: index = Q:U:immh:immb
 hostop_tab hostop_shimm_vec_sqshlu, 512, (0x0f006420|((hix>>8)<<30)|(((hix>>7)&1)<<29)|((hix&127)<<16))
 hostop_tab hostop_shimm_vec_qshl, 512, (0x0f007420|((hix>>8)<<30)|(((hix>>7)&1)<<29)|((hix&127)<<16))
@@ -16018,8 +15963,6 @@ hostop_tab hostop_cvt16_g2f, 64, (0x1ee00000|((hix>>5)<<31)|(((hix>>3)&3)<<19)|(
 // FP<->fixed-point conversion, half precision: index = sf:U:scale
 hostop_tab hostop_fix16_f2g, 256, (0x1ed80020|((hix>>7)<<31)|(((hix>>6)&1)<<16)|((hix&63)<<10)), .Lhostop_f2g_done
 hostop_tab hostop_fix16_g2f, 256, (0x1ec20000|((hix>>7)<<31)|(((hix>>6)&1)<<16)|((hix&63)<<10)), .Lhostop_g2f_done
-// AdvSIMD three same, vector: index = Q:U:size:opcode
-hostop_tab hostop_same3_vec, 512, (0x0e220420|((hix>>8)<<30)|(((hix>>7)&1)<<29)|(((hix>>5)&3)<<22)|((hix&31)<<11))
 // Shift by immediate, more opcodes: [SU]SRA, [SU]RSRA, SRI, SHL/SLI
 hostop_tab hostop_shimm_vec_sra, 512, (0x0f001420|((hix>>8)<<30)|(((hix>>7)&1)<<29)|((hix&127)<<16))
 hostop_tab hostop_shimm_vec_rsra, 512, (0x0f003420|((hix>>8)<<30)|(((hix>>7)&1)<<29)|((hix&127)<<16))
@@ -16031,11 +15974,6 @@ hostop_tab hostop_shimm_scalar_sri, 256, (0x5f004420|(((hix>>7)&1)<<29)|((hix&12
 hostop_tab hostop_shimm_scalar_shl, 256, (0x5f005420|(((hix>>7)&1)<<29)|((hix&127)<<16))
 // PMULL/PMULL2: index = Q:size
 hostop_tab hostop_pmull, 8, (0x0e22e020|((hix>>2)<<30)|((hix&3)<<22))
-// FP data-processing (3 source) FMADD/FMSUB/FNMADD/FNMSUB: index = ftype:o1:o0
-hostop_tab hostop_fp3, 16, (0x1f020c20|((hix>>2)<<22)|(((hix>>1)&1)<<21)|((hix&1)<<15))
-// AdvSIMD (scalar) x indexed element, Rm field = 2 with M=0: index = [Q:]U:size:L:M:H:opcode
-hostop_tab hostop_elem_vec, 2048, (0x0f020020|((hix>>10)<<30)|(((hix>>9)&1)<<29)|(((hix>>7)&3)<<22)|(((hix>>6)&1)<<21)|(((hix>>5)&1)<<20)|(((hix>>4)&1)<<11)|((hix&15)<<12))
-hostop_tab hostop_elem_scalar, 1024, (0x5f020020|(((hix>>9)&1)<<29)|(((hix>>7)&3)<<22)|(((hix>>6)&1)<<21)|(((hix>>5)&1)<<20)|(((hix>>4)&1)<<11)|((hix&15)<<12))
 
 // Xd = constant (MOVZ/MOVN with following MOVKs folded by gen.c)
 // Code stream: [gadget addr][rd][value]

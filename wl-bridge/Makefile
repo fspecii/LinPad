@@ -76,7 +76,7 @@ install: all
 	[ -z "$(X11_WM)" ] || install -Dm755 ishwl-x11-wm $(DESTDIR)$(PREFIX)/bin/ishwl-x11-wm
 	[ -e $(DESTDIR)/etc/ishwl/apps ] || install -Dm644 apps $(DESTDIR)/etc/ishwl/apps
 	[ -e $(DESTDIR)/etc/ishwl/prewarm ] || install -Dm644 prewarm $(DESTDIR)/etc/ishwl/prewarm
-	[ ! -d $(DESTDIR)/usr/lib/firefox-esr ] || install -Dm644 firefox-prefs.js $(DESTDIR)/usr/lib/firefox-esr/defaults/pref/ishwl.js
+	[ ! -d $(DESTDIR)/usr/lib/firefox-esr ] || { install -Dm644 firefox-prefs.js $(DESTDIR)/usr/lib/firefox-esr/browser/defaults/preferences/ishwl.js && rm -f $(DESTDIR)/usr/lib/firefox-esr/defaults/pref/ishwl.js; }
 	install -Dm755 guest/ish-terminal $(DESTDIR)$(PREFIX)/bin/ish-terminal
 	install -Dm755 guest/ish-open $(DESTDIR)$(PREFIX)/bin/ish-open
 	install -Dm755 guest/ish-device-info $(DESTDIR)$(PREFIX)/bin/ish-device-info

@@ -352,8 +352,14 @@ void jit_pcache_offer(addr_t pc, const uint32_t *code, const struct jit_image *i
         return;
     pthread_mutex_lock(&lock);
     if (pend_len + len > pend_cap) {
-        pend_cap = (pend_len + len) * 2 + (256 << 10);
-        pend = realloc(pend, pend_cap);
+        size_t cap = (pend_len + len) * 2 + (256 << 10);
+        uint8_t *p = realloc(pend, cap);
+        if (p == NULL) {   // out of host memory: this translation is not persisted
+            pthread_mutex_unlock(&lock);
+            return;
+        }
+        pend = p;
+        pend_cap = cap;
     }
     struct rec_hdr *r = (struct rec_hdr *) (pend + pend_len);
     memset(r, 0, len);

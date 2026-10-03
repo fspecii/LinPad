@@ -28,6 +28,10 @@ final class DesktopThemeApplyTests: XCTestCase {
     private func settle(_ controller: DesktopController) {
         let style = DesktopStyle.stored(UserDefaults.standard.string(forKey: DesktopStyle.storageKey) ?? "")
         controller.applyStyle(style, dark: isDark(controller, style: style))
+        // applyStyle hands the guest side to a Task on the main actor; let it run.
+        for _ in 0..<20 where controller.icons.style != style || controller.icons.isDark != isDark(controller, style: style) {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
     }
 
     @MainActor

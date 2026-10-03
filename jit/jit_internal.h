@@ -249,8 +249,13 @@ void jit_chunk_unregister(struct jit_chunk *c);
 struct asmbuf {
     uint32_t *w;
     uint32_t n, cap;
+    bool oom;   // a word was dropped: out of host memory, the buffer is garbage
 };
 void ab_put(struct asmbuf *b, uint32_t insn);
+
+// kernel/memory.c: true for every Nth host allocation with ISH_FAIL_HOST_ALLOC=N
+// (fault injection for the out-of-memory paths).
+bool mem_host_alloc_fails(void);
 
 // Trampolines: emitted at chunk start. Returns words used.
 uint32_t jit_emit_trampolines(struct jit_chunk *c, uint32_t *rw, uint32_t *rx);

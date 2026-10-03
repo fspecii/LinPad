@@ -53,6 +53,12 @@ install -m 755 "$src/linpad/packs/vscode-uninstall.sh" "$src/linpad/packs/x11-ru
     "$src/linpad/packs/wine-uninstall.sh" "$src/linpad/packs/glibc-island.sh" /usr/local/share/linpad/packs/
 install -m 755 "$src/linpad/packs/vlc/postinstall.sh" "$src/linpad/packs/vlc/postremove.sh" \
     /usr/local/share/linpad/packs/vlc/
+for f in "$src"/linpad/packs/*/*; do
+    case $f in "$src"/linpad/packs/vlc/*) continue ;; esac
+    [ -f "$f" ] || continue
+    if [ -x "$f" ]; then mode=755; else mode=644; fi
+    install -D -m "$mode" "$f" "/usr/local/share/linpad/packs/${f#"$src"/linpad/packs/}"
+done
 # LinPad Store: the app index the desktop also bundles, its curation, the generator that
 # `linpad-apps refresh-index` runs, and the fixups some apps need on iSH.
 install -D -m 644 "$src/linpad/store/store-index.json" /usr/share/linpad/store-index.json
@@ -177,7 +183,7 @@ for cmd in ishwl ishwl-session ish-terminal foot fastfetch firefox-esr thunar mo
 done
 for f in /etc/profile.d/gpu.sh /usr/local/share/devtools/install-vscode.sh \
         /usr/share/ish/icon-cache/ish/index.json /usr/share/ish/current-style \
-        /usr/lib/firefox-esr/defaults/pref/ishwl.js /root/Videos/ish-test-720p.mp4; do
+        /usr/lib/firefox-esr/browser/defaults/preferences/ishwl.js /root/Videos/ish-test-720p.mp4; do
     [ -e "$f" ] || missing="$missing $f"
 done
 [ "${LINPAD_PUBLIC:-0}" = 1 ] || command -v claude >/dev/null || missing="$missing claude"

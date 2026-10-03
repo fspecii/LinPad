@@ -24,3 +24,7 @@ if [ "$(word_at "$qt" 0x6ff38)" != f0000b81 ]; then
     fi
 fi
 /usr/lib/vlc/vlc-cache-gen "$plugins"
+# Internet radio (../radio): the curated station playlist and the "Radio (VLC)" launcher.
+if [ -f "$here/../radio/install.sh" ]; then
+    sh "$here/../radio/install.sh"
+fi

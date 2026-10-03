@@ -90,7 +90,7 @@ struct mem {
 #endif
 
 // Initialize the address space
-void mem_init(struct mem *mem);
+int mem_init(struct mem *mem);
 // Uninitialize the address space
 void mem_destroy(struct mem *mem);
 // Return the pagetable entry for the given page
@@ -108,6 +108,11 @@ struct data {
     void *data; // immutable
     size_t size; // also immutable
     atomic_uint refcount;
+    // Page table entries referring to each guest page of the data, in any
+    // address space. NULL until the first fork shares the data: before that
+    // every page has at most one. A copy-on-write page whose count is 1 is
+    // no longer shared, so a write reuses it instead of copying it.
+    _Atomic(_Atomic uint32_t *) shares;
 
     // for display in /proc/pid/maps
     struct fd *fd;

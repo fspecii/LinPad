@@ -47,7 +47,10 @@ struct mm *mm_new() {
     struct mm *mm = malloc(sizeof(struct mm));
     if (mm == NULL)
         return NULL;
-    mem_init(&mm->mem);
+    if (mem_init(&mm->mem) < 0) {
+        free(mm);
+        return NULL;
+    }
     mm->start_brk = mm->brk = 0; // should get overwritten by exec
     mm->exefile = NULL;
     mm->refcount = 1;
@@ -62,7 +65,10 @@ struct mm *mm_copy(struct mm *mm) {
     // Fix wrlock_init failing because it thinks it's reinitializing the same lock
     memset(&new_mm->mem.lock, 0, sizeof(new_mm->mem.lock));
     new_mm->refcount = 1;
-    mem_init(&new_mm->mem);
+    if (mem_init(&new_mm->mem) < 0) {
+        free(new_mm);
+        return NULL;
+    }
     fd_retain(new_mm->exefile);
     write_wrlock(&mm->mem.lock);
     int err = pt_copy_on_write(&mm->mem, &new_mm->mem, 0, MEM_PAGES);

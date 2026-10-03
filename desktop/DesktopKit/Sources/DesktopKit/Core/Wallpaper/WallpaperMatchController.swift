@@ -4,11 +4,9 @@ extension DesktopController {
     /// A wallpaper was set by the user (Settings, Themes, Wallhaven, Photos): offer to match
     /// the desktop to it, or with auto-match on, apply the palette and accent at once.
     func wallpaperDidChange() {
-        NSLog("WMDEBUG change onboarding=\(isOnboardingPresented)")
         guard !isOnboardingPresented else { return }
         let source = wallpapers.activeSource(workspace: wallpapers.currentWorkspace, isDark: isDarkAppearance)
         Task {
-            NSLog("WMDEBUG source=\(source.identifier) active=\(wallpapers.activeSource(workspace: wallpapers.currentWorkspace, isDark: isDarkAppearance).identifier) auto=\(wallpaperMatch.autoMatch)")
             // A newer wallpaper change supersedes this one.
             guard let proposal = await makeWallpaperMatch(for: source),
                   wallpapers.activeSource(workspace: wallpapers.currentWorkspace, isDark: isDarkAppearance) == source

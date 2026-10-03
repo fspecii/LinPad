@@ -180,6 +180,8 @@ static inline int sock_type_to_real(int type, int protocol) {
 #define MSG_DONTWAIT_ 0x40
 #define MSG_EOR_    0x80
 #define MSG_WAITALL_ 0x100
+// Connect and send in one call (TCP Fast Open); handled in sys_sendto/sys_sendmsg.
+#define MSG_FASTOPEN_ 0x20000000
 
 static inline int sock_flags_to_real(int fake) {
     int real = 0;
@@ -190,7 +192,7 @@ static inline int sock_flags_to_real(int fake) {
     if (fake & MSG_DONTWAIT_) real |= MSG_DONTWAIT;
     if (fake & MSG_EOR_) real |= MSG_EOR;
     if (fake & MSG_WAITALL_) real |= MSG_WAITALL;
-    if (fake & ~(MSG_OOB_|MSG_PEEK_|MSG_CTRUNC_|MSG_TRUNC_|MSG_DONTWAIT_|MSG_EOR_|MSG_WAITALL_))
+    if (fake & ~(MSG_OOB_|MSG_PEEK_|MSG_CTRUNC_|MSG_TRUNC_|MSG_DONTWAIT_|MSG_EOR_|MSG_WAITALL_|MSG_FASTOPEN_))
         TRACE("unimplemented socket flags %d\n", fake);
     return real;
 }

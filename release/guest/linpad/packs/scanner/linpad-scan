@@ -1,0 +1,133 @@
+#!/bin/sh
+# LinPad document scanner: photographs pages with the iPad's camera (the V4L2 device the
+# iOS app bridges into Linux), cleans them up for reading and runs Tesseract OCR, giving a
+# searchable PDF plus a .txt of the recognised text in ~/Documents/Scans.
+#
+#   linpad-scan                     interactive: Enter takes a page, d finishes, q quits
+#   linpad-scan --pages N [--delay S]   takes N pages without asking, S seconds apart
+#   linpad-scan --ocr IMAGE...      OCR existing images (photos dropped in from the iPad)
+# Options: --device /dev/videoN (default: the back camera, else the first one),
+#          --lang eng+ron (Tesseract languages), --color (keep colour, no clean-up),
+#          --out DIR, --size WxH (default 1280x720).
+set -u
+out_dir=${HOME:-/root}/Documents/Scans
+lang=${LINPAD_SCAN_LANG:-eng+ron}
+device= pages= delay=2 color= size=1280x720 mode=camera
+
+die() { echo "linpad-scan: $*" >&2; exit 1; }
+
+while [ $# -gt 0 ]; do
+    case $1 in
+        --device) device=$2; shift 2 ;;
+        --lang) lang=$2; shift 2 ;;
+        --out) out_dir=$2; shift 2 ;;
+        --pages) pages=$2; shift 2 ;;
+        --delay) delay=$2; shift 2 ;;
+        --size) size=$2; shift 2 ;;
+        --color) color=1; shift ;;
+        --ocr) mode=ocr; shift; break ;;
+        -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown option $1 (try --help)" ;;
+    esac
+done
+
+command -v tesseract >/dev/null || die "tesseract is missing; reinstall the Document Scanner app"
+# Only the languages that are installed: eng+ron without Romanian data would fail.
+installed=$(tesseract --list-langs 2>/dev/null | tail -n +2)
+wanted=
+for l in $(echo "$lang" | tr '+' ' '); do
+    echo "$installed" | grep -qx "$l" && wanted=${wanted:+$wanted+}$l
+done
+lang=${wanted:-eng}
+
+work=$(mktemp -d /tmp/linpad-scan.XXXXXX) || die "cannot create a work directory"
+trap 'rm -rf "$work"' EXIT INT TERM
+count=0
+
+pick_device() {
+    [ -n "$device" ] && return
+    for node in /sys/class/video4linux/video*; do
+        [ -e "$node" ] || continue
+        name=$(cat "$node/name" 2>/dev/null)
+        case $name in *Back*|*back*) device=/dev/${node##*/}; return ;; esac
+        [ -z "$device" ] && device=/dev/${node##*/}
+    done
+    [ -n "$device" ] || die "no camera found (/dev/video*). Allow LinPad to use the camera in the iPad's Settings."
+}
+
+clean_up_page() { # in out
+    if [ -n "$color" ] || ! command -v magick >/dev/null; then
+        cp "$1" "$2"
+    else
+        # Grey, straightened, contrast stretched a little. A full -normalize turns the
+        # sensor noise of a camera photo into speckles Tesseract cannot read through.
+        magick "$1" -colorspace Gray -depth 8 -despeckle -deskew 40% +repage -contrast-stretch 1%x1% "$2"
+    fi
+}
+
+capture_page() {
+    count=$((count + 1))
+    raw=$work/raw-$count.png
+    # A few frames in, so the camera has settled its exposure.
+    if ! ffmpeg -nostdin -loglevel error -f v4l2 -video_size "$size" -i "$device" \
+            -vf 'select=gte(n\,8)' -frames:v 1 -y "$raw" </dev/null; then
+        count=$((count - 1))
+        echo "  could not read from $device"
+        return 1
+    fi
+    clean_up_page "$raw" "$work/page-$(printf %03d $count).png"
+    echo "  page $count captured"
+}
+
+finish() {
+    [ "$count" -gt 0 ] || { echo "No pages, nothing saved."; exit 0; }
+    mkdir -p "$out_dir" || die "cannot create $out_dir"
+    base="$out_dir/Scan $(date '+%Y-%m-%d %H.%M.%S')"
+    ls "$work"/page-*.png > "$work/pages.txt"
+    echo "Recognising text ($lang) in $count page(s)…"
+    if ! tesseract "$work/pages.txt" "$base" -l "$lang" pdf txt >/dev/null 2>"$work/ocr.log"; then
+        cat "$work/ocr.log" >&2
+        die "OCR failed"
+    fi
+    echo "Saved:"
+    echo "  $base.pdf   (searchable PDF)"
+    echo "  $base.txt   ($(wc -w < "$base.txt" | tr -d ' ') words)"
+}
+
+if [ "$mode" = ocr ]; then
+    [ $# -gt 0 ] || die "--ocr needs one or more image files"
+    for image in "$@"; do
+        [ -f "$image" ] || die "no such file: $image"
+        count=$((count + 1))
+        clean_up_page "$image" "$work/page-$(printf %03d $count).png"
+    done
+    finish
+    exit 0
+fi
+
+command -v ffmpeg >/dev/null || die "ffmpeg is missing; reinstall the Document Scanner app"
+pick_device
+echo "Document scanner: camera $device ($(cat "/sys/class/video4linux/${device##*/}/name" 2>/dev/null)), OCR $lang"
+if [ -n "$pages" ]; then
+    i=0
+    while [ "$i" -lt "$pages" ]; do
+        [ "$i" -gt 0 ] && sleep "$delay"
+        capture_page
+        i=$((i + 1))
+    done
+    finish
+    exit 0
+fi
+
+echo "Hold the page in front of the camera. Enter: take a page · d: done · q: quit without saving"
+while :; do
+    printf 'page %d> ' $((count + 1))
+    read -r answer || answer=d
+    case $answer in
+        q|Q) echo "Nothing saved."; exit 0 ;;
+        d|D) finish; break ;;
+        *) capture_page ;;
+    esac
+done
+printf 'Press Enter to close. '
+read -r _ || true

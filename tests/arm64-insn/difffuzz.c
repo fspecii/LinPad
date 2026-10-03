@@ -2,7 +2,8 @@
 // processing, which never touch memory). Reads hex instruction words on stdin,
 // runs each one from a generated trampoline against fixed register states, and
 // prints all 32 V registers, X0-X30 and NZCV afterwards. Run natively and in the
-// guest on the same input and diff. "ILL" means the CPU raised SIGILL (or a fault).
+// guest on the same input and diff. "ILL" means the CPU raised SIGILL, "SEGV" a
+// memory fault (SIGSEGV or SIGBUS).
 //   cc -O1 -o difffuzz difffuzz.c && ./difffuzz < words.txt > out.txt
 // With -m (loads, stores, atomics): X registers hold small values, the base
 // register (bits 9:5) points into a 128 KB buffer mapped at the same address
@@ -33,8 +34,7 @@ static int mem_mode;
 static uint8_t *mem_buf;
 
 static void on_ill(int sig) {
-    (void) sig;
-    siglongjmp(jb, 1);
+    siglongjmp(jb, sig == SIGILL ? 1 : 2);
 }
 
 static void emit_trampoline(uint32_t insn) {
@@ -133,8 +133,9 @@ int main(int argc, char **argv) {
         for (int k = 0; k < 3; k++) {
             static struct state s;
             fill(&s, k, w);
-            if (sigsetjmp(jb, 1)) {
-                printf("%08x %d ILL\n", w, k);
+            int sig = sigsetjmp(jb, 1);
+            if (sig) {
+                printf("%08x %d %s\n", w, k, sig == 1 ? "ILL" : "SEGV");
                 break;
             }
             ((void (*)(struct state *)) code)(&s);

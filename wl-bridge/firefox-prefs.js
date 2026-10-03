@@ -1,5 +1,7 @@
 // Firefox defaults for the iSH desktop; make install puts this in
-// /usr/lib/firefox-esr/defaults/pref/ishwl.js when Firefox is installed.
+// /usr/lib/firefox-esr/browser/defaults/preferences/ishwl.js when Firefox is installed.
+// (Not defaults/pref: that directory is read before Firefox's own browser defaults,
+// which then override any pref they also set, such as browser.aboutwelcome.enabled.)
 // No GPU: WebRender's software backend draws into wl_shm buffers.
 pref("gfx.webrender.software", true);
 pref("widget.dmabuf.force-enabled", false);

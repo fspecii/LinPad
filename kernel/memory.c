@@ -26,23 +26,58 @@ static struct mmu_ops mem_mmu_ops;
 
 #include "kernel/mm.h"
 
+// Copy-on-write faults resolved by reusing the page / by copying it.
+static _Atomic unsigned long cow_reused, cow_copied;
+
+// data->shares when the counts could not be allocated: every page of the data
+// counts as shared from then on, since later counts would start too low.
+static _Atomic uint32_t shares_unknown[1];
+
+// Host allocations for guest memory can fail when the app is near the iOS
+// memory limit; every caller unwinds and the guest gets ENOMEM (a host crash
+// there took the whole app down while Firefox played video).
+// ISH_FAIL_HOST_ALLOC=N makes every Nth one fail, to test exactly that.
+bool mem_host_alloc_fails(void) {
+    static long every = -1;
+    static _Atomic long count;
+    if (every < 0) {
+        const char *env = getenv("ISH_FAIL_HOST_ALLOC");
+        every = env != NULL ? atol(env) : 0;
+    }
+    return every > 0 && ++count % every == 0;
+}
+
+static void *pt_calloc(size_t n, size_t size) {
+    if (mem_host_alloc_fails())
+        return NULL;
+    return calloc(n, size);
+}
+
 
 #ifdef GUEST_ARM64
 // ============================================================
 // ARM64: 4-level page table for 48-bit address space
 // ============================================================
 
-void mem_init(struct mem *mem) {
-    mem->pgdir = calloc(1, sizeof(struct pt_node));
+int mem_init(struct mem *mem) {
+    mem->pgdir = mem_host_alloc_fails() ? NULL : calloc(1, sizeof(struct pt_node));
+    if (mem->pgdir == NULL)
+        return _ENOMEM;
     mem->pgdir_used = 0;
     mem->mmap_hint = 0;
     mem->reservations = NULL;
     mem->mmu.ops = &mem_mmu_ops;
     mem->mmu.asbestos = asbestos_new(&mem->mmu);
+    if (mem->mmu.asbestos == NULL) {
+        free(mem->pgdir);
+        mem->pgdir = NULL;
+        return _ENOMEM;
+    }
     mem->mmu.changes = 0;
     mem->mmu.id = mmu_new_id();
     wrlock_init(&mem->lock);
     lock_init(&mem->cow_lock);
+    return 0;
 }
 
 int pt_map_lazy(struct mem *mem, page_t start, pages_t pages, unsigned flags) {
@@ -75,6 +110,9 @@ static void pt_node_free(void *node, int level) {
 }
 
 void mem_destroy(struct mem *mem) {
+    if (ish_log_enabled())
+        fprintf(stderr, "ish: copy-on-write faults so far: %lu reused, %lu copied\n",
+                (unsigned long) cow_reused, (unsigned long) cow_copied);
     write_wrlock(&mem->lock);
     pt_unmap_always(mem, 0, MEM_PAGES);
     while (mem->reservations) {
@@ -87,26 +125,6 @@ void mem_destroy(struct mem *mem) {
     mem->pgdir = NULL;
     write_wrunlock(&mem->lock);
     wrlock_destroy(&mem->lock);
-}
-
-// Host allocations for guest memory can fail when the app is near the iOS
-// memory limit; every caller unwinds and the guest gets ENOMEM (a host crash
-// there took the whole app down while Firefox played video).
-// ISH_FAIL_HOST_ALLOC=N makes every Nth one fail, to test exactly that.
-bool mem_host_alloc_fails(void) {
-    static long every = -1;
-    static _Atomic long count;
-    if (every < 0) {
-        const char *env = getenv("ISH_FAIL_HOST_ALLOC");
-        every = env != NULL ? atol(env) : 0;
-    }
-    return every > 0 && ++count % every == 0;
-}
-
-static void *pt_calloc(size_t n, size_t size) {
-    if (mem_host_alloc_fails())
-        return NULL;
-    return calloc(n, size);
 }
 
 // Navigate 4-level page table to find L3 entry, creating intermediate nodes as
@@ -426,17 +444,25 @@ page_t pt_find_hole_for_reservation(struct mem *mem, pages_t size) {
 // x86: 2-level flat page table for 32-bit address space
 // ============================================================
 
-void mem_init(struct mem *mem) {
+int mem_init(struct mem *mem) {
     mem->pgdir = calloc(MEM_PGDIR_SIZE, sizeof(struct pt_entry *));
+    if (mem->pgdir == NULL)
+        return _ENOMEM;
     mem->pgdir_used = 0;
     mem->mmap_hint = 0;
     mem->reservations = NULL;
     mem->mmu.ops = &mem_mmu_ops;
     mem->mmu.asbestos = asbestos_new(&mem->mmu);
+    if (mem->mmu.asbestos == NULL) {
+        free(mem->pgdir);
+        mem->pgdir = NULL;
+        return _ENOMEM;
+    }
     mem->mmu.changes = 0;
     mem->mmu.id = mmu_new_id();
     wrlock_init(&mem->lock);
     lock_init(&mem->cow_lock);
+    return 0;
 }
 
 void mem_destroy(struct mem *mem) {
@@ -684,8 +710,14 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
         if (pt->flags & P_ANONYMOUS)
             atomic_fetch_sub(&anon_page_count, 1);
 #endif
+        _Atomic uint32_t *shares = atomic_load(&data->shares);
+        if (shares == shares_unknown)
+            shares = NULL;
+        if (shares != NULL)
+            atomic_fetch_sub(&shares[pt->offset >> PAGE_BITS], 1);
         mem_pt_del(mem, page);
         if (--data->refcount == 0) {
+            free((void *) shares);
             // vdso wasn't allocated with mmap, it's just in our data segment
             if (data->data != vdso_data) {
                 munmap(data->data, data->size);
@@ -785,6 +817,43 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
     return 0;
 }
 
+// The per-page share counts of data, created (each page at 1) the first time a
+// fork shares it. NULL when they are unknown (out of host memory).
+static _Atomic uint32_t *data_shares(struct data *data) {
+    _Atomic uint32_t *shares = atomic_load(&data->shares);
+    if (shares != NULL)
+        return shares == shares_unknown ? NULL : shares;
+    size_t n = (data->size + PAGE_SIZE - 1) >> PAGE_BITS;
+    shares = mem_host_alloc_fails() ? NULL : malloc(n * sizeof(*shares));
+    if (shares == NULL) {
+        _Atomic uint32_t *expected = NULL;
+        if (atomic_compare_exchange_strong(&data->shares, &expected, shares_unknown) ||
+                expected == shares_unknown)
+            return NULL;
+        return expected;
+    }
+    for (size_t i = 0; i < n; i++)
+        atomic_init(&shares[i], 1);
+    _Atomic uint32_t *expected = NULL;
+    if (!atomic_compare_exchange_strong(&data->shares, &expected, shares)) {
+        free((void *) shares);
+        shares = expected;
+    }
+    return shares;
+}
+
+// A copy-on-write page that no other address space refers to any more (the
+// forked child exec'd or exited) can be written in place, as Linux does. The
+// caller holds mem->lock for writing: only a fork of this address space could
+// add a reference, and that needs the same lock.
+static bool cow_page_unshared(struct pt_entry *entry) {
+    if (entry->flags & P_SHARED || entry->data->data == vdso_data)
+        return false;
+    _Atomic uint32_t *shares = atomic_load(&entry->data->shares);
+    return shares != NULL && shares != shares_unknown &&
+        atomic_load(&shares[entry->offset >> PAGE_BITS]) == 1;
+}
+
 int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t pages) {
 #if ANON_MMAP_LIMIT_PAGES > 0
     long anon_copied = 0;
@@ -795,10 +864,17 @@ int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t page
             continue;
         if (pt_unmap_always(dst, page, 1) < 0)
             return -1;
+        // Count the new reference first: a count that is too high only costs
+        // a copy, one that is too low would let a write reach the other process.
+        _Atomic uint32_t *shares = data_shares(entry->data);
+        if (shares != NULL)
+            atomic_fetch_add(&shares[entry->offset >> PAGE_BITS], 1);
         if (!(entry->flags & P_SHARED))
             entry->flags |= P_COW;
         struct pt_entry *dst_entry = mem_pt_new(dst, page);
         if (dst_entry == NULL) {
+            if (shares != NULL)
+                atomic_fetch_sub(&shares[entry->offset >> PAGE_BITS], 1);
             // out of host memory; the caller frees dst, which uncounts its pages
 #if ANON_MMAP_LIMIT_PAGES > 0
             atomic_fetch_add(&anon_page_count, anon_copied);
@@ -1009,12 +1085,22 @@ have_entry:
         asbestos_invalidate_page(mem->mmu.asbestos, page);
         // if page is cow, ~~milk~~ copy it
         if (entry->flags & P_COW) {
-            void *copy = mem_host_alloc_fails() ? MAP_FAILED : mmap(NULL, PAGE_SIZE,
-                    PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-            // Out of host memory: fail the access (the guest gets a fault)
-            // rather than copying into MAP_FAILED.
-            if (copy == MAP_FAILED)
-                return NULL;
+            // Most copy-on-write faults come after a fork whose child has
+            // already exec'd: the page is ours alone and needs no copy. The
+            // share count read here is only a hint; it is checked again under
+            // the write lock.
+            // ptrace writes (breakpoints) into read-only code always copy: the
+            // host page itself may not be writable.
+            bool may_reuse = type != MEM_WRITE_PTRACE;
+            void *copy = MAP_FAILED;
+            if (!may_reuse || !cow_page_unshared(entry)) {
+                copy = mem_host_alloc_fails() ? MAP_FAILED : mmap(NULL, PAGE_SIZE,
+                        PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+                // Out of host memory: fail the access (the guest gets a fault)
+                // rather than copying into MAP_FAILED.
+                if (copy == MAP_FAILED)
+                    return NULL;
+            }
 
             read_wrunlock(&mem->lock);
             // BLOCKING write_wrlock (not trylock) in both JIT and
@@ -1029,7 +1115,24 @@ have_entry:
             // Re-fetch entry after lock upgrade — another thread may have
             // already resolved this CoW while we were waiting for the lock.
             entry = mem_pt(mem, page);
-            if (entry != NULL && (entry->flags & P_COW)) {
+            bool unshared = may_reuse && entry != NULL && (entry->flags & P_COW) && cow_page_unshared(entry);
+            if (entry != NULL && (entry->flags & P_COW) && !unshared && copy == MAP_FAILED) {
+                // It became shared while the lock was dropped (a fork).
+                copy = mem_host_alloc_fails() ? MAP_FAILED : mmap(NULL, PAGE_SIZE,
+                        PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+                if (copy == MAP_FAILED) {
+                    write_wrunlock(&mem->lock);
+                    read_wrlock(&mem->lock);
+                    return NULL;
+                }
+            }
+            if (unshared) {
+                entry->flags &= ~P_COW;
+                cow_reused++;
+                if (copy != MAP_FAILED)
+                    munmap(copy, PAGE_SIZE);
+            } else if (entry != NULL && (entry->flags & P_COW)) {
+                cow_copied++;
                 void *data = (char *) entry->data->data + entry->offset;
                 memcpy(copy, data, PAGE_SIZE);
 #if ANON_MMAP_LIMIT_PAGES > 0
@@ -1045,7 +1148,7 @@ have_entry:
 #endif
                 }
                 mem_changed(mem);
-            } else {
+            } else if (copy != MAP_FAILED) {
                 munmap(copy, PAGE_SIZE);
             }
             write_wrunlock(&mem->lock);

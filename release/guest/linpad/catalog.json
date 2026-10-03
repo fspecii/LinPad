@@ -168,7 +168,7 @@
     {
       "id": "multimedia",
       "name": "VLC media player",
-      "description": "Plays video and audio files, with LinPad's native video window and sound.",
+      "description": "Plays video and audio files, with LinPad's native video window and sound. Includes internet radio: a Radio (VLC) launcher with 47 stations by genre (news, chill, jazz, classical, rock, electronic, talk, Romania, UK) and VLC's Icecast directory of thousands more.",
       "category": "Multimedia",
       "sizeMB": 95,
       "packages": [
@@ -234,6 +234,91 @@
       ],
       "check": "/usr/bin/glxinfo",
       "launch": "command -v glxinfo && command -v eglinfo",
+      "cli": true,
+      "recommended": false
+    },
+    {
+      "id": "camera",
+      "name": "Camera (Cheese)",
+      "description": "Take photos and videos with the iPad's front and back cameras, which LinPad passes to Linux as webcams. GNOME's Cheese; photos go to ~/Pictures/Webcam, videos to ~/Videos/Webcam. Its live preview is drawn without the GPU, so it uses a lot of CPU while open.",
+      "category": "Multimedia",
+      "sizeMB": 70,
+      "packages": [
+        "cheese",
+        "gst-plugins-good",
+        "gst-plugins-bad"
+      ],
+      "postinstall": "/usr/local/share/linpad/packs/camera/postinstall.sh",
+      "desktop": "org.gnome.Cheese.desktop",
+      "icon": "org.gnome.Cheese",
+      "launch": "ishwl-launch 'cheese'",
+      "recommended": false
+    },
+    {
+      "id": "scanner",
+      "name": "Document Scanner (OCR)",
+      "description": "Photograph pages with the iPad camera and get a searchable PDF plus the text (Tesseract OCR, English and Romanian), saved in ~/Documents/Scans. Also reads text from photos you drop in: linpad-scan --ocr photo.jpg. Runs in a terminal window.",
+      "category": "Office",
+      "sizeMB": 80,
+      "packages": [
+        "tesseract-ocr",
+        "tesseract-ocr-data-eng",
+        "tesseract-ocr-data-ron",
+        "ffmpeg",
+        "imagemagick",
+        "v4l-utils"
+      ],
+      "postinstall": "/usr/local/share/linpad/packs/scanner/postinstall.sh",
+      "postremove": "/usr/local/share/linpad/packs/scanner/postremove.sh",
+      "check": "/usr/local/bin/linpad-scan",
+      "desktop": "linpad-scan.desktop",
+      "icon": "scanner",
+      "launch": "linpad-scan --help",
+      "recommended": false
+    },
+    {
+      "id": "recorder",
+      "name": "Sound Recorder",
+      "description": "Record from the iPad's microphone, with pause, playback and a list of recordings (GNOME Sound Recorder). Recordings are kept in ~/Music/Recordings.",
+      "category": "Multimedia",
+      "sizeMB": 110,
+      "packages": [
+        "gnome-sound-recorder",
+        "gst-plugins-good"
+      ],
+      "postinstall": "/usr/local/share/linpad/packs/recorder/postinstall.sh",
+      "desktop": "org.gnome.SoundRecorder.desktop",
+      "icon": "org.gnome.SoundRecorder",
+      "launch": "ishwl-launch 'gnome-sound-recorder'",
+      "recommended": false
+    },
+    {
+      "id": "notes",
+      "name": "Notes (Zim)",
+      "description": "A notebook of linked pages with checklists, images and search (Zim Desktop Wiki). Notes are plain text files in ~/Notes, so git, VS Code and grep can use them.",
+      "category": "Office",
+      "sizeMB": 45,
+      "packages": [
+        "zim"
+      ],
+      "postinstall": "/usr/local/share/linpad/packs/zim/postinstall.sh",
+      "postremove": "/usr/local/share/linpad/packs/zim/postremove.sh",
+      "desktop": "zim.desktop",
+      "icon": "zim",
+      "launch": "ishwl-launch 'zim'",
+      "recommended": false
+    },
+    {
+      "id": "calendar-cli",
+      "name": "Calendar and to-dos (calcurse)",
+      "description": "A small calendar and to-do list for the terminal. It can import the events LinPad's Calendar exports for Linux: calcurse -i ~/Calendar/linpad.ics. Command-line only; the iPad's own calendars are in LinPad's Calendar app.",
+      "category": "Office",
+      "sizeMB": 1,
+      "packages": [
+        "calcurse"
+      ],
+      "check": "/usr/bin/calcurse",
+      "launch": "calcurse --version",
       "cli": true,
       "recommended": false
     }

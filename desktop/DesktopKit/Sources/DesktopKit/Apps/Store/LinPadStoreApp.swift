@@ -186,7 +186,7 @@ struct StoreRootView: View {
     private func badge(for tab: StoreTab) -> Int? {
         switch tab {
         case .installed: let n = model.installedApps.count; return n > 0 ? n : nil
-        case .updates: let n = model.outdated.count + (model.otherUpdates.isEmpty ? 0 : 1); return n > 0 ? model.outdated.count + model.otherUpdates.count : nil
+        case .updates: let n = model.updates.count; return n > 0 ? n : nil
         default: return nil
         }
     }

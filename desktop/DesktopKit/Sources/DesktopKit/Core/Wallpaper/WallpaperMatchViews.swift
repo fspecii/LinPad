@@ -10,17 +10,21 @@ struct WallpaperMatchPreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            ZStack(alignment: .bottomTrailing) {
-                WallpaperView(store: store, source: source, accessibilityID: "wallmatch.preview.wallpaper")
-                ThemePreviewCard(theme: theme, fallback: nil)
-                    .scaleEffect(0.62, anchor: .bottomTrailing)
-                    .padding(8)
-                    .shadow(color: .black.opacity(0.35), radius: 6, y: 2)
-            }
-            .aspectRatio(16 / 10, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            Color.clear
+                .aspectRatio(16 / 10, contentMode: .fit)
+                .overlay {
+                    ZStack(alignment: .bottomTrailing) {
+                        WallpaperView(store: store, source: source, accessibilityID: "wallmatch.preview.wallpaper")
+                        ThemePreviewCard(theme: theme, fallback: nil)
+                            .scaleEffect(0.62, anchor: .bottomTrailing)
+                            .padding(8)
+                            .shadow(color: .black.opacity(0.35), radius: 6, y: 2)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             Text(label).font(.caption).lineLimit(1)
         }
+        .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(label)
     }

@@ -102,7 +102,7 @@ test('the index merges packs, AppStream apps and desktop-only packages', () => {
     assert.deepEqual(filezilla.packages, ['filezilla']);
     assert.equal(filezilla.compat, 'works');
     assert.equal(filezilla.compatNote, 'Tested.');
-    assert.equal(filezilla.fixup, 'sysvipc filezilla');
+    assert.equal(filezilla.fixup, 'wrap filezilla --sysvipc');
 
     const dillo = index.apps.find(a => a.id === 'apk:dillo');
     assert.equal(dillo.metadata, 'package', 'no AppStream data: named from the package');
@@ -142,5 +142,5 @@ test('the shipped index matches the curation and decodes', () => {
     const ids = new Set(shipped.apps.map(a => a.id));
     for (const c of shipped.collections) for (const id of c.apps) assert.ok(ids.has(id), id);
     const audacity = shipped.apps.find(a => a.id === 'apk:audacity');
-    assert.equal(audacity.fixup, 'sysvipc audacity');
+    assert.equal(audacity.fixup, 'wrap audacity --sysvipc --wayland --preload-svg');
 });

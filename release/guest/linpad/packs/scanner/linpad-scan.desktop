@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Document Scanner
+GenericName=Scanner with OCR
+Comment=Photograph pages with the iPad camera and turn them into a searchable PDF
+Exec=ish-terminal --title=Document\sScanner linpad-scan
+Icon=scanner
+Terminal=false
+Categories=Graphics;Scanning;OCR;Office;
+Keywords=scan;scanner;ocr;pdf;document;camera;tesseract;

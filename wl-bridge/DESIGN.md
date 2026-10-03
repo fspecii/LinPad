@@ -415,7 +415,8 @@ simulated model in the simulator) and the Metal device name. The GPU line adds
 
 - **Firefox ESR 128 (primary, `linux:firefox`, in both rootfs tarballs).** `ishwl-session` sets
   `MOZ_ENABLE_WAYLAND=1` and `MOZ_CRASHREPORTER_DISABLE=1`. `firefox-prefs.js` is
-  installed as `defaults/pref/ishwl.js`; it turns on software WebRender, keeps tabs out
+  installed as `browser/defaults/preferences/ishwl.js` (read after Firefox's own browser
+  defaults, so they cannot override it); it turns on software WebRender, keeps tabs out
   of the title bar (DesktopKit draws it), and turns off the dmabuf, telemetry and
   first-run noise. Firefox needs no dmabuf: it renders into wl_shm buffers.
 - **Falkon / QtWebEngine (`linux:falkon`).** Qt runs on Wayland without EGL

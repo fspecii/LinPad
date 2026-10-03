@@ -77,7 +77,7 @@
         "xournalpp",
         "foliate",
         "ghostwriter",
-        "zim",
+        "pack:notes",
         "scribus"
       ]
     },
@@ -95,7 +95,8 @@
         "pinta",
         "kolourpaint",
         "gpick",
-        "fontforge-gui"
+        "fontforge-gui",
+        "pack:camera"
       ]
     },
     {
@@ -112,7 +113,8 @@
         "handbrake-gtk",
         "audacious",
         "strawberry",
-        "easytag"
+        "easytag",
+        "pack:recorder"
       ]
     },
     {
@@ -129,7 +131,8 @@
         "hydrogen",
         "obs-studio",
         "blender",
-        "ardour"
+        "ardour",
+        "pack:recorder"
       ]
     },
     {
@@ -144,7 +147,9 @@
         "xfce4-taskmanager",
         "baobab",
         "simple-scan",
-        "gparted"
+        "gparted",
+        "pack:scanner",
+        "pack:calendar-cli"
       ]
     },
     {
@@ -160,8 +165,7 @@
         "kpat",
         "supertux",
         "pingus",
-        "lbreakout2",
-        "xboard"
+        "lbreakout2"
       ]
     },
     {
@@ -193,7 +197,7 @@
     },
     "pack:multimedia": {
       "status": "works",
-      "note": "LinPad's own Wayland video output and sound."
+      "note": "LinPad's own Wayland video output and sound. Verified 2026-10-03: installed from the Store and opened its window on the release system (CLI emulator)."
     },
     "pack:vscode": {
       "status": "works",
@@ -206,8 +210,8 @@
       "status": "works"
     },
     "pack:office": {
-      "status": "experimental",
-      "note": "Very large; first start is slow under emulation."
+      "status": "works",
+      "note": "Very large (about 500 MB with what it needs); the first start takes about a minute under emulation. Verified 2026-10-03: installed from the Store and opened its window on the release system (CLI emulator)."
     },
     "pack:browsers": {
       "status": "experimental",
@@ -223,6 +227,46 @@
     "pack:wine-x86": {
       "status": "experimental",
       "note": "Needs fast mode for usable speed."
+    },
+    "filezilla": {
+      "status": "works",
+      "note": "Opens natively on Wayland. Verified 2026-10-03: installed from the Store and opened its window on the release system (CLI emulator)."
+    },
+    "pack:image-editor": {
+      "status": "works",
+      "note": "GIMP 2.10 runs in its own Xwayland. Verified 2026-10-03: installed from the Store and opened its window on the release system (CLI emulator)."
+    },
+    "inkscape": {
+      "status": "works",
+      "note": "Verified 2026-10-03: installed from the Store and opened its window on the release system (CLI emulator)."
+    },
+    "audacity": {
+      "status": "experimental",
+      "note": "Runs with LinPad fixups (iSH has no System V IPC, and a loader deadlock is avoided). The first start shows a plug-in scan; recording and playback were not tested. Verified 2026-10-03: installed from the Store and opened its window on the release system (CLI emulator)."
+    },
+    "transmission-gtk": {
+      "status": "works",
+      "note": "Verified 2026-10-03: installed from the Store and opened its window on the release system (CLI emulator)."
+    },
+    "pack:mail": {
+      "status": "works",
+      "note": "Gecko engine: the first start takes about half a minute. Verified 2026-10-03: installed from the Store and opened its window on the release system (CLI emulator)."
+    },
+    "gnome-mines": {
+      "status": "works",
+      "note": "Verified 2026-10-03: installed from the Store and opened its window on the release system (CLI emulator)."
+    },
+    "aisleriot": {
+      "status": "works",
+      "note": "Verified 2026-10-03: installed from the Store and opened its window on the release system (CLI emulator)."
+    },
+    "supertux": {
+      "status": "works",
+      "note": "SDL games are started on Wayland by a Store fixup. Verified 2026-10-03: installed from the Store and opened its window on the release system (CLI emulator)."
+    },
+    "xboard": {
+      "status": "experimental",
+      "note": "Opens through Xwayland, but needs a chess engine (apk add gnuchess) to play."
     }
   },
   "warnSizeMB": 400,
@@ -254,6 +298,6 @@
     "pack:wine": "org.winehq.Wine"
   },
   "fixups": {
-    "audacity": "sysvipc audacity"
+    "audacity": "wrap audacity --sysvipc --wayland --preload-svg"
   }
 }

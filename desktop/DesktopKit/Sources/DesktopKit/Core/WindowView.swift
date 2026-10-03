@@ -104,7 +104,11 @@ struct WindowView: View {
             WindowContentHost(window: window)
                 .environment(\.desktopWindowIsVisible, isVisible)
                 .environment(\.desktopWindowIsFocused, isFocused && !controller.isOverlayPresented)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // An app whose minimum width exceeds the window must not widen the window past
+                // its title bar or push its left edge off screen: it is laid out from the
+                // top-leading corner and clipped to the window.
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+                .clipped()
                 .background(theme.windowBackground)
         }
         .clipShape(clip)

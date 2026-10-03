@@ -73,6 +73,10 @@ struct fd {
                 uid_t_ gid;
             } unix_cred;
             bool unix_passcred; // SO_PASSCRED
+            // A non-blocking TCP connect (or MSG_FASTOPEN send) is in progress. Linux
+            // answers the next connect() that finds it complete with 0, the host with
+            // EISCONN; sys_connect gives the Linux answer.
+            bool inet_connect_pending;
             // credentials of the last message sent to this end, recorded at
             // send time so they survive the sender closing (SCM_CREDENTIALS)
             struct ucred_ unix_recv_cred;

@@ -7,6 +7,12 @@
 //    with pthread_jit_write_protect_np. rw == rx.
 //  * Dual mapping (iOS/simulator, or ISH_JIT_DUALMAP=1 on macOS): an RX view
 //    for execution and an RW alias (mach_vm_remap) for writing.
+//  * Named chunks (ISH_JIT_NAMED=1, prototype; not on TXM devices): both views
+//    are reserved PROT_NONE and each chunk is its own named memory object
+//    mapped into both. A vm_remap alias is charged twice in phys_footprint
+//    once both views have touched a page (and MADV_FREE_REUSABLE on it
+//    confuses the ledger); a named object mapped twice is charged once, and a
+//    freed chunk is unmapped, so its memory really goes back.
 //  * TXM devices (iOS 26+): the RX region is created by the debugger.
 //    StikDebug's universal.js protocol: `brk #0xf00d` with x16 = 1,
 //    x0 = 0 (let debugserver allocate), x1 = size; the address comes back in
@@ -34,6 +40,7 @@ static uint8_t *arena_rx, *arena_rw;
 static size_t arena_size;
 static ptrdiff_t rw_delta;
 static bool txm_arena;
+static bool named_chunks;
 static size_t budget, used, min_budget;   // chunks (see jit_codemem_alloc_chunk)
 static const uintptr_t line = 64;   // NOT hw.cachelinesize (128): with a 128-byte stride stale instructions were executed
 static const char *mode = "none";
@@ -128,6 +135,58 @@ static bool acquire_txm(size_t size) {
 }
 #endif
 
+// Named chunks: reserve both views; chunks are mapped in by map_named_chunk.
+static bool reserve_named_arena(void) {
+    void *rx = mmap(NULL, arena_size, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    void *rw = mmap(NULL, arena_size, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (rx == MAP_FAILED || rw == MAP_FAILED) {
+        if (rx != MAP_FAILED)
+            munmap(rx, arena_size);
+        if (rw != MAP_FAILED)
+            munmap(rw, arena_size);
+        return false;
+    }
+    arena_rx = rx;
+    arena_rw = rw;
+    rw_delta = arena_rw - arena_rx;
+    named_chunks = true;
+    return true;
+}
+
+static void unmap_named_chunk(size_t i) {
+    mmap(arena_rw + i * CHUNK_SIZE, CHUNK_SIZE, PROT_NONE, MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0);
+    mmap(arena_rx + i * CHUNK_SIZE, CHUNK_SIZE, PROT_NONE, MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0);
+}
+
+static bool map_named_chunk(size_t i) {
+    memory_object_size_t size = CHUNK_SIZE;
+    mach_port_t entry = MACH_PORT_NULL;
+    if (mach_make_memory_entry_64(mach_task_self(), &size, 0,
+                                  MAP_MEM_NAMED_CREATE | VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE,
+                                  &entry, MACH_PORT_NULL) != KERN_SUCCESS)
+        return false;
+    vm_address_t rw = (vm_address_t) (arena_rw + i * CHUNK_SIZE);
+    vm_address_t rx = (vm_address_t) (arena_rx + i * CHUNK_SIZE);
+    kern_return_t kr = vm_map(mach_task_self(), &rw, CHUNK_SIZE, 0, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE,
+                              entry, 0, false, VM_PROT_READ | VM_PROT_WRITE, VM_PROT_READ | VM_PROT_WRITE,
+                              VM_INHERIT_NONE);
+    if (kr == KERN_SUCCESS)
+        kr = vm_map(mach_task_self(), &rx, CHUNK_SIZE, 0, VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE,
+                    entry, 0, false, VM_PROT_READ | VM_PROT_EXECUTE, VM_PROT_READ | VM_PROT_EXECUTE,
+                    VM_INHERIT_NONE);
+    mach_port_deallocate(mach_task_self(), entry);
+    if (kr != KERN_SUCCESS) {
+        unmap_named_chunk(i);
+        return false;
+    }
+    return true;
+}
+
+static bool want_named(void) {
+    const char *e = getenv("ISH_JIT_NAMED");
+    return e && e[0] == '1';
+}
+
 static bool make_rw_alias(void) {
     vm_address_t rw = 0;
     vm_prot_t cur, max;
@@ -180,6 +239,10 @@ bool jit_codemem_init(void) {
         // No TXM: CS_DEBUGGED alone lets RW -> remap -> RX work. No breakpoint
         // calls here: no script is attached.
         mode = "cs_debugged dual mapping";
+        if (want_named() && reserve_named_arena()) {
+            mode = "cs_debugged named chunks";
+            goto done_ios;
+        }
         void *p = mmap(NULL, arena_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
         if (p == MAP_FAILED)
             return false;
@@ -187,6 +250,7 @@ bool jit_codemem_init(void) {
         if (!make_rw_alias() || mprotect(arena_rx, arena_size, PROT_READ | PROT_EXEC) != 0)
             return false;
     }
+done_ios:
 #else
     // Default: dual mapping (same scheme as iOS; also avoids the per-thread
     // W^X toggles). ISH_JIT_MAPJIT=1 selects a single MAP_JIT mapping instead.
@@ -195,6 +259,10 @@ bool jit_codemem_init(void) {
 #if TARGET_OS_IPHONE
     want_dual = true;
 #endif
+    if (want_dual && want_named() && reserve_named_arena()) {
+        mode = "named chunks";
+        goto done;
+    }
     if (want_dual) {
         void *p = mmap(NULL, arena_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
         if (p != MAP_FAILED) {
@@ -231,6 +299,8 @@ done:
     budget = min_budget;
     chunk_owner = calloc(nchunks, sizeof(*chunk_owner));
     chunk_used = calloc(nchunks, 1);
+    if (chunk_owner == NULL || chunk_used == NULL)
+        return false;   // the JIT stays off; the arena is left reserved
     return true;
 }
 
@@ -276,6 +346,10 @@ uint32_t *jit_codemem_alloc_chunk(size_t *size, uint32_t *anchor) {
         size_t from = pass ? 0 : lo, to = pass ? nchunks : hi;
         for (size_t i = from; i < to; i++) {
             if (!chunk_used[i]) {
+                if (named_chunks && !map_named_chunk(i)) {
+                    pthread_mutex_unlock(&chunk_lock);
+                    return NULL;   // out of host memory
+                }
                 chunk_used[i] = 1;
                 used++;
                 pthread_mutex_unlock(&chunk_lock);
@@ -296,7 +370,9 @@ void jit_codemem_free_chunk(uint32_t *rx, size_t size) {
     // Give the pages back to the system (both views). Not on TXM devices:
     // there a page is executable only because the debugger wrote it, and a
     // discarded page would come back as a fresh, non-executable one.
-    if (!txm_arena) {
+    if (named_chunks) {
+        unmap_named_chunk(i);
+    } else if (!txm_arena) {
         madvise(arena_rw + i * CHUNK_SIZE, CHUNK_SIZE, MADV_FREE_REUSABLE);
         if (arena_rw != arena_rx)
             madvise(arena_rx + i * CHUNK_SIZE, CHUNK_SIZE, MADV_FREE_REUSABLE);

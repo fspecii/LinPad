@@ -108,6 +108,7 @@ function packFor(id) {
         packages: (entry?.packages || [name]).filter(validPackage),
         x11: entry?.x11 === true,
         fixup: typeof entry?.fixup === 'string' ? entry.fixup : undefined,
+        toolkit: entry?.toolkit,
         store: true,
     };
 }
@@ -314,15 +315,15 @@ async function stage(id, steps) {
     return true;
 }
 
-/** "sysvipc audacity" -> fixups/sysvipc.sh install audacity */
+/** "wrap audacity --sysvipc" -> fixups/wrap.sh install audacity --sysvipc */
 function runFixup(fixup, action) {
     const [script, ...args] = fixup.split(/\s+/).filter(Boolean);
-    if (!/^[a-z0-9-]+$/.test(script) || !args.every(validPackage)) return false;
+    if (!/^[a-z0-9-]+$/.test(script) || !args.every(a => /^[A-Za-z0-9+._-]+$/.test(a))) return false;
     return run(`sh ${FIXUPS}/${script}.sh ${action} ${args.map(quote).join(' ')}`);
 }
 
-/** "NAME x11" launch rules for the programs a package's .desktop files start. */
-function x11Programs(pkg) {
+/** The programs a package's .desktop files start (for launch rules and wrappers). */
+function desktopPrograms(pkg) {
     const files = capture(`apk info -Lq ${quote(pkg)} 2>/dev/null`).out.split('\n')
         .filter(f => /^usr\/share\/applications\/.*\.desktop$/.test(f));
     const programs = new Set();
@@ -358,11 +359,18 @@ async function install(pack) {
     phase(pack.id, 'configuring');
     if (ok && pack.postinstall) ok = run(pack.postinstall);
     if (ok && pack.fixup) ok = runFixup(pack.fixup, 'install');
-    if (ok && pack.x11) {
-        const programs = x11Programs(pack.packages[0]);
+    if (ok && (pack.x11 || (pack.packages || []).includes('xwayland'))) {
+        const programs = desktopPrograms(pack.packages[0]);
         for (const program of programs) run(`${RULES} ${quote(program)}`);
         fs.mkdirSync(STATE, { recursive: true });
         fs.writeFileSync(stateFile(pack.id, 'x11'), programs.join('\n'));
+    }
+    // SDL 2 looks for X11 unless told otherwise; LinPad's display is Wayland.
+    if (ok && pack.toolkit === 'sdl') {
+        const programs = desktopPrograms(pack.packages[0]);
+        for (const program of programs) runFixup(`wrap ${program} --sdl-wayland`, 'install');
+        fs.mkdirSync(STATE, { recursive: true });
+        fs.writeFileSync(stateFile(pack.id, 'wrap'), programs.join('\n'));
     }
     repinMesaLibraries();
     if (!ok) {
@@ -382,7 +390,7 @@ function remove(pack) {
     phase(pack.id, 'removing');
     let ok = true;
     if (pack.uninstaller) ok = run(pack.uninstaller);
-    if (pack.fixup) runFixup(pack.fixup, 'remove');
+    if (pack.fixup) runFixup(pack.fixup.split(/\s+/).slice(0, 2).join(' '), 'remove');
     // Packages another installed pack still needs stay (e.g. qt6-qtwayland), and so do
     // the helpers a Store app brought along (shared toolkits, Xwayland).
     const needed = new Set();
@@ -392,12 +400,17 @@ function remove(pack) {
     const toRemove = candidates.filter(p => !needed.has(p) && apkHas(p));
     if (ok && toRemove.length) ok = run(`apk del --no-progress ${toRemove.map(quote).join(' ')}`);
     if (ok && pack.postremove) ok = run(pack.postremove);
-    if (pack.store) {
+    if (pack.store || (pack.packages || []).includes('xwayland')) {
         try {
             for (const program of fs.readFileSync(stateFile(pack.id, 'x11'), 'utf8').split('\n').filter(Boolean))
                 run(`${RULES} --remove ${quote(program)}`);
         } catch {}
         fs.rmSync(stateFile(pack.id, 'x11'), { force: true });
+        try {
+            for (const program of fs.readFileSync(stateFile(pack.id, 'wrap'), 'utf8').split('\n').filter(Boolean))
+                runFixup(`wrap ${program}`, 'remove');
+        } catch {}
+        fs.rmSync(stateFile(pack.id, 'wrap'), { force: true });
     }
     repinMesaLibraries();
     fs.rmSync(stateFile(pack.id, 'installed'), { force: true });

@@ -65,7 +65,6 @@ final class WallpaperMatchModel {
     }
 
     func showPrompt(_ proposal: WallpaperMatchProposal) {
-        NSLog("WMDEBUG showPrompt \(proposal.wallpaperID)")
         withAnimation(.snappy) { prompt = proposal }
         promptTimeout?.cancel()
         let id = proposal.id
@@ -89,7 +88,6 @@ final class WallpaperMatchModel {
         let result: (WallpaperAnalysis, String)?
         switch source {
         case .image(let id):
-            NSLog("WMDEBUG analyze \(id) item=\(store.item(id) != nil)")
             guard let item = store.item(id) else { return nil }
             let url = store.cache.originalURL(fileName: item.fileName)
             let analysis = await Task.detached(priority: .userInitiated) { WallpaperAnalyzer.analyze(url: url) }.value

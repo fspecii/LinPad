@@ -458,6 +458,14 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
         return err;
 
     err = connect(sock->real_fd, (void *) &sockaddr, sockaddr_len);
+    if (err < 0 && errno == EISCONN && sock->socket.inet_connect_pending) {
+        sock->socket.inet_connect_pending = false;
+        return 0;
+    }
+    if (err < 0 && errno == EINPROGRESS)
+        sock->socket.inet_connect_pending = true;
+    if (err == 0)
+        sock->socket.inet_connect_pending = false;
     if (err < 0) {
         int ce = errno;
         // The guest socket node exists (sockaddr_read resolved it) but no
@@ -764,6 +772,24 @@ close_sockets:
     return err;
 }
 
+// MSG_FASTOPEN on a TCP socket connects to the address it carries before sending. The host
+// gets a plain connect, which is what Linux does when Fast Open is unavailable: a
+// non-blocking socket fails the send with EINPROGRESS and the caller waits for POLLOUT and
+// writes again. VLC opens every HTTPS stream this way; without it the send went out on an
+// unconnected socket and failed with ENOTCONN.
+static bool sock_wants_fastopen(struct fd *sock, dword_t flags, bool has_address) {
+    return (flags & MSG_FASTOPEN_) && has_address && sock->socket.type == SOCK_STREAM_ &&
+        (sock->socket.domain == AF_INET_ || sock->socket.domain == AF_INET6_);
+}
+
+static int sock_fastopen_connect(struct fd *sock, struct sockaddr_max_ *sockaddr, socklen_t len) {
+    if (connect(sock->real_fd, (void *) sockaddr, len) == 0 || errno == EISCONN)
+        return 0;
+    if (errno == EINPROGRESS)
+        sock->socket.inet_connect_pending = true;
+    return errno_map();
+}
+
 int_t sys_sendto(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags, addr_t sockaddr_addr, dword_t sockaddr_len) {
     struct fd *sock = sock_getfd(sock_fd);
     if (sock == NULL)
@@ -789,9 +815,16 @@ int_t sys_sendto(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags, a
             goto error;
     }
 
+    if (sock_wants_fastopen(sock, flags, sockaddr_addr != 0)) {
+        err = sock_fastopen_connect(sock, &sockaddr, sockaddr_len);
+        if (err < 0)
+            goto error;
+        sockaddr_addr = 0;
+    }
+
     record_send_cred(sock, NULL);
     ssize_t res = sendto(sock->real_fd, buffer, len, real_flags,
-            sockaddr_addr ? (void *) &sockaddr : NULL, sockaddr_len);
+            sockaddr_addr ? (void *) &sockaddr : NULL, sockaddr_addr ? sockaddr_len : 0);
     free(buffer);
     if (res < 0)
         return seqpacket_write_err(sock, errno_map());
@@ -1252,6 +1285,13 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
             return err;
         msg.msg_name = &msg_name;
         msg.msg_namelen = msg_fake.msg_namelen;
+        if (sock_wants_fastopen(sock, flags, true)) {
+            err = sock_fastopen_connect(sock, &msg_name, msg_fake.msg_namelen);
+            if (err < 0)
+                return err;
+            msg.msg_name = NULL;
+            msg.msg_namelen = 0;
+        }
     } else {
         msg.msg_name = NULL;
     }

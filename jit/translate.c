@@ -46,13 +46,25 @@ struct tr {
     addr_t start, pc;     // pc = address of the instruction being translated
     uint32_t gi;          // guest instruction index
     bool ended;
+    bool oom;             // a fixup or map entry was dropped: out of host memory
     int tier;
 };
 
+// Out of host memory, the buffer is marked oom and restarts from the beginning,
+// so the emitters never write out of bounds; whoever finishes it discards it.
 void ab_put(struct asmbuf *b, uint32_t insn) {
     if (b->n == b->cap) {
-        b->cap = b->cap ? b->cap * 2 : 256;
-        b->w = realloc(b->w, b->cap * 4);
+        uint32_t cap = b->cap ? b->cap * 2 : 256;
+        uint32_t *w = mem_host_alloc_fails() ? NULL : realloc(b->w, cap * 4);
+        if (w == NULL) {
+            b->oom = true;
+            if (b->cap == 0)
+                return;
+            b->n = 0;
+        } else {
+            b->w = w;
+            b->cap = cap;
+        }
     }
     b->w[b->n++] = insn;
 }
@@ -62,8 +74,17 @@ static inline struct label here(struct tr *t, int buf) { return (struct label) {
 
 static void add_fix(struct tr *t, int buf, int kind, int tgt, struct label l) {
     if (t->nfx == t->capfx) {
-        t->capfx = t->capfx ? t->capfx * 2 : 64;
-        t->fx = realloc(t->fx, t->capfx * sizeof(*t->fx));
+        uint32_t cap = t->capfx ? t->capfx * 2 : 64;
+        struct fixup *fx = mem_host_alloc_fails() ? NULL : realloc(t->fx, cap * sizeof(*t->fx));
+        if (fx == NULL) {
+            t->oom = true;
+            if (t->capfx == 0)
+                return;
+            t->nfx = 0;
+        } else {
+            t->fx = fx;
+            t->capfx = cap;
+        }
     }
     t->fx[t->nfx++] = (struct fixup) {.buf = buf, .kind = kind, .tgt = tgt, .idx = t->b[buf].n, .l = l};
 }
@@ -73,8 +94,17 @@ static void put_fix(struct tr *t, int buf, uint32_t insn, int kind, int tgt, str
 }
 static void mark_map_b(struct tr *t, int buf, uint32_t borrow) {
     if (t->nmap == t->capmap) {
-        t->capmap = t->capmap ? t->capmap * 2 : 64;
-        t->map = realloc(t->map, t->capmap * sizeof(*t->map));
+        uint32_t cap = t->capmap ? t->capmap * 2 : 64;
+        typeof(t->map) map = mem_host_alloc_fails() ? NULL : realloc(t->map, cap * sizeof(*t->map));
+        if (map == NULL) {
+            t->oom = true;
+            if (t->capmap == 0)
+                return;
+            t->nmap = 0;
+        } else {
+            t->map = map;
+            t->capmap = cap;
+        }
     }
     t->map[t->nmap++] = (typeof(*t->map)) {buf, t->b[buf].n, t->gi, borrow};
 }
@@ -1120,7 +1150,7 @@ void jit_invalidate_block_locked(struct jit_mm *mm, struct jit_block *b);
 extern uint32_t jit_promote_after;
 extern int jit_force_tier1;
 int jit_fetch_code(struct jit_ctx *ctx, addr_t pc, const uint32_t **code, int max);
-void jit_block_insert(struct jit_mm *mm, struct jit_block *b, struct jit_chunk *c);
+bool jit_block_insert(struct jit_mm *mm, struct jit_block *b, struct jit_chunk *c);
 
 // Translation buffers are kept per thread and reused (capacity only grows).
 static __thread struct tr tr_cache;
@@ -1133,6 +1163,7 @@ static void tr_init(struct tr *t, addr_t pc) {
     t->pc = pc;
     t->gi = 0;
     t->ended = false;
+    t->oom = t->b[0].oom = t->b[1].oom = false;
 }
 
 static void tr_free(struct tr *t) {
@@ -1184,8 +1215,10 @@ struct jit_block *jit_translate(struct jit_mm *mm, struct jit_ctx *ctx, addr_t p
             t.nfx = mark_fx;
             t.nmap = mark_map_n;
             if (i == 0) {
+                bool oom = t.oom || t.b[HOT].oom || t.b[COLD].oom;
                 tr_free(&t);
-                return NULL;
+                // out of host memory is not "untranslatable": no negative entry
+                return oom ? (struct jit_block *) -2 : NULL;
             }
             mark_map(&t, HOT);
             exit_pc(&t, HOT, t.pc, JR_FALLBACK);
@@ -1212,6 +1245,11 @@ struct jit_block *jit_translate(struct jit_mm *mm, struct jit_ctx *ctx, addr_t p
     mark_map(&t, COLD);
     exit_pc(&t, COLD, pc, JR_REDISPATCH);
 
+    if (t.oom || t.b[HOT].oom || t.b[COLD].oom) {
+        tr_free(&t);
+        return (struct jit_block *) -2;   // out of host memory: the caller retries, else uses the gadget engine
+    }
+
     // Build the relocatable image: hot | cold | pad | 8-byte guest-PC literal
     // | (tier 1) 8-byte counter-address literal.
     uint32_t nhot = t.b[HOT].n, ncode = nhot + t.b[COLD].n;
@@ -1220,16 +1258,31 @@ struct jit_block *jit_translate(struct jit_mm *mm, struct jit_ctx *ctx, addr_t p
     static __thread struct jit_map_entry *img_map;
     static __thread uint32_t img_cap, img_rcap, img_mcap;
     if (total > img_cap) {
+        uint32_t *w = realloc(img_words, total * 2 * 4);
+        if (w == NULL) {
+            tr_free(&t);
+            return (struct jit_block *) -2;
+        }
+        img_words = w;
         img_cap = total * 2;
-        img_words = realloc(img_words, img_cap * 4);
     }
     if (t.nfx > img_rcap) {
+        uint32_t *r = realloc(img_reloc, t.nfx * 2 * 4);
+        if (r == NULL) {
+            tr_free(&t);
+            return (struct jit_block *) -2;
+        }
+        img_reloc = r;
         img_rcap = t.nfx * 2;
-        img_reloc = realloc(img_reloc, img_rcap * 4);
     }
     if (t.nmap > img_mcap) {
+        struct jit_map_entry *m = realloc(img_map, t.nmap * 2 * sizeof(*img_map));
+        if (m == NULL) {
+            tr_free(&t);
+            return (struct jit_block *) -2;
+        }
+        img_map = m;
         img_mcap = t.nmap * 2;
-        img_map = realloc(img_map, img_mcap * sizeof(*img_map));
     }
     memcpy(img_words, t.b[HOT].w, nhot * 4);
     memcpy(img_words + nhot, t.b[COLD].w, t.b[COLD].n * 4);
@@ -1286,8 +1339,18 @@ struct jit_block *jit_translate(struct jit_mm *mm, struct jit_ctx *ctx, addr_t p
     return jit_install_image(mm, pc, &img, gen);
 }
 
+// (struct jit_block *) -1: the code changed meanwhile, translate again.
+// (struct jit_block *) -2: out of code or host memory now; the caller reclaims
+// and retries, then falls back to the gadget engine.
 struct jit_block *jit_install_image(struct jit_mm *mm, addr_t pc, const struct jit_image *img, uint64_t gen) {
-    struct jit_block *b = calloc(1, sizeof(*b));
+    struct jit_block *b = mem_host_alloc_fails() ? NULL : calloc(1, sizeof(*b));
+    size_t map_size = img->nmap * sizeof(*b->map);
+    struct jit_map_entry *map = malloc(map_size ? map_size : 1);
+    if (b == NULL || map == NULL) {
+        free(b);
+        free(map);
+        return (struct jit_block *) -2;
+    }
     b->pc = pc;
     b->end = pc + 4 * img->ninsn;
     b->nwords = img->nwords;
@@ -1297,6 +1360,7 @@ struct jit_block *jit_install_image(struct jit_mm *mm, addr_t pc, const struct j
         // the code may have changed while we read it
         pthread_mutex_unlock(&mm->lock);
         free(b);
+        free(map);
         return (struct jit_block *) -1;
     }
     struct jit_chunk *chunk;
@@ -1304,6 +1368,7 @@ struct jit_block *jit_install_image(struct jit_mm *mm, addr_t pc, const struct j
     if (rx == NULL) {
         pthread_mutex_unlock(&mm->lock);
         free(b);
+        free(map);
         return (struct jit_block *) -2;   // no code memory now; caller reclaims and retries
     }
     uint32_t *counter = NULL;
@@ -1340,9 +1405,15 @@ struct jit_block *jit_install_image(struct jit_mm *mm, addr_t pc, const struct j
     b->reentry = rx + img->reentry;
     b->counter = img->cnt_lit ? counter : NULL;
     b->nmap = img->nmap;
-    b->map = malloc(img->nmap * sizeof(*b->map));
+    b->map = map;
     memcpy(b->map, img->map, img->nmap * sizeof(*b->map));
-    jit_block_insert(mm, b, chunk);
+    if (!jit_block_insert(mm, b, chunk)) {
+        // out of host memory: the code stays unused in its chunk
+        pthread_mutex_unlock(&mm->lock);
+        free(b->map);
+        free(b);
+        return (struct jit_block *) -2;
+    }
     mm->stats_blocks++;
     mm->stats_insns += img->ninsn;
     mm->stats_hot += img->nhot;

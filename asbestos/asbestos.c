@@ -236,8 +236,9 @@ static inline size_t page_slot(page_t page, size_t size) {
 }
 
 static struct page_table *page_table_new(size_t size) {
-    struct page_table *t = calloc(1, sizeof(*t) + size * sizeof(t->slot[0]));
-    t->size = size;
+    struct page_table *t = mem_host_alloc_fails() ? NULL : calloc(1, sizeof(*t) + size * sizeof(t->slot[0]));
+    if (t != NULL)
+        t->size = size;
     return t;
 }
 
@@ -260,14 +261,20 @@ static struct page_entry *page_find(struct asbestos *asbestos, page_t page) {
     }
 }
 
-// Caller holds asbestos->lock.
+// Caller holds asbestos->lock. NULL when the host is out of memory.
 static struct page_entry *page_get(struct asbestos *asbestos, page_t page) {
     struct page_entry *e = page_find(asbestos, page);
     if (e != NULL)
         return e;
     struct page_table *t = asbestos->pages;
-    if ((t->used + 1) * 2 > t->size) {
-        struct page_table *bigger = page_table_new(t->size * 2);
+    struct page_table *bigger = NULL;
+    if ((t->used + 1) * 2 > t->size)
+        bigger = page_table_new(t->size * 2);
+    // Without a bigger table keep filling this one, leaving a free slot so
+    // page_find's probe still ends.
+    if (bigger == NULL && t->used + 2 > t->size)
+        return NULL;
+    if (bigger != NULL) {
         for (size_t i = 0; i < t->size; i++) {
             struct page_entry *old = t->slot[i];
             if (old == NULL)
@@ -282,7 +289,9 @@ static struct page_entry *page_get(struct asbestos *asbestos, page_t page) {
         __atomic_store_n(&asbestos->pages, bigger, __ATOMIC_RELEASE);
         t = bigger;
     }
-    e = calloc(1, sizeof(*e));
+    e = mem_host_alloc_fails() ? NULL : calloc(1, sizeof(*e));
+    if (e == NULL)
+        return NULL;
     e->page = page;
     list_init(&e->blocks[0]);
     list_init(&e->blocks[1]);
@@ -315,10 +324,18 @@ static bool page_drop_blocks(struct asbestos *asbestos, struct page_entry *e) {
 
 struct asbestos *asbestos_new(struct mmu *mmu) {
     struct asbestos *asbestos = calloc(1, sizeof(struct asbestos));
+    if (asbestos == NULL)
+        return NULL;
     asbestos->mmu = mmu;
     asbestos->invalidate_gen = asbestos_next_gen();
     fiber_resize_hash(asbestos, FIBER_INITIAL_HASH_SIZE);
     asbestos->pages = page_table_new(256);
+    if (asbestos->hash == NULL || asbestos->pages == NULL) {
+        free(asbestos->hash);
+        free(asbestos->pages);
+        free(asbestos);
+        return NULL;
+    }
     list_init(&asbestos->jetsam);
     lock_init(&asbestos->lock);
     wrlock_init(&asbestos->jetsam_lock);
@@ -418,7 +435,9 @@ static inline size_t fiber_hash(addr_t addr, size_t size) {
 
 static void fiber_resize_hash(struct asbestos *asbestos, size_t new_size) {
     TRACE_(verbose, "%d resizing hash to %lu, using %lu bytes for gadgets\n", current_pid(), new_size, asbestos->mem_used);
-    struct list *new_hash = calloc(new_size, sizeof(struct list));
+    struct list *new_hash = mem_host_alloc_fails() ? NULL : calloc(new_size, sizeof(struct list));
+    if (new_hash == NULL)
+        return;  // out of host memory: keep the current (longer) chains
     for (size_t i = 0; i < asbestos->hash_size; i++) {
         if (list_null(&asbestos->hash[i]))
             continue;
@@ -433,7 +452,14 @@ static void fiber_resize_hash(struct asbestos *asbestos, size_t new_size) {
     asbestos->hash_size = new_size;
 }
 
-static void fiber_insert(struct asbestos *asbestos, struct fiber_block *block) {
+// False when the host is out of memory for the page index: the block could
+// not be invalidated when its code changes, so it must not be used.
+static bool fiber_insert(struct asbestos *asbestos, struct fiber_block *block) {
+    struct page_entry *first = page_get(asbestos, PAGE(block->addr));
+    struct page_entry *last = PAGE(block->addr) == PAGE(block->end_addr) ? first :
+        page_get(asbestos, PAGE(block->end_addr));
+    if (first == NULL || last == NULL)
+        return false;
     asbestos->mem_used += block->used;
     asbestos->num_blocks++;
     // target an average hash chain length of 1-2
@@ -441,9 +467,10 @@ static void fiber_insert(struct asbestos *asbestos, struct fiber_block *block) {
         fiber_resize_hash(asbestos, asbestos->hash_size * 2);
 
     list_init_add(&asbestos->hash[fiber_hash(block->addr, asbestos->hash_size)], &block->chain);
-    list_add(&page_get(asbestos, PAGE(block->addr))->blocks[0], &block->page[0]);
+    list_add(&first->blocks[0], &block->page[0]);
     if (PAGE(block->addr) != PAGE(block->end_addr))
-        list_add(&page_get(asbestos, PAGE(block->end_addr))->blocks[1], &block->page[1]);
+        list_add(&last->blocks[1], &block->page[1]);
+    return true;
 }
 
 static struct fiber_block *fiber_lookup(struct asbestos *asbestos, addr_t addr) {
@@ -667,7 +694,14 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                             free(fresh);
                             fresh = fiber_block_compile(ip, tlb);
                         }
-                        fiber_insert(asbestos, fresh);
+                        if (!fiber_insert(asbestos, fresh)) {
+                            // Out of host memory: drop the block and yield;
+                            // this ip is translated again after the interrupt.
+                            unlock(&asbestos->lock);
+                            free(fresh);
+                            interrupt = INT_TIMER;
+                            break;
+                        }
                         block = fresh;
                         fresh = NULL;
                     }

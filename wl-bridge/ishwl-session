@@ -15,7 +15,8 @@ export NO_AT_BRIDGE=1 GTK_A11Y=none GIO_USE_VFS=local GSETTINGS_BACKEND=memory
 # and no seccomp/namespaces here, and its zygote/renderer processes cost more under
 # emulation than the single-process mode saves in isolation.
 # Firefox: Wayland (also set by ishwl), no crash reporter (Breakpad's ptrace-based
-# dumper does not work under iSH). Its prefs come from defaults/pref/ishwl.js.
+# dumper does not work under iSH). Its prefs come from
+# browser/defaults/preferences/ishwl.js.
 export MOZ_ENABLE_WAYLAND=1 MOZ_CRASHREPORTER_DISABLE=1
 
 # GPU (iSH-ARM64 gpu/DESIGN.md): Vulkan/zink defaults, set only when the emulated
