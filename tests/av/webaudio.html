@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>webaudio</title>
+<script>
+// Two real-time AudioContexts one after the other (660 Hz, then 880 Hz, 3 s each), so
+// the second cubeb stream is created after the first one is destroyed, as when a page
+// pauses and resumes or a site switches tracks. Reports through dump().
+const out = (msg) => { dump("WEBAUDIO " + msg + "\n"); document.title = msg; };
+async function play(frequency) {
+  const ctx = new AudioContext();
+  const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("resume() did not settle in 20 s")), 20000));
+  await Promise.race([ctx.resume(), timeout]);
+  const osc = new OscillatorNode(ctx, { frequency });
+  osc.connect(new GainNode(ctx, { gain: 0.5 })).connect(ctx.destination);
+  osc.start();
+  const t0 = ctx.currentTime;
+  await new Promise(r => setTimeout(r, 3000));
+  out(frequency + " Hz: state " + ctx.state + ", played " + (ctx.currentTime - t0).toFixed(2) + " s");
+  osc.stop();
+  await ctx.close();
+}
+(async () => {
+  try {
+    await play(660);
+    await play(880);
+    out("DONE");
+  } catch (e) {
+    out("ERROR " + e.name + ": " + e.message);
+  }
+})();
+</script>

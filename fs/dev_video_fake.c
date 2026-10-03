@@ -1,7 +1,7 @@
 // Test pattern camera source for /dev/videoN (ISH_FAKECAM=1): eight colour
 // bars (white, yellow, cyan, green, magenta, red, blue, black; mirrored on
-// camera 1) over the top 7/8 of the frame, and a white block moving along a
-// grey band at the bottom. Frames are NV12 at the size the iOS host would
+// camera 1, the back one) over the top 7/8 of the frame, and a white block
+// moving along a grey band at the bottom. Frames are NV12 at the size the iOS host would
 // pick for the same request (640x480 up to 640 wide, else 1280x720), so the
 // scaler is exercised too. ISH_FAKECAM_SIZE=WxH forces another host size
 // (480x640 imitates a portrait iPad and exercises the crop). ISH_FAKECAM=stall
@@ -153,6 +153,6 @@ static const struct video_host_ops fake_ops = {
 };
 
 void video_fake_install(void) {
-    static const char *const names[] = {"Test Pattern (Back)", "Test Pattern (Front)"};
+    static const char *const names[] = {"Test Pattern (Front)", "Test Pattern (Back)"};
     video_set_host(&fake_ops, NULL, VIDEO_MAX_CAMERAS, names);
 }

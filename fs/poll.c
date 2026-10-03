@@ -584,7 +584,12 @@ static void *rpe_data(struct real_poll_event *rpe) {
 static int rpe_events(struct real_poll_event *rpe) {
     if (rpe->real.filter == EVFILT_READ) {
         int events = 0;
-        if (rpe->real.data > 0)
+        // EOF is a new readable edge too (read() now returns 0), as on Linux,
+        // where a socket peer's close raises EPOLLIN with EPOLLHUP. Without
+        // it a POLL_READ edge already reported for earlier data stays masked,
+        // and an edge-triggered waiter (mio) sees a bare HUP and never reads
+        // the EOF.
+        if (rpe->real.data > 0 || (rpe->real.flags & EV_EOF))
             events |= POLL_READ;
         if (rpe->real.flags & EV_EOF)
             events |= POLL_HUP;

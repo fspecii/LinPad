@@ -1,7 +1,8 @@
 #ifndef FS_DEV_VIDEO_H
 #define FS_DEV_VIDEO_H
 
-// Host cameras as V4L2 capture devices (/dev/video0, /dev/video1).
+// Host cameras as V4L2 capture devices: /dev/video0 is the front camera (video
+// calls open the first device), /dev/video1 the back one.
 //
 // The host side (the iOS app, or the built-in test pattern source) registers
 // a provider before the first process starts. The kernel calls start() on

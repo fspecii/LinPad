@@ -10,7 +10,9 @@
 #            compared with the pattern; ISH_FAKECAM=stall gives black frames
 #   mic:     fake_mic_host.py sine -> ipad_mic; parecord, arecord and ffmpeg -f pulse
 #            recordings checked for the frequency
-#   firefox: getUserMedia (camera + microphone) in headless Firefox
+#   firefox: getUserMedia (camera + microphone) and two Web Audio contexts in a row
+#            (fake_speaker_host.py reads the speaker FIFO) in headless Firefox, with
+#            its default sandboxed cubeb
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 ISH=${ISH:?set ISH to the ish binary}
@@ -47,12 +49,15 @@ camera() {
         f cam-yuyv-640.png -i /dev/video0
         f cam-nv12-1280.png -input_format nv12 -video_size 1280x720 -i /dev/video0
         f cam-yuyv-320.png -video_size 320x240 -i /dev/video0
-        f cam-front.png -i /dev/video1'
+        f cam-back.png -i /dev/video1'
     for png in cam-yuyv-640 cam-nv12-1280 cam-yuyv-320; do
         check "ffmpeg -f v4l2 $png matches the pattern" python3 "$HERE/check_pattern.py" "$DATA/tmp/av/$png.png"
     done
     check "ffmpeg -f v4l2 /dev/video1 matches the mirrored pattern" \
-        python3 "$HERE/check_pattern.py" "$DATA/tmp/av/cam-front.png" --mirrored
+        python3 "$HERE/check_pattern.py" "$DATA/tmp/av/cam-back.png" --mirrored
+    names=$(guest 'for d in 0 1; do v4l2-ctl -d /dev/video$d -D | sed -n "s/.*Card type *: //p"; done' | tr '\n' '|')
+    check "/dev/video0 is the front camera, /dev/video1 the back one ($names)" \
+        [ "$names" = "Test Pattern (Front)|Test Pattern (Back)|" ]
     ISH_FAKECAM_SIZE=480x640 guest 'cd /tmp/av && ffmpeg -nostdin -hide_banner -loglevel error -f v4l2 -i /dev/video0 -frames 1 -update 1 -y cam-portrait.png'
     check "portrait host frames are cropped to 640x480" \
         python3 "$HERE/check_pattern.py" "$DATA/tmp/av/cam-portrait.png"
@@ -88,14 +93,31 @@ mic() {
 }
 
 firefox() {
+    # Firefox's default audio path: cubeb in the parent, reached from the content
+    # process over AudioIPC (media.cubeb.sandbox=true).
     install_audio_config
     guest 'mkdir -p /tmp/av && cat > /tmp/av/gum.html' < "$HERE/gum.html"
+    guest 'cat > /tmp/av/webaudio.html' < "$HERE/webaudio.html"
     result=$(ISH_FAKECAM=1 with_fake_mic 440 "$(cat "$HERE/gum-guest.sh")" 2>&1)
     echo "$result" | grep '^GUM'
+    check "Firefox getUserMedia picks the front camera by default" sh -c "echo '$result' | grep -q 'GUM tracks.*video:Test Pattern (Front)'"
     check "Firefox getUserMedia video shows the pattern" sh -c "echo '$result' | grep -q 'GUM video 640x480 bars \[\[2[45][0-9],2[45][0-9],2[45][0-9]\]'"
     freq=$(echo "$result" | sed -n 's/.*zero-crossing frequency \([0-9.]*\) Hz.*/\1/p')
     check "Firefox getUserMedia audio is the 440 Hz fake microphone (got ${freq:-none})" \
         python3 -c "import sys; sys.exit(0 if 420 <= float('${freq:-0}') <= 460 else 1)"
+
+    wav=$(mktemp -t av-speaker)
+    python3 "$HERE/fake_speaker_host.py" "$DATA" "$wav" &
+    speaker=$!
+    result=$(guest "export GUM_PAGE=webaudio.html; $(cat "$HERE/gum-guest.sh")" 2>&1)
+    kill $speaker 2>/dev/null
+    wait $speaker 2>/dev/null
+    echo "$result" | grep '^WEBAUDIO'
+    check "Firefox Web Audio: a second AudioContext starts after the first is closed" \
+        sh -c "echo '$result' | grep -q 'WEBAUDIO DONE'"
+    check "Firefox Web Audio reaches the iPad speaker FIFO (660 Hz then 880 Hz)" \
+        python3 "$HERE/check_tone.py" "$wav" 660,880
+    rm -f "$wav"
 }
 
 for t in $TESTS; do

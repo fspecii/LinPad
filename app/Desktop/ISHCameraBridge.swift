@@ -3,7 +3,8 @@ import Foundation
 import os
 
 /// The iPad cameras as the guest's V4L2 devices (`fs/dev_video.c`): /dev/video0 is the
-/// back camera, /dev/video1 the front one.
+/// front camera, because video-call apps and getUserMedia open the first device, and
+/// /dev/video1 the back one.
 ///
 /// The kernel calls `start` on VIDIOC_STREAMON and `stop` on STREAMOFF or close. Only then
 /// does a capture session run, so the camera indicator and the permission prompt appear
@@ -41,7 +42,7 @@ final class ISHCameraBridge: NSObject, @unchecked Sendable {
         let discovery = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera],
                                                          mediaType: .video, position: .unspecified)
         var names: [String] = []
-        for position in [AVCaptureDevice.Position.back, .front]
+        for position in [AVCaptureDevice.Position.front, .back]
         where discovery.devices.contains(where: { $0.position == position }) {
             positions.append(position)
             names.append(position == .back ? "iPad Camera (Back)" : "iPad Camera (Front)")
