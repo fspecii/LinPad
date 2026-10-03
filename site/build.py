@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds the LinPad website (linpad.dev) into site/dist as plain static files.
+"""Builds the LinPad website (linpados.com) into site/dist as plain static files.
 
     python3 site/build.py                  # build from site/src (committed media)
     python3 site/build.py --refresh-media  # re-encode screenshots into site/src/media first
@@ -31,7 +31,7 @@ DIST = SITE / "dist"
 MEDIA = SRC / "media"
 IPAD_JIT = REPO.parent / "ipad-jit"
 
-DOMAIN = "https://linpad.dev"
+DOMAIN = "https://linpados.com"
 GITHUB = "https://github.com/fspecii/LinPad"
 SOURCE_URL = "https://raw.githubusercontent.com/fspecii/LinPad/main/release/source.json"
 YOUTUBE = "https://www.youtube.com/@Ambsd-yy7os"
@@ -1135,7 +1135,7 @@ def press_page() -> str:
     <tr><th scope="row">Based on</th><td>iSH and iSH-ARM64</td></tr>
     <tr><th scope="row">Linux</th><td>Alpine Linux 3.21, aarch64</td></tr>
     <tr><th scope="row">Source</th><td><a href="{GITHUB}">{GITHUB.replace("https://", "")}</a></td></tr>
-    <tr><th scope="row">Website</th><td>linpad.dev</td></tr>
+    <tr><th scope="row">Website</th><td>linpados.com</td></tr>
     <tr><th scope="row">Developer</th><td>Vali, London (<a href="{X_URL}">@AmbsdOP</a>, <a href="{YOUTUBE}">YouTube</a>)</td></tr>
   </table></div>
   <p>Performance figures published so far were measured on a Mac or in the iPad simulator. Please do not quote them as iPad results; device measurements will be added here.</p>
@@ -1169,7 +1169,7 @@ def not_found_page() -> str:
 </div>
 """
     return page(path="/404.html", title="Page not found", body=body, active="",
-                description="This page does not exist on linpad.dev.")
+                description="This page does not exist on linpados.com.")
 
 
 # ---------------------------------------------------------------- output

@@ -1,4 +1,4 @@
-# linpad.dev
+# linpados.com
 
 Static site for LinPad. No framework, no server: `build.py` writes plain HTML into `dist/`.
 
@@ -18,4 +18,4 @@ Optimised screenshots live in `src/media` (committed, about 2.6 MB). Some source
 
 Placeholders to fill before launch, at the top of `build.py`: `HERO_VIDEO`, `SPONSORS_URL`, `OPENCOLLECTIVE_URL`, `CHAT_URL`.
 
-Deploy (not done yet): any static host. Cloudflare Pages: build command `python3 site/build.py`, output `site/dist`. `src/static/_headers` sets caching and security headers. Serve linpad.dev as primary and 301 linpad.app to it with a Cloudflare redirect rule on the linpad.app zone.
+Deploy (not done yet): any static host. Cloudflare Pages: build command `python3 site/build.py`, output `site/dist`. `src/static/_headers` sets caching and security headers. Serve linpados.com as primary and 301 www.linpados.com to it with a Cloudflare redirect rule.
