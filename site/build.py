@@ -36,7 +36,8 @@ GITHUB = "https://github.com/fspecii/LinPad"
 SOURCE_URL = "https://raw.githubusercontent.com/fspecii/LinPad/main/release/source.json"
 YOUTUBE = "https://www.youtube.com/@Ambsd-yy7os"
 X_URL = "https://x.com/AmbsdOP"
-STUDIO = "https://webdesignstudio.london"
+AUTHOR_SITE = "https://valineagu.com"
+AUTHOR_GITHUB = "https://github.com/fspecii"
 SPONSORS_URL = "https://github.com/sponsors/fspecii"
 OPENCOLLECTIVE_URL = "https://opencollective.com/linpad"
 CHAT_URL = "#chat-coming-soon"
@@ -50,11 +51,18 @@ THEMES_JSON = REPO / "desktop/DesktopKit/Sources/DesktopKit/Resources/ColorTheme
 SHORTCUTS_SWIFT = REPO / "desktop/DesktopKit/Sources/DesktopKit/Core/DesktopKeyboardShortcuts.swift"
 WINDOW_MANAGER_SWIFT = REPO / "desktop/DesktopKit/Sources/DesktopKit/Core/WindowManager.swift"
 CATALOG_JSON = REPO / "release/guest/linpad/catalog.json"
+STORE_INDEX_JSON = REPO / "desktop/DesktopKit/Sources/DesktopKit/Resources/Store/store-index.json"
 
 ONBOARDING = REPO / "build-sim-onboarding/shots"
 SCREENSHOTS = REPO / "docs/screenshots"
 THEME_SHOTS = IPAD_JIT / "theme-shots"
 ICON_SHOTS = IPAD_JIT / "icon-shots"
+STORE_SHOTS = IPAD_JIT / "store-shots"
+VSCODE_SHOTS = IPAD_JIT / "vscode-shots/final"
+CACHE = SITE / ".cache"
+FONTS = SRC / "fonts"
+SYSTEM_FONTS = IPAD_JIT / "fakefs-themes/data/usr/share/fonts"
+FONT_LICENSE = REPO / "desktop/DesktopKit/Sources/DesktopKit/Resources/Fonts/OFL.txt"
 
 
 @dataclass(frozen=True)
@@ -80,6 +88,15 @@ MEDIA_SET = [
     Shot("keyboard", ONBOARDING / "onboarding-08-keyboard.png", (640, 1200), "Onboarding step showing keyboard and touch gestures"),
     Shot("tiler", ICON_SHOTS / "Qogir-tiler-desktop.png", (640, 1200), "The keyboard-first tiling layout with gaps and borders"),
     Shot("theme-app", THEME_SHOTS / "gallery.png", (640, 1200), "The Themes app gallery of desktop looks"),
+    Shot("desk", CACHE / "desk.png", (720, 1200, 1800),
+         "The LinPad desktop: Firefox on the LinPad GitHub page, a terminal showing fastfetch on Alpine Linux, and the Files app, tiled side by side"),
+    Shot("app-firefox", CACHE / "app-firefox.png", (720, 1400), "Firefox showing the Wikipedia article on Linux, maximised on the LinPad desktop"),
+    Shot("app-vscode", VSCODE_SHOTS / "app-tsx.png", (720, 1280),
+         "Visual Studio Code editing a React and TypeScript project, with the file explorer and the integrated terminal"),
+    Shot("store", STORE_SHOTS / "ish-01-home.png", (720, 1180),
+         "The LinPad Store home page: a FileZilla banner, then developer essentials such as Visual Studio Code, Geany and Meld, and internet apps"),
+    Shot("store-graphics", STORE_SHOTS / "ish-03-category-graphics.png", (720, 1180),
+         "The Graphics category of the LinPad Store with GIMP, Inkscape, Krita, Blender and more"),
 ]
 
 ERA_LOOKS = [
@@ -95,9 +112,10 @@ ERA_LOOKS = [
     ("dot-matrix", "Dot Matrix", "Monochrome with one red accent, dot-matrix type and desktop widgets."),
 ]
 for era_id, era_name, _ in ERA_LOOKS:
-    MEDIA_SET.append(Shot(f"era-{era_id}", THEME_SHOTS / f"{era_id}-desktop.png", (480, 960),
+    MEDIA_SET.append(Shot(f"era-{era_id}", THEME_SHOTS / f"{era_id}-desktop.png", (480, 960, 1366),
                           f"The {era_name} desktop look in LinPad"))
 
+PRESS_SHOTS = ("desk", "app-firefox", "app-vscode", "store", "tiler", "theme-app")
 ERA_PALETTE_IDS = {"luna", "aero", "aero-night", "aqua", "berry", "classic-98", "dot-matrix", "dot-matrix-dark", "platinum"}
 SHOT_BY_KEY = {shot.key: shot for shot in MEDIA_SET}
 
@@ -113,8 +131,62 @@ def run(cmd: list[str]) -> None:
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
 
 
+def make_composites() -> None:
+    """Screens that need more than a resize.
+
+    desk: the onboarding demo with the fastfetch output from docs/screenshots pasted into its empty terminal,
+    so the hero shows a terminal that has run something. app-firefox: the Firefox window cropped to 16:10.
+    """
+    CACHE.mkdir(exist_ok=True)
+    demo = ONBOARDING / "onboarding-12-demo.png"
+    fastfetch, prompt = CACHE / "fastfetch.png", CACHE / "prompt.png"
+    # Coordinates are for the 2732×2048 demo and the 1600×1112 fastfetch screenshot.
+    run(["magick", str(SCREENSHOTS / "03-foot-fastfetch.jpg"), "-crop", "890x410+8+128", "+repage",
+         "-fuzz", "9%", "-fill", "black", "-opaque", "rgb(21,24,43)", "-resize", "141%", str(fastfetch)])
+    run(["magick", str(demo), "-crop", "222x58+1376+168", "+repage", str(prompt)])
+    output_height = int(subprocess.run(["magick", "identify", "-format", "%h", str(fastfetch)],
+                                       check=True, capture_output=True, text=True).stdout)
+    next_prompt = 236 + output_height + 30
+    run(["magick", str(demo), "-fill", "black", "-draw", "rectangle 1749,184 1772,222",
+         str(fastfetch), "-geometry", "+1390+236", "-composite",
+         str(prompt), "-geometry", f"+1376+{next_prompt}", "-composite",
+         "-fill", "rgb(191,242,191)", "-draw", f"rectangle 1600,{next_prompt + 10} 1617,{next_prompt + 46}",
+         str(CACHE / "desk.png")])
+    run(["magick", str(IPAD_JIT / "r4-firefox-200s.png"), "-crop", "2124x1328+0+0", "+repage",
+         str(CACHE / "app-firefox.png")])
+
+
+FONT_FACES = [
+    ("inter-400", "inter/Inter-Regular.otf"),
+    ("inter-600", "inter/Inter-SemiBold.otf"),
+    ("inter-display-700", "inter/InterDisplay-Bold.otf"),
+    ("mono-400", "jetbrains-mono/JetBrainsMono-Regular.ttf"),
+]
+FONT_UNICODES = ("U+0020-007E,U+00A0-00FF,U+0131,U+0152-0153,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,"
+                 "U+2190-21FF,U+2212,U+2303,U+2318,U+2325,U+232B,U+2387,U+238B,U+23CE,U+2580-259F,U+25A0-25FF,U+2713")
+
+
+def make_fonts() -> None:
+    """Latin subsets of Inter and JetBrains Mono (both SIL OFL 1.1) as WOFF2, from the copies in the Linux image."""
+    FONTS.mkdir(parents=True, exist_ok=True)
+    for name, source in FONT_FACES:
+        path = SYSTEM_FONTS / source
+        if not path.exists():
+            sys.exit(f"missing font: {path}")
+        subprocess.run(["pyftsubset", str(path), f"--unicodes={FONT_UNICODES}", "--flavor=woff2",
+                        "--layout-features=kern,liga,calt,ccmp,locl,mark,mkmk,tnum,case,cv11,ss01",
+                        f"--output-file={FONTS / (name + '.woff2')}"], check=True)
+    license_body = FONT_LICENSE.read_text().split("\n", 2)[2]
+    (FONTS / "OFL.txt").write_text(
+        "Inter: Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)\n"
+        "JetBrains Mono: Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)\n"
+        + license_body)
+
+
 def refresh_media() -> None:
     MEDIA.mkdir(parents=True, exist_ok=True)
+    make_fonts()
+    make_composites()
     manifest: dict[str, dict] = {}
     for shot in MEDIA_SET:
         if not shot.source.exists():
@@ -134,7 +206,7 @@ def refresh_media() -> None:
         print(f"media: {shot.key} {sizes}")
     press = MEDIA / "press"
     press.mkdir(exist_ok=True)
-    for key in ("hero", "firefox", "vscode", "fastfetch", "tiler", "theme-app"):
+    for key in PRESS_SHOTS:
         run(["magick", str(SHOT_BY_KEY[key].source), "-strip", "-resize", "1920x>", "-quality", "84",
              str(press / f"linpad-{key}.jpg")])
     make_brand_images()
@@ -151,6 +223,7 @@ def chrome_shot(html_text: str, out: Path, width: int, height: int, transparent:
         doc = Path(tmp) / "shot.html"
         doc.write_text(html_text)
         cmd = [str(CHROME), "--headless=new", "--disable-gpu", "--hide-scrollbars", "--force-device-scale-factor=1",
+               "--virtual-time-budget=4000",
                f"--window-size={width},{height}", f"--screenshot={out}"]
         if transparent:
             cmd.append("--default-background-color=00000000")
@@ -165,26 +238,29 @@ def make_brand_images() -> None:
         sized = logo.replace("<svg ", f'<svg width="{size}" height="{size}" ', 1)
         chrome_shot(f"<!doctype html><style>html,body{{margin:0;background:transparent}}svg{{display:block}}</style>{sized}",
                     MEDIA / name, size, size, transparent=True)
-    hero = SHOT_BY_KEY["hero"].source.as_uri()
-    og_logo = logo.replace("<svg ", '<svg width="76" height="76" ', 1)
+    hero = SHOT_BY_KEY["desk"].source.as_uri()
+    og_logo = logo.replace("<svg ", '<svg width="56" height="56" ', 1)
     og_png = MEDIA / "og.png"
-    chrome_shot(f"""<!doctype html><meta charset="utf-8"><style>
-html,body{{margin:0;width:1200px;height:630px;overflow:hidden;background:#0a0c10;color:#e6e9ef;
-font-family:-apple-system,"SF Pro Display","Helvetica Neue",sans-serif}}
-.glow{{position:absolute;inset:0;background:radial-gradient(520px 320px at 20% 30%,rgba(74,163,255,.22),transparent 70%),
-radial-gradient(520px 320px at 85% 70%,rgba(139,123,255,.22),transparent 70%)}}
-.copy{{position:absolute;left:64px;top:64px;width:470px}}
-.brand{{display:flex;align-items:center;gap:18px;font-size:44px;font-weight:700;letter-spacing:-.02em}}
-.brand small{{display:block;font-size:22px;font-weight:500;color:#a1aab8;letter-spacing:0}}
-h1{{font-size:60px;line-height:1.04;letter-spacing:-.035em;margin:70px 0 22px;font-weight:760}}
-h1 span{{background:linear-gradient(100deg,#4aa3ff,#8b7bff);-webkit-background-clip:text;color:transparent}}
-p{{font:500 24px/1.4 ui-monospace,"SF Mono",Menlo,monospace;color:#a1aab8;margin:0}}
-.device{{position:absolute;left:560px;top:96px;width:720px;padding:12px;border-radius:30px;
-background:linear-gradient(160deg,#2a2f3a,#0d0f14);border:1px solid #333a47;box-shadow:0 30px 80px rgba(0,0,0,.6)}}
-.device img{{display:block;width:100%;border-radius:18px}}
+    font_faces = "".join(
+        f"@font-face{{font-family:{family};font-weight:{weight};src:url(data:font/woff2;base64,{base64.b64encode((FONTS / (name + '.woff2')).read_bytes()).decode()})}}"
+        for name, family, weight in (("inter-400", "Inter", 400), ("inter-display-700", "InterDisplay", 700),
+                                     ("mono-400", "Mono", 400))
+    )
+    chrome_shot(f"""<!doctype html><meta charset="utf-8"><style>{font_faces}
+html,body{{margin:0;width:1200px;height:630px;overflow:hidden;background:#000;color:#f5f5f7;font-family:Inter,sans-serif}}
+.glow{{position:absolute;inset:0;background:radial-gradient(560px 360px at 78% 64%,rgba(122,162,247,.30),transparent 70%),
+radial-gradient(420px 300px at 96% 20%,rgba(187,154,247,.22),transparent 70%)}}
+.copy{{position:absolute;left:64px;top:60px;width:500px}}
+.brand{{display:flex;align-items:center;gap:16px;font:700 34px InterDisplay;letter-spacing:-.02em}}
+h1{{font:700 62px/1.04 InterDisplay;letter-spacing:-.04em;margin:84px 0 26px}}
+h1 span{{background:linear-gradient(95deg,#7aa2f7,#bb9af7 60%,#f7768e);-webkit-background-clip:text;color:transparent}}
+p{{font:400 22px/1.4 Mono,monospace;color:#a1a1aa;margin:0}} p b{{color:#9ece6a;font-weight:400}}
+.device{{position:absolute;left:590px;top:120px;width:760px;padding:16px;border-radius:40px;background:#0b0b0d;
+box-shadow:0 0 0 2px #3a3a40,0 0 0 3px #111,0 40px 90px rgba(0,0,0,.7)}}
+.device img{{display:block;width:100%;border-radius:24px}}
 </style><div class="glow"></div>
-<div class="copy"><div class="brand">{og_logo}<div>LinPad<small>Linux for iPad</small></div></div>
-<h1>A real Linux desktop <span>on your iPad.</span></h1><p>No VM. No jailbreak. GPLv3.</p></div>
+<div class="copy"><div class="brand">{og_logo}LinPad</div>
+<h1>Linux, on your iPad.<br><span>Smarter. And free.</span></h1><p><b>$</b> no VM · no jailbreak · GPLv3</p></div>
 <div class="device"><img src="{hero}"></div>""", og_png, 1200, 630)
     run(["magick", str(og_png), "-strip", "-quality", "84", str(MEDIA / "og.jpg")])
     og_png.unlink()
@@ -200,23 +276,30 @@ def manifest() -> dict:
 MANIFEST: dict = {}
 
 
-def picture(key: str, sizes_attr: str, *, eager: bool = False, alt: str | None = None, cls: str = "") -> str:
-    entry = MANIFEST[key]
-    sizes = entry["sizes"]
+def srcset(key: str, ext: str) -> str:
+    return ", ".join(f"/media/{key}-{w}.{ext} {w}w" for w, _ in MANIFEST[key]["sizes"])
+
+
+def picture(key: str, sizes_attr: str, *, eager: bool = False, lazy: bool = True, alt: str | None = None,
+            cls: str = "", img_id: str = "") -> str:
+    """eager: fetchpriority high (above the fold). lazy=False: load with the page at normal priority."""
+    sizes = MANIFEST[key]["sizes"]
     largest_w, largest_h = sizes[-1]
     fallback_w = sizes[min(1, len(sizes) - 1)][0]
-
-    def srcset(ext: str) -> str:
-        return ", ".join(f"/media/{key}-{w}.{ext} {w}w" for w, _ in sizes)
-
-    loading = 'fetchpriority="high" decoding="async"' if eager else 'loading="lazy" decoding="async"'
+    if eager:
+        loading = 'fetchpriority="high" decoding="async"'
+    elif lazy:
+        loading = 'loading="lazy" decoding="async"'
+    else:
+        loading = 'decoding="async"'
     alt_text = esc(alt if alt is not None else SHOT_BY_KEY[key].alt)
     cls_attr = f' class="{cls}"' if cls else ""
+    id_attr = f' id="{img_id}"' if img_id else ""
     return (
         f"<picture{cls_attr}>"
-        f'<source type="image/avif" srcset="{srcset("avif")}" sizes="{sizes_attr}">'
-        f'<source type="image/webp" srcset="{srcset("webp")}" sizes="{sizes_attr}">'
-        f'<img src="/media/{key}-{fallback_w}.webp" alt="{alt_text}" width="{largest_w}" height="{largest_h}" {loading}>'
+        f'<source type="image/avif" srcset="{srcset(key, "avif")}" sizes="{sizes_attr}">'
+        f'<source type="image/webp" srcset="{srcset(key, "webp")}" sizes="{sizes_attr}">'
+        f'<img{id_attr} src="/media/{key}-{fallback_w}.webp" alt="{alt_text}" width="{largest_w}" height="{largest_h}" {loading}>'
         "</picture>"
     )
 
@@ -256,7 +339,7 @@ def parse_shortcuts() -> list[tuple[str, str, str]]:
     )
     for match in pattern.finditer(text):
         mods = default_branch(" ".join(match["mods"].split()))
-        label = default_branch(match["label"]).strip('"').replace("\\u{FE0E}", "")
+        label = default_branch(match["label"]).strip('"').replace("\\u{FE0E}", "").replace("\\\\", "\\")
         symbol = MOD_SYMBOLS.get(mods)
         if symbol is None:
             sys.exit(f"unknown modifier expression in {SHORTCUTS_SWIFT.name}: {mods}")
@@ -314,7 +397,6 @@ ICONS = {
 }
 
 NAV = [
-    ("/#features", "Features", "home"),
     ("/install/", "Install", "install"),
     ("/themes/", "Themes", "themes"),
     ("/manual/", "Manual", "manual"),
@@ -323,29 +405,40 @@ NAV = [
     ("/support/", "Support", "support"),
 ]
 
-THEME_BOOT = ("<script>try{var t=localStorage.getItem('linpad-theme');"
-              "if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>")
+# Runs before first paint: marks JS as available (the hero scroll sequence starts from its first frame
+# instead of the static final frame) and applies a stored light theme. Dark is the default.
+HEAD_BOOT = ("<script>document.documentElement.classList.add('js');try{if(localStorage.getItem('linpad-theme')==='light')"
+             "document.documentElement.dataset.theme='light'}catch(e){}</script>")
+
+FONT_PRELOADS = "".join(
+    f'<link rel="preload" href="/fonts/{name}.woff2" as="font" type="font/woff2" crossorigin>'
+    for name in ("inter-400", "inter-display-700")
+)
+
+
+CURRENT = ' aria-current="page"'
+MEAN = ' class="mean"'
 
 
 def page(*, path: str, title: str, description: str, body: str, active: str, og_image: str = "/media/og.jpg",
-         extra_head: str = "") -> str:
+         extra_head: str = "", body_class: str = "") -> str:
     canonical = DOMAIN + path
     full_title = title if title.startswith("LinPad") else f"{title} · LinPad"
-    current = ' aria-current="page"'
     nav_links = "".join(
-        f'<a href="{href}"{current if key == active and key != "home" else ""}>{label}</a>'
+        f'<li><a href="{href}"{CURRENT if key == active else ""}>{label}</a></li>'
         for href, label, key in NAV
     )
+    body_attr = f' class="{body_class}"' if body_class else ""
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>{esc(full_title)}</title>
 <meta name="description" content="{esc(description)}">
 <link rel="canonical" href="{canonical}">
-<meta name="theme-color" content="#0a0c10" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark light">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="LinPad">
 <meta property="og:title" content="{esc(full_title)}">
@@ -354,7 +447,7 @@ def page(*, path: str, title: str, description: str, body: str, active: str, og_
 <meta property="og:image" content="{DOMAIN}{og_image}">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="LinPad: a real Linux desktop on your iPad">
+<meta property="og:image:alt" content="LinPad: Linux on your iPad. Smarter. And free.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@AmbsdOP">
 <meta name="twitter:creator" content="@AmbsdOP">
@@ -364,19 +457,21 @@ def page(*, path: str, title: str, description: str, body: str, active: str, og_
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/media/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="/media/apple-touch-icon.png">
+{FONT_PRELOADS}
 <link rel="stylesheet" href="/assets/site.css?v={ASSET_VERSION}">
-{THEME_BOOT}
+{HEAD_BOOT}
 {extra_head}
 </head>
-<body>
+<body{body_attr}>
 <a class="skip" href="#main">Skip to content</a>
-<header class="site-header">
-  <nav class="wrap nav" aria-label="Main">
-    <a class="brand" href="/"><img src="/favicon.svg" alt="" width="30" height="30">LinPad <small>Linux for iPad</small></a>
-    <div class="nav-links" id="nav-links">{nav_links}</div>
-    <div class="nav-tools">
+<header class="gnav{" dark-scope" if active == "home" else ""}">
+  <nav class="gnav-inner" aria-label="Main">
+    <a class="brand" href="/"{CURRENT if active == "home" else ""}><img src="/favicon.svg" alt="" width="24" height="24">LinPad</a>
+    <ul class="gnav-links" id="nav-links">{nav_links}</ul>
+    <div class="gnav-tools">
       <a class="icon-btn" href="{GITHUB}" aria-label="LinPad on GitHub">{ICONS["github"]}</a>
-      <button class="icon-btn" id="theme-toggle" type="button" aria-label="Switch colour theme">{ICONS["sun"]}</button>
+      <button class="icon-btn" id="theme-toggle" type="button" aria-label="Switch to light theme">{ICONS["sun"]}</button>
+      <a class="gnav-cta" href="/install/">Get LinPad</a>
       <button class="icon-btn menu-btn" id="menu-toggle" type="button" aria-label="Menu" aria-controls="nav-links" aria-expanded="false">{ICONS["menu"]}</button>
     </div>
   </nav>
@@ -395,43 +490,47 @@ def footer() -> str:
     year = date.today().year
     return f"""<footer class="site-footer">
   <div class="wrap">
-    <div class="foot-grid">
-      <div>
-        <a class="brand" href="/"><img src="/favicon.svg" alt="" width="30" height="30" loading="lazy">LinPad</a>
-        <p style="margin-top:12px">A real Linux desktop on your iPad. Free and open source under the GPLv3.</p>
-        <p>Built by Vali in London.</p>
+    <div class="foot-top">
+      <div class="foot-brand">
+        <a class="brand" href="/"><img src="/favicon.svg" alt="" width="24" height="24" loading="lazy">LinPad</a>
+        <p>Linux for iPad. Free and open source under the GPLv3.</p>
+        <p>Built by <a href="{AUTHOR_SITE}">Vali Neagu</a> in London.</p>
+        <p class="foot-status"><span class="dot" aria-hidden="true"></span>Pre-release. Screenshots are from development builds.</p>
       </div>
-      <div>
-        <h2>Project</h2>
-        <ul>
-          <li><a href="/install/">Install</a></li>
-          <li><a href="/themes/">Themes</a></li>
-          <li><a href="/manual/">Manual</a></li>
-          <li><a href="/faq/">FAQ</a></li>
-          <li><a href="{GITHUB}/releases">Releases</a></li>
-        </ul>
-      </div>
-      <div>
-        <h2>Community</h2>
-        <ul>
-          <li><a href="/contribute/">Contribute</a></li>
-          <li><a href="/support/">Support the project</a></li>
-          <li><a href="/press/">Press kit</a></li>
-          <li><a href="{GITHUB}">GitHub</a></li>
-        </ul>
-      </div>
-      <div>
-        <h2>Follow</h2>
-        <ul>
-          <li><a href="{YOUTUBE}">YouTube</a></li>
-          <li><a href="{X_URL}">X @AmbsdOP</a></li>
-          <li><a href="{STUDIO}">Web Design Studio London</a></li>
-        </ul>
+      <div class="foot-cols">
+        <div>
+          <h2>Project</h2>
+          <ul>
+            <li><a href="/install/">Install</a></li>
+            <li><a href="/themes/">Themes</a></li>
+            <li><a href="/manual/">Manual</a></li>
+            <li><a href="/faq/">FAQ</a></li>
+            <li><a href="{GITHUB}/releases">Releases</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Community</h2>
+          <ul>
+            <li><a href="/contribute/">Contribute</a></li>
+            <li><a href="/support/">Support the project</a></li>
+            <li><a href="/press/">Press kit</a></li>
+            <li><a href="{GITHUB}">Source on GitHub</a></li>
+          </ul>
+        </div>
+        <div>
+          <h2>Author</h2>
+          <ul>
+            <li><a href="{AUTHOR_SITE}">valineagu.com</a></li>
+            <li><a href="{X_URL}">X @AmbsdOP</a></li>
+            <li><a href="{AUTHOR_GITHUB}">GitHub @fspecii</a></li>
+            <li><a href="{YOUTUBE}">YouTube</a></li>
+          </ul>
+        </div>
       </div>
     </div>
     <div class="legal">
-      <p>© {year} Vali and LinPad contributors. LinPad is licensed under the GNU GPLv3 and builds on <a href="https://github.com/ish-app/ish">iSH</a> and <a href="https://github.com/meikis/ish-arm64">iSH-ARM64</a>.</p>
-      <p>iPad and iPadOS are trademarks of Apple Inc., registered in the U.S. and other countries. Linux® is the registered trademark of Linus Torvalds in the U.S. and other countries. Firefox is a trademark of the Mozilla Foundation. Visual Studio Code is a product of Microsoft. All other names belong to their owners. LinPad is an independent project and is not affiliated with or endorsed by any of them.</p>
+      <p>© {year} Vali Neagu and LinPad contributors. LinPad is licensed under the GNU GPLv3 and builds on <a href="https://github.com/ish-app/ish">iSH</a> and <a href="https://github.com/meikis/ish-arm64">iSH-ARM64</a>. Inter and JetBrains Mono are used under the <a href="/fonts/OFL.txt">SIL Open Font License</a>.</p>
+      <p>iPad and iPadOS are trademarks of Apple Inc., registered in the U.S. and other countries. Linux® is the registered trademark of Linus Torvalds in the U.S. and other countries. Firefox is a trademark of the Mozilla Foundation. Visual Studio Code is a product of Microsoft. All other names belong to their owners. LinPad is an independent project and is not affiliated with or endorsed by any of them. The device on this site is a drawing, not a photo of a real product.</p>
     </div>
   </div>
 </footer>"""
@@ -453,210 +552,426 @@ BETA = ' <span class="tag">beta</span>'
 NEEDS = ' <span class="tag">needs StikDebug</span>'
 
 
-def home(themes: list[dict]) -> str:
-    if HERO_VIDEO:
-        hero_media = (f'<video src="/{HERO_VIDEO}" autoplay muted loop playsinline preload="metadata" '
-                      f'poster="/media/hero-1280.webp" aria-label="{esc(SHOT_BY_KEY["hero"].alt)}"></video>')
-    else:
-        hero_media = picture("hero", "(max-width: 1100px) 100vw, 1080px", eager=True)
+def tablet(screen: str, *, cls: str = "", screen_cls: str = "") -> str:
+    """A generic tablet drawn in CSS around a screen: no product artwork."""
+    return (f'<div class="tablet-cq {cls}"><div class="tablet"><div class="tablet-screen {screen_cls}">{screen}</div></div></div>')
 
+
+BOOT_LOG: list[tuple[str, str]] = [
+    ("LinPad boot · iSH-ARM64 usermode Linux · aarch64", "hd"),
+    ("[    0.000000] Linux version 4.20.69-ish (linpad) #1 SMP", ""),
+    ("[    0.000000] Machine: iPad, Apple silicon, iPadOS app sandbox", "x"),
+    ("[    0.000731] mm: memory allowance read, low-memory guard on", ""),
+    ("[    0.002114] jit: native ARM64 translator ready (fast mode)", ""),
+    ("[    0.004380] fakefs: / mounted, Alpine Linux 3.21 aarch64", ""),
+    ("[    0.004912] fakefs: /mnt/ipad mounted, iPad folders linked", "x"),
+    ("[    0.010277] gpu: virtio-gpu → Venus → MoltenVK → Metal", ""),
+    ("[    0.011653] snd: PulseAudio → iOS audio bridge", "x"),
+    ("[    0.013090] net: sockets through iPadOS, DNS ok", "x"),
+    (" * Mounting /proc, /sys and /dev ...", "ok"),
+    (" * Starting ishwl Wayland compositor ...", "ok"),
+    (" * Starting PulseAudio sound server ...", "ok"),
+    (" * Applying colour theme tokyo-night ...", "ok"),
+    (" * Restoring session: 3 windows ...", "ok"),
+    ("", "x"),
+    ("Welcome to Alpine Linux 3.21 on LinPad", "hd"),
+    ("Kernel 4.20.69-ish on aarch64 (tty1)", "x"),
+    ("Starting LinPad desktop…", "go"),
+]
+BOOT_START, BOOT_END = 0.13, 0.52
+
+
+def boot_lines() -> tuple[str, str]:
+    """The boot log twice: as scroll-typed lines inside the hero screen, and as a static block for reduced motion."""
+    width = max(len(text) for text, kind in BOOT_LOG if kind == "ok") + 3
+    step = (BOOT_END - BOOT_START) / (len(BOOT_LOG) - 1)
+    typed, static = [], []
+    for index, (text, kind) in enumerate(BOOT_LOG):
+        if kind == "ok":
+            shown = f'{esc(text.ljust(width))}<span class="ok">[ ok ]</span>'
+            length = width + 6
+        elif text.startswith("["):
+            stamp, rest = text[:14], text[14:]
+            shown = f'<span class="ts">{esc(stamp)}</span>{esc(rest)}'
+            length = len(text)
+        else:
+            shown, length = esc(text), len(text)
+        classes = " ".join(c for c in ("bl", kind if kind in ("hd", "go") else "", "x" if kind == "x" else "") if c)
+        start = BOOT_START + index * step
+        typed.append(f'<span class="{classes}" style="--s:{start:.3f};--n:{length + 3}">{shown or "&nbsp;"}</span>')
+        static.append(f'<span class="{classes}">{shown}</span>')
+    return "".join(typed), "".join(static)
+
+
+FASTFETCH = r"""<span class="c4">root@ish</span>:<span class="c6">~</span># fastfetch
+<span class="c4"> _  ____  _   _ </span>  <span class="c4">root</span>@<span class="c4">iPad Air 11-inch (M3)</span>
+<span class="c4">(_)/ ___|| | | |</span>  -------------------------
+<span class="c4">| |\___ \| |_| |</span>  <span class="c4">OS</span>: iSH Linux Desktop (Alpine 3.21 base) aarch64
+<span class="c4">| | ___) |  _  |</span>  <span class="c4">Kernel</span>: Linux 4.20.69-ish
+<span class="c4">|_||____/|_| |_|</span>  <span class="c4">Packages</span>: 189 (apk)
+<span class="c4">  Linux on iPad </span>  <span class="c4">Terminal</span>: foot 1.19.0
+                  <span class="c4">CPU</span>: Apple M3 (10 cores, emulated by iSH)
+                  <span class="c4">GPU</span>: Apple iOS simulator GPU (Venus, Vulkan)
+                  <span class="c4">Memory</span>: 4.01 GiB / 4.10 GiB (98%)
+
+                  <span class="sw"><i class="b0"></i><i class="b1"></i><i class="b2"></i><i class="b3"></i><i class="b4"></i><i class="b5"></i><i class="b6"></i><i class="b7"></i></span>
+<span class="c4">root@ish</span>:<span class="c6">~</span># <span class="cur"></span>"""
+
+
+def term_window(title: str, content: str, *, label: str, cls: str = "") -> str:
+    return (f'<div class="term-win {cls}" role="img" aria-label="{esc(label)}">'
+            f'<div class="term-bar" aria-hidden="true"><i></i><i></i><i></i><span>{esc(title)}</span></div>'
+            f'<pre class="term-body" aria-hidden="true">{content}</pre></div>')
+
+
+def keycaps(keys: str) -> str:
+    """'⌃⌥⇧T' → separate caps for each modifier, then the key name."""
+    mods, rest = [], keys
+    while rest and rest[0] in "⌘⌃⌥⇧":
+        mods.append(rest[0])
+        rest = rest[1:]
+    names = {"⌘": "Command", "⌃": "Control", "⌥": "Option", "⇧": "Shift"}
+    caps = "".join(f'<kbd title="{names[m]}">{m}</kbd>' for m in mods)
+    wide = " wide" if len(rest) > 1 else ""
+    return caps + f'<kbd class="key{wide}">{esc(rest)}</kbd>'
+
+
+def store_stats() -> tuple[int, int, list[tuple[str, int]]]:
+    data = json.loads(STORE_INDEX_JSON.read_text())
+    apps = data["apps"]
+    tested = sum(1 for app in apps if app.get("compat") == "works")
+    counts: dict[str, int] = {}
+    for app in apps:
+        counts[app.get("category") or "Other"] = counts.get(app.get("category") or "Other", 0) + 1
+    return len(apps), tested, sorted(counts.items(), key=lambda kv: -kv[1])
+
+
+KEY_FEATURES = [
+    ("Command Menu", "One menu for windows, apps, commands, themes and settings."),
+    ("Keyboard Shortcuts", "Every shortcut, searchable, one chord away."),
+    ("Clipboard History", "Everything you copied, in Linux apps and iPad apps."),
+    ("New Terminal", "A shell, wherever you are."),
+    ("Toggle Auto-Tiling", "Tiling per workspace: master-stack, columns, grid, monocle."),
+    ("Next Color Theme", "Recolour the desktop and every Linux app at once."),
+    ("Overview", "Every workspace and window, live."),
+    ("Snap Left Half", "Halves and quarters without touching the screen."),
+]
+
+APP_STEPS = [
+    ("firefox", "Firefox. The real one.",
+     "The Firefox that Alpine Linux ships for aarch64, in a window you can move, tile and snap. Tabs, extensions, developer tools: it is just Firefox."),
+    ("vscode", "VS Code, with a terminal that means it.",
+     "Microsoft's build, downloaded on your iPad when you ask for it. Node 22, npm, git and Python are already installed, so <code>npm run dev</code> just runs."),
+    ("term", "A shell with the whole archive behind it.",
+     "foot, fastfetch, btop and every package in Alpine's aarch64 repositories, one <code>apk add</code> away. You are root in your own sandbox."),
+]
+
+PALETTE_DEFAULT = "tokyo-night"
+
+
+def home(themes: list[dict], shortcuts: list[tuple[str, str, str]]) -> str:
+    typed_boot, static_boot = boot_lines()
     palettes = [t for t in themes if t["id"] not in ERA_PALETTE_IDS]
-    features = "".join([
-        feature_card("window", "A native desktop",
-                     "Windows you move, resize from any edge, snap, minimise and pin on top. Workspaces, an overview, a window switcher, a notification centre and a lock screen. Written in SwiftUI, so it feels like an iPad app, because it is one."),
-        feature_card("tile", "Tiling when you want it",
-                     "Master-stack, columns, grid and monocle layouts, on or off per workspace. Float any window. Gaps, borders and rounding per theme, or turn them all off with one chord."),
-        feature_card("cmd", "⌘K for everything",
-                     "One fuzzy menu for windows, apps, commands, toggles, themes and looks, plus repair and reset. ⌘/ shows every shortcut. Desktop chords live on ⌃⌥ so ⌘ stays with your apps."),
-        feature_card("palette", "Themes that reach the apps",
-                     f"{len(palettes)} colour palettes from the Omarchy community plus era looks. A theme recolours the shell, the terminal, btop, GTK and Qt apps, VS Code and Firefox together."),
-        feature_card("term", "Real Linux apps",
-                     "Firefox, Visual Studio Code (Microsoft's build, downloaded on your iPad when you ask for it), Thunar, Mousepad, VLC and GIMP. Unmodified aarch64 Alpine Linux binaries with the full <code>apk</code> archive behind them."),
-        feature_card("box", "A catalog, not bloat",
-                     "The base system stays lean. Mail, PDF, office, image tools, media, extra browsers and developer toolchains are packs you tick in Settings › Apps."),
-        feature_card("bolt", "Fast mode", "Hands off to StikDebug at launch and comes back with a native ARM64 JIT. About 4.8× faster than the interpreter in our Mac benchmarks; iPad numbers will be published once measured.", NEEDS),
-        feature_card("chip", "GPU path", "Linux Vulkan through Mesa Venus, a virtio-gpu device, virglrenderer and MoltenVK onto Metal. OpenGL through zink tops out at GL 2.1 today.", EXP),
-        feature_card("wine", "Windows apps via Wine", "ARM64 Windows programs like Notepad++, 7-Zip and PuTTY run in Wine 10. x86 programs work through Box64, slowly and with a big memory cost. Not for games.", EXP),
-        feature_card("files", "Plays well with iPadOS",
-                     "Clipboard and drag and drop both ways, iPad folders mounted into Linux, Quick Look on Space, text input for every language including CJK composition, and Linux audio through iOS."),
-        feature_card("wrench", "Repair and updates",
-                     "App updates through your sideloader. Linux system updates download in the background, are SHA-256 verified and keep /root and /home. Repair re-applies LinPad's files when a package upgrade breaks something."),
-        feature_card("camera", "Made to be shown",
-                     "Screenshots of the screen, an area or a window, and screen recording, all from the keyboard. Share a theme or a whole look as a <code>linpad://</code> link."),
-    ])
+    app_count, tested_count, categories = store_stats()
+    keys_by_title = {title: keys for _, title, keys in shortcuts}
+    missing = [title for title, _ in KEY_FEATURES if title not in keys_by_title]
+    if missing:
+        sys.exit(f"home page shortcuts not found in {SHORTCUTS_SWIFT.name}: {missing}")
 
-    eras = "".join(
-        f'<figure class="shot">{picture("era-" + era_id, "(max-width: 620px) 100vw, (max-width: 980px) 50vw, 280px")}'
-        f"<figcaption><b>{esc(name)}</b>{esc(text)}</figcaption></figure>"
-        for era_id, name, text in ERA_LOOKS[:4]
+    desk = picture("desk", "(max-width: 700px) 92vw, (max-width: 1400px) 74vw, 1100px", lazy=False)
+    seq = f"""
+<section class="seq dark-scope" aria-labelledby="seq-h">
+  <div class="seq-stage">
+    <div class="seq-intro">
+      <p class="seq-badges"><span class="pill pill-pre"><span class="dot" aria-hidden="true"></span>Pre-release</span><span class="pill">Free · GPLv3</span></p>
+      <h1 id="seq-h" class="display">Linux, on your iPad.</h1>
+      <p class="seq-sub">Firefox, VS Code and the whole Alpine Linux archive, running on the iPad itself. <span class="nowrap">No VM. No jailbreak.</span></p>
+      <p class="seq-hint" aria-hidden="true"><span>scroll to boot</span></p>
+    </div>
+    <div class="seq-device">
+      {tablet(f'<pre class="boot" aria-hidden="true">{typed_boot}</pre><div class="seq-desk">{desk}</div><div class="seq-dim"></div>', cls="tablet-hero")}
+    </div>
+    <div class="seq-final">
+      <p class="seq-line">From now on, your iPad is <span class="grad">smarter.</span><br><span class="grad grad-2">And free.</span></p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="/install/">Get LinPad</a>
+        <a class="btn btn-ghost" href="{GITHUB}">{ICONS["github"]} Star on GitHub</a>
+      </div>
+      <p class="seq-note">Development build in the iPad simulator. Boot text is illustrative; the fastfetch output in the terminal comes from a separate real run.</p>
+    </div>
+  </div>
+  <div class="seq-static" aria-hidden="true"><pre class="boot-static">{static_boot}</pre></div>
+</section>"""
+
+    statement = """
+<section class="statement" aria-label="What LinPad is">
+  <div class="wrap">
+    <p class="statement-line">One app. A real Linux userland. <span class="muted">Native iPad windows, a tiling desktop, a store of Linux apps and themes that reach all of them.</span></p>
+    <ul class="ticker" aria-label="Some of the software that runs on LinPad">
+      <li>firefox</li><li>code</li><li>gimp</li><li>filezilla</li><li>libreoffice</li><li>inkscape</li><li>thunar</li><li>foot</li><li>btop</li><li>node 22</li><li>git</li><li>python3</li><li>vlc</li><li>apk add …</li>
+    </ul>
+  </div>
+</section>"""
+
+    terminal = term_window("foot · ~", FASTFETCH, label="A terminal running fastfetch on Alpine Linux, transcribed from a development build", cls="pal-tokyo")
+    screens = {
+        "firefox": picture("app-firefox", "(max-width: 1000px) 92vw, 640px"),
+        "vscode": picture("app-vscode", "(max-width: 1000px) 92vw, 640px"),
+        "term": f'<div class="screen-term">{terminal}</div>',
+    }
+    mobile_screens = {
+        "firefox": picture("app-firefox", "92vw"),
+        "vscode": picture("app-vscode", "92vw"),
+        "term": terminal,
+    }
+    story_screens = "".join(
+        f'<div class="story-screen{" is-active" if i == 0 else ""}" data-step="{i}">{screens[key]}</div>'
+        for i, (key, _, _) in enumerate(APP_STEPS)
     )
-
-    body = f"""
-<section class="hero">
+    story_steps = "".join(
+        f'<li class="story-step" data-step="{i}"><div class="story-shot">{mobile_screens[key]}</div>'
+        f'<h3>{title}</h3><p>{text}</p></li>'
+        for i, (key, title, text) in enumerate(APP_STEPS)
+    )
+    apps = f"""
+<section class="sec" id="apps" aria-labelledby="apps-h">
   <div class="wrap">
-    <div class="eyebrow"><span class="pill"><span class="dot" aria-hidden="true"></span>Pre-release</span><span class="pill">Free and open source · GPLv3</span><span class="pill">iPad with M1 or newer</span></div>
-    <h1>A real Linux desktop<br><span>on your iPad.</span></h1>
-    <p class="lede">Firefox, VS Code, a tiling window manager and the whole Alpine Linux package archive, running on the iPad itself. No VM. No jailbreak. One app.</p>
-    <div class="cta-row">
-      <a class="btn btn-primary" href="/install/">Install guide</a>
-      <a class="btn btn-ghost" href="{GITHUB}">{ICONS["github"]} Star on GitHub</a>
+    <header class="sec-head">
+      <p class="kicker"><span aria-hidden="true">$</span> apk add firefox code gimp</p>
+      <h2 id="apps-h" class="h-xl">Real Linux apps.<br><span class="muted">As real iPad windows.</span></h2>
+      <p class="lede">Not ports, not remote desktops. Unmodified aarch64 Linux programs, translated to iPadOS system calls inside one app, drawn as native windows next to everything else.</p>
+    </header>
+    <div class="story">
+      <div class="story-media">{tablet(story_screens, cls="tablet-wide")}</div>
+      <ol class="story-steps">{story_steps}</ol>
     </div>
-    <p class="hero-note">The first public build is being prepared. Screenshots are from development builds in the iPad simulator.</p>
-    <figure class="device">
-      {hero_media}
-      <figcaption>Firefox, a terminal and Files, tiled side by side. Demo video coming with v1.0.</figcaption>
+    <p class="fineprint">Screenshots from development builds in the iPad simulator. The terminal is a transcription of a real fastfetch run.</p>
+  </div>
+</section>"""
+
+    era_buttons = "".join(
+        f'<li><button type="button" class="chip" aria-pressed="{"true" if i == 0 else "false"}" '
+        f'data-look="era-{era_id}" data-avif="{srcset("era-" + era_id, "avif")}" data-webp="{srcset("era-" + era_id, "webp")}" '
+        f'data-alt="{esc(SHOT_BY_KEY["era-" + era_id].alt)}" data-caption="{esc(text)}">{esc(name)}</button></li>'
+        for i, (era_id, name, text) in enumerate(ERA_LOOKS)
+    )
+    first_era = ERA_LOOKS[0]
+
+    def palette_data(theme: dict) -> str:
+        ansi = (theme.get("ansi") or [])[:8]
+        return esc(json.dumps({"bg": theme["background"], "fg": theme["foreground"],
+                               "accent": theme.get("accent") or theme["foreground"], "ansi": ansi}, separators=(",", ":")))
+
+    palette_buttons = "".join(
+        f'<li><button type="button" class="chip chip-pal" aria-pressed="{"true" if t["id"] == PALETTE_DEFAULT else "false"}" '
+        f'data-palette="{palette_data(t)}"><span class="pal-dots" aria-hidden="true">'
+        + "".join(f'<i style="background:{esc(c)}"></i>' for c in [t["background"]] + (t.get("ansi") or [])[1:5])
+        + f'</span>{esc(t["name"])}</button></li>'
+        for t in palettes
+    )
+    default_palette = next(t for t in palettes if t["id"] == PALETTE_DEFAULT)
+    palette_vars = ";".join(
+        [f"--t-bg:{default_palette['background']}", f"--t-fg:{default_palette['foreground']}"]
+        + [f"--t-c{i}:{c}" for i, c in enumerate((default_palette.get("ansi") or [])[:8])]
+    )
+    themes_html = f"""
+<section class="sec sec-themes" id="themes" aria-labelledby="themes-h">
+  <div class="wrap">
+    <header class="sec-head">
+      <p class="kicker"><span aria-hidden="true">⌃⌥⇧C</span> next theme</p>
+      <h2 id="themes-h" class="h-xl">Make it yours.<br><span class="muted">Down to the last pixel of the 90s.</span></h2>
+      <p class="lede">{len(ERA_LOOKS)} desktop looks with matching window chrome, wallpapers and Linux app themes. {len(palettes)} colour palettes in the same <code>colors.toml</code> format Omarchy community themes use.</p>
+    </header>
+    <div class="looks">
+      <figure class="looks-stage">
+        {tablet(picture("era-" + first_era[0], "(max-width: 1000px) 92vw, 980px", img_id="look-img"), cls="tablet-look")}
+        <figcaption id="look-caption" aria-live="polite"><b id="look-name">{esc(first_era[1])}</b> <span id="look-text">{esc(first_era[2])}</span></figcaption>
+      </figure>
+      <ul class="chips" aria-label="Desktop looks">{era_buttons}</ul>
+    </div>
+    <div class="palettes">
+      <div class="palettes-copy">
+        <h3 class="h-md">Palettes that reach every app.</h3>
+        <p>A colour theme recolours the shell, the terminal, btop, GTK and Qt apps, VS Code and Firefox together. Try one: press <kbd>T</kbd> to cycle, like on Omarchy.</p>
+        <ul class="chips chips-pal" aria-label="Colour palettes">{palette_buttons}</ul>
+        <p class="sr-status" id="pal-status" aria-live="polite"></p>
+        <p><a class="link-arrow" href="/themes/">Every look and palette, with colors.toml downloads</a></p>
+      </div>
+      <div class="palettes-term" id="pal-term" style="{esc(palette_vars)}">
+        {term_window("foot · ~/projects", PALETTE_SAMPLE, label="Terminal preview in the selected colour palette")}
+      </div>
+    </div>
+  </div>
+</section>"""
+
+    category_rows = "".join(
+        f'<li><span>{esc(name)}</span><span class="bar" style="--w:{count / categories[0][1]:.3f}" aria-hidden="true"></span><b>{count}</b></li>'
+        for name, count in categories
+    )
+    store = f"""
+<section class="sec sec-store" id="store" aria-labelledby="store-h">
+  <div class="wrap">
+    <header class="sec-head">
+      <p class="kicker"><span aria-hidden="true">$</span> linpad store</p>
+      <h2 id="store-h" class="h-xl">The Store.<br><span class="muted">{app_count} Linux apps, one tap each.</span></h2>
+      <p class="lede">GIMP, Inkscape, Krita, LibreOffice, FileZilla, Thunderbird and hundreds more, packaged from Alpine Linux and described with Flathub's metadata. Installs run in the background while you work.</p>
+    </header>
+    <figure class="store-shot">
+      {tablet(picture("store", "(max-width: 1100px) 92vw, 1040px"), cls="tablet-wide")}
+      <figcaption>The LinPad Store, development build.</figcaption>
     </figure>
+    <div class="store-facts">
+      <div class="big-stat"><b>{app_count}</b><span>apps in the catalog</span></div>
+      <div class="big-stat"><b>{tested_count}</b><span>marked “works well” after testing on LinPad. The rest are untested, and say so.</span></div>
+      <ul class="cat-bars" aria-label="Apps per category">{category_rows}</ul>
+    </div>
   </div>
-</section>
+</section>"""
 
-<section aria-labelledby="apps-h" style="padding-top:24px">
+    key_cards = "".join(
+        f'<li class="keycard"><div class="caps">{keycaps(keys_by_title[title])}</div><h3>{esc(title)}</h3><p>{esc(text)}</p></li>'
+        for title, text in KEY_FEATURES
+    )
+    keyboard = f"""
+<section class="sec sec-keys dark-scope" id="keyboard" aria-labelledby="keys-h">
   <div class="wrap">
-    <h2 id="apps-h" class="visually-hidden">Apps that run on LinPad</h2>
-    <div class="marquee">
-      <span>firefox</span><span>code</span><span>thunar</span><span>foot</span><span>node 22</span><span>git</span><span>python3</span><span>vite</span><span>vlc</span><span>gimp</span><span>btop</span><span>claude</span><span>apk add …</span>
-    </div>
+    <header class="sec-head">
+      <p class="kicker"><span aria-hidden="true">⌘/</span> show all shortcuts</p>
+      <h2 id="keys-h" class="h-xl">Keyboard first.<br><span class="muted">Touch when you want it.</span></h2>
+      <p class="lede">Desktop chords live on <kbd>⌃</kbd><kbd>⌥</kbd>, so <kbd>⌘</kbd> stays with your apps: <kbd>⌘</kbd><kbd>S</kbd> still saves in VS Code. Trackpad, mouse and touch all work too.</p>
+    </header>
+    <ul class="keygrid">{key_cards}</ul>
+    <p class="fineprint">From the app's own key binding table. <a href="/manual/#keyboard">All {len(shortcuts)} shortcuts in the manual</a>.</p>
   </div>
-</section>
+</section>"""
 
-<section id="how" aria-labelledby="how-h">
-  <div class="wrap">
-    <div class="section-head">
-      <span class="kicker">How it works</span>
-      <h2 id="how-h">Linux programs, iPad windows. One process.</h2>
-      <p>LinPad is a single iPad app. It runs real ARM64 Linux binaries by translating their system calls to iPadOS, and it shows their windows as native windows next to its own.</p>
-    </div>
-    <div class="stack">
-      <div class="layers" role="img" aria-label="Architecture: Linux apps talk to a Wayland compositor, a GPU driver and PulseAudio inside Alpine Linux; the LinPad app bridges those to native windows, Metal and iOS audio, all on top of the iSH-ARM64 syscall translator.">
-        <div class="layer guest"><b>Alpine Linux, aarch64</b><span>firefox · code · thunar · foot · node · git</span></div>
-        <div class="layer-row">
-          <div class="layer guest"><b>ishwl</b><span>Wayland compositor</span></div>
-          <div class="layer guest"><b>Mesa Venus</b><span>Vulkan driver</span></div>
-          <div class="layer guest"><b>PulseAudio</b><span>sound</span></div>
-        </div>
-        <div class="arrow" aria-hidden="true">↓ shared memory · FIFOs · virtio-gpu ↓</div>
-        <div class="layer-row">
-          <div class="layer bridge"><b>Window bridge</b><span>frames · input · IME · clipboard</span></div>
-          <div class="layer bridge"><b>virglrenderer</b><span>MoltenVK → Metal</span></div>
-          <div class="layer bridge"><b>Audio bridge</b><span>AVAudioEngine</span></div>
-        </div>
-        <div class="layer host"><b>DesktopKit</b><span>SwiftUI desktop · one window manager for native and Linux windows</span></div>
-        <div class="layer host"><b>iSH-ARM64</b><span>Linux syscalls → iPadOS · threaded interpreter · native ARM64 JIT</span></div>
-      </div>
-      <div class="how-list">
-        <div><h3>Usermode Linux, not a VM</h3><p>A fork of iSH and iSH-ARM64 runs unmodified aarch64 programs and implements the Linux kernel interface they expect: processes, signals, sockets, futexes, memfd, inotify, netlink.</p></div>
-        <div><h3>A Wayland bridge</h3><p>ishwl is a small Wayland compositor inside Linux. Each window's pixels are shared through memory-mapped files and handed to the native desktop, which sends input, text and clipboard back.</p></div>
-        <div><h3>A native desktop</h3><p>DesktopKit is a SwiftUI shell with one window manager for native apps and Linux windows: tiling, workspaces, overview, themes and the command menu.</p></div>
-        <div><h3>A GPU path <span class="tag tag-exp">experimental</span></h3><p>A virtio-gpu device feeds virglrenderer's Venus renderer, which runs on MoltenVK and Metal. Firefox still renders in software.</p></div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section id="features" class="alt" aria-labelledby="features-h">
-  <div class="wrap">
-    <div class="section-head">
-      <span class="kicker">Features</span>
-      <h2 id="features-h">The computer the iPad hardware already is</h2>
-      <p>An M-series iPad with a keyboard and trackpad is a laptop in everything but software. LinPad fills that gap.</p>
-    </div>
-    <div class="grid grid-3">{features}</div>
-  </div>
-</section>
-
-<section aria-labelledby="shots-h">
-  <div class="wrap">
-    <div class="section-head">
-      <span class="kicker">Screenshots</span>
-      <h2 id="shots-h">The real apps, as iPad windows</h2>
-    </div>
-    <div class="grid grid-2">
-      <figure class="shot">{picture("vscode", "(max-width: 620px) 100vw, 580px")}<figcaption><b>Visual Studio Code</b>A TypeScript project with git and the integrated terminal.</figcaption></figure>
-      <figure class="shot">{picture("fastfetch", "(max-width: 620px) 100vw, 580px")}<figcaption><b>foot and fastfetch</b>Alpine Linux 3.21 with the full apk archive.</figcaption></figure>
-      <figure class="shot">{picture("tiler", "(max-width: 620px) 100vw, 580px")}<figcaption><b>Keyboard-first tiling</b>Gaps, borders and a top bar, all themeable.</figcaption></figure>
-      <figure class="shot">{picture("overview", "(max-width: 620px) 100vw, 580px")}<figcaption><b>Workspaces and overview</b>Switch with keys or a three-finger swipe.</figcaption></figure>
-    </div>
-  </div>
-</section>
-
-<section class="alt" aria-labelledby="themes-h">
-  <div class="wrap">
-    <div class="section-head">
-      <span class="kicker">Themes</span>
-      <h2 id="themes-h">From Tokyo Night to the late 90s</h2>
-      <p>Colour palettes compatible with Omarchy community themes, retro era looks with matching Linux app themes, icon packs, wallpapers and 14 desktop layouts. Mix them, then share the result as a link.</p>
-    </div>
-    <div class="grid grid-4">{eras}</div>
-    <p style="margin-top:24px"><a class="btn btn-ghost" href="/themes/">Browse all themes</a></p>
-  </div>
-</section>
-
-<section aria-labelledby="limits-h">
-  <div class="narrow">
-    <div class="section-head">
-      <span class="kicker">Honest limits</span>
-      <h2 id="limits-h">What LinPad is not, yet</h2>
-    </div>
-    <div class="callout limits">
-      <ul>
-        <li><b>Not on the App Store.</b> You sideload it with your own Apple ID. A free Apple ID needs a refresh every 7 days, which SideStore can do for you.</li>
-        <li><b>Emulated, so heavier apps are slow.</b> Without fast mode everything runs on an interpreter. Heavy web pages in Firefox can take many seconds to load.</li>
-        <li><b>Memory is the ceiling.</b> VS Code alone wants about 2 GB or more. Running it with Firefox on an 8 GB iPad is the edge today.</li>
-        <li><b>US keyboard layout in Linux apps</b> for now. Other layouts are the top item on the input backlog.</li>
-        <li><b>No Docker, no Steam, no x86 games.</b> There are no namespaces or cgroups, and the GL path stops at 2.1.</li>
-        <li><b>Not yet measured on an iPad.</b> Performance figures on this site come from a Mac or the simulator and are labelled that way. Device numbers come with v1.0.</li>
-      </ul>
-    </div>
-  </div>
-</section>
-
-<section class="alt" aria-labelledby="start-h">
-  <div class="wrap split">
+    bars = [("Node.js", 12.0), ("TypeScript tsc", 5.4), ("Geometric mean", 4.8), ("vite build", 3.5)]
+    bar_rows = "".join(
+        f'<li{MEAN if label == "Geometric mean" else ""}><span>{esc(label)}</span>'
+        f'<span class="bar" style="--w:{value / 12:.3f}" aria-hidden="true"></span><b>{value:g}×</b></li>'
+        for label, value in bars
+    )
+    fast = f"""
+<section class="sec sec-fast" id="fast" aria-labelledby="fast-h">
+  <div class="wrap fast-grid">
     <div>
-      <span class="kicker">Get started</span>
-      <h2 id="start-h">Three steps once v1.0 ships</h2>
-      <div class="steps">
-        <div class="step"><h3>Add the source</h3><p>Add the LinPad source to SideStore or AltStore, or download the IPA from GitHub Releases.</p></div>
-        <div class="step"><h3>Install and open</h3><p>LinPad unpacks its Linux system on first launch and walks you through a short setup.</p></div>
-        <div class="step"><h3>Optional: fast mode</h3><p>Set up StikDebug and LocalDevVPN once for the native JIT.</p></div>
-      </div>
-      <p style="margin-top:20px"><a href="/install/">Read the full install guide →</a></p>
+      <p class="kicker"><span aria-hidden="true">$</span> jit on <span class="tag">needs StikDebug</span></p>
+      <h2 id="fast-h" class="h-xl">Fast mode.<br><span class="muted">Native ARM64, just in time.</span></h2>
+      <p class="lede">iPadOS lets an app generate native code only while a debugger is attached. LinPad asks StikDebug to attach at launch, then runs Linux programs as native ARM64 code instead of interpreting them. Without it, everything still works, slower.</p>
+      <p class="fineprint">Speed-up of the JIT over LinPad's interpreter, measured on an M4 Mac with the command-line build. Not measured on an iPad yet; device numbers come with v1.0.</p>
     </div>
-    <figure class="shot">{picture("intro", "(max-width: 900px) 100vw, 560px")}<figcaption><b>First launch</b>Setup takes a couple of minutes, then you are at a desktop.</figcaption></figure>
+    <div class="fast-num">
+      <p class="mega" aria-label="About 4.8 times faster"><span class="grad">4.8×</span></p>
+      <p class="mega-cap">faster on average, in our Mac benchmarks</p>
+      <ul class="speed-bars" aria-label="Speed-up per workload">{bar_rows}</ul>
+    </div>
   </div>
-</section>
+</section>"""
 
-<section aria-labelledby="join-h">
+    safe = f"""
+<section class="sec sec-safe" id="safety" aria-labelledby="safe-h">
   <div class="wrap">
-    <div class="section-head center">
-      <span class="kicker">Join in</span>
-      <h2 id="join-h">Built in the open by one developer, for now</h2>
-      <p>LinPad is a full-time project. It needs testers with iPads, people who know emulators, Wayland or SwiftUI, theme makers, and sponsors who want it to exist.</p>
-    </div>
-    <div class="grid grid-2">
-      <article class="card"><h3>Contribute</h3><p>Good first issues are labelled, most work does not need an iPad, and themes are the easiest way in.</p><p style="margin-top:14px"><a class="btn btn-ghost btn-small" href="/contribute/">How to contribute</a></p></article>
-      <article class="card"><h3>Support the project</h3><p>Sponsorships pay for test iPads, the Apple developer account and the time to keep shipping.</p><p style="margin-top:14px"><a class="btn btn-primary btn-small" href="/support/">Support LinPad</a></p></article>
+    <header class="sec-head">
+      <p class="kicker"><span aria-hidden="true">$</span> linpad backup --all</p>
+      <h2 id="safe-h" class="h-xl">Never lose work.<br><span class="muted">Even when iPadOS gets impatient.</span></h2>
+    </header>
+    <ul class="bento">
+      <li class="tile tile-wide"><div class="ico">{ICONS["box"]}</div><h3>Backups in one file.</h3><p>Your Linux home folders, the list of apps you installed and the desktop's settings, in a single file. See what it holds before you restore it, on this iPad or another one.</p></li>
+      <li class="tile"><div class="ico">{ICONS["chip"]}</div><h3>Low-memory guard.</h3><p>When memory runs short, LinPad closes a Linux app itself, before iPadOS closes all of LinPad.</p></li>
+      <li class="tile"><div class="ico">{ICONS["window"]}</div><h3>Your windows come back.</h3><p>If iPadOS closes LinPad in the background, your session reopens where it was.</p></li>
+      <li class="tile"><div class="ico">{ICONS["wrench"]}</div><h3>Repair, not reinstall.</h3><p>A package upgrade broke something? Repair puts LinPad's own files back and leaves yours alone.</p></li>
+      <li class="tile"><div class="ico">{ICONS["files"]}</div><h3>Updates keep your files.</h3><p>Linux system updates download in the background, are verified with SHA-256 and install at the next launch. <code>/root</code> and <code>/home</code> stay as they were.</p></li>
+    </ul>
+  </div>
+</section>"""
+
+    free = f"""
+<section class="sec sec-free" id="open-source" aria-labelledby="free-h">
+  <div class="wrap">
+    <h2 id="free-h" class="display free-line">Free.<br><span class="grad">Open source.</span><br>GPLv3.</h2>
+    <ul class="free-facts">
+      <li><b>No price.</b> No subscription, no account, no paid tier.</li>
+      <li><b>No tracking.</b> No analytics. LinPad talks to GitHub for updates and to package mirrors when you install something.</li>
+      <li><b>No secrets.</b> Every line is on GitHub. A fork of iSH by way of iSH-ARM64, GPLv3 like them.</li>
+    </ul>
+    <div class="cta-row cta-left">
+      <a class="btn btn-ghost" href="{GITHUB}">{ICONS["github"]} Read the source</a>
+      <a class="btn btn-ghost" href="/contribute/">Contribute</a>
+      <a class="btn btn-ghost" href="/support/">Sponsor</a>
     </div>
   </div>
-</section>
-"""
+</section>"""
+
+    limits = """
+<section class="sec sec-limits" id="limits" aria-labelledby="limits-h">
+  <div class="wrap limits-grid">
+    <header>
+      <p class="kicker"><span aria-hidden="true">#</span> known issues</p>
+      <h2 id="limits-h" class="h-lg">What LinPad is not, yet.</h2>
+      <p class="muted">Straight answers, including the ones that are “not yet”. More in the <a href="/faq/">FAQ</a>.</p>
+    </header>
+    <ul class="limits-list">
+      <li><b>Not on the App Store.</b> You sideload it with your own Apple ID. A free Apple ID needs a refresh every 7 days, which SideStore can do for you.</li>
+      <li><b>Emulated, so heavy apps are slow.</b> Without fast mode everything runs on an interpreter. Heavy web pages can take many seconds.</li>
+      <li><b>Memory is the ceiling.</b> VS Code alone wants about 2 GB. VS Code plus Firefox on an 8 GB iPad is the edge today.</li>
+      <li><b>US keyboard layout in Linux apps</b> for now. Other layouts are next on the input backlog.</li>
+      <li><b>No Docker, no Steam, no x86 games.</b> There are no namespaces or cgroups, and the GL path stops at 2.1.</li>
+      <li><b>Not measured on an iPad yet.</b> Performance figures come from a Mac or the simulator and say so.</li>
+    </ul>
+  </div>
+</section>"""
+
+    install = f"""
+<section class="sec sec-install" id="get" aria-labelledby="get-h">
+  <div class="wrap">
+    <div class="install-card">
+      <p class="kicker"><span aria-hidden="true">$</span> v1.0 is being prepared</p>
+      <h2 id="get-h" class="h-xl">Get LinPad.</h2>
+      <p class="lede">For iPads with M1 or newer, on iPadOS 17 or later. When v1.0 ships: add the source to SideStore or AltStore, install, open. Until then, build it from source.</p>
+      <div class="copy"><code id="source-url">{SOURCE_URL}</code><button class="btn btn-ghost btn-small" type="button" data-copy="source-url">Copy</button></div>
+      <div class="cta-row cta-left">
+        <a class="btn btn-primary" href="/install/">Read the install guide</a>
+        <a class="btn btn-ghost" href="{GITHUB}/releases">Watch releases</a>
+      </div>
+    </div>
+  </div>
+</section>"""
+
+    body = seq + statement + apps + themes_html + store + keyboard + fast + safe + free + limits + install
     json_ld = {
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
         "name": "LinPad",
-        "alternateName": "Linux for iPad",
-        "description": "A real Linux desktop on the iPad: usermode Alpine Linux, a native SwiftUI desktop and real Linux apps as iPad windows.",
+        "alternateName": ["LinPad OS", "Linux for iPad"],
+        "description": "Linux for iPad: usermode Alpine Linux, a native SwiftUI desktop and real Linux apps as iPad windows. Free and open source.",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "iPadOS 17 or later",
         "license": "https://www.gnu.org/licenses/gpl-3.0.html",
         "url": DOMAIN + "/",
+        "image": DOMAIN + "/media/og.jpg",
         "codeRepository": GITHUB,
         "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
-        "author": {"@type": "Person", "name": "Vali", "url": X_URL},
+        "author": AUTHOR_LD,
     }
-    head = f'<script type="application/ld+json">{json.dumps(json_ld)}</script>'
-    return page(path="/", title="LinPad: a real Linux desktop on your iPad",
-                description="Firefox, VS Code, tiling windows and Alpine Linux running on the iPad itself. No VM, no jailbreak. Free and open source.",
-                body=body, active="home", extra_head=head)
+    head = (f'<script type="application/ld+json">{json.dumps(json_ld)}</script>'
+            f'<link rel="preload" as="image" type="image/avif" imagesrcset="{srcset("desk", "avif")}" '
+            f'imagesizes="(max-width: 700px) 92vw, (max-width: 1400px) 74vw, 1100px">')
+    return page(path="/", title="LinPad: Linux for iPad. Smarter. And free.",
+                description=f"LinPad runs real Linux apps on your iPad: Firefox, VS Code, GIMP and the rest of a {app_count}-app store, in native windows with a tiling desktop and themes. No VM, no jailbreak. Free and open source.",
+                body=body, active="home", extra_head=head, body_class="home")
+
+
+AUTHOR_LD = {"@type": "Person", "name": "Vali Neagu", "url": AUTHOR_SITE, "sameAs": [X_URL, AUTHOR_GITHUB]}
+
+PALETTE_SAMPLE = """<span class="t2">root@linpad</span>:<span class="t4">~/projects</span># git status
+On branch <span class="t5">main</span>
+Changes not staged for commit:
+  <span class="t1">modified:   src/app.ts</span>
+  <span class="t3">new file:   themes/colors.toml</span>
+<span class="t2">root@linpad</span>:<span class="t4">~/projects</span># ls ~
+<span class="t4">Desktop  Documents  projects</span>  hello.py  notes.txt
+<span class="t2">root@linpad</span>:<span class="t4">~/projects</span># btop <span class="t6">--theme</span> <span class="t5">current</span>
+<span class="t2">root@linpad</span>:<span class="t4">~/projects</span># <span class="cur"></span>"""
 
 
 def install_page() -> str:
@@ -1105,13 +1420,13 @@ PRESS_LONG = ("LinPad turns an M-series iPad into a Linux workstation. It runs u
               "Thunar and VLC appear as native windows in a SwiftUI desktop with tiling, workspaces, a command menu and themes compatible with Omarchy's "
               "community palettes. An optional native ARM64 JIT, enabled through StikDebug, makes it several times faster, and an experimental GPU path "
               "maps Linux Vulkan onto Metal. LinPad is sideloaded rather than distributed through the App Store, is licensed under the GPLv3, "
-              "and is developed by Vali, a London-based developer.")
+              "and is developed by Vali Neagu, a London-based developer.")
 
 
 def press_page() -> str:
     downloads = "".join(
         f'<li><a href="/media/press/linpad-{key}.jpg" download>linpad-{key}.jpg</a></li>'
-        for key in ("hero", "firefox", "vscode", "fastfetch", "tiler", "theme-app")
+        for key in PRESS_SHOTS
     )
     body = f"""
 <div class="narrow page-head">
@@ -1136,7 +1451,7 @@ def press_page() -> str:
     <tr><th scope="row">Linux</th><td>Alpine Linux 3.21, aarch64</td></tr>
     <tr><th scope="row">Source</th><td><a href="{GITHUB}">{GITHUB.replace("https://", "")}</a></td></tr>
     <tr><th scope="row">Website</th><td>linpados.com</td></tr>
-    <tr><th scope="row">Developer</th><td>Vali, London (<a href="{X_URL}">@AmbsdOP</a>, <a href="{YOUTUBE}">YouTube</a>)</td></tr>
+    <tr><th scope="row">Developer</th><td>Vali Neagu, London (<a href="{AUTHOR_SITE}">valineagu.com</a>, <a href="{X_URL}">@AmbsdOP</a>, <a href="{AUTHOR_GITHUB}">GitHub</a>, <a href="{YOUTUBE}">YouTube</a>)</td></tr>
   </table></div>
   <p>Performance figures published so far were measured on a Mac or in the iPad simulator. Please do not quote them as iPad results; device measurements will be added here.</p>
 
@@ -1175,6 +1490,15 @@ def not_found_page() -> str:
 # ---------------------------------------------------------------- output
 
 
+def minify_css(css: str) -> str:
+    """Comments and layout whitespace only; spaces inside values (calc, grid lines) are kept."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    css = re.sub(r"\s+", " ", css)
+    css = re.sub(r"\s*([{};,>])\s*", r"\1", css)
+    css = re.sub(r":\s+", ":", css)
+    return css.replace(";}", "}").strip() + "\n"
+
+
 def write(rel: str, text: str) -> None:
     target = DIST / rel
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -1192,7 +1516,9 @@ def build() -> None:
         shutil.rmtree(DIST)
     DIST.mkdir()
     shutil.copytree(SRC / "assets", DIST / "assets")
+    (DIST / "assets/site.css").write_text(minify_css((SRC / "assets/site.css").read_text()))
     shutil.copytree(MEDIA, DIST / "media", ignore=shutil.ignore_patterns("manifest.json"))
+    shutil.copytree(FONTS, DIST / "fonts")
     shutil.copy(SRC / "assets/logo.svg", DIST / "favicon.svg")
     for static in (SRC / "static").glob("*") if (SRC / "static").exists() else []:
         shutil.copy(static, DIST / static.name)
@@ -1203,7 +1529,7 @@ def build() -> None:
     ).hexdigest()[:10]
 
     pages = {
-        "index.html": home(themes),
+        "index.html": home(themes, shortcuts),
         "install/index.html": install_page(),
         "themes/index.html": themes_page(themes),
         "manual/index.html": manual_page(shortcuts, catalog),
