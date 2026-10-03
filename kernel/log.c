@@ -47,6 +47,9 @@ static int syslog_read(addr_t buf_addr, int_t len, int flags) {
         if ((size_t) len > fifo_capacity(&log_buf))
             len = fifo_capacity(&log_buf);
     }
+    // never more than the ring holds: fifo_read would fail and leave buf unset
+    if ((size_t) len > fifo_size(&log_buf))
+        len = fifo_size(&log_buf);
     char *buf = malloc(len);
     fifo_read(&log_buf, buf, len, flags);
     int fail = user_write(buf_addr, buf, len);

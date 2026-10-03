@@ -49,14 +49,17 @@ int fifo_read(struct fifo *fifo, void *buf, size_t size, int flags) {
     if (flags & FIFO_LAST)
         start = (start + (fifo->size - size)) % fifo->capacity;
 
-    size_t first_copy_size = fifo->capacity - fifo->start;
+    // the copy wraps at the end of the buffer, measured from where it starts
+    size_t first_copy_size = fifo->capacity - start;
     if (first_copy_size > size)
         first_copy_size = size;
     memcpy(buf, &fifo->buf[start], first_copy_size);
     memcpy((char *) buf + first_copy_size, &fifo->buf[0], size - first_copy_size);
 
     if (!(flags & FIFO_PEEK)) {
-        fifo->start = (start + size) % fifo->capacity;
+        // FIFO_LAST takes bytes off the end: the oldest byte stays where it is
+        if (!(flags & FIFO_LAST))
+            fifo->start = (start + size) % fifo->capacity;
         fifo->size -= size;
     }
     return 0;

@@ -300,5 +300,8 @@ if not meson.is_cross_build() and guest_arch == 'x86'
     test('float80', float80_test)
 endif
 
+fifo_test = executable('fifo_test', ['util/fifo.c', 'tests/unit/fifo-test.c'], include_directories: includes)
+test('fifo', fifo_test)
+
 e2e_test = find_program('tests/e2e/e2e.bash')
 test('e2e', e2e_test, args: ['-y'], timeout: 180)
