@@ -64,7 +64,7 @@
       const travel = rect.height - window.innerHeight;
       const progress = travel > 0 ? Math.min(1, Math.max(0, -rect.top / travel)) : 1;
       if (!cssDriven) seq.style.setProperty("--p", progress.toFixed(4));
-      seq.classList.toggle("is-done", progress > 0.89);
+      seq.classList.toggle("is-done", progress > 0.91);
     };
     const queue = () => {
       if (!queued) { queued = true; requestAnimationFrame(update); }

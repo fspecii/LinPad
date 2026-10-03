@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import html
 import json
 import re
@@ -73,31 +74,32 @@ class Shot:
     alt: str
 
 
+CAPTURES = IPAD_JIT / "site-captures"
+SEQ_FRAMES = ("boot-1", "boot-2", "boot-3", "boot-4", "boot-5")
+HERO_WIDTHS = (720, 1200, 1800)
+
+# Every screenshot comes from the current app in the iPad simulator (site-captures, Oct 2026),
+# after the icon-pack fix: no desktop shows the old glyph plates.
 MEDIA_SET = [
-    Shot("hero", ONBOARDING / "onboarding-12-demo.png", (800, 1280, 1920),
-         "LinPad desktop on an iPad: Firefox showing the LinPad GitHub page, a terminal and the Files app tiled side by side"),
-    Shot("firefox", SCREENSHOTS / "02-firefox.jpg", (640, 1200), "Firefox rendering a Wikipedia article as a window on the LinPad desktop"),
-    Shot("fastfetch", SCREENSHOTS / "03-foot-fastfetch.jpg", (640, 1200), "The foot terminal running fastfetch on Alpine Linux"),
-    Shot("vscode", SCREENSHOTS / "04-vscode.jpg", (640, 1200), "Visual Studio Code editing a TypeScript project with its integrated terminal"),
-    Shot("thunar", SCREENSHOTS / "10-thunar-native-window.jpg", (480, 900), "The Thunar file manager running as a native window"),
-    Shot("wallhaven", SCREENSHOTS / "09-wallhaven.jpg", (640, 1200), "The built-in wallpaper browser"),
-    Shot("overview", SCREENSHOTS / "07-style-ubuntu-overview.jpg", (640, 1200), "Workspace overview with live window thumbnails"),
-    Shot("personalize", ONBOARDING / "onboarding-05-personalize-tokyo-night.png", (640, 1200), "The first-run personalise step with layout, theme and wallpaper choices"),
-    Shot("themes-tour", ONBOARDING / "onboarding-03-tour-3-themes.png", (640, 1200), "Onboarding tour: themes in one keystroke"),
-    Shot("intro", ONBOARDING / "onboarding-02-intro.png", (640, 1200), "LinPad first-run screen: Your iPad is a computer now"),
-    Shot("keyboard", ONBOARDING / "onboarding-08-keyboard.png", (640, 1200), "Onboarding step showing keyboard and touch gestures"),
-    Shot("tiler", ICON_SHOTS / "Qogir-tiler-desktop.png", (640, 1200), "The keyboard-first tiling layout with gaps and borders"),
-    Shot("theme-app", THEME_SHOTS / "gallery.png", (640, 1200), "The Themes app gallery of desktop looks"),
-    Shot("desk", CACHE / "desk.png", (720, 1200, 1800),
-         "The LinPad desktop: Firefox on the LinPad GitHub page, a terminal showing fastfetch on Alpine Linux, and the Files app, tiled side by side"),
-    Shot("app-firefox", CACHE / "app-firefox.png", (720, 1400), "Firefox showing the Wikipedia article on Linux, maximised on the LinPad desktop"),
+    Shot("home", CACHE / "home-blur.png", HERO_WIDTHS, ""),
+    Shot("home-icon", CACHE / "home-icon.png", (136,), ""),
+    Shot("launch", CAPTURES / "launch.png", HERO_WIDTHS, ""),
+    *[Shot(key, CAPTURES / f"{key}.png", HERO_WIDTHS, "") for key in SEQ_FRAMES],
+    Shot("desk", CAPTURES / "desktop.png", HERO_WIDTHS,
+         "The LinPad desktop: a terminal showing fastfetch, the Files app and Firefox on the LinPad GitHub page"),
+    Shot("splash", CAPTURES / "splash.png", (720, 1200),
+         "The LinPad boot screen: an ASCII penguin, a progress bar and Starting Linux"),
+    Shot("app-firefox", CAPTURES / "firefox.png", (720, 1400),
+         "Firefox showing the Wikipedia article on Linux, as a window on the LinPad desktop"),
     Shot("app-vscode", VSCODE_SHOTS / "app-tsx.png", (720, 1280),
          "Visual Studio Code editing a React and TypeScript project, with the file explorer and the integrated terminal"),
-    Shot("store", STORE_SHOTS / "ish-01-home.png", (720, 1180),
-         "The LinPad Store home page: a FileZilla banner, then developer essentials such as Visual Studio Code, Geany and Meld, and internet apps"),
-    Shot("store-graphics", STORE_SHOTS / "ish-03-category-graphics.png", (720, 1180),
-         "The Graphics category of the LinPad Store with GIMP, Inkscape, Krita, Blender and more"),
+    Shot("store", CAPTURES / "store.png", (720, 1400),
+         "The LinPad Store: a FileZilla banner, developer essentials such as Visual Studio Code, Geany and Meld, and internet apps"),
+    Shot("theme-app", CAPTURES / "themes-app.png", (640, 1200), "The Themes app gallery of desktop looks"),
 ]
+if (CAPTURES / "fastmode.png").exists():
+    MEDIA_SET.append(Shot("fastmode-setup", CAPTURES / "fastmode.png", (720, 1400),
+                          "Settings › Fast Mode in LinPad, showing the status and the setup buttons"))
 
 ERA_LOOKS = [
     ("luna", "Luna", "Inspired by the XP era: a blue taskbar, a green start button and rolling hills."),
@@ -112,10 +114,10 @@ ERA_LOOKS = [
     ("dot-matrix", "Dot Matrix", "Monochrome with one red accent, dot-matrix type and desktop widgets."),
 ]
 for era_id, era_name, _ in ERA_LOOKS:
-    MEDIA_SET.append(Shot(f"era-{era_id}", THEME_SHOTS / f"{era_id}-desktop.png", (480, 960, 1366),
+    MEDIA_SET.append(Shot(f"era-{era_id}", CAPTURES / f"era-{era_id}.png", (480, 960, 1376),
                           f"The {era_name} desktop look in LinPad"))
 
-PRESS_SHOTS = ("desk", "app-firefox", "app-vscode", "store", "tiler", "theme-app")
+PRESS_SHOTS = ("desk", "app-firefox", "app-vscode", "store", "theme-app", "era-luna")
 ERA_PALETTE_IDS = {"luna", "aero", "aero-night", "aqua", "berry", "classic-98", "dot-matrix", "dot-matrix-dark", "platinum"}
 SHOT_BY_KEY = {shot.key: shot for shot in MEDIA_SET}
 
@@ -131,29 +133,33 @@ def run(cmd: list[str]) -> None:
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
 
 
-def make_composites() -> None:
-    """Screens that need more than a resize.
+# The LinPad icon on the captured home screen (2752×2064 px, landscape): x 716–851, y 542–677.
+HOME_ICON = (716, 542, 136, 136)
 
-    desk: the onboarding demo with the fastfetch output from docs/screenshots pasted into its empty terminal,
-    so the hero shows a terminal that has run something. app-firefox: the Firefox window cropped to 16:10.
-    """
+
+def make_composites() -> None:
+    """The hero's home screen: everything blurred and dimmed except the LinPad icon, which is cut
+    out separately so the page can press it. Apple's own icons stay unreadable."""
     CACHE.mkdir(exist_ok=True)
-    demo = ONBOARDING / "onboarding-12-demo.png"
-    fastfetch, prompt = CACHE / "fastfetch.png", CACHE / "prompt.png"
-    # Coordinates are for the 2732×2048 demo and the 1600×1112 fastfetch screenshot.
-    run(["magick", str(SCREENSHOTS / "03-foot-fastfetch.jpg"), "-crop", "890x410+8+128", "+repage",
-         "-fuzz", "9%", "-fill", "black", "-opaque", "rgb(21,24,43)", "-resize", "141%", str(fastfetch)])
-    run(["magick", str(demo), "-crop", "222x58+1376+168", "+repage", str(prompt)])
-    output_height = int(subprocess.run(["magick", "identify", "-format", "%h", str(fastfetch)],
-                                       check=True, capture_output=True, text=True).stdout)
-    next_prompt = 236 + output_height + 30
-    run(["magick", str(demo), "-fill", "black", "-draw", "rectangle 1749,184 1772,222",
-         str(fastfetch), "-geometry", "+1390+236", "-composite",
-         str(prompt), "-geometry", f"+1376+{next_prompt}", "-composite",
-         "-fill", "rgb(191,242,191)", "-draw", f"rectangle 1600,{next_prompt + 10} 1617,{next_prompt + 46}",
-         str(CACHE / "desk.png")])
-    run(["magick", str(IPAD_JIT / "r4-firefox-200s.png"), "-crop", "2124x1328+0+0", "+repage",
-         str(CACHE / "app-firefox.png")])
+    home = CAPTURES / "home.png"
+    run(["magick", str(home), "-blur", "0x18", "-modulate", "72,80", str(CACHE / "home-blur.png")])
+    x, y, w, h = HOME_ICON
+    radius = round(w * 0.225)
+    run(["magick", str(home), "-crop", f"{w}x{h}+{x}+{y}", "+repage",
+         "(", "-size", f"{w}x{h}", "xc:none", "-fill", "white", "-draw", f"roundrectangle 0,0 {w - 1},{h - 1} {radius},{radius}", ")",
+         "-compose", "DstIn", "-composite", str(CACHE / "home-icon.png")])
+
+
+def prune_media() -> None:
+    """Drops encoded screenshots whose Shot is gone, so retired captures do not linger."""
+    keys = {shot.key for shot in MEDIA_SET}
+    for path in MEDIA.glob("*-*.*"):
+        match = re.fullmatch(r"(.+)-(\d+)\.(webp|avif)", path.name)
+        if match and match[1] not in keys:
+            path.unlink()
+    for path in (MEDIA / "press").glob("linpad-*.jpg"):
+        if path.stem.removeprefix("linpad-") not in PRESS_SHOTS:
+            path.unlink()
 
 
 FONT_FACES = [
@@ -210,6 +216,7 @@ def refresh_media() -> None:
         run(["magick", str(SHOT_BY_KEY[key].source), "-strip", "-resize", "1920x>", "-quality", "84",
              str(press / f"linpad-{key}.jpg")])
     make_brand_images()
+    prune_media()
     (MEDIA / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
 
 
@@ -234,7 +241,8 @@ def make_brand_images() -> None:
     if not CHROME.exists():
         sys.exit(f"brand images need Google Chrome at {CHROME}")
     logo = (SRC / "assets/logo.svg").read_text()
-    for size, name in ((32, "favicon-32.png"), (180, "apple-touch-icon.png"), (512, "press/linpad-logo-512.png")):
+    for size, name in ((32, "favicon-32.png"), (180, "apple-touch-icon.png"), (256, "app-icon-256.png"),
+                       (512, "press/linpad-logo-512.png")):
         sized = logo.replace("<svg ", f'<svg width="{size}" height="{size}" ', 1)
         chrome_shot(f"<!doctype html><style>html,body{{margin:0;background:transparent}}svg{{display:block}}</style>{sized}",
                     MEDIA / name, size, size, transparent=True)
@@ -397,7 +405,9 @@ ICONS = {
 }
 
 NAV = [
+    ("/download/", "Download", "download"),
     ("/install/", "Install", "install"),
+    ("/fast-mode/", "Fast mode", "fast"),
     ("/themes/", "Themes", "themes"),
     ("/manual/", "Manual", "manual"),
     ("/faq/", "FAQ", "faq"),
@@ -471,7 +481,7 @@ def page(*, path: str, title: str, description: str, body: str, active: str, og_
     <div class="gnav-tools">
       <a class="icon-btn" href="{GITHUB}" aria-label="LinPad on GitHub">{ICONS["github"]}</a>
       <button class="icon-btn" id="theme-toggle" type="button" aria-label="Switch to light theme">{ICONS["sun"]}</button>
-      <a class="gnav-cta" href="/install/">Get LinPad</a>
+      <a class="gnav-cta" href="/download/">Get LinPad</a>
       <button class="icon-btn menu-btn" id="menu-toggle" type="button" aria-label="Menu" aria-controls="nav-links" aria-expanded="false">{ICONS["menu"]}</button>
     </div>
   </nav>
@@ -501,7 +511,9 @@ def footer() -> str:
         <div>
           <h2>Project</h2>
           <ul>
-            <li><a href="/install/">Install</a></li>
+            <li><a href="/download/">Download</a></li>
+            <li><a href="/install/">Install guide</a></li>
+            <li><a href="/fast-mode/">Fast mode</a></li>
             <li><a href="/themes/">Themes</a></li>
             <li><a href="/manual/">Manual</a></li>
             <li><a href="/faq/">FAQ</a></li>
@@ -557,65 +569,20 @@ def tablet(screen: str, *, cls: str = "", screen_cls: str = "") -> str:
     return (f'<div class="tablet-cq {cls}"><div class="tablet"><div class="tablet-screen {screen_cls}">{screen}</div></div></div>')
 
 
-BOOT_LOG: list[tuple[str, str]] = [
-    ("LinPad boot · iSH-ARM64 usermode Linux · aarch64", "hd"),
-    ("[    0.000000] Linux version 4.20.69-ish (linpad) #1 SMP", ""),
-    ("[    0.000000] Machine: iPad, Apple silicon, iPadOS app sandbox", "x"),
-    ("[    0.000731] mm: memory allowance read, low-memory guard on", ""),
-    ("[    0.002114] jit: native ARM64 translator ready (fast mode)", ""),
-    ("[    0.004380] fakefs: / mounted, Alpine Linux 3.21 aarch64", ""),
-    ("[    0.004912] fakefs: /mnt/ipad mounted, iPad folders linked", "x"),
-    ("[    0.010277] gpu: virtio-gpu → Venus → MoltenVK → Metal", ""),
-    ("[    0.011653] snd: PulseAudio → iOS audio bridge", "x"),
-    ("[    0.013090] net: sockets through iPadOS, DNS ok", "x"),
-    (" * Mounting /proc, /sys and /dev ...", "ok"),
-    (" * Starting ishwl Wayland compositor ...", "ok"),
-    (" * Starting PulseAudio sound server ...", "ok"),
-    (" * Applying colour theme tokyo-night ...", "ok"),
-    (" * Restoring session: 3 windows ...", "ok"),
-    ("", "x"),
-    ("Welcome to Alpine Linux 3.21 on LinPad", "hd"),
-    ("Kernel 4.20.69-ish on aarch64 (tty1)", "x"),
-    ("Starting LinPad desktop…", "go"),
-]
-BOOT_START, BOOT_END = 0.13, 0.52
+FASTFETCH = r"""/ # fastfetch
+<span class="c7">┌─────────────────────┐</span>   <span class="c4">root</span>@<span class="c4">iPad Pro 13-inch (M5)</span>
+<span class="c7">│</span> <b class="logo">LiNPAD</b>              <span class="c7">│</span>   -------------------------
+<span class="c7">│</span>                     <span class="c7">│</span>   <span class="c4">LinPad</span>  LinPad 1.4.0
+<span class="c7">│</span>   Linux for iPad    <span class="c7">│</span>   <span class="c4">OS</span>      Linux for iPad (Alpine 3.21 base) aarch64
+<span class="c7">└──────────●──────────┘</span>   <span class="c4">iPad</span>    iPad (iPad17,4)
+                              <span class="c4">Chip</span>    Apple silicon (10 cores, emulated by iSH)
+                              <span class="c4">JIT</span>     compatibility (threaded code; fast mode is off)
+                              <span class="c4">GPU</span>     Apple iOS simulator GPU via Metal (Venus)
+                              <span class="c4">Kernel</span>  Linux 4.20.69-ish
+                              <span class="c4">Shell</span>   sh
 
-
-def boot_lines() -> tuple[str, str]:
-    """The boot log twice: as scroll-typed lines inside the hero screen, and as a static block for reduced motion."""
-    width = max(len(text) for text, kind in BOOT_LOG if kind == "ok") + 3
-    step = (BOOT_END - BOOT_START) / (len(BOOT_LOG) - 1)
-    typed, static = [], []
-    for index, (text, kind) in enumerate(BOOT_LOG):
-        if kind == "ok":
-            shown = f'{esc(text.ljust(width))}<span class="ok">[ ok ]</span>'
-            length = width + 6
-        elif text.startswith("["):
-            stamp, rest = text[:14], text[14:]
-            shown = f'<span class="ts">{esc(stamp)}</span>{esc(rest)}'
-            length = len(text)
-        else:
-            shown, length = esc(text), len(text)
-        classes = " ".join(c for c in ("bl", kind if kind in ("hd", "go") else "", "x" if kind == "x" else "") if c)
-        start = BOOT_START + index * step
-        typed.append(f'<span class="{classes}" style="--s:{start:.3f};--n:{length + 3}">{shown or "&nbsp;"}</span>')
-        static.append(f'<span class="{classes}">{shown}</span>')
-    return "".join(typed), "".join(static)
-
-
-FASTFETCH = r"""<span class="c4">root@ish</span>:<span class="c6">~</span># fastfetch
-<span class="c4"> _  ____  _   _ </span>  <span class="c4">root</span>@<span class="c4">iPad Air 11-inch (M3)</span>
-<span class="c4">(_)/ ___|| | | |</span>  -------------------------
-<span class="c4">| |\___ \| |_| |</span>  <span class="c4">OS</span>: iSH Linux Desktop (Alpine 3.21 base) aarch64
-<span class="c4">| | ___) |  _  |</span>  <span class="c4">Kernel</span>: Linux 4.20.69-ish
-<span class="c4">|_||____/|_| |_|</span>  <span class="c4">Packages</span>: 189 (apk)
-<span class="c4">  Linux on iPad </span>  <span class="c4">Terminal</span>: foot 1.19.0
-                  <span class="c4">CPU</span>: Apple M3 (10 cores, emulated by iSH)
-                  <span class="c4">GPU</span>: Apple iOS simulator GPU (Venus, Vulkan)
-                  <span class="c4">Memory</span>: 4.01 GiB / 4.10 GiB (98%)
-
-                  <span class="sw"><i class="b0"></i><i class="b1"></i><i class="b2"></i><i class="b3"></i><i class="b4"></i><i class="b5"></i><i class="b6"></i><i class="b7"></i></span>
-<span class="c4">root@ish</span>:<span class="c6">~</span># <span class="cur"></span>"""
+                              <span class="sw"><i class="b0"></i><i class="b1"></i><i class="b2"></i><i class="b3"></i><i class="b4"></i><i class="b5"></i><i class="b6"></i><i class="b7"></i></span>
+/ # <span class="cur"></span>"""
 
 
 def term_window(title: str, content: str, *, label: str, cls: str = "") -> str:
@@ -670,7 +637,6 @@ PALETTE_DEFAULT = "tokyo-night"
 
 
 def home(themes: list[dict], shortcuts: list[tuple[str, str, str]]) -> str:
-    typed_boot, static_boot = boot_lines()
     palettes = [t for t in themes if t["id"] not in ERA_PALETTE_IDS]
     app_count, tested_count, categories = store_stats()
     keys_by_title = {title: keys for _, title, keys in shortcuts}
@@ -678,7 +644,24 @@ def home(themes: list[dict], shortcuts: list[tuple[str, str, str]]) -> str:
     if missing:
         sys.exit(f"home page shortcuts not found in {SHORTCUTS_SWIFT.name}: {missing}")
 
-    desk = picture("desk", "(max-width: 700px) 92vw, (max-width: 1400px) 74vw, 1100px", lazy=False)
+    seq_sizes = "(max-width: 700px) 92vw, (max-width: 1400px) 74vw, 1100px"
+    icon_x, icon_y, icon_w, icon_h = HOME_ICON
+    pct = lambda value, total: f"{value / total * 100:.3f}%"  # noqa: E731
+    W, H = 2752, 2064
+    frames = "".join(
+        f'<div class="seq-frame" style="--f:{0.38 + i * 0.055:.3f}">{picture(key, seq_sizes)}</div>'
+        for i, key in enumerate(SEQ_FRAMES)
+    )
+    screen = f"""<div class="seq-home">{picture("home", seq_sizes, lazy=False)}</div>
+<div class="seq-icon" style="left:{pct(icon_x, W)};top:{pct(icon_y, H)};width:{pct(icon_w, W)}">{picture("home-icon", "96px", lazy=False)}<span>Linux for iPad</span></div>
+<div class="seq-touch" style="left:{pct(icon_x + icon_w / 2, W)};top:{pct(icon_y + icon_h / 2, H)}"></div>
+<div class="seq-launch" style="--il:{pct(icon_x, W)};--it:{pct(icon_y, H)};--ir:{pct(W - icon_x - icon_w, W)};--ib:{pct(H - icon_y - icon_h, H)};--ox:{pct(icon_x + icon_w / 2, W)};--oy:{pct(icon_y + icon_h / 2, H)}">
+  <div class="seq-launch-in">{picture("launch", seq_sizes)}</div>
+  <img class="seq-launch-icon" src="/media/app-icon-256.png" alt="" width="256" height="256" style="left:{pct(icon_x, W)};top:{pct(icon_y, H)};width:{pct(icon_w, W)}">
+</div>
+<div class="seq-frames">{frames}</div>
+<div class="seq-desk">{picture("desk", seq_sizes)}</div>
+<div class="seq-dim"></div>"""
     seq = f"""
 <section class="seq dark-scope" aria-labelledby="seq-h">
   <div class="seq-stage">
@@ -686,21 +669,20 @@ def home(themes: list[dict], shortcuts: list[tuple[str, str, str]]) -> str:
       <p class="seq-badges"><span class="pill pill-pre"><span class="dot" aria-hidden="true"></span>Pre-release</span><span class="pill">Free · GPLv3</span></p>
       <h1 id="seq-h" class="display">Linux, on your iPad.</h1>
       <p class="seq-sub">Firefox, VS Code and the whole Alpine Linux archive, running on the iPad itself. <span class="nowrap">No VM. No jailbreak.</span></p>
-      <p class="seq-hint" aria-hidden="true"><span>scroll to boot</span></p>
+      <p class="seq-hint" aria-hidden="true"><span>scroll to open</span></p>
     </div>
-    <div class="seq-device">
-      {tablet(f'<pre class="boot" aria-hidden="true">{typed_boot}</pre><div class="seq-desk">{desk}</div><div class="seq-dim"></div>', cls="tablet-hero")}
+    <div class="seq-device" role="img" aria-label="An iPad home screen with the LinPad app. A tap opens it: the launch screen, the first-run screen while Linux unpacks, then the LinPad desktop with a terminal, Files and Firefox.">
+      {tablet(screen, cls="tablet-hero")}
     </div>
     <div class="seq-final">
       <p class="seq-line">From now on, your iPad is <span class="grad">smarter.</span><br><span class="grad grad-2">And free.</span></p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="/install/">Get LinPad</a>
+        <a class="btn btn-primary" href="/download/">Get LinPad</a>
         <a class="btn btn-ghost" href="{GITHUB}">{ICONS["github"]} Star on GitHub</a>
       </div>
-      <p class="seq-note">Development build in the iPad simulator. Boot text is illustrative; the fastfetch output in the terminal comes from a separate real run.</p>
+      <p class="seq-note">Captured from the current development build in the iPad simulator. The home screen is blurred except for LinPad; the touch and zoom are drawn by this page.</p>
     </div>
   </div>
-  <div class="seq-static" aria-hidden="true"><pre class="boot-static">{static_boot}</pre></div>
 </section>"""
 
     statement = """
@@ -925,13 +907,14 @@ def home(themes: list[dict], shortcuts: list[tuple[str, str, str]]) -> str:
 <section class="sec sec-install" id="get" aria-labelledby="get-h">
   <div class="wrap">
     <div class="install-card">
-      <p class="kicker"><span aria-hidden="true">$</span> v1.0 is being prepared</p>
+      <p class="kicker"><span aria-hidden="true">$</span> pre-release, free</p>
       <h2 id="get-h" class="h-xl">Get LinPad.</h2>
-      <p class="lede">For iPads with M1 or newer, on iPadOS 17 or later. When v1.0 ships: add the source to SideStore or AltStore, install, open. Until then, build it from source.</p>
+      <p class="lede">Free, for iPads with M1 or newer on iPadOS 17 or later. Add the source to SideStore or AltStore, or download the IPA. The install guide is written for people who have never sideloaded an app.</p>
       <div class="copy"><code id="source-url">{SOURCE_URL}</code><button class="btn btn-ghost btn-small" type="button" data-copy="source-url">Copy</button></div>
       <div class="cta-row cta-left">
-        <a class="btn btn-primary" href="/install/">Read the install guide</a>
-        <a class="btn btn-ghost" href="{GITHUB}/releases">Watch releases</a>
+        <a class="btn btn-primary" href="/download/">Download LinPad</a>
+        <a class="btn btn-ghost" href="/install/">Install guide</a>
+        <a class="btn btn-ghost" href="/fast-mode/">Fast mode guide</a>
       </div>
     </div>
   </div>
@@ -954,7 +937,7 @@ def home(themes: list[dict], shortcuts: list[tuple[str, str, str]]) -> str:
         "author": AUTHOR_LD,
     }
     head = (f'<script type="application/ld+json">{json.dumps(json_ld)}</script>'
-            f'<link rel="preload" as="image" type="image/avif" imagesrcset="{srcset("desk", "avif")}" '
+            f'<link rel="preload" as="image" type="image/avif" imagesrcset="{srcset("home", "avif")}" '
             f'imagesizes="(max-width: 700px) 92vw, (max-width: 1400px) 74vw, 1100px">')
     return page(path="/", title="LinPad: Linux for iPad. Smarter. And free.",
                 description=f"LinPad runs real Linux apps on your iPad: Firefox, VS Code, GIMP and the rest of a {app_count}-app store, in native windows with a tiling desktop and themes. No VM, no jailbreak. Free and open source.",
@@ -974,78 +957,255 @@ Changes not staged for commit:
 <span class="t2">root@linpad</span>:<span class="t4">~/projects</span># <span class="cur"></span>"""
 
 
+LATEST_VERSION = "1.5.0"
+RELEASE_OUT = REPO / "release/out"
+SOURCE_JSON = REPO / "release/source.json"
+
+
+def _version_key(text: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in text.split(".") if part.isdigit())
+
+
+@dataclass(frozen=True)
+class Release:
+    version: str
+    ipa: str
+    url: str
+    size: str
+    sha256: str
+
+
+def release_info() -> Release:
+    """The newest release we know of: release/out/<version>/ when the publish script has run here,
+    else LATEST_VERSION. Size and checksum are filled only from real files, never guessed."""
+    built = [d.name for d in RELEASE_OUT.glob("*") if d.is_dir() and re.fullmatch(r"\d+(\.\d+)+", d.name)] \
+        if RELEASE_OUT.exists() else []
+    version = max(built + [LATEST_VERSION], key=_version_key)
+    ipa = f"LinPad-{version}.ipa"
+    out = RELEASE_OUT / version
+    size, sha = "", ""
+    if (out / ipa).exists():
+        size = f"{(out / ipa).stat().st_size / 1e6:.0f} MB"
+        sha = hashlib.sha256((out / ipa).read_bytes()).hexdigest()
+    elif (out / f"{ipa}.sha256").exists():
+        candidate = (out / f"{ipa}.sha256").read_text().split()[0]
+        sha = "" if set(candidate) == {"0"} else candidate
+    if not size and SOURCE_JSON.exists():
+        for app in json.loads(SOURCE_JSON.read_text()).get("apps", []):
+            for entry in app.get("versions", []):
+                if entry.get("version") == version and entry.get("size"):
+                    size = f"{entry['size'] / 1e6:.0f} MB"
+    return Release(version=version, ipa=ipa, url=f"{GITHUB}/releases/latest/download/{ipa}",
+                   size=size, sha256=sha)
+
+
+def settings_path(*parts: str) -> str:
+    """An iPadOS Settings path drawn as chips (no screenshots of Apple's Settings app)."""
+    return '<span class="path">' + "".join(f"<span>{esc(p)}</span>" for p in parts) + "</span>"
+
+
+def maybe_shot(key: str, caption: str, sizes: str = "(max-width: 820px) 92vw, 760px") -> str:
+    if key not in MANIFEST:
+        return ""
+    return (f'<figure class="guide-shot">{tablet(picture(key, sizes), cls="tablet-wide")}'
+            f"<figcaption>{caption}</figcaption></figure>")
+
+
+def download_page() -> str:
+    rel = release_info()
+    sha = (f'<code class="sha">{rel.sha256}</code>' if rel.sha256
+           else "Published next to the IPA on the release page as <code>" + esc(rel.ipa) + ".sha256</code>.")
+    size = esc(rel.size) if rel.size else "Shown on the release page"
+    body = f"""
+<div class="wrap page-head dl-head">
+  <span class="kicker">Download</span>
+  <h1>Get LinPad.</h1>
+  <p>Free, for iPads with an M1 chip or newer. LinPad is not on the App Store: you install it with your own Apple ID through a sideloading app. The <a href="/install/">install guide</a> walks you through it, start to finish.</p>
+</div>
+<div class="wrap dl-grid">
+  <section class="dl-card dl-main" aria-labelledby="dl-ipa">
+    <div class="dl-icon"><img src="/media/app-icon-256.png" alt="" width="96" height="96"></div>
+    <h2 id="dl-ipa">LinPad {esc(rel.version)}</h2>
+    <p class="muted">The app with the Linux system inside, as an IPA file for SideStore, AltStore, Sideloadly or iloader.</p>
+    <p><a class="btn btn-primary btn-big" href="{rel.url}">Download {esc(rel.ipa)}</a></p>
+    <dl class="dl-facts">
+      <div><dt>Version</dt><dd>{esc(rel.version)}</dd></div>
+      <div><dt>Size</dt><dd>{size}</dd></div>
+      <div><dt>Needs</dt><dd>iPad with M1 or newer, iPadOS 17 or later</dd></div>
+      <div class="wide"><dt>SHA-256</dt><dd>{sha}</dd></div>
+    </dl>
+    <p class="fineprint">The link always points to the newest release on GitHub. <a href="{GITHUB}/releases">All releases and notes</a>.</p>
+  </section>
+  <section class="dl-card" aria-labelledby="dl-source">
+    <h2 id="dl-source" class="h-md">Or add the source.</h2>
+    <p class="muted">Add LinPad to SideStore or AltStore once. They offer every new version from then on.</p>
+    <div class="cta-row cta-left">
+      <a class="btn btn-ghost" href="sidestore://source?url={SOURCE_URL}">Add to SideStore</a>
+      <a class="btn btn-ghost" href="altstore://source?url={SOURCE_URL}">Add to AltStore</a>
+    </div>
+    <p class="muted" style="margin-top:18px">The buttons open the app on your iPad. Or copy the source address:</p>
+    <div class="copy"><code id="source-url">{SOURCE_URL}</code><button class="btn btn-ghost btn-small" type="button" data-copy="source-url">Copy</button></div>
+  </section>
+  <section class="dl-card" aria-labelledby="dl-next">
+    <h2 id="dl-next" class="h-md">Then what?</h2>
+    <ol class="dl-steps">
+      <li><a href="/install/">Install it</a> with SideStore (recommended), AltStore or a computer.</li>
+      <li>Open it. The Linux system unpacks once, then a short setup runs.</li>
+      <li>Optional: <a href="/fast-mode/">turn on fast mode</a> for native-speed Linux apps.</li>
+    </ol>
+  </section>
+</div>
+<div class="narrow" style="padding:48px 0 120px">
+  <div class="callout"><p><b>Before you download:</b> LinPad is pre-release software made by one developer. It is free and open source (GPLv3), and its <a href="{GITHUB}">source is on GitHub</a>. Never delete the app to update it: that deletes its Linux system and your files in it.</p></div>
+</div>
+"""
+    return page(path="/download/", title="Download", body=body, active="download",
+                description=f"Download LinPad {rel.version} for iPad: the IPA from GitHub, or add the LinPad source to SideStore or AltStore.")
+
+
 def install_page() -> str:
     body = f"""
 <div class="narrow page-head">
   <span class="kicker">Install</span>
-  <h1>Install LinPad</h1>
-  <p>LinPad is sideloaded: you install it with your own Apple ID. It is not on the App Store and does not need a jailbreak.</p>
+  <h1>Install LinPad.</h1>
+  <p>A step-by-step guide for people who have never sideloaded an app. Plan about 20 minutes the first time; after that, updates take a tap.</p>
 </div>
-<div class="narrow prose" style="padding-bottom:88px">
-  <div class="callout info"><p><b>Status:</b> the first public release (v1.0) is being prepared. The source below starts listing LinPad when it is published on <a href="{GITHUB}/releases">GitHub Releases</a>. Until then you can build it from source.</p></div>
+<div class="narrow prose guide" style="padding-bottom:120px">
+  <nav class="guide-toc" aria-label="On this page"><ol>
+    <li><a href="#need">What you need</a></li>
+    <li><a href="#how">Pick a way to install</a></li>
+    <li><a href="#sidestore">SideStore, step by step</a></li>
+    <li><a href="#altstore">AltStore</a></li>
+    <li><a href="#computer">With a computer only</a></li>
+    <li><a href="#trust">Trust and Developer Mode</a></li>
+    <li><a href="#seven-days">The 7-day limit</a></li>
+    <li><a href="#first-launch">First launch</a></li>
+    <li><a href="#updates">Updates and your files</a></li>
+  </ol></nav>
 
-  <h2 id="requirements">Requirements</h2>
-  <div class="table-wrap"><table>
-    <tr><th scope="row">iPad</th><td>Apple Silicon (M1 or newer). Developed on an iPad Air with M3. 8 GB of memory is recommended for VS Code.</td></tr>
-    <tr><th scope="row">iPadOS</th><td>17 or later.</td></tr>
-    <tr><th scope="row">Storage</th><td>Several GB free: the Linux system unpacks to about 2.3 GB, and apps you add take more.</td></tr>
-    <tr><th scope="row">Apple ID</th><td>Free or paid. A free Apple ID's apps expire after 7 days unless refreshed.</td></tr>
-    <tr><th scope="row">Keyboard</th><td>Optional but recommended. Trackpad, mouse and touch all work.</td></tr>
-  </table></div>
+  <h2 id="need">What you need</h2>
+  <ul class="needs">
+    <li><b>An iPad with an M1 chip or newer</b> (iPad Pro 2021 or later, iPad Air 2022 or later), on iPadOS 17 or later. 8 GB of memory or more is best for VS Code.</li>
+    <li><b>A free Apple ID.</b> The one you already use works. A paid developer account works too and removes the 7-day limit.</li>
+    <li><b>A Mac, Windows or Linux computer and a USB cable,</b> once, for the first setup.</li>
+    <li><b>Wi-Fi</b> and a few GB of free space: the Linux system unpacks to about 2.3 GB.</li>
+  </ul>
 
-  <h2 id="sidestore">Option A: SideStore or AltStore</h2>
-  <div class="steps">
-    <div class="step"><h3>Set up your sideloader</h3><p>Install <a href="https://sidestore.io">SideStore</a> or <a href="https://altstore.io">AltStore</a> following their own guides.</p></div>
-    <div class="step"><h3>Add the LinPad source</h3>
-      <div class="copy"><code id="source-url">{SOURCE_URL}</code><button class="btn btn-ghost btn-small" type="button" data-copy="source-url">Copy</button></div>
-      <p>In SideStore: Sources › Add, paste the URL.</p></div>
-    <div class="step"><h3>Install LinPad</h3><p>Install it from the source. Updates appear in the sideloader, and LinPad also tells you about them in Settings › Updates.</p></div>
+  <h2 id="how">Pick a way to install</h2>
+  <div class="choices">
+    <article class="choice choice-rec"><span class="tag tag-ok">recommended</span><h3>SideStore</h3><p>Installs and refreshes apps on the iPad itself. After a one-time setup on a computer you never need the computer again.</p><a href="#sidestore">Steps</a></article>
+    <article class="choice"><h3>AltStore</h3><p>Similar, but refreshing needs AltServer running on a computer on the same Wi-Fi.</p><a href="#altstore">Steps</a></article>
+    <article class="choice"><h3>Sideloadly or iloader</h3><p>Install the IPA straight from a computer. You redo it every 7 days with a free Apple ID.</p><a href="#computer">Steps</a></article>
   </div>
 
-  <h2 id="ipa">Option B: install the IPA</h2>
-  <p>Each <a href="{GITHUB}/releases">release</a> has <code>LinPad-&lt;version&gt;.ipa</code>. Install it with <a href="https://github.com/nab138/iloader">iloader</a>, Sideloadly or Xcode, signed with your own Apple ID. Releases are not signed with the project's certificate on purpose.</p>
+  <h2 id="sidestore">SideStore, step by step</h2>
+  <p>SideStore's own guide is at <a href="https://docs.sidestore.io/docs/installation/prerequisites">docs.sidestore.io</a>; this is the same path, in short.</p>
+  <ol class="steps-list">
+    <li><h3>Install LocalDevVPN on the iPad</h3><p>Get <b>LocalDevVPN</b> from the App Store. It is a VPN that only loops back to the iPad itself: no traffic leaves the device. SideStore uses it to talk to the iPad's own install service, and needs it switched on whenever it installs or refreshes apps.</p></li>
+    <li><h3>Install iloader on your computer</h3><p>Download <a href="https://github.com/nab138/iloader/releases">iloader</a> for macOS, Windows or Linux. On Windows, install iTunes from Apple's website first so the cable connection works.</p></li>
+    <li><h3>Connect the iPad and install SideStore</h3><p>Plug the iPad in with a cable, unlock it and tap <b>Trust</b>. In iloader, sign in with your Apple ID, pick the iPad and choose <b>Install SideStore</b>. iloader also puts the pairing file SideStore needs on the iPad.</p></li>
+    <li><h3>Trust your Apple ID on the iPad</h3><p>{settings_path("Settings", "General", "VPN & Device Management")} then tap your Apple ID under Developer App and tap <b>Trust</b>.</p></li>
+    <li><h3>Turn on Developer Mode</h3><p>{settings_path("Settings", "Privacy & Security", "Developer Mode")} Switch it on; the iPad restarts and asks you to confirm.</p></li>
+    <li><h3>Open SideStore</h3><p>Connect LocalDevVPN, open SideStore and sign in with the same Apple ID. In <b>My Apps</b>, tap the <b>7 DAYS</b> button next to SideStore once to refresh it.</p></li>
+    <li><h3>Add LinPad</h3><p>On this iPad, open <a href="/download/">the download page</a> and tap <b>Add to SideStore</b>, or in SideStore go to Sources › + and paste:</p>
+      <div class="copy"><code id="source-url">{SOURCE_URL}</code><button class="btn btn-ghost btn-small" type="button" data-copy="source-url">Copy</button></div>
+      <p>Then install LinPad from the source. Keep LocalDevVPN connected while it installs.</p></li>
+  </ol>
+  <div class="callout info"><p><b>A free Apple ID can have 3 sideloaded apps at once,</b> SideStore included, and register 10 new apps a week. SideStore, LinPad and StikDebug (for fast mode) fill those 3 slots. App Store apps like LocalDevVPN do not count.</p></div>
+
+  <h2 id="altstore">AltStore</h2>
+  <ol class="steps-list">
+    <li><h3>Set up AltStore</h3><p>Follow <a href="https://faq.altstore.io">AltStore's guide</a>: install AltServer on your computer, then AltStore on the iPad.</p></li>
+    <li><h3>Trust and Developer Mode</h3><p>The same two settings as <a href="#trust">below</a>.</p></li>
+    <li><h3>Add LinPad</h3><p>Tap <b>Add to AltStore</b> on <a href="/download/">the download page</a>, or Browse › Sources › + with the source address above, and install LinPad.</p></li>
+    <li><h3>Refresh weekly</h3><p>AltStore refreshes apps when AltServer is running on a computer on the same Wi-Fi.</p></li>
+  </ol>
+
+  <h2 id="computer">With a computer only: Sideloadly or iloader</h2>
+  <ol class="steps-list">
+    <li><h3>Download the IPA</h3><p>Get <code>LinPad-…ipa</code> from <a href="/download/">Download</a> on your computer.</p></li>
+    <li><h3>Install it with your Apple ID</h3><p>Open <a href="https://github.com/nab138/iloader">iloader</a> or <a href="https://sideloadly.io">Sideloadly</a>, connect the iPad, choose the IPA and sign in with your Apple ID.</p></li>
+    <li><h3>Trust and Developer Mode</h3><p>See <a href="#trust">below</a>, then open LinPad.</p></li>
+    <li><h3>Every 7 days</h3><p>With a free Apple ID, install the same IPA again before it expires. Install it over the old one; never delete LinPad first.</p></li>
+  </ol>
+
+  <h2 id="trust">Trust and Developer Mode</h2>
+  <p>iPadOS asks for both the first time you run an app you signed yourself.</p>
+  <ul>
+    <li><b>“Untrusted Developer”</b>: {settings_path("Settings", "General", "VPN & Device Management")} your Apple ID › Trust.</li>
+    <li><b>“Developer Mode Required”</b>: {settings_path("Settings", "Privacy & Security", "Developer Mode")} on, restart, confirm.</li>
+  </ul>
+
+  <h2 id="seven-days">The 7-day limit</h2>
+  <p>Apps signed with a free Apple ID stop opening after 7 days. Nothing is lost: refresh the app and it opens again with your files. SideStore does this on the iPad, in the background or with the day counter in My Apps, as long as LocalDevVPN can connect. With AltStore, AltServer does it over Wi-Fi. With Sideloadly or iloader, you reinstall from the computer. A paid Apple Developer account ($99 a year) makes it a year.</p>
 
   <h2 id="first-launch">First launch</h2>
-  <p>LinPad unpacks its Linux system once, then opens a short setup: pick a layout, a colour theme and a wallpaper, tick the optional apps you want, and try the keyboard shortcuts. At the end, "Show Me" opens a browser, a terminal and Files tiled side by side.</p>
+  {maybe_shot("boot-2", "First launch: the welcome screen while Linux unpacks (“Unpacking Linux… 348 of 606 MB”). Current development build in the iPad simulator.")}
+  <p>LinPad unpacks its Linux system once, while the welcome screen is up: the ring shows unpacking, then configuring, then “Linux is ready”. In the simulator on an M4 Mac that took under half a minute; on an iPad expect longer. Keep LinPad open until it finishes; if it is interrupted, it starts over cleanly next time.</p>
+  <p>A short setup follows: a layout, a colour theme, a wallpaper, optional apps (VS Code and others download on Wi-Fi), fast mode and the keyboard. At the end, “Show Me” opens a browser, a terminal and Files side by side.</p>
 
-  <h2 id="fast-mode">Fast mode (native JIT)</h2>
-  <p>iPadOS only lets an app generate native code while a debugger is attached. LinPad asks <a href="https://github.com/StikDebug/StikDebug">StikDebug</a> to attach at launch, then runs Linux programs as native ARM64 code. Without it everything still works, more slowly, in compatibility mode.</p>
-  <ol>
-    <li>Install StikDebug and LocalDevVPN.</li>
-    <li>Turn on Developer Mode on the iPad.</li>
-    <li>Make a pairing file for the iPad on a computer (iloader can do it) and import it into StikDebug, following StikDebug's guide.</li>
-    <li>Connect LocalDevVPN.</li>
-    <li>In LinPad, open Settings › Fast Mode. It checks each step, has a button for each, and a "Test now" button.</li>
-  </ol>
-  <div class="callout"><p>LocalDevVPN uses the iPad's single VPN slot, so it conflicts with another VPN while connected. Fast mode has not been benchmarked on an iPad yet; the 4.8× figure is the geometric mean of our benchmarks on an M4 Mac.</p></div>
+  {maybe_shot("splash", "Every later launch: the boot screen, with the performance mode it is starting in. Current development build in the iPad simulator.")}
+  <p>From then on, LinPad opens on its boot screen and goes straight to your desktop, with the windows you had open.</p>
 
   <h2 id="updates">Updates and your files</h2>
   <ul>
-    <li><b>Never delete the app to reinstall it.</b> Deleting LinPad deletes its Linux system and your files in it. Install the new version over the old one with the same Apple ID.</li>
-    <li>Linux system updates download in the background, are verified with SHA-256, and install at the next launch. <code>/root</code>, <code>/home</code> and your packages are kept.</li>
+    <li><b>Never delete LinPad to reinstall it.</b> That deletes its Linux system and every file in it. Install the new version over the old one with the same Apple ID.</li>
+    <li>SideStore and AltStore offer new versions from the LinPad source. LinPad also shows them in Settings › Updates.</li>
+    <li>Linux system updates download inside the app, are checked with SHA-256 and install at the next launch. <code>/root</code> and <code>/home</code> are kept.</li>
     <li>If something breaks after a package upgrade, Settings › Maintenance › Repair puts LinPad's own files back.</li>
   </ul>
-
-  <h2 id="source">Option C: build from source</h2>
-  <p>You need a Mac with Xcode, Homebrew <code>llvm lld meson ninja libarchive</code>, and <code>libimobiledevice</code>.</p>
-<pre><code>export PATH=/opt/homebrew/opt/lld/bin:/opt/homebrew/opt/llvm/bin:$PATH
-
-gpu/build-third-party.sh          # virglrenderer + MoltenVK (once)
-release/build-rootfs.sh           # the Alpine system image (~50 min)
-
-xcodebuild -project iSH.xcodeproj -target iSH-ARM64 -configuration Release -sdk iphoneos \\
-  -allowProvisioningUpdates SYMROOT=$PWD/build-ios-release IPHONEOS_DEPLOYMENT_TARGET=17.0 \\
-  DEVELOPMENT_TEAM=&lt;your team&gt; ISH_JIT_BUILD=enabled build
-
-release/embed-rootfs.sh --device "build-ios-release/Release-iphoneos/iSH ARM64.app" \\
-  release/out/ish-linux-rootfs-arm64.tar.gz
-ideviceinstaller install "build-ios-release/Release-iphoneos/iSH ARM64.app"</code></pre>
-  <p>The full guide is <a href="{GITHUB}/blob/main/release/INSTALL-DEVICE.md">release/INSTALL-DEVICE.md</a>.</p>
-  <p class="callout info">Visual Studio Code and Claude Code are not part of LinPad's releases. They are downloaded on your iPad from Settings › Apps when you choose them.</p>
+  <p>Next: <a href="/fast-mode/">turn on fast mode</a>. Developers can also <a href="{GITHUB}/blob/main/release/INSTALL-DEVICE.md">build LinPad from source</a>.</p>
 </div>
 """
-    return page(path="/install/", title="Install", body=body, active="install",
-                description="How to install LinPad on an iPad with SideStore, AltStore or an IPA, set up fast mode with StikDebug, and build from source.")
+    return page(path="/install/", title="Install guide", body=body, active="install",
+                description="How to install LinPad on an iPad, step by step: SideStore, AltStore, Sideloadly or iloader, trusting your Apple ID, Developer Mode, the 7-day limit and the first launch.")
+
+
+def fast_mode_page() -> str:
+    body = f"""
+<div class="narrow page-head">
+  <span class="kicker">Fast mode</span>
+  <h1>Fast mode.</h1>
+  <p>Fast mode runs Linux programs as native ARM64 code instead of interpreting them: about 4.8× faster on average in our benchmarks on an M4 Mac. It is optional, and it needs a free helper app called StikDebug.</p>
+</div>
+<div class="narrow prose guide" style="padding-bottom:120px">
+  <div class="callout info"><p><b>Why a helper?</b> iPadOS lets an app create native code only while a debugger is attached to it. StikDebug provides that debugger on the iPad itself. LinPad contains no debugger; it only asks StikDebug to attach, through StikDebug's <code>stikdebug://enable-jit</code> link. Without it, everything works, slower, in Compatibility mode.</p></div>
+
+  <h2 id="once">One-time setup</h2>
+  <ol class="steps-list">
+    <li><h3>Install StikDebug</h3><p>Get it from <a href="https://stikdebug.xyz">stikdebug.xyz</a> or its <a href="https://github.com/StikDebug/StikDebug">GitHub releases</a>, and install it with SideStore or AltStore like LinPad. It counts as one of a free Apple ID's 3 sideloaded apps.</p></li>
+    <li><h3>Install LocalDevVPN</h3><p>From the App Store. If you installed with SideStore you have it already. It is a loopback VPN: it lets StikDebug reach the iPad's own debugging service, and <b>no traffic leaves your iPad</b>. It uses the iPad's VPN slot, so another VPN cannot be on at the same time.</p></li>
+    <li><h3>Turn on Developer Mode</h3><p>{settings_path("Settings", "Privacy & Security", "Developer Mode")} If you installed with SideStore it is on already.</p></li>
+    <li><h3>Give StikDebug a pairing file</h3><p>A pairing file lets StikDebug talk to your iPad. Make it once on a computer, with the iPad unlocked and connected by cable: <a href="https://github.com/nab138/iloader">iloader</a> can create it, as can JitterbugPair. Import it in StikDebug following <a href="https://github.com/StikDebug/StikDebug">StikDebug's instructions</a>.</p></li>
+    <li><h3>Connect LocalDevVPN</h3><p>Open LocalDevVPN and tap Connect. It needs to be connected whenever you start LinPad in fast mode.</p></li>
+  </ol>
+
+  <h2 id="start">Start LinPad in fast mode</h2>
+  <ol class="steps-list">
+    <li><h3>Let LinPad ask (the default)</h3><p>Open LinPad as usual. Its boot screen says “Enabling fast mode via StikDebug…”, StikDebug comes to the front for a moment, then LinPad continues. Settings › Fast Mode is set to “Automatic (StikDebug)” unless you changed it.</p></li>
+    <li><h3>Or start it from StikDebug</h3><p>Quit LinPad, open StikDebug, tap Enable JIT and pick “Linux for iPad”.</p></li>
+  </ol>
+  {maybe_shot("fastmode-setup", "Settings › Fast Mode › Set Up: a checklist with a button for each step and “Test now”. Shown in the simulator, which has no StikDebug, so some steps show as missing.")}
+  <p>LinPad's own checklist, in Settings › Fast Mode, checks each step it can see: that StikDebug and LocalDevVPN are installed, that the VPN is connected and that your install lets a debugger attach. It cannot see the pairing file. <b>Test now</b> asks StikDebug for fast mode and times a short loop in Linux.</p>
+
+  <h2 id="check">How to tell it is on</h2>
+  <ul>
+    <li>The boot screen and Quick Settings show <b>Performance: Native JIT ✓</b>.</li>
+    <li>Settings › Fast Mode › Status says <b>On</b>, or “On for programs started from now on” after a retry.</li>
+    <li>Off, they say <b>Compatibility mode</b>.</li>
+  </ul>
+
+  <h2 id="trouble">Troubleshooting</h2>
+  <details><summary>LinPad starts in Compatibility mode and says “Fast mode is off”</summary><div><p>LinPad waits about 20 seconds for StikDebug, then boots anyway. Check that LocalDevVPN is connected and that StikDebug opens without an error, then tap <b>Retry fast mode</b> in the message. Programs you start after that use fast mode; restart ones that were already open.</p></div></details>
+  <details><summary>StikDebug shows a connection or heartbeat error</summary><div><p>LocalDevVPN is not connected, or Wi-Fi is off. Connect both and try again.</p></div></details>
+  <details><summary>It worked before, and stopped after an iPadOS update</summary><div><p>Pairing files can stop working after an update or a reset. Make a new one on a computer with the iPad unlocked, and import it in StikDebug again.</p></div></details>
+  <details><summary>StikDebug does not open at all when LinPad starts</summary><div><p>Settings › Fast Mode › Status says why: fast mode set to Off, StikDebug not installed, or an install that does not allow a debugger. Reinstall LinPad with SideStore, AltStore, iloader or Xcode, which sign it so a debugger may attach.</p></div></details>
+  <details><summary>LinPad does not launch from StikDebug</summary><div><p>Refresh both apps in SideStore if either has expired, connect LocalDevVPN, and pick “Linux for iPad” in StikDebug's app list again.</p></div></details>
+  <p style="margin-top:28px">Fast mode has not been benchmarked on an iPad yet. The 4.8× figure is the geometric mean of our benchmarks on an M4 Mac with the command-line build; Node.js was about 12× faster, <code>tsc</code> 5.4×, <code>vite build</code> 3.5×.</p>
+</div>
+"""
+    return page(path="/fast-mode/", title="Fast mode guide", body=body, active="fast",
+                description="Turn on LinPad's fast mode (native ARM64 JIT) with StikDebug and LocalDevVPN: setup, how to check it is on, and troubleshooting.")
 
 
 def themes_page(themes: list[dict]) -> str:
@@ -1530,7 +1690,9 @@ def build() -> None:
 
     pages = {
         "index.html": home(themes, shortcuts),
+        "download/index.html": download_page(),
         "install/index.html": install_page(),
+        "fast-mode/index.html": fast_mode_page(),
         "themes/index.html": themes_page(themes),
         "manual/index.html": manual_page(shortcuts, catalog),
         "faq/index.html": faq_page(),

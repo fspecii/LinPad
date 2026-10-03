@@ -17,6 +17,7 @@ import UIKit
 ///   dblclick|WINDOW|X|Y
 ///   frame|WINDOW|X|Y|W|H / minimize|WINDOW / focus|WINDOW   arrange windows
 ///   mount|HOST-FOLDER                 add an iPad place without the picker
+///   preset|ID[|dark|light]            apply a desktop theme (DesktopThemePreset), as from the gallery
 ///   key|WINDOW|EVDEV[,EVDEV…]           press the keys in order, release in reverse
 ///   drag|WINDOW|X|Y|TARGET|X|Y       drag from a Linux window to TARGET: another window
 ///                                    (content coordinates) or "desktop" (desktop coordinates)
@@ -30,6 +31,7 @@ final class DebugAutomation {
         .appendingPathComponent(ProcessInfo.processInfo.environment["SIMULATOR_UDID"] ?? "device", isDirectory: true)
 
     private weak var controller: DesktopController?
+    private var heldTasks: [UIKitBackgroundTasks] = []
     private var pollTask: Task<Void, Never>?
     private var busy = false
 
@@ -120,10 +122,16 @@ final class DebugAutomation {
             for document in documents {
                 log("editor \(document.path ?? "untitled")|dirty=\(document.isDirty)|notice=\(document.noticeMessage ?? "")|text=\(document.editorView.text)")
             }
+        case "hold-task":
+            // A background task nobody ends: the 25 s budget must end it (and log a fault).
+            let tasks = UIKitBackgroundTasks()
+            heldTasks.append(tasks)
+            let token = tasks.begin(name: "automation hold") { [weak self] in self?.log("hold-task expired") }
+            log("hold-task begun \(token)")
         case "report":
             log("previous-exit \(DiagnosticsCenter.shared.previousExit)")
             if let report = controller.lifecycle.lastFlush {
-                log("last-flush apps=\(report.appsSaved) hook=\(report.guestHookFinished) fs=\(report.filesystemFlushed) seconds=\(String(format: "%.2f", report.seconds))")
+                log("last-flush apps=\(report.appsSaved) hook=\(report.guestHookFinished) fs=\(report.filesystemFlushed) locks-released=\(report.locksReleased) seconds=\(String(format: "%.2f", report.seconds))")
             } else {
                 log("last-flush none")
             }
@@ -196,6 +204,10 @@ final class DebugAutomation {
                 window.isMaximized = false
                 window.frame = CGRect(x: x, y: y, width: w, height: h)
             }
+            log("ok")
+        case "preset" where fields.count > 1:
+            guard let preset = DesktopThemePreset.preset(fields[1]) else { return log("no preset") }
+            controller.applyDesktopThemePreset(preset, dark: fields.count > 2 ? fields[2] == "dark" : nil)
             log("ok")
         case "mount" where fields.count > 1:
             do {

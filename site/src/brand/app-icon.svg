@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#1b2140"/>
+      <stop offset="1" stop-color="#06070d"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="0.18" cy="0.12" r="0.75">
+      <stop offset="0" stop-color="#3ea0ff" stop-opacity=".38"/>
+      <stop offset="1" stop-color="#3ea0ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="0.92" cy="0.95" r="0.7">
+      <stop offset="0" stop-color="#8b5cff" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#8b5cff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5cc2ff"/>
+      <stop offset=".55" stop-color="#7d7bff"/>
+      <stop offset="1" stop-color="#b06cff"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#54b4ff"/>
+      <stop offset="1" stop-color="#9a6bff"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d1226"/>
+      <stop offset="1" stop-color="#080a14"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".10"/>
+      <stop offset=".5" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <g id="plate">
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <rect width="1024" height="1024" fill="url(#glowA)"/>
+    <rect width="1024" height="1024" fill="url(#glowB)"/>
+  </g>
+  <g id="glyph">
+    <rect x="150" y="238" width="724" height="548" rx="84" fill="url(#screen)" stroke="url(#edge)" stroke-width="40"/>
+    <rect x="218" y="306" width="300" height="412" rx="34" fill="#ffffff" fill-opacity=".07"/>
+    <path d="M276 432 L364 500 L276 568" fill="none" stroke="#f2f5ff" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M392 604 H468" stroke="#f2f5ff" stroke-width="44" stroke-linecap="round"/>
+    <rect x="550" y="306" width="256" height="190" rx="34" fill="url(#tile)"/>
+    <rect x="550" y="528" width="256" height="190" rx="34" fill="url(#tile)" fill-opacity=".42"/>
+    <rect x="150" y="238" width="724" height="548" rx="84" fill="url(#sheen)"/>
+  </g>
+</svg>
