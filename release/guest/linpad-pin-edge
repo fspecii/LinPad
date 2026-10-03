@@ -1,0 +1,61 @@
+#!/bin/sh
+# Keeps the packages LinPad installed from Alpine edge (Mesa 26 and what it needs: libdrm,
+# libxcb, wayland-libs-client, musl, LLVM, Vulkan, ...) from going back to v3.21's older
+# builds in ANY apk transaction: `apk upgrade -a`, a new package's dependency, a user's
+# `apk add xwayland`. Without this, wayland-libs-client 1.23 or libxcb 1.16 came back and
+# libEGL/libgallium stopped loading (every Qt and GL program, Xwayland).
+#
+# Each package whose installed version is newer than anything the configured repositories
+# offer gets a version floor in /etc/apk/world ("libdrm>=2.4.134-r0"), so apk's own
+# solver keeps it; nothing has to re-pin after the fact. Packages world already constrains
+# (Mesa's "=26.2.3-r1") are left as they are. Run at image build (finalize.sh) and by
+# linpad-repair; running it again only adds floors for packages that need one.
+#   linpad-pin-edge            add the missing floors
+#   linpad-pin-edge --list     print "name installed newest-in-repositories" for the
+#                              packages that are newer than the repositories
+set -eu
+
+WORLD=/etc/apk/world
+
+newer_than_repositories() {
+    # `apk policy` lists each package's versions (oldest first) with where each comes
+    # from; a version only in lib/apk/db/installed is not in any repository.
+    # shellcheck disable=SC2046
+    apk policy $(apk info 2>/dev/null) 2>/dev/null | awk '
+        function flush() { if (name != "" && inst != "" && inst != repo) print name, inst, (repo == "" ? "-" : repo) }
+        /^[^ ].* policy:$/ { flush(); name = $1; inst = ""; repo = ""; next }
+        /^  [^ ]/ { ver = $1; sub(/:$/, "", ver); next }
+        /^    / { if ($1 ~ /lib\/apk\/db\/installed/) inst = ver; else repo = ver; next }
+        END { flush() }' |
+    while read -r name inst repo; do
+        if [ "$repo" = - ] || [ "$(apk version -t "$inst" "$repo")" = ">" ]; then
+            echo "$name $inst $repo"
+        fi
+    done
+}
+
+# Without every repository's index, packages would look newer than "the repositories"
+# only because their index is missing, and get floors they must not have.
+repos=$(grep -c '^[^#]*http' /etc/apk/repositories 2>/dev/null || echo 0)
+indexes=$(ls /var/cache/apk/APKINDEX.*.tar.gz 2>/dev/null | wc -l)
+if [ "$indexes" -lt "$repos" ] && ! apk update -q >/dev/null 2>&1; then
+    echo "linpad-pin-edge: no package indexes (offline?); nothing changed" >&2
+    exit 0
+fi
+
+if [ "${1:-}" = --list ]; then
+    newer_than_repositories
+    exit 0
+fi
+
+constrained=$(tr ' ' '\n' < "$WORLD" | sed -n 's/^\([^<>=~@]*\)[<>=~].*/\1/p')
+floors=
+for entry in $(newer_than_repositories | awk '{ print $1 ">=" $2 }'); do
+    name=${entry%%>=*}
+    case " $(echo $constrained) " in *" $name "*) continue ;; esac
+    floors="$floors $entry"
+done
+[ -n "$floors" ] || exit 0
+echo "linpad-pin-edge: keeping$(echo "$floors" | sed 's/>=[^ ]*//g')"
+# shellcheck disable=SC2086
+apk add -q --no-network $floors

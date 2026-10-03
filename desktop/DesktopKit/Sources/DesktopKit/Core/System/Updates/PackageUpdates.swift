@@ -11,17 +11,10 @@ public enum ApkCommands {
     /// Refreshes the indexes, then lists upgradable packages ("name-1.0-r0   < 1.1-r0").
     public static let listUpgrades = "apk update -q >/dev/null 2>&1; apk version -l '<' 2>&1"
 
-    /// `apk upgrade`, then the same Mesa re-pin linpad-apps runs after every package change:
-    /// Mesa comes from Alpine edge and needs edge's libdrm, libxcb and wayland-libs-client.
-    public static let upgrade = """
-        apk upgrade --no-progress 2>&1
-        status=$?
-        if [ -f /usr/lib/libgallium-26.2.3.so ]; then
-            apk add -q --no-progress --upgrade --repository https://dl-cdn.alpinelinux.org/alpine/edge/main \
-                libdrm libxcb wayland-libs-client 2>&1
-        fi
-        exit $status
-        """
+    /// Plain `apk upgrade`. Mesa 26 and the libraries it needs come from Alpine edge; the
+    /// version floors linpad-pin-edge keeps in /etc/apk/world stop apk itself from moving
+    /// them back to v3.21's builds, so nothing is re-pinned afterwards.
+    public static let upgrade = "apk upgrade --no-progress 2>&1"
 
     public static func parseUpgradable(_ output: String) -> [PackageUpdate] {
         output.split(whereSeparator: \.isNewline).compactMap { line in

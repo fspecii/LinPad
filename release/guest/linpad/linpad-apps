@@ -38,7 +38,6 @@ const STORE_MODULE = process.env.LINPAD_STORE_MODULE || '/usr/local/share/linpad
 const STATE = '/var/lib/linpad/apps';
 const FIRSTRUN = '/etc/ish/firstrun.json';
 const REINSTALL = '/etc/ish/reinstall-packages';
-const EDGE = 'https://dl-cdn.alpinelinux.org/alpine/edge/main';
 const APK_CACHE = '/var/cache/apk';
 const DOWNLOADS = '/var/cache/linpad-store/apk';
 const CANCEL = '/run/linpad-apps.cancel';
@@ -124,13 +123,9 @@ function isInstalled(pack) {
     return (pack.packages || []).every(p => world().has(p));
 }
 
-// Mesa 26 comes from Alpine edge and needs edge's libdrm, libxcb and wayland-libs-client;
-// a pack's `apk add` can move them back to 3.21's versions, which stops every GL program
-// (Qt, VLC's interface) from loading. Re-pin them after every change.
-function repinMesaLibraries() {
-    if (!fs.existsSync('/usr/lib/libgallium-26.2.3.so')) return;
-    run(`apk add -q --upgrade --repository ${EDGE} libdrm libxcb wayland-libs-client`);
-}
+// Mesa 26 and the libraries it needs come from Alpine edge. /etc/apk/world carries a
+// version floor for each of them (linpad-pin-edge), so no apk transaction here or anywhere
+// else can move them back to v3.21's builds; nothing needs re-pinning after an install.
 
 function refreshIcons() {
     // The Store installs a queue of apps one command each and refreshes icons once at the end.
@@ -372,7 +367,6 @@ async function install(pack) {
         fs.mkdirSync(STATE, { recursive: true });
         fs.writeFileSync(stateFile(pack.id, 'wrap'), programs.join('\n'));
     }
-    repinMesaLibraries();
     if (!ok) {
         phase(pack.id, 'failed');
         say(`${pack.name}: FAILED`);
@@ -412,7 +406,6 @@ function remove(pack) {
         } catch {}
         fs.rmSync(stateFile(pack.id, 'wrap'), { force: true });
     }
-    repinMesaLibraries();
     fs.rmSync(stateFile(pack.id, 'installed'), { force: true });
     phase(pack.id, ok ? 'done' : 'failed');
     say(`${pack.name}: ${ok ? 'removed' : 'FAILED'}`);
@@ -441,7 +434,6 @@ function reinstallUserPackages() {
     say('Reinstalling the packages you had added before the system update');
     const list = fs.readFileSync(REINSTALL, 'utf8').split(/\s+/).filter(Boolean);
     const ok = run(`apk update -q && apk add ${list.join(' ')}`);
-    repinMesaLibraries();
     if (ok) fs.rmSync(REINSTALL, { force: true });
     return ok;
 }
@@ -560,8 +552,7 @@ async function main() {
             say(`Updating ${args.length === 1 ? (packFor(args[0])?.name || args[0]) : `${args.length} apps`}`);
             ok = !names.length || run(`apk add --upgrade --no-progress ${names.map(quote).join(' ')}`);
         }
-        repinMesaLibraries();
-        refreshIcons();
+            refreshIcons();
         say(ok ? 'Up to date' : 'Update FAILED');
         return ok ? 0 : 1;
     }

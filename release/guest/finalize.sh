@@ -137,12 +137,20 @@ sh "$src/fix-thunar.sh"
 # wayland-libs-client. Later stages' apk runs can move those back to 3.21's versions
 # (wayland-libs-client 1.23 was back after the themes stage), and then libEGL/libgallium
 # fail to relocate and everything that links GL (Qt 5/6, so VLC's and Falkon's
-# interfaces) stops loading. Re-pin them last; the load check below enforces it.
+# interfaces) stops loading. Put them back here, at the end of the build; the load check
+# below enforces it.
 echo "finalize: edge libraries for Mesa 26"
 if [ -e /usr/lib/libgallium-26.2.3.so ]; then
     apk update -q
     apk add -q --upgrade --repository https://dl-cdn.alpinelinux.org/alpine/edge/main \
         libdrm libxcb wayland-libs-client
+fi
+# From here on apk itself keeps them: every package newer than the v3.21 repositories
+# (the edge stack) gets a version floor in /etc/apk/world. Users' `apk add`, `apk upgrade`
+# (-a) and the Store then never move them back, with no re-pin after the fact.
+install -D -m 755 "$src/linpad-pin-edge" /usr/local/sbin/linpad-pin-edge
+if [ -e /usr/lib/libgallium-26.2.3.so ]; then
+    /usr/local/sbin/linpad-pin-edge
 fi
 
 # A published image (build-rootfs.sh PUBLIC=1) carries nothing LinPad may not redistribute:

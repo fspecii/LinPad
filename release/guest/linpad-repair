@@ -154,6 +154,7 @@ put 644 "$G/org.a11y.Bus.service" /usr/local/share/dbus-1/services/org.a11y.Bus.
 put 644 "$G/ish-code.svg" /usr/share/icons/hicolor/scalable/apps/ish-code.svg
 put 644 "$G/linpad/catalog.json" /usr/share/linpad/catalog.json
 put 755 "$G/linpad/linpad-apps" /usr/local/bin/linpad-apps
+put 755 "$G/linpad-pin-edge" /usr/local/sbin/linpad-pin-edge
 put 755 "$G/linpad/linpad" /usr/local/bin/linpad
 put 644 "$G/linpad/sample.pdf" /usr/local/share/linpad/sample.pdf
 put 644 "$G/ish-install-vscode.desktop" /usr/local/share/linpad/ish-install-vscode.desktop
@@ -309,8 +310,21 @@ else
             sh "$G/fix-thunar.sh" && changed /usr/bin/thunar || fail "could not restore Thunar"
         fi
         if [ $mesa_broken = 1 ]; then
+            # A system from before the version floors, whose edge libraries apk already
+            # moved back: put them back once; the floors below keep them from now on.
             apk add -q --upgrade --repository https://dl-cdn.alpinelinux.org/alpine/edge/main \
-                libdrm libxcb wayland-libs-client && changed "Mesa libraries" || fail "could not re-pin Mesa's libraries"
+                libdrm libxcb wayland-libs-client && changed "Mesa libraries" || fail "could not restore Mesa's libraries"
+        fi
+        # Version floors in /etc/apk/world for the packages LinPad took from Alpine edge (Mesa 26,
+        # libdrm, libxcb, wayland-libs-client, musl, ...), so no apk transaction can move them back
+        # to v3.21's builds. Uses the indexes apk update just fetched; a no-op once the floors are there.
+        if [ -e /usr/lib/libgallium-26.2.3.so ] && ! ldd /usr/lib/libEGL.so.1 2>&1 | grep -q "Error relocating"; then
+            pins_before=$(cat /etc/apk/world)
+            if sh "$G/linpad-pin-edge" >/dev/null 2>&1; then
+                [ "$pins_before" = "$(cat /etc/apk/world)" ] || changed "edge package version floors"
+            else
+                fail "could not add the edge package version floors"
+            fi
         fi
         rm -rf /var/cache/apk/*
     fi
