@@ -732,6 +732,14 @@ retry:
         strcat(entry_path, entry->name);
     }
 
+    // A fakefs directory is a host directory, but a host file can be a fake
+    // symlink, device or FIFO (the type is in the database), so only DT_DIR is
+    // passed on. Without it, tree walkers that trust d_type never descend:
+    // VS Code's file watcher (@parcel/watcher) watched only the workspace root,
+    // so saving src/x.ts never refreshed Source Control.
+    if (entry->type != DT_DIR)
+        entry->type = 0;
+
     struct fakefs_db *fs = &fd->mount->fakefs;
     db_begin_read(fs);
     entry->inode = path_get_inode(fs, entry_path);

@@ -21,6 +21,61 @@
 // synchronously from the host's getifaddrs(); replies are queued on a host
 // datagram socketpair, so recv/poll/nonblocking behave like a real socket.
 
+// The host's interfaces, read again at most once a second. Chromium and libuv ask
+// for them dozens of times while starting (netlink dumps, SIOCGIF* ioctls), and
+// each answer was a getifaddrs() plus an if_nametoindex() (sysctls) per interface:
+// about 3% of VS Code's start-up. /proc/net/dev still reads fresh counters.
+static lock_t ifcache_lock = LOCK_INITIALIZER;
+static struct ifaddrs *ifcache;
+static struct timespec ifcache_time;
+static struct {
+    char name[IFNAMSIZ];
+    unsigned index;
+} ifcache_index[64];
+static unsigned ifcache_nindex;
+
+// Locks the cache; ifaddrs_put unlocks it. NULL if the host has no answer.
+static struct ifaddrs *ifaddrs_get(void) {
+    lock(&ifcache_lock);
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (ifcache == NULL || now.tv_sec - ifcache_time.tv_sec > 1 ||
+            (now.tv_sec - ifcache_time.tv_sec == 1 && now.tv_nsec >= ifcache_time.tv_nsec)) {
+        struct ifaddrs *fresh;
+        if (getifaddrs(&fresh) == 0) {
+            if (ifcache != NULL)
+                freeifaddrs(ifcache);
+            ifcache = fresh;
+            ifcache_time = now;
+            ifcache_nindex = 0;
+            for (struct ifaddrs *ifa = ifcache; ifa != NULL; ifa = ifa->ifa_next) {
+                bool known = false;
+                for (unsigned i = 0; i < ifcache_nindex && !known; i++)
+                    known = strncmp(ifcache_index[i].name, ifa->ifa_name, IFNAMSIZ) == 0;
+                if (known || ifcache_nindex == sizeof(ifcache_index) / sizeof(ifcache_index[0]))
+                    continue;
+                strncpy(ifcache_index[ifcache_nindex].name, ifa->ifa_name, IFNAMSIZ - 1);
+                ifcache_index[ifcache_nindex].name[IFNAMSIZ - 1] = '\0';
+                ifcache_index[ifcache_nindex].index = if_nametoindex(ifa->ifa_name);
+                ifcache_nindex++;
+            }
+        }
+    }
+    return ifcache;
+}
+
+static void ifaddrs_put(void) {
+    unlock(&ifcache_lock);
+}
+
+// if_nametoindex from the cache; ifcache_lock held
+static unsigned cached_ifindex(const char *name) {
+    for (unsigned i = 0; i < ifcache_nindex; i++)
+        if (strncmp(ifcache_index[i].name, name, IFNAMSIZ) == 0)
+            return ifcache_index[i].index;
+    return if_nametoindex(name);
+}
+
 #define NLMSG_NOOP_ 1
 #define NLMSG_ERROR_ 2
 #define NLMSG_DONE_ 3
@@ -223,7 +278,7 @@ static void link_info(struct ifaddrs *ifa, struct link_info *link) {
 static void dump_link(struct nl_reply *r, struct ifaddrs *ifa, uint16_t flags) {
     const char *name = guest_ifname(ifa->ifa_name, ifa->ifa_flags);
     struct ifinfomsg_ info = {
-        .index = if_nametoindex(ifa->ifa_name),
+        .index = cached_ifindex(ifa->ifa_name),
         .flags = flags_from_real(ifa->ifa_flags),
         .change = 0xffffffff,
     };
@@ -257,7 +312,7 @@ static int prefix_len(const uint8_t *mask, size_t len) {
 }
 
 static void dump_addr(struct nl_reply *r, struct ifaddrs *ifa, int family) {
-    unsigned index = if_nametoindex(ifa->ifa_name);
+    unsigned index = cached_ifindex(ifa->ifa_name);
     const char *name = guest_ifname(ifa->ifa_name, ifa->ifa_flags);
     struct ifaddrmsg_ msg = {.flags = IFA_F_PERMANENT_, .index = index};
     reply_begin(r, RTM_NEWADDR_, NLM_F_MULTI_, 128);
@@ -298,9 +353,11 @@ static void dump_addr(struct nl_reply *r, struct ifaddrs *ifa, int family) {
 }
 
 static int handle_getlink(struct nl_reply *r, const struct nlmsghdr_ *req, const char *payload, size_t payload_len) {
-    struct ifaddrs *ifas;
-    if (getifaddrs(&ifas) < 0)
+    struct ifaddrs *ifas = ifaddrs_get();
+    if (ifas == NULL) {
+        ifaddrs_put();
         return _ENOBUFS;
+    }
     int err = 0;
     if (req->flags & NLM_F_DUMP_) {
         for (struct ifaddrs *ifa = ifas; ifa != NULL; ifa = ifa->ifa_next)
@@ -312,7 +369,7 @@ static int handle_getlink(struct nl_reply *r, const struct nlmsghdr_ *req, const
         memcpy(&want, payload, payload_len < sizeof(want) ? payload_len : sizeof(want));
         bool found = false;
         for (struct ifaddrs *ifa = ifas; ifa != NULL && !found; ifa = ifa->ifa_next) {
-            if (ifa_is_link(ifa) && (int) if_nametoindex(ifa->ifa_name) == want.index) {
+            if (ifa_is_link(ifa) && (int) cached_ifindex(ifa->ifa_name) == want.index) {
                 dump_link(r, ifa, 0);
                 found = true;
             }
@@ -320,7 +377,7 @@ static int handle_getlink(struct nl_reply *r, const struct nlmsghdr_ *req, const
         if (!found)
             err = _ENODEV;
     }
-    freeifaddrs(ifas);
+    ifaddrs_put();
     return err;
 }
 
@@ -329,9 +386,11 @@ static int handle_getaddr(struct nl_reply *r, const struct nlmsghdr_ *req, const
         return _EOPNOTSUPP;
     struct ifaddrmsg_ want = {0};
     memcpy(&want, payload, payload_len < sizeof(want) ? payload_len : sizeof(want));
-    struct ifaddrs *ifas;
-    if (getifaddrs(&ifas) < 0)
+    struct ifaddrs *ifas = ifaddrs_get();
+    if (ifas == NULL) {
+        ifaddrs_put();
         return _ENOBUFS;
+    }
     // Linux lists all IPv4 addresses before the IPv6 ones
     static const int families[] = {AF_INET, AF_INET6};
     for (unsigned i = 0; i < sizeof(families) / sizeof(families[0]); i++) {
@@ -343,7 +402,7 @@ static int handle_getaddr(struct nl_reply *r, const struct nlmsghdr_ *req, const
                 dump_addr(r, ifa, family);
     }
     reply_done(r);
-    freeifaddrs(ifas);
+    ifaddrs_put();
     return 0;
 }
 
@@ -551,9 +610,11 @@ int netlink_ifioctl(int cmd, void *arg) {
             return _EPERM; // the host's network configuration is not ours
     }
 
-    struct ifaddrs *ifas;
-    if (getifaddrs(&ifas) < 0)
+    struct ifaddrs *ifas = ifaddrs_get();
+    if (ifas == NULL) {
+        ifaddrs_put();
         return _ENOBUFS;
+    }
     int err = 0;
     if (cmd == SIOCGIFCONF_) {
         err = ifconf(ifas, arg);
@@ -565,7 +626,7 @@ int netlink_ifioctl(int cmd, void *arg) {
     struct ifaddrs *link = NULL, *inet = NULL;
     for (struct ifaddrs *ifa = ifas; ifa != NULL; ifa = ifa->ifa_next) {
         if (cmd == SIOCGIFNAME_) {
-            if (link == NULL && (int) if_nametoindex(ifa->ifa_name) == req->ivalue)
+            if (link == NULL && (int) cached_ifindex(ifa->ifa_name) == req->ivalue)
                 link = ifa;
             continue;
         }
@@ -589,7 +650,7 @@ int netlink_ifioctl(int cmd, void *arg) {
             strncpy(req->name, guest_ifname(link->ifa_name, link->ifa_flags), IFNAMSIZ_ - 1);
             break;
         case SIOCGIFINDEX_:
-            req->ivalue = if_nametoindex(link->ifa_name);
+            req->ivalue = cached_ifindex(link->ifa_name);
             break;
         case SIOCGIFFLAGS_:
             req->flags = (int16_t) flags_from_real(link->ifa_flags);
@@ -636,7 +697,7 @@ int netlink_ifioctl(int cmd, void *arg) {
             break;
     }
 out:
-    freeifaddrs(ifas);
+    ifaddrs_put();
     return err;
 }
 

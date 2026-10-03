@@ -55,6 +55,7 @@ static struct fd *proc_open(struct mount *UNUSED(mount), const char *path, int U
     struct fd *fd = fd_create(&procfs_fdops);
     fd->proc.entry = entry;
     fd->proc.data.data = NULL;
+    fd->proc.data_valid = false;
     return fd;
 }
 
@@ -102,12 +103,14 @@ static int proc_refresh_data(struct fd *fd) {
         fd->proc.data.data = malloc(fd->proc.data.capacity); // default size
     }
     fd->proc.data.size = 0;
+    fd->proc.data_valid = false;
     struct proc_entry *entry = &fd->proc.entry;
     if (entry->meta->show == NULL)
         return _EINVAL;
     int err = entry->meta->show(entry, &fd->proc.data);
     if (err < 0)
         return err;
+    fd->proc.data_valid = true;
     return 0;
 }
 
@@ -123,11 +126,15 @@ static off_t_ proc_seek(struct fd *fd, off_t_ off, int whence) {
             return _EINVAL;
         return fd->offset;
     }
-    int err = proc_refresh_data(fd);
-    if (err < 0)
-        return err;
+    // Only SEEK_END needs the content (its size); the next read from 0
+    // generates a new snapshot anyway.
+    if (whence == LSEEK_END) {
+        int err = proc_refresh_data(fd);
+        if (err < 0)
+            return err;
+    }
 
-    err = generic_seek(fd, off, whence, fd->proc.data.size);
+    int err = generic_seek(fd, off, whence, fd->proc.data.size);
     if (err < 0)
         return err;
 
@@ -140,9 +147,14 @@ static ssize_t proc_pread(struct fd *fd, void *buf, size_t bufsize, off_t off) {
         return fd->proc.entry.meta->pread(&fd->proc.entry, &data, off);
     }
     
-    int err = proc_refresh_data(fd);
-    if (err < 0)
-        return err;
+    // Generating the content is the expensive part (/proc/PID/maps of a
+    // browser is hundreds of KB, read in 1-4 KB pieces): a read from 0 makes a
+    // new snapshot, later reads continue in it.
+    if (off == 0 || !fd->proc.data_valid) {
+        int err = proc_refresh_data(fd);
+        if (err < 0)
+            return err;
+    }
 
     const char *data = fd->proc.data.data;
     assert(data != NULL);

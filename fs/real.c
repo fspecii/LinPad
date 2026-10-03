@@ -256,6 +256,7 @@ int realfs_readdir(struct fd *fd, struct dir_entry *entry) {
             continue;
         }
         entry->inode = dirent->d_ino;
+        entry->type = dirent->d_type;
         memcpy(entry->name, dirent->d_name, namelen + 1);
         return 1;
     }

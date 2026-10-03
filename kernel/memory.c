@@ -622,7 +622,9 @@ void mem_remove_reservations(struct mem *mem, page_t start, pages_t pages) {
 }
 
 bool pt_is_hole(struct mem *mem, page_t start, pages_t pages) {
-    for (page_t page = start; page < start + pages; page++) {
+    // mem_next_page skips unpopulated page-table nodes: checking a multi-GB
+    // hint (V8 and Chromium reserve such ranges) no longer walks every page.
+    for (page_t page = start; page < start + pages; mem_next_page(mem, &page)) {
         if (mem_pt(mem, page) != NULL)
             return false;
     }
