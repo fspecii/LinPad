@@ -93,7 +93,7 @@ FOCUS = {
     "mem": [
         ("ldst-exclusive-ordered", 0x3F000000, 0x08000000, None),
         ("ldst-rcpc-unscaled", 0x3F200C00, 0x19000000, None),
-        ("ldst-pair", 0x38000000, 0x28000000, None),
+        ("ldst-pair", 0x3A000000, 0x28000000, None),
         ("ldst-imm9", 0x3B200000, 0x38000000, None),
         ("ldst-uimm12", 0x3B000000, 0x39000000, None),
         ("ldst-regoffset", 0x3B200C00, 0x38200800, None),
