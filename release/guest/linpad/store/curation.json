@@ -318,6 +318,6 @@
     "pack:wine": "org.winehq.Wine"
   },
   "fixups": {
-    "audacity": "wrap audacity --sysvipc --wayland --preload-svg"
+    "audacity": "wrap audacity --wayland"
   }
 }

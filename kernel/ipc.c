@@ -330,6 +330,16 @@ static void shm_destroy(struct shm_seg *seg, int index) {
     free(seg);
 }
 
+// The segment with this id, also if IPC_RMID removed it but it is still attached.
+static struct shm_seg *shm_by_id(int id) {
+    if (id < 0 || id % IPC_SEQ_MULT >= IPC_MNI)
+        return NULL;
+    struct shm_seg *seg = shms[id % IPC_SEQ_MULT];
+    if (seg == NULL || seg->perm.seq != id / IPC_SEQ_MULT)
+        return NULL;
+    return seg;
+}
+
 static int shm_index(struct shm_seg *seg) {
     for (int i = 0; i < IPC_MNI; i++)
         if (shms[i] == seg)
@@ -471,7 +481,10 @@ addr_t sys_shmat(int_t id, addr_t addr, int_t flags) {
         prot |= P_EXEC;
 
     lock(&ipc_lock);
-    struct shm_seg *seg = IPC_LOOKUP(shms, id);
+    // A segment removed with IPC_RMID can still be attached by id until its
+    // last detach, as on Linux: X11 MIT-SHM clients remove the segment right
+    // after attaching it, before the X server attaches it.
+    struct shm_seg *seg = shm_by_id(id);
     if (seg == NULL) {
         unlock(&ipc_lock);
         return _EINVAL;
@@ -620,13 +633,13 @@ int_t sys_shmctl(int_t id, int_t cmd, addr_t buf) {
         case IPC_RMID_:
         case SHM_LOCK_:
         case SHM_UNLOCK_: {
-            // a removed segment stays usable through IPC_STAT until its last detach
-            int index = id >= 0 ? id % IPC_SEQ_MULT : -1;
-            struct shm_seg *seg = index >= 0 && index < IPC_MNI ? shms[index] : NULL;
-            if (seg == NULL || seg->perm.seq != id / IPC_SEQ_MULT) {
+            // a removed segment stays usable until its last detach
+            struct shm_seg *seg = shm_by_id(id);
+            if (seg == NULL) {
                 res = _EINVAL;
                 break;
             }
+            int index = id % IPC_SEQ_MULT;
             if (cmd == IPC_STAT_) {
                 if (!ipc_allowed(&seg->perm, 4)) {
                     res = _EACCES;

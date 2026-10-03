@@ -341,6 +341,7 @@ int_t sys_msgget(int_t key, int_t flags);
 int_t sys_msgsnd(int_t id, addr_t msgp, uint64_t size, int_t flags);
 int64_t sys_msgrcv(int_t id, addr_t msgp, uint64_t size, int64_t type, int_t flags);
 int_t sys_msgctl(int_t id, int_t cmd, addr_t buf);
+int_t sys_membarrier(int_t cmd, uint_t flags, int_t cpu_id);
 
 #ifdef GUEST_ARM64
 // ARM64 syscalls pass 64-bit register values; functions taking dword_t

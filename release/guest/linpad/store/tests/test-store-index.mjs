@@ -142,5 +142,5 @@ test('the shipped index matches the curation and decodes', () => {
     const ids = new Set(shipped.apps.map(a => a.id));
     for (const c of shipped.collections) for (const id of c.apps) assert.ok(ids.has(id), id);
     const audacity = shipped.apps.find(a => a.id === 'apk:audacity');
-    assert.equal(audacity.fixup, 'wrap audacity --sysvipc --wayland --preload-svg');
+    assert.equal(audacity.fixup, 'wrap audacity --wayland');
 });

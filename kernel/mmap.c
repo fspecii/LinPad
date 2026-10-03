@@ -53,6 +53,7 @@ struct mm *mm_new() {
     }
     mm->start_brk = mm->brk = 0; // should get overwritten by exec
     mm->exefile = NULL;
+    atomic_init(&mm->membarrier_registered, 0);
     mm->refcount = 1;
     return mm;
 }

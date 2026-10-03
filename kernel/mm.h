@@ -45,6 +45,9 @@ struct mm {
     // precisely identify V8's self-abort BRK site in node at signal time).
     addr_t exe_bias;
     addr_t exe_entry;
+
+    // membarrier() commands registered (kept across fork, cleared by exec)
+    atomic_uint membarrier_registered;
 };
 
 // Create a new address space
