@@ -50,19 +50,18 @@
 ## 📸 Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/02-firefox.jpg" alt="Firefox running on LinPad" width="100%">
+  <img src="docs/screenshots/desktop-dot-matrix.webp" alt="LinPad OS Dot Matrix desktop with the file manager and foot terminal" width="100%">
 </p>
 
 <p align="center">
-  <em>Real Firefox, rendering Wikipedia, as a native window on the iPad</em>
+  <em>LinPad OS with the monochrome Dot Matrix desktop. Development captures from the iPad simulator.</em>
 </p>
 
 | | |
 |:---:|:---:|
-| ![Visual Studio Code](docs/screenshots/04-vscode.jpg)<br>**Visual Studio Code** with TypeScript, git and Claude Code | ![foot + fastfetch](docs/screenshots/03-foot-fastfetch.jpg)<br>**foot terminal** + fastfetch |
-| ![Thunar](docs/screenshots/10-thunar-native-window.jpg)<br>**Thunar** as a native window | ![Wallhaven](docs/screenshots/09-wallhaven.jpg)<br>**Wallhaven** wallpapers built in |
-| ![macOS style](docs/screenshots/05-style-macos.jpg)<br>**macOS** style | ![Windows style](docs/screenshots/06-style-windows.jpg)<br>**Windows** style |
-| ![Ubuntu style](docs/screenshots/07-style-ubuntu-overview.jpg)<br>**Ubuntu** style overview | ![Kylin style](docs/screenshots/08-style-kylin.jpg)<br>**Kylin** style |
+| ![Visual Studio Code](docs/screenshots/vscode-current.webp)<br>**Visual Studio Code** editing a React and TypeScript project | ![Firefox](docs/screenshots/firefox-current.webp)<br>**Firefox** browsing Wikipedia |
+| ![LinPad Store](docs/screenshots/store-current.webp)<br>**LinPad Store** with Linux apps and developer tools | ![Aqua desktop](docs/screenshots/desktop-aqua.webp)<br>**Aqua** desktop with files and terminal |
+| ![Classic 98 desktop](docs/screenshots/desktop-classic-98.webp)<br>**Classic 98** desktop | ![Platinum desktop](docs/screenshots/desktop-platinum.webp)<br>**Platinum** desktop |
 
 ---
 
