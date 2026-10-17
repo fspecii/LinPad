@@ -334,7 +334,7 @@ SOURCE_OUT=$OUT_DIR/source.json
 INFO_PLIST=app/Info.plist
 [ -f "$APP/Info.plist" ] && INFO_PLIST="$APP/Info.plist"
 python3 - "$HERE/source.json" "$SOURCE_OUT" "$INFO_PLIST" "$NOTES" <<PY
-import datetime, json, os, plistlib, re, sys
+import datetime, json, os, plistlib, re, subprocess, sys
 source_in, source_out, info_path, notes_path = sys.argv[1:5]
 raw = "$RAW"
 version = "$VERSION"
@@ -346,6 +346,15 @@ info = plistlib.load(open(info_path, "rb"))
 privacy = {k: v for k, v in sorted(info.items()) if k.startswith("NS") and k.endswith("UsageDescription")}
 shots = sorted(f for f in os.listdir("docs/screenshots") if f.endswith((".jpg", ".png")))
 screenshots = [f"{raw}/docs/screenshots/{f}" for f in shots]
+# SideStore refuses a source whose iPad screenshots do not give their pixel size.
+def shot_size(name):
+    out = subprocess.run(["sips", "-g", "pixelWidth", "-g", "pixelHeight", f"docs/screenshots/{name}"],
+                         capture_output=True, text=True, check=True).stdout
+    return int(re.search(r"pixelWidth: (\d+)", out)[1]), int(re.search(r"pixelHeight: (\d+)", out)[1])
+ipad_shots = []
+for f, url in zip(shots, screenshots):
+    width, height = shot_size(f)
+    ipad_shots.append({"imageURL": url, "width": width, "height": height})
 notes = open(notes_path).read()
 changes = notes.split("### Changes", 1)[-1].split("### Checksums", 1)[0]
 changes = "\n".join(line for line in changes.splitlines()[1:] if line.startswith("- "))[:3500]
@@ -377,7 +386,7 @@ app.update({
     "tintColor": "#0A84FF",
     "category": "developer",
     "screenshotURLs": screenshots,
-    "screenshots": {"ipad": screenshots},
+    "screenshots": {"ipad": ipad_shots},
     "versions": versions,
     "appPermissions": {
         "entitlements": ["com.apple.developer.user-fonts", "com.apple.security.application-groups", "get-task-allow"],

@@ -40,23 +40,91 @@
       ],
       "screenshots": {
         "ipad": [
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00a-desktop.jpg",
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00b-firefox-wikipedia.jpg",
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00c-linpad-store.jpg",
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00d-themes.jpg",
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00e-look-aero.jpg",
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00f-look-aqua.jpg",
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00g-look-luna.jpg",
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00h-look-platinum.jpg",
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/02-firefox.jpg",
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/03-foot-fastfetch.jpg",
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/04-vscode.jpg",
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/05-style-macos.jpg",
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/06-style-windows.jpg",
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/07-style-ubuntu-overview.jpg",
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/08-style-kylin.jpg",
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/09-wallhaven.jpg",
-          "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/10-thunar-native-window.jpg"
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00a-desktop.jpg",
+            "width": 2048,
+            "height": 1536
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00b-firefox-wikipedia.jpg",
+            "width": 2048,
+            "height": 1536
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00c-linpad-store.jpg",
+            "width": 2048,
+            "height": 1536
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00d-themes.jpg",
+            "width": 2048,
+            "height": 1536
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00e-look-aero.jpg",
+            "width": 2048,
+            "height": 1536
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00f-look-aqua.jpg",
+            "width": 2048,
+            "height": 1536
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00g-look-luna.jpg",
+            "width": 2048,
+            "height": 1536
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/00h-look-platinum.jpg",
+            "width": 2048,
+            "height": 1536
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/02-firefox.jpg",
+            "width": 1600,
+            "height": 1112
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/03-foot-fastfetch.jpg",
+            "width": 1600,
+            "height": 1112
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/04-vscode.jpg",
+            "width": 1600,
+            "height": 1057
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/05-style-macos.jpg",
+            "width": 1600,
+            "height": 1199
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/06-style-windows.jpg",
+            "width": 1600,
+            "height": 1199
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/07-style-ubuntu-overview.jpg",
+            "width": 1600,
+            "height": 1199
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/08-style-kylin.jpg",
+            "width": 1600,
+            "height": 1199
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/09-wallhaven.jpg",
+            "width": 1600,
+            "height": 1199
+          },
+          {
+            "imageURL": "https://raw.githubusercontent.com/fspecii/LinPad/main/docs/screenshots/10-thunar-native-window.jpg",
+            "width": 1112,
+            "height": 1600
+          }
         ]
       },
       "versions": [
