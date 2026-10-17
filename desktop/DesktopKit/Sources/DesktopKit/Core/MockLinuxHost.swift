@@ -65,6 +65,8 @@ public final class MockLinuxHost: LinuxHost {
             return CommandResult(stdout: cpuStat())
         case "cat /proc/meminfo":
             return CommandResult(stdout: memoryInfo())
+        case PanelSystemMonitor.sampleCommand:
+            return CommandResult(stdout: cpuStat() + PanelSystemMonitor.memorySeparator + memoryInfo())
         default:
             break
         }

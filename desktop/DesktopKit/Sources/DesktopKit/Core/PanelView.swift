@@ -267,6 +267,13 @@ struct WorkspaceSwitcher: View {
 struct SystemMeters: View {
     let monitor: PanelSystemMonitor
     @Environment(\.desktopController) private var controller
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var samplingHostID: ObjectIdentifier? {
+        guard scenePhase == .active, let controller,
+              !controller.isLocked, !controller.idle.isScreensaverShown else { return nil }
+        return ObjectIdentifier(controller.host)
+    }
 
     var body: some View {
         WithPerceptionTracking {
@@ -275,9 +282,10 @@ struct SystemMeters: View {
                       detail: monitor.cpuUsage.map { String(format: "%.0f%%", $0 * 100) })
                 Meter(label: "MEM", value: monitor.memoryUsage, detail: nil)
             }
-            // Each style's panel shows the meters, so they keep the shared sampler running.
-            .task(id: controller.map { ObjectIdentifier($0.host) }) {
-                if let controller { await monitor.poll(controller.host) }
+            // Hidden panels release their subscription, just like a dismissed widget.
+            .task(id: samplingHostID) {
+                guard samplingHostID != nil, let controller else { return }
+                await monitor.poll(controller.host)
             }
         }
     }

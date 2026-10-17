@@ -282,18 +282,46 @@ int epoll_fd_poll(struct fd *fd) {
     // never see a new edge. Collect them here, doing the edge-triggered
     // bookkeeping poll_wait would have done. Readiness is decided below.
     if (poll->waiters == 0) {
-        struct real_poll_event e[16];
+        struct real_poll_event local_events[16];
+        struct real_poll_event *events = local_events;
+        int max_events = 0;
+        struct poll_fd *member;
+        list_for_each_entry(&poll->poll_fds, member, fds) {
+            if (!poll_fd_is_real(member))
+                continue;
+#if HAVE_KQUEUE
+            int types = poll_fd_real_types(member, member->types);
+            max_events += !!(types & (POLL_READ | POLL_HUP));
+            max_events += !!(types & POLL_WRITE);
+            max_events += !!(types & POLL_ERR);
+#else
+            max_events++;
+#endif
+        }
+        int capacity = sizeof(local_events) / sizeof(local_events[0]);
+        if (max_events > capacity) {
+            events = malloc((size_t) max_events * sizeof(*events));
+            if (events != NULL)
+                capacity = max_events;
+            else
+                events = local_events;
+        }
         struct timespec zero = {0, 0};
-        int n;
-        do {
-            n = real_poll_wait(&poll->real, e, sizeof(e) / sizeof(e[0]), &zero);
-            for (int i = 0; i < n; i++) {
-                struct poll_fd *triggered = rpe_data(&e[i]);
-                if (triggered != NULL && triggered->poll != NULL &&
-                        triggered->types & POLL_EDGETRIGGERED)
-                    triggered->triggered_types &= ~rpe_events(&e[i]);
-            }
-        } while (n == (int) (sizeof(e) / sizeof(e[0])));
+        // A level-triggered fd can be returned on every host wait. A full
+        // batch therefore does not mean there are more events to drain.
+        // Collect one snapshot sized for every registered host filter, so
+        // ready edges past the local buffer also get their masks cleared.
+        // Allocation failure only defers those overflow events to a later
+        // check; they remain pending on the host poll fd.
+        int n = real_poll_wait(&poll->real, events, capacity, &zero);
+        for (int i = 0; i < n; i++) {
+            struct poll_fd *triggered = rpe_data(&events[i]);
+            if (triggered != NULL && triggered->poll != NULL &&
+                    triggered->types & POLL_EDGETRIGGERED)
+                triggered->triggered_types &= ~rpe_events(&events[i]);
+        }
+        if (events != local_events)
+            free(events);
     }
     struct poll_fd *poll_fd;
     list_for_each_entry(&poll->poll_fds, poll_fd, fds) {
@@ -553,6 +581,17 @@ static int real_poll_init(struct real_poll *real) {
 }
 
 static int real_poll_update(struct real_poll *real, int fd, int types, void *data) {
+    if (types & (POLL_READ | POLL_HUP)) {
+        // EV_ADD does not clear a previous EV_CLEAR/NOTE_LOWAT setting.
+        // Recreate the read filter when changing interest, so HUP-only
+        // watches clear data notifications and ordinary reads stay level
+        // triggered when read interest is restored.
+        struct kevent remove = {
+            .ident = fd, .filter = EVFILT_READ, .flags = EV_DELETE | EV_RECEIPT,
+        };
+        if (kevent(real->fd, &remove, 1, &remove, 1, NULL) < 0)
+            return -1;
+    }
     struct kevent e[3] = {
         {.filter = EVFILT_READ, .flags = types & (POLL_READ | POLL_HUP) ? EV_ADD : EV_DELETE},
         {.filter = EVFILT_WRITE, .flags = types & POLL_WRITE ? EV_ADD : EV_DELETE},
@@ -562,6 +601,11 @@ static int real_poll_update(struct real_poll *real, int fd, int types, void *dat
         // Set the low water mark really high so we'll only get woken up on a hangup
         e[0].fflags = NOTE_LOWAT;
         e[0].data = INT_MAX;
+        // Darwin FIFOs ignore NOTE_LOWAT. Buffered data would repeatedly
+        // wake a guest poll(events=0), although only HUP/ERR are requested.
+        // Clear that notification after one collection; EOF can still
+        // produce a new notification, and readiness is checked each pass.
+        e[0].flags |= EV_CLEAR;
     }
     for (int i = 0; i < 3; i++) {
         e[i].ident = fd;

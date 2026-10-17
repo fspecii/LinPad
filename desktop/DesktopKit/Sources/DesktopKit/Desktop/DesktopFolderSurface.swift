@@ -43,7 +43,6 @@ final class DesktopFolderModel {
     static let showIconsKey = "desktop.icons.visible"
 
     @PerceptionIgnored private weak var controller: DesktopController?
-    @PerceptionIgnored private var pollTask: Task<Void, Never>?
     @PerceptionIgnored let operations: FileOperations
     @PerceptionIgnored let trash: FileTrash
     @PerceptionIgnored let transfer: GuestTransferService
@@ -81,21 +80,26 @@ final class DesktopFolderModel {
         desktopPath = AppPath.join(home, "Desktop")
     }
 
-    func start() {
-        guard pollTask == nil, let host = controller?.host else { return }
+    /// Owned by the visible surface's task, so hiding the icons cancels guest work too.
+    func poll() async {
+        guard !Task.isCancelled, let host = controller?.host else { return }
         OpenWithCatalog.shared.loadIfNeeded(host: host)
-        pollTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3))
+        do {
+            try await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
             _ = await host.run("mkdir -p -- \(AppPath.join(host.homeDirectory, "Desktop").shellQuoted)", cwd: nil, stdin: nil)
             while !Task.isCancelled {
-                await self?.refresh()
-                try? await Task.sleep(for: Self.pollInterval)
+                await refresh()
+                try await Task.sleep(for: Self.pollInterval)
             }
+        } catch {
+            return
         }
     }
 
     func refresh() async {
-        guard let host = controller?.host, let list = try? await host.listDirectory(desktopPath) else { return }
+        guard !Task.isCancelled, let host = controller?.host,
+              let list = try? await host.listDirectory(desktopPath), !Task.isCancelled else { return }
         let visible = list.filter { !$0.name.hasPrefix(".") }
         if visible != entries {
             entries = visible
@@ -629,6 +633,11 @@ struct DesktopFolderSurface: View {
     @Environment(\.desktopTheme) private var theme
     @Environment(\.desktopStyle) private var style
     @Environment(\.desktopIcons) private var iconStore
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var shouldPoll: Bool {
+        showsIcons && scenePhase == .active && !controller.isLocked && !controller.idle.isScreensaverShown
+    }
 
     init(controller: DesktopController, shellItems: [DesktopMenuItem]) {
         self.controller = controller
@@ -690,17 +699,22 @@ struct DesktopFolderSurface: View {
                 }
                 controller.desktopKeyHandler = { [model] key in model.handle(key) }
                 model.onRenameRequest = { entry in beginPrompt(.rename(entry), entry.name) }
-                model.start()
+            }
+            .task(id: shouldPoll) {
+                guard shouldPoll else { return }
+                await model.poll()
             }
             .onChangeCompat(of: model.selection) { _, _ in syncKeyboardFocus() }
             .onChangeCompat(of: controller.windowManager.focusedWindowID) { _, id in
                 if id != nil { model.selection = [] }
                 syncKeyboardFocus()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .guestFilesChanged)) { _ in model.refreshSoon() }
+            .onReceive(NotificationCenter.default.publisher(for: .guestFilesChanged)) { _ in
+                if shouldPoll { model.refreshSoon() }
+            }
             .onChangeCompat(of: controller.windowManager.windows.map(\.id)) { _, _ in
                 DragDropCenter.shared.windowsChanged()
-                model.refreshSoon()
+                if shouldPoll { model.refreshSoon() }
             }
             .alert(prompt?.title ?? "", isPresented: isPromptPresented, presenting: prompt) { prompt in
                 TextField("Name", text: $promptText)

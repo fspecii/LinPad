@@ -47,7 +47,8 @@ struct WidgetLayer: View {
                     .onChangeCompat(of: grid, initial: true) { _, grid in store.grid = grid }
                 }
             }
-            .environment(\.widgetsAreLive, scenePhase == .active && !controller.isLocked)
+            .environment(\.widgetsAreLive, scenePhase == .active && !controller.isLocked
+                         && !controller.idle.isScreensaverShown)
             .background {
                 WidgetKeyHost(isActive: store.isEditing, onKey: handle)
                     .frame(width: 1, height: 1)

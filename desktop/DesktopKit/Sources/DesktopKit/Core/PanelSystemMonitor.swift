@@ -6,6 +6,8 @@ import Perception
 @Perceptible @MainActor
 final class PanelSystemMonitor {
     private static let interval: Duration = .seconds(3)
+    static let memorySeparator = "\n__LINPAD_MEMINFO__\n"
+    static let sampleCommand = "head -1 /proc/stat && printf '\\n__LINPAD_MEMINFO__\\n' && cat /proc/meminfo"
 
     private(set) var cpuUsage: Double?
     private(set) var memoryUsage: Double?
@@ -20,8 +22,10 @@ final class PanelSystemMonitor {
 
     /// Keeps the shared loop alive until the calling task is cancelled.
     func poll(_ host: any LinuxHost) async {
+        guard !Task.isCancelled else { return }
         subscribers += 1
         if loop == nil {
+            previousCPUTimes = nil
             loop = Task { [weak self] in
                 while !Task.isCancelled {
                     await self?.sample(host)
@@ -50,22 +54,26 @@ final class PanelSystemMonitor {
     var isSampling: Bool { loop != nil }
 
     private func sample(_ host: any LinuxHost) async {
-        let stat = await host.run("head -1 /proc/stat")
-        if stat.succeeded, let times = Self.parseCPUTimes(stat.stdout) {
+        let result = await host.run(Self.sampleCommand)
+        // A cancelled host command may still finish; it must not update a resumed sampler.
+        guard !Task.isCancelled, result.succeeded,
+              let separator = result.stdout.range(of: Self.memorySeparator) else { return }
+        let stat = String(result.stdout[..<separator.lowerBound])
+        let memory = String(result.stdout[separator.upperBound...])
+        if let times = Self.parseCPUTimes(stat) {
             if let previous = previousCPUTimes, times.total > previous.total {
                 cpuUsage = min(max((times.busy - previous.busy) / (times.total - previous.total), 0), 1)
             }
             previousCPUTimes = times
         }
-        let memory = await host.run("cat /proc/meminfo")
-        if memory.succeeded, let value = Self.parseMemoryUsage(memory.stdout) {
+        if let value = Self.parseMemoryUsage(memory) {
             memoryUsage = value
         }
     }
 
     /// Parses the aggregate `cpu  user nice system idle [iowait ...]` line.
     static func parseCPUTimes(_ text: String) -> (busy: Double, total: Double)? {
-        let fields = text.split(separator: " ")
+        let fields = text.split(whereSeparator: \.isWhitespace)
         guard fields.first == "cpu" else { return nil }
         let values = fields.dropFirst().compactMap { Double($0) }
         guard values.count >= 4 else { return nil }

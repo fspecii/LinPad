@@ -80,6 +80,12 @@ private final class DisplayLinkProxy: NSObject {
 
 struct PerformanceOverlay: View {
     @State private var monitor = FrameMonitor()
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.desktopController) private var controller
+
+    private var shouldMonitor: Bool {
+        scenePhase == .active && controller.map { !$0.isLocked && !$0.idle.isScreensaverShown } != false
+    }
 
     var body: some View {
         WithPerceptionTracking {
@@ -94,7 +100,10 @@ struct PerformanceOverlay: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .onAppear { monitor.start() }
+            .onAppear { if shouldMonitor { monitor.start() } }
+            .onChangeCompat(of: shouldMonitor) { _, isLive in
+                if isLive { monitor.start() } else { monitor.stop() }
+            }
             .onDisappear { monitor.stop() }
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("desktop.performance")
