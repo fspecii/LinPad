@@ -58,6 +58,7 @@ public builds and what may ship in them.
 |---|---|
 | DesktopKit | `xcodebuild test -scheme DesktopKit` as above |
 | Emulator, JIT, CPU | `ISH=build/ish FAKEFS=<fakefs with gcc musl-dev> tests/arm64-insn/smoke.sh` |
+| Native terminal keyboard geometry | `tests/unit/terminal-keyboard-test.sh` (macOS; no simulator) |
 | Release tooling | `python3 -m unittest discover -s release/tests` |
 | Guest scripts | `shellcheck --severity=warning <files>` (settings in `.shellcheckrc`) |
 

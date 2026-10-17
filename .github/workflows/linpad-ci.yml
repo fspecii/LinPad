@@ -163,6 +163,9 @@ jobs:
           brew install llvm lld meson libarchive coreutils
           echo "$(brew --prefix lld)/bin" >> "$GITHUB_PATH"
 
+      - name: Terminal keyboard geometry regressions
+        run: tests/unit/terminal-keyboard-test.sh
+
       - name: Configure and build (arm64 guest, JIT enabled)
         run: |
           meson setup build -Dguest_arch=arm64 -Djit=enabled --buildtype=release

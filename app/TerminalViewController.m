@@ -16,6 +16,7 @@
 #import "NSObject+SaneKVO.h"
 #import "LinuxInterop.h"
 #import "SceneDelegate.h"
+#import "TerminalKeyboardGeometry.h"
 @import GameController;
 #include "kernel/init.h"
 #include "kernel/task.h"
@@ -53,6 +54,7 @@
 
 @property BOOL ignoreKeyboardMotion;
 @property (nonatomic) BOOL hasExternalKeyboard;
+@property TerminalKeyboardState keyboardState;
 
 @end
 
@@ -363,29 +365,26 @@
     if (notification.object != nil)
         screen = notification.object;
     CGRect keyboardFrame = [self.view convertRect:screenKeyboardFrame fromCoordinateSpace:screen.coordinateSpace];
-    if (CGRectEqualToRect(keyboardFrame, CGRectZero))
+    TerminalKeyboardGeometry geometry = TerminalKeyboardGeometryForFrames(
+        screenKeyboardFrame, screen.bounds, keyboardFrame, self.view.bounds,
+        self.view.safeAreaInsets.bottom, self.termView.inputAccessoryView.frame.size.height);
+    if (geometry.presence == TerminalKeyboardUnknown)
         return;
-    CGRect intersection = CGRectIntersection(keyboardFrame, self.view.bounds);
-    keyboardFrame = intersection;
-    NSLog(@"%@ %@", notification.name, @(keyboardFrame));
-    BOOL onlyAccessoryLeft = keyboardFrame.size.height < 100 && self.termView.inputAccessoryView != nil;
-    if (self.embedded && onlyAccessoryLeft && GCKeyboard.coalescedKeyboard == nil && self.termView.isFirstResponder) {
+    BOOL completedFrameChange = [notification.name isEqualToString:UIKeyboardDidChangeFrameNotification];
+    BOOL keyboardDismissal = TerminalKeyboardCompletedDismissal(
+        &_keyboardState, geometry.presence, completedFrameChange);
+    if (self.embedded && keyboardDismissal && self.termView.inputAccessoryView != nil &&
+        GCKeyboard.coalescedKeyboard == nil && self.termView.isFirstResponder) {
         // The on-screen keyboard was put away with its own key; the extra keys go with it.
         // A tap on the terminal brings both back.
         [self.termView resignFirstResponder];
         return;
     }
-    self.hasExternalKeyboard = keyboardFrame.size.height < 100;
-    CGFloat pad = CGRectGetMaxY(self.view.bounds) - CGRectGetMinY(keyboardFrame);
-    // The keyboard appears to be undocked. This means it can either be split or
-    // truly floating. In the former case we want to keep the pad, but in the
-    // latter we should fall back to the input accessory view instead of the
-    // keyboard.
-    if (pad != keyboardFrame.size.height && keyboardFrame.size.width != UIScreen.mainScreen.bounds.size.width) {
-        pad = MAX(self.view.safeAreaInsets.bottom, self.termView.inputAccessoryView.frame.size.height);
-    }
-    // NSLog(@"pad %f", pad);
-    self.bottomConstraint.constant = pad;
+    // Keep the row through WillChange: removing it reloads input views and would
+    // erase the accessory before the completed dismissal can relinquish focus.
+    if (TerminalKeyboardShouldUpdateExternalState(geometry.presence, completedFrameChange))
+        self.hasExternalKeyboard = geometry.presence != TerminalKeyboardSoftware;
+    self.bottomConstraint.constant = geometry.padding;
 
     BOOL initialLayout = self.termView.needsUpdateConstraints;
     [self.view setNeedsUpdateConstraints];
@@ -404,6 +403,8 @@
 }
 
 - (void)setHasExternalKeyboard:(BOOL)hasExternalKeyboard {
+    if (_hasExternalKeyboard == hasExternalKeyboard)
+        return;
     _hasExternalKeyboard = hasExternalKeyboard;
     [self _updateStyleFromPreferences:YES];
 }
