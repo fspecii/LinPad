@@ -490,7 +490,9 @@ struct EraMenuBar: View {
     private var applicationMenu: some View {
         Menu {
             ForEach(manager.windowsInCurrentWorkspace()) { window in
-                Button(window.title) { manager.activateFromTaskbar(window.id) }
+                WithPerceptionTracking {
+                    Button(window.title) { manager.activateFromTaskbar(window.id) }
+                }
             }
         } label: {
             HStack(spacing: 4) {

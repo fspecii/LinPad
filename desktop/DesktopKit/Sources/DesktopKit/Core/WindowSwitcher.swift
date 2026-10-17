@@ -53,19 +53,23 @@ struct WindowSwitcherView: View {
             let windows = switcher.windowIDs.compactMap(manager.window(withID:))
             VStack(spacing: 12) {
                 ScrollViewReader { proxy in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(windows) { window in
-                                WithPerceptionTracking {
-                                    card(for: window, isSelected: window.id == switcher.selectedWindowID)
-                                        .id(window.id)
+                    // The reader's closure runs outside the body's tracking: on iOS 16 the
+                    // selection must be read under its own, or the strip never scrolls.
+                    WithPerceptionTracking {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                ForEach(windows) { window in
+                                    WithPerceptionTracking {
+                                        card(for: window, isSelected: window.id == switcher.selectedWindowID)
+                                            .id(window.id)
+                                    }
                                 }
                             }
+                            .padding(14)
                         }
-                        .padding(14)
-                    }
-                    .onChangeCompat(of: switcher.selection) { _, _ in
-                        if let id = switcher.selectedWindowID { proxy.scrollTo(id, anchor: .center) }
+                        .onChangeCompat(of: switcher.selection) { _, _ in
+                            if let id = switcher.selectedWindowID { proxy.scrollTo(id, anchor: .center) }
+                        }
                     }
                 }
                 .frame(maxWidth: min(CGFloat(windows.count) * (Self.cardWidth + 10) + 18, 1000))

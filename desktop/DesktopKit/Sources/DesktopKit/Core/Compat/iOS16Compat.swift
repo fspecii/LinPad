@@ -115,7 +115,7 @@ extension View {
 
 
     /// Two-parameter `onChange(of:initial:_:)` (iOS 17) with the same signature.
-    /// iOS 16 keeps the previous value in state.
+    /// iOS 16 keeps the previous value in state and calls the current body's action.
     @ViewBuilder func onChangeCompat<Value: Equatable>(of value: Value, initial: Bool = false,
                                                        _ action: @escaping (Value, Value) -> Void) -> some View {
         if #available(iOS 17, *) {
@@ -182,31 +182,46 @@ extension Perceptible where Self: AnyObject {
     }
 }
 
+/// iOS 16's `onChange(of:perform:)` runs the closure captured by the render before the
+/// change, so `action` would see the old environment, properties and locals of its view.
+/// The latest action is kept in a reference instead and called from there.
 private struct ChangeCompatModifier<Value: Equatable>: ViewModifier {
     let value: Value
     let initial: Bool
     let action: (Value, Value) -> Void
-    @State private var previous: Value
+    @State private var latest: Latest
+
+    final class Latest {
+        var previous: Value
+        var action: (Value, Value) -> Void
+
+        init(previous: Value, action: @escaping (Value, Value) -> Void) {
+            self.previous = previous
+            self.action = action
+        }
+    }
 
     init(value: Value, initial: Bool, action: @escaping (Value, Value) -> Void) {
         self.value = value
         self.initial = initial
         self.action = action
-        _previous = State(initialValue: value)
+        _latest = State(initialValue: Latest(previous: value, action: action))
     }
 
     func body(content: Content) -> some View {
-        content
-            .onAppear { if initial { action(value, value) } }
+        let latest = latest
+        latest.action = action
+        return content
+            .onAppear { if initial { latest.action(value, value) } }
             .onChange(of: value) { newValue in
-                let old = previous
-                previous = newValue
-                action(old, newValue)
+                let old = latest.previous
+                latest.previous = newValue
+                latest.action(old, newValue)
             }
     }
 }
 
-/// `ContentUnavailableView` (iOS 17) with the same layout, for iOS 16.
+/// `ContentUnavailableView` (iOS 17); on iOS 16 the same layout built by hand.
 struct CompatUnavailableView: View {
     let title: String
     let systemImage: String
@@ -226,7 +241,15 @@ struct CompatUnavailableView: View {
     }
 
     var body: some View {
-        WithPerceptionTracking {
+        if #available(iOS 17, *) {
+            ContentUnavailableView {
+                Label(title, systemImage: systemImage)
+            } description: {
+                if let message { Text(message) }
+            } actions: {
+                actions
+            }
+        } else {
             VStack(spacing: 12) {
                 Image(systemName: systemImage)
                     .font(.system(size: 40, weight: .regular))
@@ -318,8 +341,15 @@ final class KeyCommandRelayView: UIView {
 }
 
 extension UIResponder {
-    /// Sent up the responder chain by `KeyCommandRelayView`'s key commands.
+    /// Sent up the responder chain by `KeyCommandRelayView`'s key commands. UIKit matches
+    /// key commands before it delivers presses to the first responder, so an overlay waiting
+    /// for any key (`AnyKeyRelayView`, the lock screen and screensaver) takes the key here
+    /// instead of letting it reach a view underneath.
     @objc func keyCommandRelayPerform(_ sender: UIKeyCommand) {
+        if let anyKey = self as? AnyKeyRelayView {
+            MainActor.assumeIsolated { anyKey.action() }
+            return
+        }
         guard let token = sender.propertyList as? String else { return }
         MainActor.assumeIsolated { KeyCommandRelayView.perform(token) }
     }
@@ -338,6 +368,7 @@ private struct AnyKeyRelay: UIViewRepresentable {
 
     func updateUIView(_ view: AnyKeyRelayView, context: Context) {
         view.action = action
+        view.isActive = isActive
         if isActive, !view.isFirstResponder {
             DispatchQueue.main.async { if view.window != nil { view.becomeFirstResponder() } }
         } else if !isActive, view.isFirstResponder {
@@ -348,11 +379,37 @@ private struct AnyKeyRelay: UIViewRepresentable {
 
 final class AnyKeyRelayView: UIView {
     var action: () -> Void = {}
+    var isActive = false
+
+    private static let relays = NSHashTable<AnyKeyRelayView>.weakObjects()
 
     override var canBecomeFirstResponder: Bool { true }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         guard presses.contains(where: { $0.key != nil }) else { return super.pressesBegan(presses, with: event) }
         action()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil {
+            Self.relays.add(self)
+        } else {
+            Self.relays.remove(self)
+            DispatchQueue.main.async { Self.reassignKeyboard() }
+        }
+    }
+
+    /// A view leaving the window drops first responder, and nothing takes it back: keys
+    /// (and the shell's shortcuts) would stop until the next tap. The keyboard goes to
+    /// another overlay still waiting for a key (the lock screen under a screensaver), else
+    /// back to the desktop's key commands.
+    private static func reassignKeyboard() {
+        guard UIResponder.desktopCurrentFirstResponder == nil else { return }
+        if let next = relays.allObjects.last(where: { $0.isActive && $0.window != nil }) {
+            next.becomeFirstResponder()
+        } else {
+            DesktopKeyCommands.active?.makeReachable()
+        }
     }
 }

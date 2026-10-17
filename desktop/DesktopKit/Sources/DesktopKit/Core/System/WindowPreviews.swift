@@ -12,26 +12,28 @@ struct WindowPreviewStrip: View {
         WithPerceptionTracking {
             HStack(spacing: 10) {
                 ForEach(windows) { window in
-                    Button {
-                        onPick?()
-                        controller.windowManager.focus(window.id)
-                    } label: {
-                        VStack(spacing: 6) {
-                            WindowThumbnail(window: window, controller: controller)
-                                .frame(width: 240, height: 150)
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(theme.separator))
-                            Text(window.title)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(theme.primaryText)
-                                .lineLimit(1)
-                                .frame(width: 240)
+                    WithPerceptionTracking {
+                        Button {
+                            onPick?()
+                            controller.windowManager.focus(window.id)
+                        } label: {
+                            VStack(spacing: 6) {
+                                WindowThumbnail(window: window, controller: controller)
+                                    .frame(width: 240, height: 150)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(theme.separator))
+                                Text(window.title)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(theme.primaryText)
+                                    .lineLimit(1)
+                                    .frame(width: 240)
+                            }
                         }
+                        .buttonStyle(.plain)
+                        .hoverEffect(.highlight)
+                        .accessibilityLabel(window.title)
+                        .accessibilityIdentifier("desktop.preview.window")
                     }
-                    .buttonStyle(.plain)
-                    .hoverEffect(.highlight)
-                    .accessibilityLabel(window.title)
-                    .accessibilityIdentifier("desktop.preview.window")
                 }
             }
             .padding(12)

@@ -1,5 +1,5 @@
 # A DesktopKit-only host app (MockLinuxHost, no emulator) and the desktop's UI tests.
-#   xcodegen generate && xcodebuild test -project DesktopUX.xcodeproj -scheme DesktopHarness \
+#   xcodegen generate && xcodebuild test -skipMacroValidation -project DesktopUX.xcodeproj -scheme DesktopHarness \
 #     -destination 'platform=iOS Simulator,id=518E05EE-26E1-4302-B4D9-90537588D271'
 name: DesktopUX
 options:

@@ -466,7 +466,7 @@ struct CommandMenuView: View {
                             // A section's letter switches mode and clears the query; a fresh
                             // field drops the letter the old one still shows.
                             .id(state.mode)
-                            .onChange(of: state.mode) { _ in fieldFocused = true }
+                            .onChangeCompat(of: state.mode) { _, _ in fieldFocused = true }
                         Text(shortcutHint).font(.caption.monospaced()).foregroundStyle(theme.secondaryText)
                     }
                     .padding(.horizontal, 16)

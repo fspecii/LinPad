@@ -403,6 +403,11 @@ final class DesktopKeyCommands {
         return flags
     }
 
+    /// Gives the shell's key commands a first responder again when nothing holds it.
+    func makeReachable() {
+        controller?.input.ensureKeyCommandsReachable()
+    }
+
     /// The key command's action travels up the responder chain from whatever holds first
     /// responder; every responder answers it and hands it here.
     static weak var active: DesktopKeyCommands?

@@ -59,7 +59,7 @@ final class TilingLayoutTests: XCTestCase {
         assertNoOverlap(grid)
 
         let monocle = WindowGeometry.tileFrames(count: 3, layout: .monocle, in: bounds, gap: gap)
-        XCTAssertTrue(monocle.allSatisfy { $0 == monocle[0] }, "monocle stacks every window on one frame")
+        XCTAssertEqual(monocle, Array(repeating: monocle.first ?? .null, count: 3), "monocle stacks every window on one frame")
         XCTAssertTrue(WindowGeometry.tileFrames(count: 0, layout: .grid, in: bounds, gap: gap).isEmpty)
     }
 

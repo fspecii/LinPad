@@ -235,12 +235,16 @@ final class CalendarStore {
         case notDetermined
         case granted
         case denied
-        /// This build cannot ask (no NSCalendarsFullAccessUsageDescription).
+        /// This build cannot ask (no usage description for this iPadOS: `usageDescriptionKey`).
         case unavailable
     }
 
     static let hiddenCalendarsKey = "calendar.hiddenCalendars"
-    static let usageDescriptionKey = "NSCalendarsFullAccessUsageDescription"
+    /// iPadOS 17 asks for full access; iPadOS 16's requestAccess(to:) needs the older key,
+    /// and asking without it terminates the app.
+    static var usageDescriptionKey: String {
+        if #available(iOS 17, *) { "NSCalendarsFullAccessUsageDescription" } else { "NSCalendarsUsageDescription" }
+    }
 
     private(set) var access: Access
     private(set) var calendars: [CalendarInfo] = []

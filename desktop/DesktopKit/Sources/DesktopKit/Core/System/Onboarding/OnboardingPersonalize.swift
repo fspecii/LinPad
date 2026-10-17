@@ -126,15 +126,18 @@ struct OnboardingPersonalize: View {
 
     private var themeStrip: some View {
         ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(controller.colorThemes.orderedIDs, id: \.self) { id in WithPerceptionTracking { themeCard(id) } }
+            // The reader's closure runs outside the body's tracking; the theme list is read here.
+            WithPerceptionTracking {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(controller.colorThemes.orderedIDs, id: \.self) { id in WithPerceptionTracking { themeCard(id) } }
+                    }
+                    .padding(.vertical, 3)
+                    .padding(.horizontal, 2)
                 }
-                .padding(.vertical, 3)
-                .padding(.horizontal, 2)
+                .frame(height: 104)
+                .onAppear { proxy.scrollTo(flow.choices.colorTheme, anchor: .center) }
             }
-            .frame(height: 104)
-            .onAppear { proxy.scrollTo(flow.choices.colorTheme, anchor: .center) }
         }
     }
 

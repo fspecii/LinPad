@@ -986,7 +986,7 @@ struct FilesAppView: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 1) {
                                 ForEach(AppPath.components(model.path)) { component in
-                                    breadcrumb(component)
+                                    WithPerceptionTracking { breadcrumb(component) }
                                         .id(component.path)
                                 }
                             }
