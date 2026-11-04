@@ -1441,6 +1441,82 @@ int_t sys_shutdown(fd_t sock_fd, dword_t how) {
 
 #define DEFAULT_TCP_CONGESTION "cubic"
 
+// SO_RCVTIMEO and SO_SNDTIMEO. 20 and 21 take the guest's struct timeval, which is what 64-bit
+// libcs and Go use; 66 and 67 Linux's __kernel_sock_timeval, two 64-bit fields, which 32-bit
+// time64 libcs use. The host takes its own struct timeval.
+#define SO_RCVTIMEO_OLD_ 20
+#define SO_SNDTIMEO_OLD_ 21
+struct sock_timeval_new_ {
+    sqword_t sec;
+    sqword_t usec;
+};
+
+static bool sock_timeo_option(dword_t level, dword_t option, int *real) {
+    if (level != SOL_SOCKET_)
+        return false;
+    if (option == SO_RCVTIMEO_OLD_ || option == SO_RCVTIMEO_)
+        *real = SO_RCVTIMEO;
+    else if (option == SO_SNDTIMEO_OLD_ || option == SO_SNDTIMEO_)
+        *real = SO_SNDTIMEO;
+    else
+        return false;
+    return true;
+}
+
+static int sock_set_timeo(struct fd *sock, dword_t option, int real, const char *value, dword_t value_len) {
+    int64_t sec, usec;
+    if (option == SO_RCVTIMEO_OLD_ || option == SO_SNDTIMEO_OLD_) {
+        struct timeval_ tv;
+        if (value_len < sizeof(tv))
+            return _EINVAL;
+        memcpy(&tv, value, sizeof(tv));
+#ifdef GUEST_ARM64
+        sec = tv.sec;
+        usec = tv.usec;
+#else
+        sec = (int32_t) tv.sec;
+        usec = (int32_t) tv.usec;
+#endif
+    } else {
+        struct sock_timeval_new_ tv;
+        if (value_len < sizeof(tv))
+            return _EINVAL;
+        memcpy(&tv, value, sizeof(tv));
+        sec = tv.sec;
+        usec = tv.usec;
+    }
+    if (usec < 0 || usec >= 1000000)
+        return _EDOM;
+    struct timeval host = {0};
+    if (sec >= 0) {
+        host.tv_sec = sec;
+        host.tv_usec = (int) usec;
+    }
+    if (setsockopt(sock->real_fd, SOL_SOCKET, real, &host, sizeof(host)) < 0)
+        return errno_map();
+    return 0;
+}
+
+// Like Linux, a short buffer gets the front of the struct.
+static int sock_get_timeo(struct fd *sock, dword_t option, int real, char *value, dword_t *value_len) {
+    struct timeval host;
+    socklen_t host_len = sizeof(host);
+    if (getsockopt(sock->real_fd, SOL_SOCKET, real, &host, &host_len) < 0)
+        return errno_map();
+    if (option == SO_RCVTIMEO_OLD_ || option == SO_SNDTIMEO_OLD_) {
+        struct timeval_ tv = {.sec = host.tv_sec, .usec = host.tv_usec};
+        if (*value_len > sizeof(tv))
+            *value_len = sizeof(tv);
+        memcpy(value, &tv, *value_len);
+    } else {
+        struct sock_timeval_new_ tv = {.sec = host.tv_sec, .usec = host.tv_usec};
+        if (*value_len > sizeof(tv))
+            *value_len = sizeof(tv);
+        memcpy(value, &tv, *value_len);
+    }
+    return 0;
+}
+
 int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t value_len) {
     STRACE("setsockopt(%d, %d, %d, 0x%x, %d)", sock_fd, level, option, value_addr, value_len);
     struct fd *sock = sock_getfd(sock_fd);
@@ -1452,6 +1528,9 @@ int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
 
     if (sock->socket.domain == AF_NETLINK_ && netlink_sockopt_ignored(level))
         return 0;
+    int timeo_real;
+    if (sock_timeo_option(level, option, &timeo_real))
+        return sock_set_timeo(sock, option, timeo_real, value, value_len);
     if (level == SOL_SOCKET_ && option == SO_PASSCRED_) {
         if (value_len < sizeof(int_t))
             return _EINVAL;
@@ -1504,7 +1583,12 @@ int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
     if (user_read(value_addr, value, value_len))
         return _EFAULT;
 
-    if (level == SOL_SOCKET_ && (option == SO_DOMAIN_ || option == SO_TYPE_ || option == SO_PROTOCOL_)) {
+    int timeo_real;
+    if (sock_timeo_option(level, option, &timeo_real)) {
+        int err = sock_get_timeo(sock, option, timeo_real, value, &value_len);
+        if (err < 0)
+            return err;
+    } else if (level == SOL_SOCKET_ && (option == SO_DOMAIN_ || option == SO_TYPE_ || option == SO_PROTOCOL_)) {
         dword_t *value_p = (dword_t *) value;
         if (value_len != sizeof(*value_p))
             return _EINVAL;
