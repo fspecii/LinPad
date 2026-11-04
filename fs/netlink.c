@@ -9,6 +9,7 @@
 #ifdef __APPLE__
 #include <net/if_dl.h>
 #include <net/if_types.h>
+#include <sys/sysctl.h>
 #endif
 #include "kernel/calls.h"
 #include "fs/fd.h"
@@ -16,8 +17,9 @@
 #include "fs/sock.h"
 #include "fs/proc.h"
 
-// A minimal NETLINK_ROUTE: enough for getifaddrs(), if_nameindex() and
-// address enumeration in runtimes (libuv, Chromium). Requests are answered
+// A minimal NETLINK_ROUTE: enough for getifaddrs(), if_nameindex(), address
+// enumeration in runtimes (libuv, Chromium) and finding the default route
+// (sing-box, Tailscale, ip route). Requests are answered
 // synchronously from the host's getifaddrs(); replies are queued on a host
 // datagram socketpair, so recv/poll/nonblocking behave like a real socket.
 
@@ -89,6 +91,8 @@ static unsigned cached_ifindex(const char *name) {
 #define RTM_NEWLINK_ 16
 #define RTM_GETADDR_ 22
 #define RTM_NEWADDR_ 20
+#define RTM_NEWROUTE_ 24
+#define RTM_GETROUTE_ 26
 #define RTM_MAX_ 127
 
 #define IFLA_ADDRESS_ 1
@@ -97,6 +101,16 @@ static unsigned cached_ifindex(const char *name) {
 #define IFLA_MTU_ 4
 #define IFLA_TXQLEN_ 13
 #define IFLA_OPERSTATE_ 16
+
+#define RTA_DST_ 1
+#define RTA_OIF_ 4
+#define RTA_GATEWAY_ 5
+#define RTA_PREFSRC_ 7
+#define RTA_TABLE_ 15
+#define RT_TABLE_MAIN_ 254
+#define RTPROT_KERNEL_ 2
+#define RTPROT_BOOT_ 3
+#define RTN_UNICAST_ 1
 
 #define IFA_ADDRESS_ 1
 #define IFA_LOCAL_ 2
@@ -150,6 +164,18 @@ struct ifaddrmsg_ {
     uint8_t flags;
     uint8_t scope;
     uint32_t index;
+};
+
+struct rtmsg_ {
+    uint8_t family;
+    uint8_t dst_len;
+    uint8_t src_len;
+    uint8_t tos;
+    uint8_t table;
+    uint8_t protocol;
+    uint8_t scope;
+    uint8_t type;
+    uint32_t flags;
 };
 
 struct rtattr_ {
@@ -386,6 +412,8 @@ static int handle_getaddr(struct nl_reply *r, const struct nlmsghdr_ *req, const
         return _EOPNOTSUPP;
     struct ifaddrmsg_ want = {0};
     memcpy(&want, payload, payload_len < sizeof(want) ? payload_len : sizeof(want));
+    if (want.family != AF_INET_ && want.family != AF_INET6_)
+        want.family = 0; // like Linux, a dump for a family it has no table for dumps them all
     struct ifaddrs *ifas = ifaddrs_get();
     if (ifas == NULL) {
         ifaddrs_put();
@@ -406,6 +434,298 @@ static int handle_getaddr(struct nl_reply *r, const struct nlmsghdr_ *req, const
     return 0;
 }
 
+// The main routing table, as far as a guest can see it: the host's default
+// route and a connected route for each interface address.
+struct route {
+    int family; // the host's AF_INET or AF_INET6
+    uint8_t dst[16];
+    uint8_t dst_len;
+    uint8_t gateway[16];
+    bool has_gateway;
+    uint8_t prefsrc[16];
+    bool has_prefsrc;
+    unsigned oif;
+    uint8_t scope;
+    uint8_t protocol;
+};
+
+static size_t family_addr_len(int family) {
+    return family == AF_INET ? 4 : 16;
+}
+
+static const uint8_t *sockaddr_bytes(const struct sockaddr *sa) {
+    if (sa->sa_family == AF_INET)
+        return (const uint8_t *) &((const struct sockaddr_in *) sa)->sin_addr;
+    return ((const struct sockaddr_in6 *) sa)->sin6_addr.s6_addr;
+}
+
+static bool bytes_zero(const uint8_t *bytes, size_t len) {
+    for (size_t i = 0; i < len; i++)
+        if (bytes[i] != 0)
+            return false;
+    return true;
+}
+
+// KAME embeds the scope id in bytes 2-3 of link-local addresses
+static void clear_kame_scope(uint8_t *addr) {
+    if (addr[0] == 0xfe && (addr[1] & 0xc0) == 0x80)
+        addr[2] = addr[3] = 0;
+}
+
+#ifdef __APPLE__
+// <net/route.h> is not in the iOS SDK; these are Darwin's.
+struct darwin_rt_metrics {
+    uint32_t locks, mtu, hopcount;
+    int32_t expire;
+    uint32_t recvpipe, sendpipe, ssthresh, rtt, rttvar, pksent, filler[4];
+};
+struct darwin_rt_msghdr {
+    unsigned short msglen;
+    unsigned char version, type;
+    unsigned short index;
+    int flags, addrs;
+    pid_t pid;
+    int seq, error, use;
+    uint32_t inits;
+    struct darwin_rt_metrics rmx;
+};
+#define DARWIN_RTF_UP 0x1
+#define DARWIN_RTF_IFSCOPE 0x1000000
+#define DARWIN_RTAX_DST 0
+#define DARWIN_RTAX_GATEWAY 1
+#define DARWIN_RTAX_NETMASK 2
+#define DARWIN_RTAX_MAX 8
+#define DARWIN_SA_SIZE(len) ((len) > 0 ? 1 + (((len) - 1) | (sizeof(uint32_t) - 1)) : sizeof(uint32_t))
+
+// The host's unscoped default route for family, from its routing table.
+static bool host_default_route(int family, struct route *rt) {
+    int mib[6] = {CTL_NET, PF_ROUTE, 0, family, NET_RT_DUMP, 0};
+    size_t len = 0;
+    if (sysctl(mib, 6, NULL, &len, NULL, 0) < 0 || len == 0)
+        return false;
+    len += len / 4; // routes can be added in between
+    char *buf = malloc(len);
+    if (buf == NULL)
+        return false;
+    if (sysctl(mib, 6, buf, &len, NULL, 0) < 0) {
+        free(buf);
+        return false;
+    }
+    bool found = false;
+    for (size_t off = 0; !found && off + sizeof(struct darwin_rt_msghdr) <= len;) {
+        struct darwin_rt_msghdr *rtm = (struct darwin_rt_msghdr *) (buf + off);
+        if (rtm->msglen == 0 || off + rtm->msglen > len)
+            break;
+        off += rtm->msglen;
+        const struct sockaddr *sa[DARWIN_RTAX_MAX] = {NULL};
+        size_t pos = sizeof(*rtm);
+        for (int i = 0; i < DARWIN_RTAX_MAX && pos < rtm->msglen; i++) {
+            if (!(rtm->addrs & (1 << i)))
+                continue;
+            sa[i] = (const struct sockaddr *) ((char *) rtm + pos);
+            pos += DARWIN_SA_SIZE(sa[i]->sa_len);
+        }
+        const struct sockaddr *dst = sa[DARWIN_RTAX_DST], *mask = sa[DARWIN_RTAX_NETMASK];
+        if (!(rtm->flags & DARWIN_RTF_UP) || (rtm->flags & DARWIN_RTF_IFSCOPE) || rtm->index == 0 ||
+                dst == NULL || dst->sa_family != family || !bytes_zero(sockaddr_bytes(dst), family_addr_len(family)))
+            continue;
+        // a routing message's netmask is cut after its last nonzero byte
+        if (mask != NULL && mask->sa_len > 2 && !bytes_zero((const uint8_t *) mask + 2, mask->sa_len - 2))
+            continue;
+        *rt = (struct route) {.family = family, .oif = rtm->index, .protocol = RTPROT_BOOT_};
+        const struct sockaddr *gw = sa[DARWIN_RTAX_GATEWAY];
+        if (gw != NULL && gw->sa_family == family) {
+            memcpy(rt->gateway, sockaddr_bytes(gw), family_addr_len(family));
+            if (family == AF_INET6)
+                clear_kame_scope(rt->gateway);
+            rt->has_gateway = true;
+        }
+        found = true;
+    }
+    free(buf);
+    return found;
+}
+#else
+static bool host_default_route(int family, struct route *rt) {
+    (void) family;
+    (void) rt;
+    return false;
+}
+#endif
+
+static bool global_address(const struct sockaddr *sa) {
+    const uint8_t *a = sockaddr_bytes(sa);
+    if (sa->sa_family == AF_INET)
+        return !(a[0] == 169 && a[1] == 254) && a[0] != 127 && a[0] != 0;
+    return (a[0] & 0xe0) == 0x20; // 2000::/3
+}
+
+// Without the host's table: the first interface with a global address,
+// Wi-Fi or Ethernet before cellular before anything else. ifcache_lock held.
+static bool guess_default_route(struct ifaddrs *ifas, int family, struct route *rt) {
+    static const char *const prefixes[] = {"en", "pdp_ip", ""};
+    for (unsigned p = 0; p < sizeof(prefixes) / sizeof(prefixes[0]); p++) {
+        for (struct ifaddrs *ifa = ifas; ifa != NULL; ifa = ifa->ifa_next) {
+            if (ifa->ifa_addr == NULL || ifa->ifa_addr->sa_family != family ||
+                    (ifa->ifa_flags & (IFF_UP | IFF_RUNNING | IFF_LOOPBACK)) != (IFF_UP | IFF_RUNNING) ||
+                    strncmp(ifa->ifa_name, prefixes[p], strlen(prefixes[p])) != 0 || !global_address(ifa->ifa_addr))
+                continue;
+            *rt = (struct route) {.family = family, .oif = cached_ifindex(ifa->ifa_name), .protocol = RTPROT_BOOT_};
+            return rt->oif != 0;
+        }
+    }
+    return false;
+}
+
+#define MAX_ROUTES 64
+
+// The table for family (the host's AF_INET or AF_INET6), default route
+// first. ifcache_lock held.
+static unsigned collect_routes(struct ifaddrs *ifas, int family, struct route *routes) {
+    unsigned n = 0;
+    if (host_default_route(family, &routes[n]) || guess_default_route(ifas, family, &routes[n]))
+        n++;
+    size_t alen = family_addr_len(family);
+    for (struct ifaddrs *ifa = ifas; ifa != NULL && n < MAX_ROUTES; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL || ifa->ifa_addr->sa_family != family ||
+                !(ifa->ifa_flags & IFF_UP) || (ifa->ifa_flags & IFF_LOOPBACK))
+            continue;
+        struct route rt = {
+            .family = family, .oif = cached_ifindex(ifa->ifa_name),
+            .scope = RT_SCOPE_LINK_, .protocol = RTPROT_KERNEL_,
+        };
+        uint8_t addr[16];
+        memcpy(addr, sockaddr_bytes(ifa->ifa_addr), alen);
+        if (family == AF_INET6)
+            clear_kame_scope(addr);
+        if (family == AF_INET && (ifa->ifa_flags & IFF_POINTOPOINT) && ifa->ifa_dstaddr != NULL) {
+            memcpy(rt.dst, sockaddr_bytes(ifa->ifa_dstaddr), alen);
+            rt.dst_len = 32;
+        } else {
+            const uint8_t *mask = ifa->ifa_netmask ? sockaddr_bytes(ifa->ifa_netmask) : NULL;
+            rt.dst_len = mask ? prefix_len(mask, alen) : alen * 8;
+            for (size_t i = 0; i < alen; i++)
+                rt.dst[i] = mask ? addr[i] & mask[i] : addr[i];
+        }
+        if (rt.dst_len == 0 || rt.oif == 0)
+            continue;
+        if (family == AF_INET) {
+            memcpy(rt.prefsrc, addr, alen);
+            rt.has_prefsrc = true;
+        }
+        bool seen = false;
+        for (unsigned i = 0; i < n && !seen; i++)
+            seen = routes[i].dst_len == rt.dst_len && routes[i].oif == rt.oif &&
+                memcmp(routes[i].dst, rt.dst, alen) == 0;
+        if (!seen)
+            routes[n++] = rt;
+    }
+    return n;
+}
+
+static void dump_route(struct nl_reply *r, const struct route *rt, uint16_t flags) {
+    struct rtmsg_ msg = {
+        .family = rt->family == AF_INET ? AF_INET_ : AF_INET6_,
+        .dst_len = rt->dst_len, .table = RT_TABLE_MAIN_,
+        .protocol = rt->protocol, .scope = rt->scope, .type = RTN_UNICAST_,
+    };
+    size_t alen = family_addr_len(rt->family);
+    reply_begin(r, RTM_NEWROUTE_, flags, 128);
+    reply_put(r, &msg, sizeof(msg));
+    uint32_t table = RT_TABLE_MAIN_;
+    reply_attr(r, RTA_TABLE_, &table, sizeof(table));
+    if (rt->dst_len != 0)
+        reply_attr(r, RTA_DST_, rt->dst, alen);
+    if (rt->has_prefsrc)
+        reply_attr(r, RTA_PREFSRC_, rt->prefsrc, alen);
+    if (rt->has_gateway)
+        reply_attr(r, RTA_GATEWAY_, rt->gateway, alen);
+    uint32_t oif = rt->oif;
+    reply_attr(r, RTA_OIF_, &oif, sizeof(oif));
+    reply_end(r);
+}
+
+static bool route_matches(const struct route *rt, const uint8_t *addr) {
+    unsigned full = rt->dst_len / 8, rest = rt->dst_len % 8;
+    if (memcmp(rt->dst, addr, full) != 0)
+        return false;
+    return rest == 0 || ((rt->dst[full] ^ addr[full]) & (0xff << (8 - rest))) == 0;
+}
+
+// A dump of the table, or (ip route get) the route a destination takes.
+static int handle_getroute(struct nl_reply *r, const struct nlmsghdr_ *req, const char *payload, size_t payload_len) {
+    struct rtmsg_ want = {0};
+    memcpy(&want, payload, payload_len < sizeof(want) ? payload_len : sizeof(want));
+    bool dump = (req->flags & NLM_F_DUMP_) == NLM_F_DUMP_;
+    // Like Linux, a dump for a family it has no table for dumps them all. The
+    // netlink library sing-box and Tailscale use asks for family 255.
+    if (dump && want.family != AF_INET_ && want.family != AF_INET6_)
+        want.family = 0;
+    uint8_t dst[16] = {0};
+    if (!dump) {
+        if (want.family != AF_INET_ && want.family != AF_INET6_)
+            return _EINVAL;
+        size_t alen = want.family == AF_INET_ ? 4 : 16;
+        for (size_t off = NL_ALIGN(sizeof(want)); off + sizeof(struct rtattr_) <= payload_len;) {
+            struct rtattr_ attr;
+            memcpy(&attr, payload + off, sizeof(attr));
+            if (attr.len < sizeof(attr) || off + attr.len > payload_len)
+                break;
+            if (attr.type == RTA_DST_ && attr.len - sizeof(attr) >= alen)
+                memcpy(dst, payload + off + sizeof(attr), alen);
+            off += NL_ALIGN(attr.len);
+        }
+    }
+    struct ifaddrs *ifas = ifaddrs_get();
+    if (ifas == NULL) {
+        ifaddrs_put();
+        return _ENOBUFS;
+    }
+    struct route routes[MAX_ROUTES];
+    int err = 0;
+    static const int families[] = {AF_INET, AF_INET6};
+    for (unsigned f = 0; f < sizeof(families) / sizeof(families[0]); f++) {
+        int family = families[f];
+        uint8_t guest_family = family == AF_INET ? AF_INET_ : AF_INET6_;
+        if (want.family != 0 && want.family != guest_family)
+            continue;
+        unsigned n = collect_routes(ifas, family, routes);
+        if (dump) {
+            for (unsigned i = 0; i < n; i++)
+                dump_route(r, &routes[i], NLM_F_MULTI_);
+            continue;
+        }
+        // the longest matching prefix; the default route matches everything
+        const struct route *best = NULL;
+        for (unsigned i = 0; i < n; i++)
+            if (route_matches(&routes[i], dst) && (best == NULL || routes[i].dst_len > best->dst_len))
+                best = &routes[i];
+        if (best == NULL) {
+            err = _ENETUNREACH;
+            break;
+        }
+        struct route answer = *best;
+        size_t alen = family_addr_len(family);
+        memcpy(answer.dst, dst, alen);
+        answer.dst_len = alen * 8;
+        if (!answer.has_prefsrc) {
+            for (struct ifaddrs *ifa = ifas; ifa != NULL; ifa = ifa->ifa_next) {
+                if (ifa->ifa_addr != NULL && ifa->ifa_addr->sa_family == family &&
+                        cached_ifindex(ifa->ifa_name) == answer.oif && global_address(ifa->ifa_addr)) {
+                    memcpy(answer.prefsrc, sockaddr_bytes(ifa->ifa_addr), alen);
+                    answer.has_prefsrc = true;
+                    break;
+                }
+            }
+        }
+        dump_route(r, &answer, 0);
+    }
+    if (dump)
+        reply_done(r);
+    ifaddrs_put();
+    return err;
+}
+
 static void handle_request(struct nl_reply *r, const struct nlmsghdr_ *req, const char *payload, size_t payload_len) {
     r->seq = req->seq;
     if (req->type == NLMSG_NOOP_ || req->type == NLMSG_DONE_ || req->type == NLMSG_ERROR_)
@@ -417,8 +737,10 @@ static void handle_request(struct nl_reply *r, const struct nlmsghdr_ *req, cons
         err = handle_getlink(r, req, payload, payload_len);
     } else if (req->type == RTM_GETADDR_) {
         err = handle_getaddr(r, req, payload, payload_len);
+    } else if (req->type == RTM_GETROUTE_) {
+        err = handle_getroute(r, req, payload, payload_len);
     } else if (is_dump) {
-        // other dumps (routes, neighbours, rules): an empty table
+        // other dumps (neighbours, rules): an empty table
         reply_done(r);
         err = 0;
     } else if (req->type >= RTM_BASE_ && req->type <= RTM_MAX_ && !is_get) {
