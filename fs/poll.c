@@ -17,6 +17,8 @@
 
 // From kernel/calls.h - avoid circular include
 extern _Noreturn void do_exit_group(int status);
+// From fs/sock.c
+extern const struct fd_ops socket_fdops;
 
 #if defined(__linux__)
 #include <sys/epoll.h>
@@ -83,7 +85,13 @@ static inline bool poll_fd_is_real(struct poll_fd *pollfd) {
     mode_t_ type = pollfd->fd->type;
     if (S_ISREG(type) || S_ISDIR(type))
         return false;
-    return pollfd->fd->ops->poll == realfs_poll || poll_fd_is_epoll(pollfd);
+    // Sockets poll their host socket too, through sock_poll (realfs_poll plus
+    // a SOCK_SEQPACKET record already collected). Unregistered, their readiness
+    // was only noticed by the 1 s re-check, and an edge-triggered entry, whose
+    // mask only a host event clears, never reported a second time: a Go or
+    // tokio server accepted one connection and its connections stalled.
+    return pollfd->fd->ops->poll == realfs_poll || pollfd->fd->ops == &socket_fdops ||
+        poll_fd_is_epoll(pollfd);
 }
 
 // What to register on the host for a member fd. A nested epoll set is

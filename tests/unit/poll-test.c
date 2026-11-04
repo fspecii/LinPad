@@ -1,6 +1,7 @@
 // Native host regression for fs/poll.c and fs/real.c. The fixtures supply the
 // task/socket-restart context; readiness, host registration and waits are the
 // production implementations. Run with tests/unit/poll-test.sh.
+#include <arpa/inet.h>
 #include <stdarg.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -39,6 +40,9 @@ void ish_printk(const char *format, ...) {
 
 static const struct fd_ops native_ops = {.poll = realfs_poll};
 static const struct fd_ops epoll_ops = {.poll = epoll_fd_poll};
+// fs/sock.c's ops as far as polling goes: sock_poll wraps realfs_poll.
+static int socket_poll(struct fd *fd) { return realfs_poll(fd); }
+const struct fd_ops socket_fdops = {.poll = socket_poll};
 
 static void fd_init(struct fd *fd, int host_fd, mode_t_ type, const struct fd_ops *ops) {
     memset(fd, 0, sizeof(*fd));
@@ -244,6 +248,85 @@ static void pipe_hup_test(void) {
     puts("pipe HUP: closing empty and buffered writers wakes promptly");
 }
 
+struct connect_context { struct sockaddr_in addr; int fd; };
+static void *connect_later(void *context) {
+    struct connect_context *connect_context = context;
+    struct timespec delay = {.tv_nsec = 50000000};
+    nanosleep(&delay, NULL);
+    connect_context->fd = socket(AF_INET, SOCK_STREAM, 0);
+    CHECK(connect_context->fd >= 0);
+    CHECK(connect(connect_context->fd, (struct sockaddr *) &connect_context->addr,
+                sizeof(connect_context->addr)) == 0);
+    return NULL;
+}
+
+struct write_context { int fd; };
+static void *write_later(void *context) {
+    struct write_context *write_context = context;
+    struct timespec delay = {.tv_nsec = 50000000};
+    nanosleep(&delay, NULL);
+    CHECK(write(write_context->fd, "x", 1) == 1);
+    return NULL;
+}
+
+// One blocking edge-triggered wait that another thread satisfies after 50 ms.
+static void wait_edge(struct poll *poll, void *(*later)(void *), void *context) {
+    pthread_t thread;
+    CHECK(pthread_create(&thread, NULL, later, context) == 0);
+    int events = 0;
+    struct timespec timeout = {.tv_sec = 2};
+    double start = monotonic_time();
+    CHECK(poll_wait(poll, count_event, &events, &timeout) == 1);
+    CHECK(events & POLL_READ);
+    CHECK(monotonic_time() - start < 0.5);
+    CHECK(pthread_join(thread, NULL) == 0);
+}
+
+// Sockets in an edge-triggered set, as Go and tokio register them: every new
+// connection to a listener and every new chunk of data is a new edge, which a
+// blocking wait reports at once (not on its 1 s re-check, nor never).
+static void socket_edge_test(void) {
+    int listener = socket(AF_INET, SOCK_STREAM, 0);
+    CHECK(listener >= 0);
+    struct sockaddr_in addr = {.sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
+    socklen_t len = sizeof(addr);
+    CHECK(bind(listener, (struct sockaddr *) &addr, len) == 0 && listen(listener, 8) == 0);
+    CHECK(getsockname(listener, (struct sockaddr *) &addr, &len) == 0);
+    CHECK(fcntl(listener, F_SETFL, O_NONBLOCK) == 0);
+    struct fd member;
+    fd_init(&member, listener, S_IFSOCK, &socket_fdops);
+    struct poll *poll = new_poll();
+    CHECK(poll_add_fd(poll, &member, POLL_READ | POLL_WRITE | POLL_EDGETRIGGERED,
+                (union poll_fd_info) {0}) == 0);
+    for (int round = 0; round < 3; round++) {
+        struct connect_context context = {.addr = addr};
+        wait_edge(poll, connect_later, &context);
+        int accepted = accept(listener, NULL, NULL);
+        CHECK(accepted >= 0);
+        CHECK(accept(listener, NULL, NULL) < 0 && errno == EAGAIN);
+        close(accepted);
+        close(context.fd);
+    }
+    poll_destroy(poll);
+    close(listener);
+
+    int pair[2];
+    CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
+    fd_init(&member, pair[0], S_IFSOCK, &socket_fdops);
+    poll = new_poll();
+    CHECK(poll_add_fd(poll, &member, POLL_READ | POLL_EDGETRIGGERED, (union poll_fd_info) {0}) == 0);
+    for (int round = 0; round < 3; round++) {
+        struct write_context context = {.fd = pair[1]};
+        wait_edge(poll, write_later, &context);
+        char byte;
+        CHECK(read(pair[0], &byte, 1) == 1);
+    }
+    poll_destroy(poll);
+    close(pair[0]);
+    close(pair[1]);
+    puts("socket edges: each connection and each write wakes an edge-triggered wait");
+}
+
 int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
     struct tgroup group = {0};
@@ -258,6 +341,8 @@ int main(int argc, char **argv) {
         fifo_idle_test();
         pipe_hup_test();
     }
+    if (argc == 1 || strcmp(argv[1], "socket") == 0)
+        socket_edge_test();
     alarm(0);
     return 0;
 }
