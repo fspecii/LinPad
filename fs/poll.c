@@ -103,11 +103,13 @@ static inline int poll_fd_real_types(struct poll_fd *pollfd, int types) {
     return types;
 }
 
-// does not do its own locking
+// The caller holds fd->poll_lock. An fd is in few sets (usually one), while a
+// set can hold thousands of fds: look on the fd's side, so EPOLL_CTL_ADD, MOD
+// and DEL do not scan the whole interest list.
 static struct poll_fd *poll_find_fd(struct poll *poll, struct fd *fd) {
-    struct poll_fd *poll_fd, *tmp;
-    list_for_each_entry_safe(&poll->poll_fds, poll_fd, tmp, fds) {
-        if (poll_fd->fd == fd)
+    struct poll_fd *poll_fd;
+    list_for_each_entry(&fd->poll_fds, poll_fd, polls) {
+        if (poll_fd->poll == poll)
             return poll_fd;
     }
     return NULL;
@@ -122,7 +124,10 @@ static void poll_fd_free(struct poll_fd *poll_fd) {
 }
 
 bool poll_has_fd(struct poll *poll, struct fd *fd) {
-    return poll_find_fd(poll, fd) != NULL;
+    lock(&fd->poll_lock);
+    bool found = poll_find_fd(poll, fd) != NULL;
+    unlock(&fd->poll_lock);
+    return found;
 }
 
 int poll_add_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info info) {
