@@ -153,6 +153,16 @@ static int proc_pid_status_show(struct proc_entry *entry, struct proc_data *buf)
     proc_printf(buf, "Tgid:\t%d\n", task->tgid);
     proc_printf(buf, "Pid:\t%d\n", task->pid);
     proc_printf(buf, "PPid:\t%d\n", task->parent ? task->parent->pid : 0);
+    // not in Linux: how long the thread has been in its current syscall
+    int in_syscall = atomic_load_explicit(&task->in_syscall, memory_order_acquire);
+    if (in_syscall >= 0) {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        uint64_t now_ns = (uint64_t) now.tv_sec * 1000000000ull + now.tv_nsec;
+        uint64_t since = task->syscall_since_ns;
+        proc_printf(buf, "Syscall:\t%d for %llu ms\n", in_syscall,
+                (unsigned long long) (now_ns > since ? (now_ns - since) / 1000000 : 0));
+    }
     proc_printf(buf, "Uid:\t%d\t%d\t%d\t%d\n", task->uid, task->euid, task->suid, task->euid);
     proc_printf(buf, "Gid:\t%d\t%d\t%d\t%d\n", task->gid, task->egid, task->sgid, task->egid);
     proc_printf(buf, "VmPeak:\t%8llu kB\n", (unsigned long long) (vm.size * kb));
@@ -580,6 +590,25 @@ static int proc_pid_cwd_readlink(struct proc_entry *entry, char *buf) {
 }
 
 
+// As on Linux: the syscall the thread is in, with its six arguments (stack and
+// program counter are not tracked and read as 0), or "running".
+static int proc_pid_syscall_show(struct proc_entry *entry, struct proc_data *buf) {
+    struct task *task = proc_get_task(entry);
+    if (task == NULL)
+        return _ESRCH;
+    int nr = atomic_load_explicit(&task->in_syscall, memory_order_acquire);
+    if (nr < 0) {
+        proc_printf(buf, "running\n");
+    } else {
+        proc_printf(buf, "%d", nr);
+        for (int i = 0; i < 6; i++)
+            proc_printf(buf, " 0x%llx", (unsigned long long) task->syscall_args[i]);
+        proc_printf(buf, " 0x0 0x0\n");
+    }
+    proc_put_task(task);
+    return 0;
+}
+
 struct proc_children proc_pid_children = PROC_CHILDREN({
     {"auxv", .show = proc_pid_auxv_show},
     {"cmdline", .show = proc_pid_cmdline_show},
@@ -593,6 +622,7 @@ struct proc_children proc_pid_children = PROC_CHILDREN({
     {"oom_score_adj", 0644, .show = proc_pid_oom_score_adj_show, .update = proc_pid_oom_score_adj_update},
     {"stat", .show = proc_pid_stat_show},
     {"statm", .show = proc_pid_statm_show},
+    {"syscall", .show = proc_pid_syscall_show},
     {"status", .show = proc_pid_status_show},
     {"task", S_IFDIR, .readdir = proc_pid_task_readdir},
 });

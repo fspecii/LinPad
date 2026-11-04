@@ -71,6 +71,7 @@ struct task *task_create_(struct task *parent) {
 
     // Initialize blocking state for deadlock detection.
     task->blocking = false;
+    task->in_syscall = -1;
     {
         struct timespec _ts;
         clock_gettime(CLOCK_MONOTONIC, &_ts);
