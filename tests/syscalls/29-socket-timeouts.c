@@ -26,7 +26,7 @@ int main(void) {
     struct sockaddr_in addr = {.sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
     bind(udp, (struct sockaddr *) &addr, sizeof(addr));
     struct timeval tv = {.tv_sec = 0, .tv_usec = 200000};
-    int r = setsockopt(udp, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    int r = setsockopt(udp, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)), r2;
     CHECK(r == 0, "setsockopt SO_RCVTIMEO (%d) = %d errno %d", SO_RCVTIMEO, r, r ? errno : 0);
     struct timeval got = {0};
     socklen_t len = sizeof(got);
@@ -45,10 +45,18 @@ int main(void) {
     r = setsockopt(udp, SOL_SOCKET, SO_SNDTIMEO, &tv, 4);
     CHECK(r == -1 && errno == EINVAL, "short option = %d errno %d", r, errno);
 
+    // cronet (sing-box's naive outbound) sets path MTU discovery on its UDP sockets; Darwin has
+    // neither option, which is accepted and ignored
+    int udp6 = socket(AF_INET6, SOCK_DGRAM, 0);
+    int pmtu = 2; // IP_PMTUDISC_DO
+    r = setsockopt(udp6, IPPROTO_IPV6, 23, &pmtu, sizeof(pmtu));
+    r2 = setsockopt(udp, IPPROTO_IP, 10, &pmtu, sizeof(pmtu));
+    CHECK(r == 0 && r2 == 0, "IPV6_MTU_DISCOVER = %d, IP_MTU_DISCOVER = %d", r, r2);
+
     int nl = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
     tv = (struct timeval) {.tv_sec = 60};
     r = setsockopt(nl, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-    int r2 = setsockopt(nl, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    r2 = setsockopt(nl, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     CHECK(r == 0 && r2 == 0, "netlink SO_SNDTIMEO = %d, SO_RCVTIMEO = %d errno %d", r, r2, errno);
     len = sizeof(got);
     r = getsockopt(nl, SOL_SOCKET, SO_SNDTIMEO, &got, &len);
