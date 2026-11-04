@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <ifaddrs.h>
+#include <pthread.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <string.h>
@@ -18,8 +19,8 @@
 #include "fs/proc.h"
 
 // A minimal NETLINK_ROUTE: enough for getifaddrs(), if_nameindex(), address
-// enumeration in runtimes (libuv, Chromium) and finding the default route
-// (sing-box, Tailscale, ip route). Requests are answered
+// enumeration in runtimes (libuv, Chromium), finding the default route
+// (sing-box, Tailscale, ip route) and hearing when the network changes. Requests are answered
 // synchronously from the host's getifaddrs(); replies are queued on a host
 // datagram socketpair, so recv/poll/nonblocking behave like a real socket.
 
@@ -301,10 +302,10 @@ static void link_info(struct ifaddrs *ifa, struct link_info *link) {
         link->mac_len = sizeof(link->mac); // all zeroes, like Linux
 }
 
-static void dump_link(struct nl_reply *r, struct ifaddrs *ifa, uint16_t flags) {
+static void dump_link(struct nl_reply *r, struct ifaddrs *ifa, uint16_t type, uint16_t flags, unsigned index) {
     const char *name = guest_ifname(ifa->ifa_name, ifa->ifa_flags);
     struct ifinfomsg_ info = {
-        .index = cached_ifindex(ifa->ifa_name),
+        .index = index,
         .flags = flags_from_real(ifa->ifa_flags),
         .change = 0xffffffff,
     };
@@ -312,7 +313,7 @@ static void dump_link(struct nl_reply *r, struct ifaddrs *ifa, uint16_t flags) {
     link_info(ifa, &link);
     info.type = link.type;
 
-    reply_begin(r, RTM_NEWLINK_, flags, 256);
+    reply_begin(r, type, flags, 256);
     reply_put(r, &info, sizeof(info));
     reply_attr(r, IFLA_IFNAME_, name, strlen(name) + 1);
     reply_attr(r, IFLA_MTU_, &link.mtu, sizeof(link.mtu));
@@ -337,11 +338,10 @@ static int prefix_len(const uint8_t *mask, size_t len) {
     return bits;
 }
 
-static void dump_addr(struct nl_reply *r, struct ifaddrs *ifa, int family) {
-    unsigned index = cached_ifindex(ifa->ifa_name);
+static void dump_addr(struct nl_reply *r, struct ifaddrs *ifa, int family, uint16_t type, uint16_t flags, unsigned index) {
     const char *name = guest_ifname(ifa->ifa_name, ifa->ifa_flags);
     struct ifaddrmsg_ msg = {.flags = IFA_F_PERMANENT_, .index = index};
-    reply_begin(r, RTM_NEWADDR_, NLM_F_MULTI_, 128);
+    reply_begin(r, type, flags, 128);
     if (family == AF_INET) {
         struct sockaddr_in *addr = (struct sockaddr_in *) ifa->ifa_addr;
         struct sockaddr_in *mask = (struct sockaddr_in *) ifa->ifa_netmask;
@@ -388,7 +388,7 @@ static int handle_getlink(struct nl_reply *r, const struct nlmsghdr_ *req, const
     if (req->flags & NLM_F_DUMP_) {
         for (struct ifaddrs *ifa = ifas; ifa != NULL; ifa = ifa->ifa_next)
             if (ifa_is_link(ifa))
-                dump_link(r, ifa, NLM_F_MULTI_);
+                dump_link(r, ifa, RTM_NEWLINK_, NLM_F_MULTI_, cached_ifindex(ifa->ifa_name));
         reply_done(r);
     } else {
         struct ifinfomsg_ want = {0};
@@ -396,7 +396,7 @@ static int handle_getlink(struct nl_reply *r, const struct nlmsghdr_ *req, const
         bool found = false;
         for (struct ifaddrs *ifa = ifas; ifa != NULL && !found; ifa = ifa->ifa_next) {
             if (ifa_is_link(ifa) && (int) cached_ifindex(ifa->ifa_name) == want.index) {
-                dump_link(r, ifa, 0);
+                dump_link(r, ifa, RTM_NEWLINK_, 0, want.index);
                 found = true;
             }
         }
@@ -427,7 +427,7 @@ static int handle_getaddr(struct nl_reply *r, const struct nlmsghdr_ *req, const
             continue;
         for (struct ifaddrs *ifa = ifas; ifa != NULL; ifa = ifa->ifa_next)
             if (ifa->ifa_addr != NULL && ifa->ifa_addr->sa_family == family)
-                dump_addr(r, ifa, family);
+                dump_addr(r, ifa, family, RTM_NEWADDR_, NLM_F_MULTI_, cached_ifindex(ifa->ifa_name));
     }
     reply_done(r);
     ifaddrs_put();
@@ -623,14 +623,14 @@ static unsigned collect_routes(struct ifaddrs *ifas, int family, struct route *r
     return n;
 }
 
-static void dump_route(struct nl_reply *r, const struct route *rt, uint16_t flags) {
+static void dump_route(struct nl_reply *r, const struct route *rt, uint16_t type, uint16_t flags) {
     struct rtmsg_ msg = {
         .family = rt->family == AF_INET ? AF_INET_ : AF_INET6_,
         .dst_len = rt->dst_len, .table = RT_TABLE_MAIN_,
         .protocol = rt->protocol, .scope = rt->scope, .type = RTN_UNICAST_,
     };
     size_t alen = family_addr_len(rt->family);
-    reply_begin(r, RTM_NEWROUTE_, flags, 128);
+    reply_begin(r, type, flags, 128);
     reply_put(r, &msg, sizeof(msg));
     uint32_t table = RT_TABLE_MAIN_;
     reply_attr(r, RTA_TABLE_, &table, sizeof(table));
@@ -692,7 +692,7 @@ static int handle_getroute(struct nl_reply *r, const struct nlmsghdr_ *req, cons
         unsigned n = collect_routes(ifas, family, routes);
         if (dump) {
             for (unsigned i = 0; i < n; i++)
-                dump_route(r, &routes[i], NLM_F_MULTI_);
+                dump_route(r, &routes[i], RTM_NEWROUTE_, NLM_F_MULTI_);
             continue;
         }
         // the longest matching prefix; the default route matches everything
@@ -718,7 +718,7 @@ static int handle_getroute(struct nl_reply *r, const struct nlmsghdr_ *req, cons
                 }
             }
         }
-        dump_route(r, &answer, 0);
+        dump_route(r, &answer, RTM_NEWROUTE_, 0);
     }
     if (dump)
         reply_done(r);
@@ -752,6 +752,275 @@ static void handle_request(struct nl_reply *r, const struct nlmsghdr_ *req, cons
     // request, and a dump is acknowledged by its NLMSG_DONE
     if (err != 0 || ((req->flags & NLM_F_ACK_) && !is_dump))
         reply_error(r, err, req);
+}
+
+// ---- change notifications ----
+// Sockets that joined RTMGRP_* groups (bind's nl_groups or
+// NETLINK_ADD_MEMBERSHIP) get RTM_DELADDR/NEWADDR, RTM_NEWLINK/DELLINK and
+// RTM_DELROUTE/NEWROUTE when the host's interfaces change, as the kernel sends
+// them. Runtimes notice a network switch that way: Chromium (cronet, under
+// sing-box's naive outbound) drops the connections made on the old network,
+// sing-box and Tailscale move to the new default route. Without it they kept
+// connections that would never answer again.
+// Apple's peer-to-peer links (awdl, llw) and IPv6 link-local addresses come
+// and go without the network changing, and are left out so as not to make
+// runtimes drop good connections.
+
+#define RTM_DELLINK_ 17
+#define RTM_DELADDR_ 21
+#define RTM_DELROUTE_ 25
+#define RTMGRP_LINK_ 0x1
+#define RTMGRP_IPV4_IFADDR_ 0x10
+#define RTMGRP_IPV4_ROUTE_ 0x40
+#define RTMGRP_IPV6_IFADDR_ 0x100
+#define RTMGRP_IPV6_ROUTE_ 0x400
+#define NETLINK_ADD_MEMBERSHIP_ 1
+#define NETLINK_DROP_MEMBERSHIP_ 2
+#define WATCH_INTERVAL_SECONDS 2
+
+// The subscribed sockets; netlink_close takes a socket out before it is freed.
+static pthread_mutex_t subscribers_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct fd **subscribers;
+static size_t nsubscribers, capsubscribers;
+static bool watcher_started;
+
+static void *watch_interfaces(void *unused);
+
+// subscribers_lock held
+static void subscriber_remove(struct fd *sock) {
+    for (size_t i = 0; i < nsubscribers; i++) {
+        if (subscribers[i] == sock) {
+            subscribers[i] = subscribers[--nsubscribers];
+            return;
+        }
+    }
+}
+
+static void set_groups(struct fd *sock, uint32_t groups) {
+    pthread_mutex_lock(&subscribers_lock);
+    sock->socket.netlink_groups = groups;
+    subscriber_remove(sock);
+    if (groups != 0) {
+        if (nsubscribers == capsubscribers) {
+            size_t cap = capsubscribers ? capsubscribers * 2 : 8;
+            struct fd **grown = realloc(subscribers, cap * sizeof(*grown));
+            if (grown != NULL) {
+                subscribers = grown;
+                capsubscribers = cap;
+            }
+        }
+        if (nsubscribers < capsubscribers)
+            subscribers[nsubscribers++] = sock;
+        if (!watcher_started) {
+            pthread_t thread;
+            if (pthread_create(&thread, NULL, watch_interfaces, NULL) == 0) {
+                pthread_detach(thread);
+                watcher_started = true;
+            }
+        }
+    }
+    pthread_mutex_unlock(&subscribers_lock);
+}
+
+void netlink_close(struct fd *sock) {
+    pthread_mutex_lock(&subscribers_lock);
+    subscriber_remove(sock);
+    pthread_mutex_unlock(&subscribers_lock);
+}
+
+int netlink_setsockopt(struct fd *sock, int option, const void *value, size_t len) {
+    if (option != NETLINK_ADD_MEMBERSHIP_ && option != NETLINK_DROP_MEMBERSHIP_)
+        return 0; // the others change nothing that matters here
+    int32_t group;
+    if (len < sizeof(group))
+        return _EINVAL;
+    memcpy(&group, value, sizeof(group));
+    if (group <= 0)
+        return _EINVAL;
+    if (group > 32)
+        return 0; // nothing is sent to groups past the bitmask
+    uint32_t bit = 1u << (group - 1);
+    uint32_t groups = sock->socket.netlink_groups;
+    set_groups(sock, option == NETLINK_ADD_MEMBERSHIP_ ? groups | bit : groups & ~bit);
+    return 0;
+}
+
+#define WATCH_MAX 256
+
+// The interfaces, their indexes and the default routes at one moment.
+struct iface_state {
+    struct ifaddrs *ifas;
+    struct {
+        char name[IFNAMSIZ];
+        unsigned index;
+    } index[64];
+    unsigned nindex;
+    struct route route[2]; // AF_INET, AF_INET6
+    bool has_route[2];
+};
+
+static unsigned state_index(const struct iface_state *state, const char *name) {
+    for (unsigned i = 0; i < state->nindex; i++)
+        if (strncmp(state->index[i].name, name, IFNAMSIZ) == 0)
+            return state->index[i].index;
+    return 0;
+}
+
+static bool take_state(struct iface_state *state) {
+    *state = (struct iface_state) {0};
+    if (getifaddrs(&state->ifas) != 0)
+        return false;
+    for (struct ifaddrs *ifa = state->ifas; ifa != NULL; ifa = ifa->ifa_next) {
+        if (state_index(state, ifa->ifa_name) != 0 || state->nindex == sizeof(state->index) / sizeof(state->index[0]))
+            continue;
+        strncpy(state->index[state->nindex].name, ifa->ifa_name, IFNAMSIZ - 1);
+        state->index[state->nindex].index = if_nametoindex(ifa->ifa_name);
+        state->nindex++;
+    }
+    state->has_route[0] = host_default_route(AF_INET, &state->route[0]);
+    state->has_route[1] = host_default_route(AF_INET6, &state->route[1]);
+    return true;
+}
+
+static void free_state(struct iface_state *state) {
+    if (state->ifas != NULL)
+        freeifaddrs(state->ifas);
+    state->ifas = NULL;
+}
+
+static bool noisy_interface(const char *name) {
+    return strncmp(name, "awdl", 4) == 0 || strncmp(name, "llw", 3) == 0;
+}
+
+static bool watched_addr(struct ifaddrs *ifa) {
+    if (ifa->ifa_addr == NULL || (ifa->ifa_flags & IFF_LOOPBACK) || noisy_interface(ifa->ifa_name))
+        return false;
+    if (ifa->ifa_addr->sa_family == AF_INET)
+        return true;
+    return ifa->ifa_addr->sa_family == AF_INET6 &&
+        !IN6_IS_ADDR_LINKLOCAL(&((struct sockaddr_in6 *) ifa->ifa_addr)->sin6_addr);
+}
+
+static bool watched_link(struct ifaddrs *ifa) {
+    return ifa_is_link(ifa) && !(ifa->ifa_flags & IFF_LOOPBACK) && !noisy_interface(ifa->ifa_name);
+}
+
+static int addr_prefix(struct ifaddrs *ifa) {
+    size_t len = family_addr_len(ifa->ifa_addr->sa_family);
+    return ifa->ifa_netmask ? prefix_len(sockaddr_bytes(ifa->ifa_netmask), len) : (int) len * 8;
+}
+
+static bool same_addr(struct ifaddrs *a, struct ifaddrs *b) {
+    return strcmp(a->ifa_name, b->ifa_name) == 0 && a->ifa_addr->sa_family == b->ifa_addr->sa_family &&
+        memcmp(sockaddr_bytes(a->ifa_addr), sockaddr_bytes(b->ifa_addr), family_addr_len(a->ifa_addr->sa_family)) == 0 &&
+        addr_prefix(a) == addr_prefix(b);
+}
+
+static struct ifaddrs *find_addr(struct ifaddrs *list, struct ifaddrs *want) {
+    for (struct ifaddrs *ifa = list; ifa != NULL; ifa = ifa->ifa_next)
+        if (watched_addr(ifa) && same_addr(ifa, want))
+            return ifa;
+    return NULL;
+}
+
+static struct ifaddrs *find_link(struct ifaddrs *list, const char *name) {
+    for (struct ifaddrs *ifa = list; ifa != NULL; ifa = ifa->ifa_next)
+        if (watched_link(ifa) && strcmp(ifa->ifa_name, name) == 0)
+            return ifa;
+    return NULL;
+}
+
+static bool same_route(const struct route *a, const struct route *b) {
+    return a->oif == b->oif && a->has_gateway == b->has_gateway &&
+        (!a->has_gateway || memcmp(a->gateway, b->gateway, family_addr_len(a->family)) == 0);
+}
+
+struct change {
+    uint16_t type;
+    uint32_t group;
+    struct ifaddrs *ifa;          // addresses and links
+    const struct route *route;    // routes
+    unsigned index;
+};
+
+static unsigned diff_states(const struct iface_state *prev, const struct iface_state *cur, struct change *changes) {
+    unsigned n = 0;
+    for (struct ifaddrs *ifa = prev->ifas; ifa != NULL && n < WATCH_MAX; ifa = ifa->ifa_next)
+        if (watched_addr(ifa) && find_addr(cur->ifas, ifa) == NULL)
+            changes[n++] = (struct change) {RTM_DELADDR_, ifa->ifa_addr->sa_family == AF_INET ? RTMGRP_IPV4_IFADDR_ : RTMGRP_IPV6_IFADDR_,
+                ifa, NULL, state_index(prev, ifa->ifa_name)};
+    for (struct ifaddrs *ifa = prev->ifas; ifa != NULL && n < WATCH_MAX; ifa = ifa->ifa_next)
+        if (watched_link(ifa) && find_link(cur->ifas, ifa->ifa_name) == NULL)
+            changes[n++] = (struct change) {RTM_DELLINK_, RTMGRP_LINK_, ifa, NULL, state_index(prev, ifa->ifa_name)};
+    for (struct ifaddrs *ifa = cur->ifas; ifa != NULL && n < WATCH_MAX; ifa = ifa->ifa_next) {
+        if (!watched_link(ifa))
+            continue;
+        struct ifaddrs *before = find_link(prev->ifas, ifa->ifa_name);
+        unsigned mask = IFF_UP | IFF_RUNNING;
+        if (before == NULL || (before->ifa_flags & mask) != (ifa->ifa_flags & mask))
+            changes[n++] = (struct change) {RTM_NEWLINK_, RTMGRP_LINK_, ifa, NULL, state_index(cur, ifa->ifa_name)};
+    }
+    for (struct ifaddrs *ifa = cur->ifas; ifa != NULL && n < WATCH_MAX; ifa = ifa->ifa_next)
+        if (watched_addr(ifa) && find_addr(prev->ifas, ifa) == NULL)
+            changes[n++] = (struct change) {RTM_NEWADDR_, ifa->ifa_addr->sa_family == AF_INET ? RTMGRP_IPV4_IFADDR_ : RTMGRP_IPV6_IFADDR_,
+                ifa, NULL, state_index(cur, ifa->ifa_name)};
+    for (int f = 0; f < 2 && n + 2 <= WATCH_MAX; f++) {
+        uint32_t group = f == 0 ? RTMGRP_IPV4_ROUTE_ : RTMGRP_IPV6_ROUTE_;
+        if (prev->has_route[f] == cur->has_route[f] && (!cur->has_route[f] || same_route(&prev->route[f], &cur->route[f])))
+            continue;
+        if (prev->has_route[f])
+            changes[n++] = (struct change) {RTM_DELROUTE_, group, NULL, &prev->route[f], 0};
+        if (cur->has_route[f])
+            changes[n++] = (struct change) {RTM_NEWROUTE_, group, NULL, &cur->route[f], 0};
+    }
+    return n;
+}
+
+static void send_changes(const struct change *changes, unsigned n) {
+    struct nl_reply *r = malloc(sizeof(*r));
+    if (r == NULL)
+        return;
+    pthread_mutex_lock(&subscribers_lock);
+    for (size_t s = 0; s < nsubscribers; s++) {
+        struct fd *sock = subscribers[s];
+        *r = (struct nl_reply) {.peer = sock->socket.netlink_peer};
+        for (unsigned i = 0; i < n; i++) {
+            const struct change *c = &changes[i];
+            if (!(sock->socket.netlink_groups & c->group))
+                continue;
+            if (c->route != NULL)
+                dump_route(r, c->route, c->type, 0);
+            else if (c->type == RTM_NEWLINK_ || c->type == RTM_DELLINK_)
+                dump_link(r, c->ifa, c->type, 0, c->index);
+            else
+                dump_addr(r, c->ifa, c->ifa->ifa_addr->sa_family, c->type, 0, c->index);
+        }
+        // a full receive queue loses the notification, as on Linux
+        reply_flush(r);
+    }
+    pthread_mutex_unlock(&subscribers_lock);
+    free(r);
+}
+
+static void *watch_interfaces(void *unused) {
+    (void) unused;
+    struct iface_state prev, cur;
+    bool have_prev = take_state(&prev);
+    struct change *changes = malloc(WATCH_MAX * sizeof(*changes));
+    for (;;) {
+        sleep(WATCH_INTERVAL_SECONDS);
+        if (!take_state(&cur))
+            continue;
+        if (have_prev && changes != NULL) {
+            unsigned n = diff_states(&prev, &cur, changes);
+            if (n > 0)
+                send_changes(changes, n);
+            free_state(&prev);
+        }
+        prev = cur;
+        have_prev = true;
+    }
+    return NULL;
 }
 
 int netlink_socket(int type, int protocol, int *real_fd) {
@@ -812,7 +1081,7 @@ int netlink_bind(struct fd *sock, const void *addr, size_t len) {
     if (nl.pid != 0)
         sock->socket.netlink_pid = nl.pid;
     netlink_port(sock);
-    sock->socket.netlink_groups = nl.groups;
+    set_groups(sock, nl.groups);
     return 0;
 }
 

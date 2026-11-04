@@ -1527,7 +1527,7 @@ int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
         return _EFAULT;
 
     if (sock->socket.domain == AF_NETLINK_ && netlink_sockopt_ignored(level))
-        return 0;
+        return netlink_setsockopt(sock, option, value, value_len);
     int timeo_real;
     if (sock_timeo_option(level, option, &timeo_real))
         return sock_set_timeo(sock, option, timeo_real, value, value_len);
@@ -2459,8 +2459,10 @@ static int sock_close(struct fd *fd) {
     for (size_t i = 0; i < ndead; i++)
         scm_put(dead[i]);
     free(dead);
-    if (fd->socket.domain == AF_NETLINK_)
+    if (fd->socket.domain == AF_NETLINK_) {
+        netlink_close(fd);
         close(fd->socket.netlink_peer);
+    }
     if (fd->socket.domain == AF_LOCAL_ && fd->socket.seq_rec_fd != -1)
         close(fd->socket.seq_rec_fd);
     free(fd->socket.seq_rec);

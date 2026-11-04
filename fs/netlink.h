@@ -23,6 +23,11 @@ ssize_t netlink_send(struct fd *sock, const void *buf, size_t len);
 int netlink_bind(struct fd *sock, const void *addr, size_t len);
 void netlink_name(struct fd *sock, bool local, struct sockaddr_nl_ *addr);
 bool netlink_sockopt_ignored(int level);
+// SOL_NETLINK options: NETLINK_ADD_MEMBERSHIP and NETLINK_DROP_MEMBERSHIP
+// subscribe to change notifications, the others are accepted and ignored
+int netlink_setsockopt(struct fd *sock, int option, const void *value, size_t len);
+// before the socket is freed: no more change notifications for it
+void netlink_close(struct fd *sock);
 // SIOCGIF* interface ioctls on any socket, from the host's interfaces
 ssize_t netlink_ifioctl_size(int cmd);
 int netlink_ifioctl(int cmd, void *arg);
