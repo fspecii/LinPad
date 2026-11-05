@@ -673,12 +673,12 @@ int_t sys_accept(fd_t sock_fd, addr_t sockaddr_addr, addr_t sockaddr_len_addr) {
     char sockaddr[sockaddr_len];
     int client;
     do {
-        sockrestart_begin_listen_wait(sock);
+        sockrestart_begin_listen_wait();
         errno = 0;
         client = accept(sock->real_fd,
                 sockaddr_addr != 0 ? (void *) sockaddr : NULL,
                 sockaddr_addr != 0 ? &sockaddr_len : NULL);
-        sockrestart_end_listen_wait(sock);
+        sockrestart_end_listen_wait();
     } while (sockrestart_should_restart_listen_wait() && errno == EINTR);
     if (client < 0)
         return errno_map();

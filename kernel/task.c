@@ -129,6 +129,7 @@ static void flush_deferred_frees(void) {
 
 void task_destroy(struct task *task) {
     list_remove(&task->siblings);
+    sockrestart_task_exit(task);
     pid_get(task->pid)->task = NULL;
 
     // Flush old deferred frees first — they've had time to quiesce.

@@ -425,10 +425,18 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
             break;
         }
 
-        // wait for a ready notification
+        // wait for a ready notification; a rebuilt listener restarts it.
+        // Registered once for the wait: other threads add and remove fds
+        // while it sleeps, so the set seen afterwards is not this one.
+        bool listen_wait = false;
         list_for_each_entry(&poll_->poll_fds, poll_fd, fds) {
-            sockrestart_begin_listen_wait(poll_fd->fd);
+            if (poll_fd->fd->ops == &socket_fdops) {
+                listen_wait = true;
+                break;
+            }
         }
+        if (listen_wait)
+            sockrestart_begin_listen_wait();
         unlock(&poll_->lock);
         int err;
         int saved_errno;
@@ -455,6 +463,8 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
             saved_errno = errno;  // save immediately before anything clobbers it
         } while (saved_errno == EINTR && sockrestart_should_restart_listen_wait());
         current->blocking = false;
+        if (listen_wait)
+            sockrestart_end_listen_wait();
         // Only update last_unblocked_ns when actual events were received.
         // Timeout returns (err==0) don't count as real progress — the poll_wait
         // loop is just cycling. This prevents the deadlock detector from being
@@ -471,9 +481,6 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
         // fd readiness and signal pending.
         if (err == 0 && wait_timeout == &bounded_timeout) {
             lock(&poll_->lock);
-            list_for_each_entry(&poll_->poll_fds, poll_fd, fds) {
-                sockrestart_end_listen_wait(poll_fd->fd);
-            }
             // Check for group exit so blocking threads unblock promptly
             if (current->group->doing_group_exit) {
                 res = _EINTR;
@@ -490,9 +497,6 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
             continue;
         }
         lock(&poll_->lock);
-        list_for_each_entry(&poll_->poll_fds, poll_fd, fds) {
-            sockrestart_end_listen_wait(poll_fd->fd);
-        }
 
         if (err < 0) {
             errno = saved_errno;

@@ -18,8 +18,16 @@ struct fd;
 
 void sockrestart_begin_listen(struct fd *sock);
 void sockrestart_end_listen(struct fd *sock);
-void sockrestart_begin_listen_wait(struct fd *sock);
-void sockrestart_end_listen_wait(struct fd *sock);
+// The current task blocks on sockets (accept, or poll/epoll on a set holding
+// sockets), and restarts its wait when a listener is rebuilt. Once per wait,
+// not per socket: a set changes while its waiter sleeps, and an end for a
+// different number of sockets than the begin left an exited task on the list
+// of waiters (a use after free once its struct was freed). Calls pair.
+void sockrestart_begin_listen_wait(void);
+void sockrestart_end_listen_wait(void);
+struct task;
+// Before a task struct is freed: off the list of waiters.
+void sockrestart_task_exit(struct task *task);
 bool sockrestart_should_restart_listen_wait(void);
 void sockrestart_on_suspend(void);
 void sockrestart_on_resume(void);

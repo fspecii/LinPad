@@ -21,8 +21,8 @@ __thread struct task *current;
 
 int errno_map(void) { return -errno; }
 bool is_adhoc_fd(struct fd *fd) { (void) fd; return false; }
-void sockrestart_begin_listen_wait(struct fd *fd) { (void) fd; }
-void sockrestart_end_listen_wait(struct fd *fd) { (void) fd; }
+void sockrestart_begin_listen_wait(void) {}
+void sockrestart_end_listen_wait(void) {}
 bool sockrestart_should_restart_listen_wait(void) { return false; }
 void ish_printk(const char *format, ...) {
     va_list args;
