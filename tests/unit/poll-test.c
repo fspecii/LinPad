@@ -81,12 +81,12 @@ static void nested_level_test(void) {
         CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
         fd_init(&members[i], pair[0], S_IFSOCK, &native_ops);
         peers[i] = pair[1];
-        CHECK(poll_add_fd(inner, &members[i], POLL_WRITE,
+        CHECK(poll_add_fd(inner, &members[i], -1, POLL_WRITE,
                     (union poll_fd_info) {.fd = i}) == 0);
     }
     fd_init(&inner_fd, inner->real.fd, 0, &epoll_ops);
     inner_fd.epollfd.poll = inner;
-    CHECK(poll_add_fd(outer, &inner_fd, POLL_READ, (union poll_fd_info) {0}) == 0);
+    CHECK(poll_add_fd(outer, &inner_fd, -1, POLL_READ, (union poll_fd_info) {0}) == 0);
     fd_init(&outer_fd, outer->real.fd, 0, &epoll_ops);
     outer_fd.epollfd.poll = outer;
     for (int i = 0; i < 4; i++)
@@ -109,7 +109,7 @@ static void nested_edge_test(void) {
         CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
         fd_init(&members[i], pair[0], S_IFSOCK, &native_ops);
         peers[i] = pair[1];
-        CHECK(poll_add_fd(poll, &members[i], POLL_READ | POLL_EDGETRIGGERED,
+        CHECK(poll_add_fd(poll, &members[i], -1, POLL_READ | POLL_EDGETRIGGERED,
                     (union poll_fd_info) {.fd = i}) == 0);
     }
     fd_init(&epoll_fd, poll->real.fd, 0, &epoll_ops);
@@ -188,13 +188,13 @@ static void fifo_idle_test(void) {
     fd_init(&member, reader, S_IFIFO, &native_ops);
     struct poll *poll = new_poll();
     int always = POLL_HUP | POLL_ERR | POLL_NVAL;
-    CHECK(poll_add_fd(poll, &member, POLL_READ | always, (union poll_fd_info) {0}) == 0);
+    CHECK(poll_add_fd(poll, &member, -1, POLL_READ | always, (union poll_fd_info) {0}) == 0);
     int events;
     CHECK(wait_now(poll, &events) == 1 && (events & POLL_READ));
     check_level_read_filter(poll, reader);
     // A suspended audio source keeps a descriptor in poll(events=0) with
     // buffered FIFO bytes. It must sleep while the writer is still alive.
-    CHECK(poll_mod_fd(poll, &member, always, (union poll_fd_info) {0}) == 0);
+    CHECK(poll_mod_fd(poll, &member, -1, always, (union poll_fd_info) {0}) == 0);
     struct timespec timeout = {.tv_nsec = 200000000};
     double start = monotonic_time(), cpu_start = cpu_time();
     events = 0;
@@ -203,7 +203,7 @@ static void fifo_idle_test(void) {
     CHECK(elapsed >= 0.15 && elapsed < 1.5);
     CHECK(cpu < elapsed / 2);
     CHECK(events == 0);
-    CHECK(poll_mod_fd(poll, &member, POLL_READ | always, (union poll_fd_info) {0}) == 0);
+    CHECK(poll_mod_fd(poll, &member, -1, POLL_READ | always, (union poll_fd_info) {0}) == 0);
     CHECK(wait_now(poll, &events) == 1 && (events & POLL_READ));
     check_level_read_filter(poll, reader);
     poll_destroy(poll);
@@ -230,7 +230,7 @@ static void pipe_hup_test(void) {
         struct fd member;
         fd_init(&member, pair[0], S_IFIFO, &native_ops);
         struct poll *poll = new_poll();
-        CHECK(poll_add_fd(poll, &member, POLL_HUP | POLL_ERR | POLL_NVAL,
+        CHECK(poll_add_fd(poll, &member, -1, POLL_HUP | POLL_ERR | POLL_NVAL,
                     (union poll_fd_info) {0}) == 0);
         struct close_context context = {.fd = pair[1]};
         pthread_t thread;
@@ -296,7 +296,7 @@ static void socket_edge_test(void) {
     struct fd member;
     fd_init(&member, listener, S_IFSOCK, &socket_fdops);
     struct poll *poll = new_poll();
-    CHECK(poll_add_fd(poll, &member, POLL_READ | POLL_WRITE | POLL_EDGETRIGGERED,
+    CHECK(poll_add_fd(poll, &member, -1, POLL_READ | POLL_WRITE | POLL_EDGETRIGGERED,
                 (union poll_fd_info) {0}) == 0);
     for (int round = 0; round < 3; round++) {
         struct connect_context context = {.addr = addr};
@@ -314,7 +314,7 @@ static void socket_edge_test(void) {
     CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
     fd_init(&member, pair[0], S_IFSOCK, &socket_fdops);
     poll = new_poll();
-    CHECK(poll_add_fd(poll, &member, POLL_READ | POLL_EDGETRIGGERED, (union poll_fd_info) {0}) == 0);
+    CHECK(poll_add_fd(poll, &member, -1, POLL_READ | POLL_EDGETRIGGERED, (union poll_fd_info) {0}) == 0);
     for (int round = 0; round < 3; round++) {
         struct write_context context = {.fd = pair[1]};
         wait_edge(poll, write_later, &context);
