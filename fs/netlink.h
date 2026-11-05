@@ -31,6 +31,11 @@ void netlink_close(struct fd *sock);
 // SIOCGIF* interface ioctls on any socket, from the host's interfaces
 ssize_t netlink_ifioctl_size(int cmd);
 int netlink_ifioctl(int cmd, void *arg);
+// The index of the interface the guest calls name (lo is the host's loopback),
+// or 0. Indexes are the host's.
+unsigned netlink_ifindex(const char *name);
+// The guest's name for interface index into name (IFNAMSIZ bytes), or false.
+bool netlink_ifname(unsigned index, char *name);
 struct proc_data;
 void netlink_proc_net_dev(struct proc_data *buf);
 

@@ -78,6 +78,9 @@ struct fd {
             // answers the next connect() that finds it complete with 0, the host with
             // EISCONN; sys_connect gives the Linux answer.
             bool inet_connect_pending;
+            // the host interface the socket is scoped to (SO_BINDTOIFINDEX,
+            // SO_BINDTODEVICE), by index, or 0
+            unsigned bound_ifindex;
             // credentials of the last message sent to this end, recorded at
             // send time so they survive the sender closing (SCM_CREDENTIALS)
             struct ucred_ unix_recv_cred;

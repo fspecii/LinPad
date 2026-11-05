@@ -1292,6 +1292,28 @@ out:
     return err;
 }
 
+unsigned netlink_ifindex(const char *name) {
+    unsigned index = 0;
+    for (struct ifaddrs *ifa = ifaddrs_get(); ifa != NULL && index == 0; ifa = ifa->ifa_next)
+        if (strncmp(guest_ifname(ifa->ifa_name, ifa->ifa_flags), name, IFNAMSIZ_) == 0)
+            index = cached_ifindex(ifa->ifa_name);
+    ifaddrs_put();
+    return index;
+}
+
+bool netlink_ifname(unsigned index, char *name) {
+    bool found = false;
+    for (struct ifaddrs *ifa = ifaddrs_get(); ifa != NULL && !found; ifa = ifa->ifa_next) {
+        if (cached_ifindex(ifa->ifa_name) != index)
+            continue;
+        memset(name, 0, IFNAMSIZ_);
+        strncpy(name, guest_ifname(ifa->ifa_name, ifa->ifa_flags), IFNAMSIZ_ - 1);
+        found = true;
+    }
+    ifaddrs_put();
+    return found;
+}
+
 // /proc/net/dev from the host's interfaces and their counters
 void netlink_proc_net_dev(struct proc_data *buf) {
     proc_printf(buf, "Inter-|   Receive                                                |  Transmit\n");

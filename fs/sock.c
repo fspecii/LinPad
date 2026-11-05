@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <net/if.h>
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <string.h>
@@ -536,6 +537,49 @@ static bool unix_cred_take(struct fd *sock, bool peek, struct ucred_ *out) {
     }
     unlock(&peer_lock);
     return found;
+}
+
+// Scopes the host socket of an inet socket to interface index (0: none), as
+// Linux's SO_BINDTOIFINDEX does: on Darwin IP_BOUND_IF, IPV6_BOUND_IF (which
+// also covers an IPv6 socket's IPv4-mapped traffic). Other sockets ignore it.
+static int sock_scope_host(struct fd *sock, unsigned index) {
+    int err = 0;
+    if (sock->socket.domain == AF_INET6_) {
+#if defined(__APPLE__)
+        err = setsockopt(sock->real_fd, IPPROTO_IPV6, IPV6_BOUND_IF, &index, sizeof(index));
+#else
+        err = setsockopt(sock->real_fd, SOL_SOCKET, SO_BINDTOIFINDEX, &index, sizeof(index));
+#endif
+    } else if (sock->socket.domain == AF_INET_) {
+#if defined(__APPLE__)
+        err = setsockopt(sock->real_fd, IPPROTO_IP, IP_BOUND_IF, &index, sizeof(index));
+#else
+        err = setsockopt(sock->real_fd, SOL_SOCKET, SO_BINDTOIFINDEX, &index, sizeof(index));
+#endif
+    }
+    return err < 0 ? errno_map() : 0;
+}
+
+// SO_BINDTOIFINDEX takes an index, SO_BINDTODEVICE a name; an empty name, or
+// index 0, removes the binding. sing-box's Tailscale endpoint binds its UDP and
+// DERP sockets to the default interface.
+static int sock_bind_interface(struct fd *sock, dword_t option, const char *value, dword_t value_len) {
+    unsigned index = 0;
+    if (option == SO_BINDTOIFINDEX_) {
+        if (value_len < sizeof(int_t) || *(const int_t *) value < 0)
+            return _EINVAL;
+        index = *(const int_t *) value;
+    } else {
+        char name[IFNAMSIZ] = {0};
+        memcpy(name, value, value_len < IFNAMSIZ - 1 ? value_len : IFNAMSIZ - 1);
+        if (name[0] != '\0' && (index = netlink_ifindex(name)) == 0)
+            return _ENODEV;
+    }
+    int err = sock_scope_host(sock, index);
+    if (err < 0)
+        return err;
+    sock->socket.bound_ifindex = index;
+    return 0;
 }
 
 int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
@@ -1538,6 +1582,8 @@ int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
             sock->socket.unix_passcred = *(int_t *) value != 0;
         return 0;
     }
+    if (level == SOL_SOCKET_ && (option == SO_BINDTOIFINDEX_ || option == SO_BINDTODEVICE_))
+        return sock_bind_interface(sock, option, value, value_len);
     // ICMP6_FILTER can only be set on real SOCK_RAW
     if (level == IPPROTO_ICMPV6 && option == ICMP6_FILTER_)
         return 0;
@@ -1604,6 +1650,24 @@ int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
         if (value_len != sizeof(dword_t))
             return _EINVAL;
         *(dword_t *) value = sock->socket.domain == AF_LOCAL_ && sock->socket.unix_passcred;
+    } else if (level == SOL_SOCKET_ && option == SO_BINDTOIFINDEX_) {
+        if (value_len < sizeof(int_t))
+            return _EINVAL;
+        *(int_t *) value = sock->socket.bound_ifindex;
+        value_len = sizeof(int_t);
+    } else if (level == SOL_SOCKET_ && option == SO_BINDTODEVICE_) {
+        // as on Linux: the name with its NUL, or nothing when unbound
+        char name[IFNAMSIZ] = {0};
+        if (sock->socket.bound_ifindex != 0 && !netlink_ifname(sock->socket.bound_ifindex, name))
+            return _ENODEV;
+        if (name[0] == '\0') {
+            value_len = 0;
+        } else {
+            if (value_len < IFNAMSIZ)
+                return _EINVAL;
+            value_len = strlen(name) + 1;
+            memcpy(value, name, value_len);
+        }
     } else if (level == SOL_SOCKET_ && option == SO_PEERCRED_) {
         struct ucred_ *cred = (struct ucred_ *) value;
         // a larger buffer is fine, as on Linux: fill the struct and report its size
