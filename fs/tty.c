@@ -216,18 +216,6 @@ static void tty_input_wakeup(struct tty *tty) {
     tty_poll_wakeup(tty, POLL_READ);
 }
 
-static int tty_push_char(struct tty *tty, char ch, bool flag, int blocking) {
-    while (tty->bufsize >= sizeof(tty->buf)) {
-        if (!blocking)
-            return _EAGAIN;
-        if (wait_for(&tty->consumed, &tty->lock, NULL))
-            return _EINTR;
-    }
-    tty->buf[tty->bufsize] = ch;
-    tty->buf_flag[tty->bufsize++] = flag;
-    return 0;
-}
-
 // Echo is collected while tty->lock is held and written after it is released.
 // Writing it right away (pty: into the master, which wakes the master's pollers)
 // held the slave's lock across poll_wakeup: a thread in epoll_wait holding the
@@ -238,6 +226,47 @@ struct echo_buf {
     size_t len, cap;
     char inline_data[256];
 };
+
+// Called with tty->lock held; drops it while writing.
+static void tty_flush_echo(struct tty *tty, struct echo_buf *echo) {
+    if (echo->len == 0)
+        return;
+    unlock(&tty->lock);
+    tty->driver->ops->write(tty, echo->data, echo->len, false);
+    lock(&tty->lock);
+    echo->len = 0;
+}
+
+// The buffer is full: wait until a reader consumes some of it. Readers are woken
+// for what is in it first. Woken only once the whole write was in, a reader in
+// poll, select or epoll_wait (dropbear or a pty.fork() driver reading a TUI's
+// redraw, a TUI reading a paste) saw the data at poll_wait's 1 s re-check at
+// best, per 4 KiB; an EPOLLET waiter or a reader blocked in read() never did,
+// and it and the writer waited for each other forever.
+// Called with tty->lock held, which the wakeup drops.
+static int tty_wait_for_room(struct tty *tty, struct echo_buf *echo, bool blocking) {
+    while (tty->bufsize >= sizeof(tty->buf)) {
+        if (!blocking)
+            return _EAGAIN;
+        // as at the end of tty_input: the echo goes out before readers wake
+        tty_flush_echo(tty, echo);
+        tty_input_wakeup(tty);
+        if (tty->bufsize < sizeof(tty->buf))
+            break;
+        if (wait_for(&tty->consumed, &tty->lock, NULL))
+            return _EINTR;
+    }
+    return 0;
+}
+
+static int tty_push_char(struct tty *tty, char ch, bool flag, struct echo_buf *echo, bool blocking) {
+    int err = tty_wait_for_room(tty, echo, blocking);
+    if (err < 0)
+        return err;
+    tty->buf[tty->bufsize] = ch;
+    tty->buf_flag[tty->bufsize++] = flag;
+    return 0;
+}
 
 static void tty_echo(struct echo_buf *echo, const char *data, size_t size) {
     if (echo->len + size > echo->cap) {
@@ -347,7 +376,7 @@ ssize_t tty_input(struct tty *tty, const char *input, size_t size, bool blocking
                 if (echo)
                     tty_echo(&echo_out, "\r\n", 2);
 canon_wake:
-                err = tty_push_char(tty, ch, /*flag*/true, blocking);
+                err = tty_push_char(tty, ch, /*flag*/true, &echo_out, blocking);
                 if (err < 0) {
                     done_size--;
                     break;
@@ -357,7 +386,7 @@ canon_wake:
             } else {
                 if (!tty_send_input_signal(tty, ch, &queue)) {
 no_special:
-                    err = tty_push_char(tty, ch, /*flag*/false, blocking);
+                    err = tty_push_char(tty, ch, /*flag*/false, &echo_out, blocking);
                     if (err < 0) {
                         done_size--;
                         break;
@@ -378,14 +407,7 @@ no_special:
             done_size++;
             if (tty_send_input_signal(tty, input[i], &queue))
                 continue;
-            while (tty->bufsize >= sizeof(tty->buf)) {
-                err = _EAGAIN;
-                if (!blocking)
-                    break;
-                err = wait_for(&tty->consumed, &tty->lock, NULL);
-                if (err < 0)
-                    break;
-            }
+            err = tty_wait_for_room(tty, &echo_out, blocking);
             if (err < 0) {
                 done_size--;
                 break;
