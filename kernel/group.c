@@ -83,7 +83,9 @@ void task_leave_session(struct task *task) {
     list_remove_safe(&group->session);
     if (group->tty) {
         lock(&ttys_lock);
-        if (list_empty(&pid_get(group->sid)->session)) {
+        // NULL when the leader was reaped already and this was the session's last process
+        struct pid *session = pid_get(group->sid);
+        if (session == NULL || list_empty(&session->session)) {
             lock(&group->tty->lock);
             group->tty->session = 0;
             unlock(&group->tty->lock);
