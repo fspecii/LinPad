@@ -921,11 +921,9 @@ static NSString *TakeFactoryResetRequest(Roots *roots) {
             SetBootState(bootError < 0 ? ISHBootPhaseFailed : ISHBootPhaseRunning, 1, nil, nil);
             RecordBootStat(@"boot_seconds", [NSString stringWithFormat:@"%.2f", CFAbsoluteTimeGetCurrent() - start]);
         };
-        // The classic terminal UI expects a booted kernel when launching finishes.
-        if (DesktopEnabled())
-            [self afterFastMode:boot];
-        else
-            boot();
+        // The classic terminal too: its session starts once the kernel runs (SceneDelegate),
+        // so fast mode can ask StikDebug for the JIT first, as for the desktop.
+        [self afterFastMode:boot];
         return;
     }
 

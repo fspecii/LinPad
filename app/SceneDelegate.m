@@ -7,6 +7,7 @@
 
 #import "SceneDelegate.h"
 #import "AboutViewController.h"
+#import "AppDelegate.h"
 
 TerminalViewController *currentTerminalViewController = NULL;
 
@@ -35,6 +36,23 @@ static Class<ISHDesktopBridge> DesktopBridgeIfEnabled(void) {
     return [desktop isEnabled] ? desktop : nil;
 }
 
+/// Runs block on the main queue once Linux runs (or failed to boot). Fast mode boots it only
+/// after StikDebug has enabled the JIT, after the scene connects.
+static void WhenBooted(void (^block)(void)) {
+    ISHBootPhase phase = AppDelegate.bootPhase;
+    if (phase == ISHBootPhaseRunning || phase == ISHBootPhaseFailed) {
+        block();
+        return;
+    }
+    __block BOOL done = NO;
+    [AppDelegate observeBoot:^(ISHBootPhase phase, double fraction, NSString *title, NSString *detail) {
+        if (done || (phase != ISHBootPhaseRunning && phase != ISHBootPhaseFailed))
+            return;
+        done = YES;
+        dispatch_async(dispatch_get_main_queue(), block);
+    }];
+}
+
 @implementation SceneDelegate
 
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)connectionOptions {
@@ -57,13 +75,16 @@ static Class<ISHDesktopBridge> DesktopBridgeIfEnabled(void) {
     if (![vc isKindOfClass:TerminalViewController.class])
         return;
     vc.sceneSession = session;
-    if (session.stateRestorationActivity == nil) {
-        [vc startNewSession];
-    } else {
-        self.terminalUUID = session.stateRestorationActivity.userInfo[TerminalUUID];
-        [vc reconnectSessionFromTerminalUUID:
-         [[NSUUID alloc] initWithUUIDString:self.terminalUUID]];
-    }
+    NSUserActivity *restored = session.stateRestorationActivity;
+    WhenBooted(^{
+        if (restored == nil) {
+            [vc startNewSession];
+        } else {
+            self.terminalUUID = restored.userInfo[TerminalUUID];
+            [vc reconnectSessionFromTerminalUUID:
+             [[NSUUID alloc] initWithUUIDString:self.terminalUUID]];
+        }
+    });
 }
 
 /// linpad:// links go to the desktop, which asks before acting on them.
