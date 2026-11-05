@@ -1257,6 +1257,9 @@ static ssize_t seq_host_recvmsg(struct fd *sock, struct msghdr *msg, int flags) 
             break;
         if (r == 0) {
             unlock(&sock->socket.seq_rx_lock);
+            // EOF: no control data either; callers walk the control buffer they passed in
+            msg->msg_controllen = 0;
+            msg->msg_flags = 0;
             return 0;
         }
         if (errno == EINTR)
@@ -1290,9 +1293,7 @@ static ssize_t sock_host_sendmsg(struct fd *sock, struct msghdr *msg, int flags)
     return sendmsg(sock->real_fd, msg, flags);
 }
 
-static ssize_t sock_host_recvmsg(struct fd *sock, struct msghdr *msg, int flags) {
-    if (sock->socket.seq_framed)
-        return seq_host_recvmsg(sock, msg, flags);
+static ssize_t pair_host_recvmsg(struct fd *sock, struct msghdr *msg, int flags) {
     if ((flags & MSG_TRUNC) && !(flags & MSG_PEEK) && sock_is_unix_seqpacket(sock)) {
         // A socketpair is a host datagram pair, and Darwin ignores MSG_TRUNC as a request for the
         // record's real length: peek to learn it, then take the record.
@@ -1310,6 +1311,22 @@ static ssize_t sock_host_recvmsg(struct fd *sock, struct msghdr *msg, int flags)
         return res < 0 ? res : full;
     }
     return recvmsg(sock->real_fd, msg, flags);
+}
+
+static ssize_t sock_host_recvmsg(struct fd *sock, struct msghdr *msg, int flags) {
+    if (sock->socket.seq_framed)
+        return seq_host_recvmsg(sock, msg, flags);
+    ssize_t res = sock->socket.seq_peer_gone ? 0 : pair_host_recvmsg(sock, msg, flags);
+    if (res < 0 && errno == ECONNRESET && sock_is_unix_seqpacket(sock)) {
+        sock->socket.seq_peer_gone = true;
+        res = 0;
+    }
+    if (res == 0 && sock->socket.seq_peer_gone) {
+        // EOF, with no control data: callers walk the control buffer they passed in
+        msg->msg_controllen = 0;
+        msg->msg_flags = 0;
+    }
+    return res;
 }
 
 // A record that was collected but not taken (MSG_PEEK) is still readable.

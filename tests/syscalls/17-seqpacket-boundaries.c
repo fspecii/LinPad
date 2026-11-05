@@ -2,7 +2,8 @@
 // for sockets connected through bind/listen/connect/accept: each send is one
 // record, a short read sets MSG_TRUNC and discards the rest, zero-length
 // records are delivered, MSG_PEEK peeks one whole record, the MSG_TRUNC recv
-// flag returns the real length, and a closed peer reads as EOF.
+// flag returns the real length, and a closed peer reads as EOF, with no
+// control data.
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -73,6 +74,16 @@ static void check_pair(const char *what, int a, int b) {
     CHECK(r == 4, "%s: queued record readable after peer close r=%zd", what, r);
     r = recv(b, buf, sizeof(buf), 0);
     CHECK(r == 0, "%s: EOF after peer close r=%zd errno=%d", what, r, errno);
+    // EOF carries no control data. A connected (not socketpair) pair left the
+    // caller's control buffer unset and walked it: ish spun or closed host fds.
+    char control[CMSG_SPACE(sizeof(int) * 4)];
+    memset(control, 0xa5, sizeof(control));
+    struct iovec iov = {buf, sizeof(buf)};
+    struct msghdr mh = {.msg_iov = &iov, .msg_iovlen = 1,
+        .msg_control = control, .msg_controllen = sizeof(control)};
+    r = recvmsg(b, &mh, 0);
+    CHECK(r == 0 && mh.msg_controllen == 0, "%s: recvmsg at EOF r=%zd controllen=%zu",
+            what, r, (size_t) mh.msg_controllen);
     close(b);
 }
 

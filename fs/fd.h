@@ -92,6 +92,8 @@ struct fd {
             // host end is a stream carrying records, each a uint32 length then the payload.
             // (A socketpair uses a datagram pair, which keeps boundaries itself.)
             bool seq_framed;
+            // a socketpair's peer has closed: Darwin says so once (ECONNRESET), Linux reads EOF on
+            bool seq_peer_gone;
             lock_t seq_tx_lock; // one record is written at a time
             lock_t seq_rx_lock; // guards the record being read
             uint8_t seq_hdr[sizeof(uint32_t)];
