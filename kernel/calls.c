@@ -68,6 +68,10 @@ void handle_interrupt(int interrupt) {
             STRACE(" = 0x%x\n", result);
             cpu->eax = result;
         }
+        // a thread the exit safety valve gave up on (do_exit_group) leaves without touching its
+        // process, which may be gone
+        if (current->exiting)
+            do_exit(0);
         if (current->group->doing_group_exit)
             do_exit(current->group->group_exit_code);
 #elif defined(GUEST_ARM64)
@@ -156,6 +160,10 @@ void handle_interrupt(int interrupt) {
                 }
             }
         }
+        // a thread the exit safety valve gave up on (do_exit_group) leaves without touching its
+        // process, which may be gone
+        if (current->exiting)
+            do_exit(0);
         {
             unsigned slot = current->recent_syscall_pos++ % 16;
             current->recent_syscalls[slot].nr = syscall_num;
