@@ -571,6 +571,11 @@ static void RequestFastMode(BOOL afterBoot, void (^done)(BOOL on)) {
 + (void)install;
 @end
 
+/// app/Desktop/ISHBackgroundKeeper.swift
+@protocol ISHBackgroundKeeping <NSObject>
++ (void)observeApplication;
+@end
+
 @implementation AppDelegate
 
 - (int)boot {
@@ -1046,6 +1051,12 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     NoteLaunchForCrashLoops();
+
+    // Settings › Background applies with or without the desktop. By name, because this
+    // file is also built into targets without Swift.
+    Class<ISHBackgroundKeeping> keeper = (Class<ISHBackgroundKeeping>) NSClassFromString(@"ISHBackgroundKeeper");
+    if ([keeper respondsToSelector:@selector(observeApplication)])
+        [keeper observeApplication];
 
     // get the network permissions popup to appear on chinese devices
     [[NSURLSession.sharedSession dataTaskWithURL:[NSURL URLWithString:@"http://captive.apple.com"]] resume];

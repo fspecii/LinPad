@@ -2,6 +2,7 @@ import CoreLocation
 import DesktopKit
 import Foundation
 import os
+import UIKit
 
 /// Settings › Background on the iPad side. iPadOS suspends LinPad about 30 s after it
 /// leaves the screen; the whole emulator stops with it. Two background modes keep it
@@ -17,8 +18,28 @@ import os
 ///
 /// The permission prompt only ever appears from the user's "Allow Location…" in Settings.
 @MainActor
+@objc(ISHBackgroundKeeper)
 final class ISHBackgroundKeeper: NSObject, CLLocationManagerDelegate {
     static let shared = ISHBackgroundKeeper()
+    private static var applicationObservers: [NSObjectProtocol] = []
+
+    /// Applies the stored mode on every activation and background transition, with the
+    /// desktop (whose LifecycleCoordinator does the same) or without it: the classic
+    /// terminal has no coordinator, so "Always" never started there. AppDelegate calls
+    /// this by name at launch.
+    @objc static func observeApplication() {
+        guard applicationObservers.isEmpty else { return }
+        let transitions: [(Notification.Name, Bool)] = [
+            (UIApplication.didBecomeActiveNotification, false),
+            (UIApplication.willEnterForegroundNotification, false),
+            (UIApplication.didEnterBackgroundNotification, true),
+        ]
+        for (name, inBackground) in transitions {
+            applicationObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { shared.apply(.stored, inBackground: inBackground) }
+            })
+        }
+    }
 
     /// UI tests: "allowed", "denied", "notDetermined" or "unavailable" instead of Core
     /// Location, so no permission prompt can appear on a test machine.
@@ -140,19 +161,26 @@ final class ISHBackgroundKeeper: NSObject, CLLocationManagerDelegate {
 
     private func updateLocation() {
         let wanted = mode == .always && access == .allowed && mockAccess == nil
-        if wanted && !isUpdating {
-            // Updates can only begin in the foreground; begun there they keep running.
-            guard !inBackground else { return }
+        if wanted {
+            // Updates can only begin while LinPad is active; begun there they keep running.
+            // Asked again on every activation: iPadOS drops a start it refuses (at launch,
+            // before the scene is active, or just before fast mode's StikDebug hand-off)
+            // without a word, and nothing would retry it.
+            guard !inBackground, UIApplication.shared.applicationState == .active else { return }
             let manager = locationManager
             manager.allowsBackgroundLocationUpdates = true
             manager.showsBackgroundLocationIndicator = true
             manager.startUpdatingLocation()
             if #available(iOS 17.0, *) {
+                let previous = activitySession as? CLBackgroundActivitySession
                 activitySession = CLBackgroundActivitySession()
+                previous?.invalidate()
+            }
+            if !isUpdating {
+                log.info("keeping Linux running in the background (location)")
             }
             isUpdating = true
-            log.info("keeping Linux running in the background (location)")
-        } else if !wanted && isUpdating {
+        } else if isUpdating {
             manager?.stopUpdatingLocation()
             manager?.allowsBackgroundLocationUpdates = false
             if #available(iOS 17.0, *) {
