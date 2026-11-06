@@ -1173,6 +1173,36 @@ dword_t sys_chmod(addr_t path_addr, dword_t mode) {
     return sys_fchmodat(AT_FDCWD_, path_addr, mode);
 }
 
+// fchmodat2 (Linux 6.6) is fchmodat with flags: AT_EMPTY_PATH with an empty path changes the
+// at fd itself, and AT_SYMLINK_NOFOLLOW refuses a symlink (EOPNOTSUPP: it has no mode of its
+// own). Alpine's apk tries it first and logged "missing syscall 452".
+dword_t sys_fchmodat2(fd_t at_f, addr_t path_addr, dword_t mode, dword_t flags) {
+    if (flags & ~(AT_SYMLINK_NOFOLLOW_ | AT_EMPTY_PATH_))
+        return _EINVAL;
+    char path[MAX_PATH];
+    if (user_read_string(path_addr, path, sizeof(path)))
+        return _EFAULT;
+    STRACE("fchmodat2(%d, \"%s\", %o, %#x)", at_f, path, mode, flags);
+    struct fd *at = at_fd(at_f);
+    if (at == NULL)
+        return _EBADF;
+    mode &= ~S_IFMT;
+    if ((flags & AT_EMPTY_PATH_) && path[0] == '\0') {
+        if (at_f != AT_FDCWD_)
+            return sys_fchmod(at_f, mode);
+        return generic_setattrat(AT_PWD, ".", make_attr(mode, mode), true);
+    }
+    if (flags & AT_SYMLINK_NOFOLLOW_) {
+        struct statbuf stat;
+        int err = generic_statat(at, path, &stat, false);
+        if (err < 0)
+            return err;
+        if (S_ISLNK(stat.mode))
+            return _EOPNOTSUPP;
+    }
+    return generic_setattrat(at, path, make_attr(mode, mode), true);
+}
+
 dword_t sys_fchown32(fd_t f, uid_t_ owner, uid_t_ group) {
     STRACE("fchown(%d, %d, %d)", f, owner, group);
     struct fd *fd = f_get(f);
