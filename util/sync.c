@@ -26,8 +26,8 @@ void cond_destroy(cond_t *cond) {
 static bool is_signal_pending(lock_t *lock) {
     if (!current)
         return false;
-    // a thread the exit safety valve gave up on has lost its sighand: get it out of the wait
-    if (current->sighand == NULL)
+    // get a thread the exit safety valve gave up on out of the wait: its process may be gone
+    if (current->exiting || current->sighand == NULL)
         return true;
     if (lock != &current->sighand->lock)
         lock(&current->sighand->lock);

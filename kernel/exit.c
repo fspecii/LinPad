@@ -53,6 +53,19 @@ static struct task *find_new_parent(struct task *task) {
     return pid_get_task(1);
 }
 
+// A thread the exit safety valve gave up on leaves without touching its process,
+// releasing only the sighand the valve left it (a wait it was in still used it).
+static noreturn void leave_leaked(void) {
+    lock(&pids_lock);
+    if (current->sighand != NULL) {
+        sighand_release(current->sighand);
+        current->sighand = NULL;
+    }
+    unlock(&pids_lock);
+    current = NULL;
+    pthread_exit(NULL);
+}
+
 noreturn void do_exit(int status) {
     if (current && current->pid == 1) {
         extern void dump_pc_hist(void);
@@ -63,10 +76,8 @@ noreturn void do_exit(int status) {
     // If this thread was already marked as leaked by the safety valve,
     // the group leader has finished exiting and the group struct may be
     // freed. Don't touch any shared state — just kill the host thread.
-    if (current->exiting) {
-        current = NULL;
-        pthread_exit(NULL);
-    }
+    if (current->exiting)
+        leave_leaked();
 
     // Block SIGSEGV during exit to prevent cosmetic crashes from host
     // pthread stack unwinding (especially with many threads exiting at once).
@@ -225,10 +236,8 @@ noreturn void do_exit_group(int status) {
     }
 #endif
     // Leaked thread woke up after group already exited — bail silently.
-    if (current->exiting) {
-        current = NULL;
-        pthread_exit(NULL);
-    }
+    if (current->exiting)
+        leave_leaked();
     struct tgroup *group = current->group;
     lock(&pids_lock);
     lock(&group->lock);
@@ -333,11 +342,9 @@ noreturn void do_exit_group(int status) {
                 if (task != current && !task->exiting) {
                     task->exiting = true;
                     list_remove(&task->group_links);
-                    // Release resources so pipes get EOF and memory is freed.
-                    if (task->sighand != NULL) {
-                        sighand_release(task->sighand);
-                        task->sighand = NULL;
-                    }
+                    // Release resources so pipes get EOF and memory is freed. The
+                    // sighand stays: the thread may be waiting on its lock, and
+                    // releases it on its way out (do_exit).
                     if (task->mm != NULL) {
                         mm_release(task->mm);
                         task->mm = NULL;
@@ -445,10 +452,6 @@ void de_thread(void) {
             // do_exit_group's safety valve does.
             task->exiting = true;
             list_remove(&task->group_links);
-            if (task->sighand != NULL) {
-                sighand_release(task->sighand);
-                task->sighand = NULL;
-            }
             if (task->mm != NULL) {
                 mm_release(task->mm);
                 task->mm = NULL;
