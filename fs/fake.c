@@ -319,6 +319,28 @@ static bool fakefs_adopt_host_only(struct mount *mount, const char *path,
 // this exists only to override readdir to fix the returned inode numbers
 static struct fd_ops fakefs_fdops;
 
+// Owner of a new file or directory: the caller, but with the group of a set-group-ID parent
+// directory, whose setgid bit a new directory takes too, as on Linux. A shared tree such as a
+// group-writable SDK keeps one group that way. Called inside a write transaction.
+static void new_owner(struct fakefs_db *fs, const char *path, struct ish_stat *stat) {
+    stat->uid = current->euid;
+    stat->gid = current->egid;
+    char parent[MAX_PATH];
+    if (strlen(path) >= sizeof(parent))
+        return;
+    strcpy(parent, path);
+    char *slash = strrchr(parent, '/');
+    if (slash == NULL)
+        return;
+    *slash = '\0';  // "/a/b" -> "/a", "/a" -> "" (the root)
+    struct ish_stat dir;
+    if (path_read_stat(fs, parent, &dir, NULL) && (dir.mode & S_ISGID)) {
+        stat->gid = dir.gid;
+        if (S_ISDIR(stat->mode))
+            stat->mode |= S_ISGID;
+    }
+}
+
 static struct fd *fakefs_open(struct mount *mount, const char *path, int flags, int mode) {
     struct fakefs_db *fs = &mount->fakefs;
 
@@ -387,8 +409,7 @@ locked:
     if (flags & O_CREAT_) {
         struct ish_stat ishstat;
         ishstat.mode = mode | S_IFREG;
-        ishstat.uid = current->euid;
-        ishstat.gid = current->egid;
+        new_owner(fs, path, &ishstat);
         ishstat.rdev = 0;
         if (fd->fake_inode == 0 || created_on_host) {
             path_create(fs, path, &ishstat);
@@ -751,8 +772,7 @@ static int fakefs_mkdir(struct mount *mount, const char *path, mode_t_ mode) {
     }
     struct ish_stat ishstat;
     ishstat.mode = mode | S_IFDIR;
-    ishstat.uid = current->euid;
-    ishstat.gid = current->egid;
+    new_owner(fs, path, &ishstat);
     ishstat.rdev = 0;
     path_create(fs, path, &ishstat);
     db_commit(fs);

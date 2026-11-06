@@ -25,13 +25,24 @@ static void apply_umask(mode_t_ *mode) {
     unlock(&fs->lock);
 }
 
+// Like Linux's in_group_p: the effective gid or one of the supplementary groups.
+bool current_in_group(uid_t_ gid) {
+    if (current->egid == gid)
+        return true;
+    for (unsigned i = 0; i < current->ngroups; i++)
+        if (current->groups[i] == gid)
+            return true;
+    return false;
+}
+
 int access_check(struct statbuf *stat, int check) {
     if (superuser()) return 0;
     if (check == 0) return 0;
-    // Align check with the correct bits in mode
+    // Align check with the correct bits in mode. The group bits apply to the supplementary
+    // groups too: a member of a file's group got only the "other" bits.
     if (current->euid == stat->uid) {
         check <<= 6;
-    } else if (current->egid == stat->gid) {
+    } else if (current_in_group(stat->gid)) {
         check <<= 3;
     }
     // every requested permission must be granted, not just one of them
