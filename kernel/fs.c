@@ -812,6 +812,7 @@ dword_t sys_getcwd(addr_t buf_addr, dword_t size) {
     unlock(&current->fs->lock);
     if (err < 0)
         return err;
+    path_unroot(pwd);
 
     if (strlen(pwd) + 1 > size)
         return _ERANGE;

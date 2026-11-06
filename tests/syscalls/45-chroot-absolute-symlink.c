@@ -1,14 +1,17 @@
 // Checks: inside a chroot, a symlink with an absolute target resolves against the chroot's
-// root, as on Linux, while relative targets keep working.
+// root, as on Linux, while relative targets keep working; and getcwd, /proc/self/cwd and
+// /proc/self/fd/N give paths inside the chroot.
 // Observed: an absolute target restarted the lookup at the real root, so every such symlink
 // in a chroot pointed outside it. In a Debian chroot dpkg could not stat the .debs apt links
-// to under /tmp ("cannot stat pathname ...: No such file or directory").
+// to under /tmp ("cannot stat pathname ...: No such file or directory"). getcwd and the
+// /proc links gave the full outside path, so git refused its own directory ("Invalid path").
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/mount.h>
 #include <sys/wait.h>
 
 static int failed;
@@ -52,6 +55,9 @@ int main(void) {
     unlink(path);
     symlink("data/file", path);
 
+    snprintf(path, sizeof(path), "%s/proc", jail);
+    mkdir(path, 0555);
+    int proc_mounted = mount("proc", path, "proc", 0, NULL) == 0;
     pid_t child = fork();
     if (child == 0) {
         if (chroot(jail) < 0 || chdir("/") < 0)
@@ -60,6 +66,14 @@ int main(void) {
         ok |= read_is("/rel", "inside") ? 0 : 4;
         struct stat st;
         ok |= stat("/abs", &st) == 0 && S_ISREG(st.st_mode) ? 0 : 8;
+        char cwd[256] = "", link[256] = "", fdlink[256] = "", fdpath[64];
+        ok |= chdir("/data") == 0 && getcwd(cwd, sizeof(cwd)) != NULL && strcmp(cwd, "/data") == 0 ? 0 : 16;
+        ssize_t n = readlink("/proc/self/cwd", link, sizeof(link) - 1);
+        ok |= n == 5 && strcmp(link, "/data") == 0 ? 0 : 32;
+        int fd = open("/data/file", O_RDONLY);
+        snprintf(fdpath, sizeof(fdpath), "/proc/self/fd/%d", fd);
+        n = readlink(fdpath, fdlink, sizeof(fdlink) - 1);
+        ok |= n == 10 && strcmp(fdlink, "/data/file") == 0 ? 0 : 64;
         _exit(ok);
     }
     int status = -1;
@@ -71,6 +85,15 @@ int main(void) {
         check(code >= 0 && !(code & 1), "an absolute symlink resolves inside the chroot");
         check(code >= 0 && !(code & 4), "a relative symlink still resolves");
         check(code >= 0 && !(code & 8), "stat follows the absolute symlink inside the chroot");
+        check(code >= 0 && !(code & 16), "getcwd gives the path inside the chroot");
+        if (proc_mounted) {
+            check(code >= 0 && !(code & 32), "so does /proc/self/cwd");
+            check(code >= 0 && !(code & 64), "and /proc/self/fd/N of an open file");
+        }
+    }
+    if (proc_mounted) {
+        snprintf(path, sizeof(path), "%s/proc", jail);
+        umount(path);
     }
     unlink("/data/file");
     rmdir("/data");

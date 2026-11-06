@@ -6,6 +6,7 @@
 #include "kernel/memory.h"
 #include "kernel/calls.h"
 #include "fs/proc.h"
+#include "fs/path.h"
 #include "platform/platform.h"
 #include "kernel/mm.h"
 #include "fs/fd.h"
@@ -511,6 +512,8 @@ static int proc_pid_fd_readlink(struct proc_entry *entry, char *buf) {
     }
     unlock(&task->general_lock);
     proc_put_task(task);
+    if (err >= 0 && buf[0] == '/')
+        path_unroot(buf);
     return err;
 }
 
@@ -526,6 +529,8 @@ static int proc_pid_exe_readlink(struct proc_entry *entry, char *buf) {
         err = generic_getpath(task->mm->exefile, buf);
     unlock(&task->general_lock);
     proc_put_task(task);
+    if (err >= 0)
+        path_unroot(buf);
     return err;
 }
 
@@ -576,6 +581,8 @@ static int proc_pid_cwd_readlink(struct proc_entry *entry, char *buf) {
     }
     unlock(&task->general_lock);
     proc_put_task(task);
+    if (err >= 0)
+        path_unroot(buf);
     return err;
 }
 
