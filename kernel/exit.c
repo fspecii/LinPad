@@ -662,9 +662,10 @@ retry:
         // look for a zombie child
         bool no_children = true;
         struct task *parent;
+        // any thread of the process may wait for a child another one forked
         list_for_each_entry(&current->group->threads, parent, group_links) {
             struct task *task;
-            list_for_each_entry(&current->children, task, siblings) {
+            list_for_each_entry(&parent->children, task, siblings) {
                 if (!task_is_leader(task))
                     continue;
                 if (idtype == P_PGID_ && task->group->pgid != id)
