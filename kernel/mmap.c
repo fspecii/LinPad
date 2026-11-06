@@ -119,6 +119,10 @@ static addr_t do_mmap(addr_t addr, uint64_t len, dword_t prot, dword_t flags, fd
                 prot, flags, fd_no);
     }
     page_t page;
+    // Without MAP_FIXED the address is only a hint, which Linux rounds down to a page: Dart
+    // passes one in the middle of a page (its own code address) and aborted on EINVAL.
+    if (addr != 0 && PGOFFSET(addr) != 0 && !(flags & MMAP_FIXED))
+        addr -= PGOFFSET(addr);
     if (addr != 0) {
         if (PGOFFSET(addr) != 0)
             return _EINVAL;
