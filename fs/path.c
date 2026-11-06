@@ -174,9 +174,25 @@ static int __path_normalize(const char *at_path, const char *path, char *out, in
                     return _ENAMETOOLONG;
                 // readlink does not null terminate
                 c[res] = '\0';
-                // if we should restart from the root, copy down
-                if (*c == '/')
-                    memmove(out, c, strlen(c) + 1);
+                // An absolute target restarts at the root: the process's own, which chroot
+                // moves. Starting over at / instead made every absolute symlink inside a
+                // chroot point outside it (dpkg could not stat the debs apt linked to).
+                if (*c == '/') {
+                    char root[MAX_PATH] = "";
+                    lock(&current->fs->lock);
+                    int err = current->fs->root != NULL ? generic_getpath(current->fs->root, root) : 0;
+                    unlock(&current->fs->lock);
+                    if (err < 0)
+                        return err;
+                    if (strcmp(root, "/") == 0)
+                        root[0] = '\0';
+                    if (strlen(root) + strlen(c) >= MAX_PATH)
+                        return _ENAMETOOLONG;
+                    char target[MAX_PATH];
+                    strcpy(target, root);
+                    strcat(target, c);
+                    strcpy(out, target);
+                }
                 if (strlen(out) + 1 + strlen(p) >= MAX_PATH)
                     return _ENAMETOOLONG;
                 char *expanded_path = possible_symlink;
