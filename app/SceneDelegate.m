@@ -14,6 +14,8 @@ TerminalViewController *currentTerminalViewController = NULL;
 @interface SceneDelegate ()
 
 @property NSString *terminalUUID;
+// The scene went away; a session start still waiting for Linux to boot is dropped.
+@property BOOL disconnected;
 
 @end
 
@@ -76,13 +78,21 @@ static void WhenBooted(void (^block)(void)) {
         return;
     vc.sceneSession = session;
     NSUserActivity *restored = session.stateRestorationActivity;
+    // Boot observers are never removed, so hold the scene weakly: one that disconnects while
+    // fast mode waits for StikDebug is released, and starts no shell nobody can see.
+    __weak SceneDelegate *weakSelf = self;
+    __weak TerminalViewController *weakTerminal = vc;
     WhenBooted(^{
+        SceneDelegate *scene = weakSelf;
+        TerminalViewController *terminal = weakTerminal;
+        if (scene == nil || terminal == nil || scene.disconnected)
+            return;
         if (restored == nil) {
-            [vc startNewSession];
+            [terminal startNewSession];
         } else {
-            self.terminalUUID = restored.userInfo[TerminalUUID];
-            [vc reconnectSessionFromTerminalUUID:
-             [[NSUUID alloc] initWithUUIDString:self.terminalUUID]];
+            scene.terminalUUID = restored.userInfo[TerminalUUID];
+            [terminal reconnectSessionFromTerminalUUID:
+             [[NSUUID alloc] initWithUUIDString:scene.terminalUUID]];
         }
     });
 }
@@ -110,6 +120,10 @@ static void WhenBooted(void (^block)(void)) {
         }
     }
     return activity;
+}
+
+- (void)sceneDidDisconnect:(UIScene *)scene {
+    self.disconnected = YES;
 }
 
 - (void)sceneDidBecomeActive:(UIScene *)scene {
