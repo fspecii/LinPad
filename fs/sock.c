@@ -697,6 +697,10 @@ int_t sys_accept(fd_t sock_fd, addr_t sockaddr_addr, addr_t sockaddr_len_addr) {
         close(client);
         return client_f;
     }
+    // as on Linux, the listener's interface binding carries over (the host socket's does too)
+    struct fd *accepted = f_get(client_f);
+    if (accepted != NULL)
+        accepted->socket.bound_ifindex = sock->socket.bound_ifindex;
 
     if (sock->socket.domain == AF_LOCAL_) {
         struct fd *client_fd = f_get_retain(client_f);
@@ -994,7 +998,8 @@ static long sock_get_timeout_ms(int real_fd, int optname) {
     socklen_t len = sizeof(tv);
     if (getsockopt(real_fd, SOL_SOCKET, optname, &tv, &len) < 0)
         return 0;
-    return (long)tv.tv_sec * 1000L + (long)tv.tv_usec / 1000L;
+    // rounded up: a timeout under a millisecond is still one, not none
+    return (long)tv.tv_sec * 1000L + ((long)tv.tv_usec + 999L) / 1000L;
 }
 
 static long monotonic_ms(void) {
@@ -1248,6 +1253,7 @@ static ssize_t seq_deliver(struct fd *sock, struct msghdr *msg, int flags) {
 }
 
 static ssize_t seq_host_recvmsg(struct fd *sock, struct msghdr *msg, int flags) {
+    msg->msg_namelen = 0; // the records carry no sender address
     lock(&sock->socket.seq_rx_lock);
     int host_flags = fcntl(sock->real_fd, F_GETFL, 0);
     bool nonblocking = (flags & MSG_DONTWAIT) || (host_flags >= 0 && (host_flags & O_NONBLOCK));
@@ -1316,13 +1322,17 @@ static ssize_t pair_host_recvmsg(struct fd *sock, struct msghdr *msg, int flags)
 static ssize_t sock_host_recvmsg(struct fd *sock, struct msghdr *msg, int flags) {
     if (sock->socket.seq_framed)
         return seq_host_recvmsg(sock, msg, flags);
-    ssize_t res = sock->socket.seq_peer_gone ? 0 : pair_host_recvmsg(sock, msg, flags);
+    // decided per call: another receiver may see the reset while a real empty record arrives here
+    bool eof = sock->socket.seq_peer_gone;
+    ssize_t res = eof ? 0 : pair_host_recvmsg(sock, msg, flags);
     if (res < 0 && errno == ECONNRESET && sock_is_unix_seqpacket(sock)) {
         sock->socket.seq_peer_gone = true;
+        eof = true;
         res = 0;
     }
-    if (res == 0 && sock->socket.seq_peer_gone) {
-        // EOF, with no control data: callers walk the control buffer they passed in
+    if (eof) {
+        // EOF, with no address or control data: callers walk the buffers they passed in
+        msg->msg_namelen = 0;
         msg->msg_controllen = 0;
         msg->msg_flags = 0;
     }
@@ -1334,6 +1344,8 @@ static int sock_poll(struct fd *fd) {
     int types = realfs_poll(fd);
     if (fd->socket.seq_framed && fd->socket.seq_rec_ready)
         types |= POLL_READ;
+    if (fd->socket.seq_peer_gone)
+        types |= POLL_READ | POLL_HUP;
     return types;
 }
 
@@ -1461,7 +1473,8 @@ int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags,
         return _EFAULT;
     }
     free(buffer);
-    if (sockaddr_addr != 0) {
+    // a connected stream, or EOF, returns no address: its length is 0, as on Linux
+    if (sockaddr_addr != 0 && (sock->socket.domain == AF_NETLINK_ || sockaddr_len != 0)) {
         int err = sock->socket.domain == AF_NETLINK_ ?
             netlink_name_write(sock, false, sockaddr_addr, sizeof(sockaddr), &sockaddr_len) :
             sockaddr_write(sockaddr_addr, sockaddr, sizeof(sockaddr), &sockaddr_len);
@@ -2290,8 +2303,8 @@ no_scm:
     if (res < 0)
         return err;
 
-    // msg_name (changed)
-    if (msg.msg_name != 0) {
+    // msg_name (changed); a connected stream, or EOF, returns none: its length is 0, as on Linux
+    if (msg.msg_name != 0 && (sock->socket.domain == AF_NETLINK_ || msg.msg_namelen != 0)) {
         int err = sock->socket.domain == AF_NETLINK_ ?
             netlink_name_write(sock, false, msg_fake.msg_name, sizeof(msg_name), &msg.msg_namelen) :
             sockaddr_write(msg_fake.msg_name, msg.msg_name, sizeof(msg_name), &msg.msg_namelen);

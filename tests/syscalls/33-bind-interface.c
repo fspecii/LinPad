@@ -2,7 +2,8 @@
 // endpoint sets on each UDP and DERP socket it opens, to scope it to the default interface.
 // Expected (Linux): a socket binds to an interface by index or by name and reads it back;
 // index 0 or an empty name unbinds; an unknown name is ENODEV; a socket bound to lo still
-// reaches loopback, over IPv4 and IPv6; one bound to another interface reads it back.
+// reaches loopback, over IPv4 and IPv6, and a connection it accepts is bound to lo too; one
+// bound to another interface reads it back.
 // Observed before: EINVAL for both options, so Tailscale opened no UDP socket and no DERP
 // connection.
 #include <errno.h>
@@ -88,6 +89,22 @@ int main(void) {
 
     CHECK(loopback_datagram(AF_INET, lo), "bound to lo, IPv4 reaches loopback");
     CHECK(loopback_datagram(AF_INET6, lo), "bound to lo, IPv6 reaches loopback");
+
+    // a connection accepted on a bound listener is bound the same way
+    int l = socket(AF_INET, SOCK_STREAM, 0), c = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in at = {.sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
+    socklen_t at_len = sizeof(at);
+    index = lo;
+    setsockopt(l, SOL_SOCKET, SO_BINDTOIFINDEX, &index, sizeof(index));
+    bind(l, (struct sockaddr *) &at, sizeof(at));
+    listen(l, 1);
+    getsockname(l, (struct sockaddr *) &at, &at_len);
+    connect(c, (struct sockaddr *) &at, sizeof(at));
+    int a = accept(l, NULL, NULL);
+    CHECK(a >= 0 && bound_index(a) == (int) lo, "accepted from a listener bound to lo: %d, reads %d", a, bound_index(a));
+    close(a);
+    close(c);
+    close(l);
 
     // an interface that is not loopback, as Tailscale picks the default one
     unsigned other = 0;

@@ -1,9 +1,13 @@
 // Checks: SO_RCVTIMEO and SO_SNDTIMEO as 64-bit libcs and Go set them (options 20 and 21,
 // with the native struct timeval), including on a netlink socket, which is what the netlink
 // library under sing-box and Tailscale does before every request.
-// Expected (Linux, socket(7)): set and read back; a receive times out with EAGAIN; tv_usec out
-// of range is EDOM. Observed before: EINVAL for every socket, so those libraries gave up.
+// Expected (Linux, socket(7)): set and read back, also as options 66 and 67 (the 64-bit
+// SO_RCVTIMEO_NEW and SO_SNDTIMEO_NEW); a receive times out with EAGAIN, even after under a
+// millisecond; tv_usec out of range is EDOM. Observed before: EINVAL for every socket, so those libraries gave up.
 #include <errno.h>
+#include <signal.h>
+#include <stdint.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -14,6 +18,10 @@
 static int failures;
 #define CHECK(cond, ...) do { int ok_ = (cond); printf("%s: ", ok_ ? "PASS" : "FAIL"); failures += !ok_; \
     printf(__VA_ARGS__); printf("\n"); } while (0)
+
+static void on_alarm(int sig) {
+    (void) sig;
+}
 
 static double now(void) {
     struct timespec ts;
@@ -44,6 +52,31 @@ int main(void) {
     CHECK(r == -1 && errno == EDOM, "tv_usec 1000000 = %d errno %d", r, errno);
     r = setsockopt(udp, SOL_SOCKET, SO_SNDTIMEO, &tv, 4);
     CHECK(r == -1 && errno == EINVAL, "short option = %d errno %d", r, errno);
+
+    // the y2038 options (SO_RCVTIMEO_NEW, SO_SNDTIMEO_NEW) take two 64-bit fields on every arch
+    struct { int64_t sec, usec; } tv64 = {.sec = 3, .usec = 250000}, got64 = {0};
+    r = setsockopt(udp, SOL_SOCKET, 67, &tv64, sizeof(tv64));
+    len = sizeof(got64);
+    r2 = getsockopt(udp, SOL_SOCKET, 67, &got64, &len);
+    CHECK(r == 0 && r2 == 0 && len == sizeof(got64) && got64.sec == 3 && got64.usec == 250000,
+        "SO_SNDTIMEO_NEW = %d, reads back %d: %lld.%06lld", r, r2, (long long) got64.sec, (long long) got64.usec);
+    tv64.usec = 1000000;
+    r = setsockopt(udp, SOL_SOCKET, 66, &tv64, sizeof(tv64));
+    CHECK(r == -1 && errno == EDOM, "SO_RCVTIMEO_NEW tv_usec 1000000 = %d errno %d", r, errno);
+
+    // under a millisecond is still a timeout: the receive must not wait forever (the alarm
+    // ends it if it does)
+    struct sigaction sa = {.sa_handler = on_alarm};
+    sigaction(SIGALRM, &sa, NULL);
+    tv = (struct timeval) {.tv_sec = 0, .tv_usec = 500};
+    r = setsockopt(udp, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    alarm(3);
+    start = now();
+    r2 = recv(udp, buf, sizeof(buf), 0);
+    int e = errno;
+    waited = now() - start;
+    alarm(0);
+    CHECK(r == 0 && r2 == -1 && e == EAGAIN, "a 500 us SO_RCVTIMEO times out: %d errno %d after %.3fs", r2, e, waited);
 
     // cronet (sing-box's naive outbound) sets path MTU discovery on its UDP sockets; Darwin has
     // neither option, which is accepted and ignored
