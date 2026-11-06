@@ -228,20 +228,24 @@ dword_t sys_pselect(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr, addr_t
     struct {
         addr_t mask_addr;
         dword_t mask_size;
-    } sigmask;
+    } sigmask = {0};
+    // NULL means no mask, as on Linux: glibc's select() passes NULL (musl always a struct), so
+    // apt, among others, failed with EFAULT waiting for its download methods
+    if (sigmask_addr != 0) {
 #ifdef GUEST_ARM64
-    struct {
-        uint64_t mask_addr;
-        uint64_t mask_size;
-    } sigmask64;
-    if (user_get(sigmask_addr, sigmask64))
-        return _EFAULT;
-    sigmask.mask_addr = (addr_t) sigmask64.mask_addr;
-    sigmask.mask_size = (dword_t) sigmask64.mask_size;
+        struct {
+            uint64_t mask_addr;
+            uint64_t mask_size;
+        } sigmask64;
+        if (user_get(sigmask_addr, sigmask64))
+            return _EFAULT;
+        sigmask.mask_addr = (addr_t) sigmask64.mask_addr;
+        sigmask.mask_size = (dword_t) sigmask64.mask_size;
 #else
-    if (user_get(sigmask_addr, sigmask))
-        return _EFAULT;
+        if (user_get(sigmask_addr, sigmask))
+            return _EFAULT;
 #endif
+    }
     sigset_t_ mask;
 
     if (sigmask.mask_addr != 0) {
