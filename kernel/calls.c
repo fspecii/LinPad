@@ -81,6 +81,12 @@ void handle_interrupt(int interrupt) {
         // ARM64: syscall number in x8, args in x0-x5, return in x0
         unsigned syscall_num = cpu->regs[8];
         uint64_t syscall_arg0 = cpu->regs[0];
+        // for /proc/<tid>/syscall and status; a fast path read or write can block too
+        memcpy(current->syscall_args, cpu->regs, sizeof(current->syscall_args));
+        struct timespec since;
+        clock_gettime(CLOCK_MONOTONIC, &since);
+        current->syscall_since_ns = (uint64_t) since.tv_sec * 1000000000ull + since.tv_nsec;
+        atomic_store_explicit(&current->in_syscall, (int) syscall_num, memory_order_release);
 
         // === FAST PATH: Hot syscalls ===
         int fast_result = -1;  // -1 means fast path not taken
@@ -125,15 +131,9 @@ void handle_interrupt(int interrupt) {
                     ish_printk_diag("%d(%s) stub syscall %d\n", current->pid, current->comm, syscall_num);
                 }
                 STRACE("%d call %-3d ", current->pid, syscall_num);
-                memcpy(current->syscall_args, cpu->regs, sizeof(current->syscall_args));
-                struct timespec since;
-                clock_gettime(CLOCK_MONOTONIC, &since);
-                current->syscall_since_ns = (uint64_t) since.tv_sec * 1000000000ull + since.tv_nsec;
-                atomic_store_explicit(&current->in_syscall, (int) syscall_num, memory_order_release);
                 int64_t result = syscall_table[syscall_num](
                     cpu->regs[0], cpu->regs[1], cpu->regs[2],
                     cpu->regs[3], cpu->regs[4], cpu->regs[5]);
-                atomic_store_explicit(&current->in_syscall, -1, memory_order_relaxed);
                 STRACE(" = 0x%llx\n", (unsigned long long)result);
                 // sigreturn/rt_sigreturn restore the full CPU state from the
                 // signal frame. Do NOT touch regs[0] — it was already restored
@@ -160,6 +160,7 @@ void handle_interrupt(int interrupt) {
                 }
             }
         }
+        atomic_store_explicit(&current->in_syscall, -1, memory_order_relaxed);
         // a thread the exit safety valve gave up on (do_exit_group) leaves without touching its
         // process, which may be gone
         if (current->exiting)

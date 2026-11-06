@@ -622,7 +622,7 @@ struct proc_children proc_pid_children = PROC_CHILDREN({
     {"oom_score_adj", 0644, .show = proc_pid_oom_score_adj_show, .update = proc_pid_oom_score_adj_update},
     {"stat", .show = proc_pid_stat_show},
     {"statm", .show = proc_pid_statm_show},
-    {"syscall", .show = proc_pid_syscall_show},
+    {"syscall", 0400, .show = proc_pid_syscall_show},
     {"status", .show = proc_pid_status_show},
     {"task", S_IFDIR, .readdir = proc_pid_task_readdir},
 });
