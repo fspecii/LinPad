@@ -670,9 +670,12 @@ static int handle_getroute(struct nl_reply *r, const struct nlmsghdr_ *req, cons
             struct rtattr_ attr;
             memcpy(&attr, payload + off, sizeof(attr));
             if (attr.len < sizeof(attr) || off + attr.len > payload_len)
-                break;
-            if (attr.type == RTA_DST_ && attr.len - sizeof(attr) >= alen)
+                return _EINVAL;
+            if (attr.type == RTA_DST_) {
+                if (attr.len - sizeof(attr) < alen)
+                    return _EINVAL;
                 memcpy(dst, payload + off + sizeof(attr), alen);
+            }
             off += NL_ALIGN(attr.len);
         }
     }
@@ -796,21 +799,25 @@ static void subscriber_remove(struct fd *sock) {
     }
 }
 
-static void set_groups(struct fd *sock, uint32_t groups) {
+// The groups become (groups & keep) | add, read and changed under the lock so
+// concurrent joins and drops don't lose each other.
+static int set_groups(struct fd *sock, uint32_t keep, uint32_t add) {
     pthread_mutex_lock(&subscribers_lock);
-    sock->socket.netlink_groups = groups;
+    uint32_t groups = (sock->socket.netlink_groups & keep) | add;
     subscriber_remove(sock);
     if (groups != 0) {
         if (nsubscribers == capsubscribers) {
             size_t cap = capsubscribers ? capsubscribers * 2 : 8;
             struct fd **grown = realloc(subscribers, cap * sizeof(*grown));
-            if (grown != NULL) {
-                subscribers = grown;
-                capsubscribers = cap;
+            if (grown == NULL) {
+                // a subscribed socket had its slot, so this one wasn't subscribed
+                pthread_mutex_unlock(&subscribers_lock);
+                return _ENOMEM;
             }
+            subscribers = grown;
+            capsubscribers = cap;
         }
-        if (nsubscribers < capsubscribers)
-            subscribers[nsubscribers++] = sock;
+        subscribers[nsubscribers++] = sock;
         if (!watcher_started) {
             pthread_t thread;
             if (pthread_create(&thread, NULL, watch_interfaces, NULL) == 0) {
@@ -819,7 +826,9 @@ static void set_groups(struct fd *sock, uint32_t groups) {
             }
         }
     }
+    sock->socket.netlink_groups = groups;
     pthread_mutex_unlock(&subscribers_lock);
+    return 0;
 }
 
 void netlink_close(struct fd *sock) {
@@ -840,9 +849,9 @@ int netlink_setsockopt(struct fd *sock, int option, const void *value, size_t le
     if (group > 32)
         return 0; // nothing is sent to groups past the bitmask
     uint32_t bit = 1u << (group - 1);
-    uint32_t groups = sock->socket.netlink_groups;
-    set_groups(sock, option == NETLINK_ADD_MEMBERSHIP_ ? groups | bit : groups & ~bit);
-    return 0;
+    if (option == NETLINK_ADD_MEMBERSHIP_)
+        return set_groups(sock, ~0u, bit);
+    return set_groups(sock, ~bit, 0);
 }
 
 #define WATCH_MAX 256
@@ -1002,6 +1011,7 @@ static void send_changes(const struct change *changes, unsigned n) {
     free(r);
 }
 
+// Runs while there are subscribers; set_groups starts it again.
 static void *watch_interfaces(void *unused) {
     (void) unused;
     struct iface_state prev, cur;
@@ -1009,17 +1019,29 @@ static void *watch_interfaces(void *unused) {
     struct change *changes = malloc(WATCH_MAX * sizeof(*changes));
     for (;;) {
         sleep(WATCH_INTERVAL_SECONDS);
+        pthread_mutex_lock(&subscribers_lock);
+        bool idle = nsubscribers == 0;
+        if (idle)
+            watcher_started = false;
+        pthread_mutex_unlock(&subscribers_lock);
+        if (idle)
+            break;
         if (!take_state(&cur))
             continue;
-        if (have_prev && changes != NULL) {
-            unsigned n = diff_states(&prev, &cur, changes);
-            if (n > 0)
-                send_changes(changes, n);
+        if (have_prev) {
+            if (changes != NULL) {
+                unsigned n = diff_states(&prev, &cur, changes);
+                if (n > 0)
+                    send_changes(changes, n);
+            }
             free_state(&prev);
         }
         prev = cur;
         have_prev = true;
     }
+    if (have_prev)
+        free_state(&prev);
+    free(changes);
     return NULL;
 }
 
@@ -1081,8 +1103,7 @@ int netlink_bind(struct fd *sock, const void *addr, size_t len) {
     if (nl.pid != 0)
         sock->socket.netlink_pid = nl.pid;
     netlink_port(sock);
-    set_groups(sock, nl.groups);
-    return 0;
+    return set_groups(sock, 0, nl.groups);
 }
 
 void netlink_name(struct fd *sock, bool local, struct sockaddr_nl_ *addr) {

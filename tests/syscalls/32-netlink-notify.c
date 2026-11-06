@@ -23,6 +23,10 @@
 #define NLM_F_REQUEST 1
 #define NLM_F_DUMP 0x300
 #define RTM_GETLINK 18
+#define RTM_GETADDR 22
+#define RTM_GETROUTE 26
+#define NLMSG_ERROR 2
+#define NLMSG_DONE 3
 struct sockaddr_nl {
     uint16_t nl_family, nl_pad;
     uint32_t nl_pid, nl_groups;
@@ -35,6 +39,40 @@ struct nlmsghdr {
 static int failures;
 #define CHECK(cond, ...) do { int ok_ = (cond); printf("%s: ", ok_ ? "PASS" : "FAIL"); failures += !ok_; \
     printf(__VA_ARGS__); printf("\n"); } while (0)
+
+// A hash of the links, addresses and routes netlink reports, to tell a real network change
+// from a spurious notification.
+static unsigned long network_state(void) {
+    static const unsigned short types[] = {RTM_GETLINK, RTM_GETADDR, RTM_GETROUTE};
+    unsigned long hash = 5381;
+    int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
+    for (unsigned t = 0; t < sizeof(types) / sizeof(types[0]); t++) {
+        struct {
+            struct nlmsghdr h;
+            unsigned char family, pad[15];
+        } req = {.h = {.nlmsg_len = sizeof(req), .nlmsg_type = types[t], .nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP, .nlmsg_seq = 1}};
+        send(fd, &req, sizeof(req), 0);
+        for (int done = 0; !done;) {
+            char buf[16384];
+            int n = recv(fd, buf, sizeof(buf), 0);
+            if (n <= 0)
+                break;
+            for (int off = 0; off + (int) sizeof(struct nlmsghdr) <= n;) {
+                struct nlmsghdr *h = (struct nlmsghdr *) (buf + off);
+                if (h->nlmsg_len < sizeof(*h) || off + (int) h->nlmsg_len > n || h->nlmsg_type == NLMSG_DONE ||
+                        h->nlmsg_type == NLMSG_ERROR) {
+                    done = 1;
+                    break;
+                }
+                for (unsigned i = sizeof(*h); i < h->nlmsg_len; i++)
+                    hash = hash * 33 + (unsigned char) buf[off + i];
+                off += (h->nlmsg_len + 3) & ~3;
+            }
+        }
+    }
+    close(fd);
+    return hash;
+}
 
 int main(void) {
     int tracker = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
@@ -69,10 +107,15 @@ int main(void) {
     while (recv(tracker, buf, sizeof(buf), MSG_DONTWAIT) > 0) {
     }
 
-    // the host's network does not change during the test: nothing may arrive
+    // while the host's network stays the same nothing may arrive; a real change during the
+    // poll (a network switch) makes the check moot
+    unsigned long before = network_state();
     struct pollfd fds[2] = {{.fd = tracker, .events = POLLIN}, {.fd = member, .events = POLLIN}};
     r = poll(fds, 2, 5000);
-    CHECK(r == 0, "no notification in 5 s without a network change: poll = %d", r);
+    if (r != 0 && network_state() != before)
+        printf("SKIP: the host's network changed during the poll\n");
+    else
+        CHECK(r == 0, "no notification in 5 s without a network change: poll = %d", r);
 
     group = RTNLGRP_IPV4_ROUTE;
     CHECK(setsockopt(member, SOL_NETLINK, NETLINK_DROP_MEMBERSHIP, &group, sizeof(group)) == 0, "NETLINK_DROP_MEMBERSHIP");
