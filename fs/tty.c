@@ -605,16 +605,22 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
 
 out: ;
     // a pty's other side, which writes into this buffer, may be polling for the room just made
-    struct tty *writer = NULL;
-    if (was_full && bufsize > 0 && !tty->hung_up && (tty->driver == &pty_master || tty->driver == &pty_slave))
-        writer = tty->pty.other;
+    bool wake_writer = was_full && bufsize > 0 && (tty->driver == &pty_master || tty->driver == &pty_slave);
     unlock(&tty->lock);
-    if (writer != NULL) {
-        struct fd *writer_fd;
-        lock(&writer->fds_lock);
-        list_for_each_entry(&writer->fds, writer_fd, tty_other_fds)
-            poll_wakeup(writer_fd, POLL_WRITE);
-        unlock(&writer->fds_lock);
+    if (wake_writer) {
+        // ttys_lock keeps the other side from being freed by its last close
+        lock(&ttys_lock);
+        lock(&tty->lock);
+        struct tty *writer = tty->hung_up ? NULL : tty->pty.other;
+        unlock(&tty->lock);
+        if (writer != NULL) {
+            struct fd *writer_fd;
+            lock(&writer->fds_lock);
+            list_for_each_entry(&writer->fds, writer_fd, tty_other_fds)
+                poll_wakeup(writer_fd, POLL_WRITE);
+            unlock(&writer->fds_lock);
+        }
+        unlock(&ttys_lock);
     }
     return bufsize + bufsize_extra;
 error:
