@@ -58,6 +58,9 @@ int main(void) {
             read(go[0], &c, 1);
             _exit(0);
         }
+        // set here too, as a shell does, so the member is out of the foreground group (which
+        // the leader's exit hangs up) whichever of the two runs first
+        setpgid(member, member);
         write(report[1], &member, sizeof(member));
         _exit(0);
     }
@@ -73,14 +76,15 @@ int main(void) {
     int status;
     check(waitpid(leader, &status, 0) == leader && WIFEXITED(status) && WEXITSTATUS(status) == 0,
             "the session leader exits and is reaped first");
-    check(kill(member, 0) == 0, "its session's other process is still running");
+    check(kill(-member, 0) == 0, "its session's other process is still running, in a group of its own");
 
-    // the member is init's child now; let it exit and wait for init to reap it
+    // the member is init's child now; let it exit and wait for init to reap it: its process
+    // group exists until then (a zombie still counts as a member)
     write(go[1], "x", 1);
     long long start = now_ms();
     int reaped = 0;
     while (!reaped && now_ms() - start < DEADLINE_MS) {
-        reaped = kill(member, 0) < 0 && errno == ESRCH;
+        reaped = kill(-member, 0) < 0 && errno == ESRCH;
         usleep(10000);
     }
     if (!reaped) {

@@ -10,11 +10,19 @@ ISH=${ISH:?set ISH to the ish binary}
 FAKEFS=${FAKEFS:?set FAKEFS to the guest fakefs directory}
 TEST_TIMEOUT=${TEST_TIMEOUT:-60}
 TIMEOUT=$(command -v timeout || command -v gtimeout || true)
+# Every test runs under the timeout: without coreutils, perl's alarm (macOS has perl) kills it.
+bounded() {
+    if [ -n "$TIMEOUT" ]; then
+        "$TIMEOUT" "$TEST_TIMEOUT" "$@"
+    else
+        perl -e 'alarm shift; exec @ARGV or die "exec: $!"' "$TEST_TIMEOUT" "$@"
+    fi
+}
 CFLAGS="-O1 -pthread"
 failed=0
 for src in "$HERE"/${1:-}*.c; do
     name=$(basename "$src" .c)
-    out=$(${TIMEOUT:+"$TIMEOUT" "$TEST_TIMEOUT"} "$ISH" -f "$FAKEFS" /bin/sh -c \
+    out=$(bounded "$ISH" -f "$FAKEFS" /bin/sh -c \
         "mkdir -p /root/sys && cd /root/sys && cat > $name.c && gcc $CFLAGS -o $name $name.c && ./$name" \
         < "$src" 2>&1)
     status=$?

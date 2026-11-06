@@ -36,6 +36,15 @@ static long long now_ms(void) {
     return ts.tv_sec * 1000LL + ts.tv_nsec / 1000000;
 }
 
+// waitpid with a deadline, so a child that will not go away fails the test instead of hanging it
+static pid_t wait_bounded(pid_t pid, int *status, int ms) {
+    long long start = now_ms();
+    pid_t r;
+    while ((r = waitpid(pid, status, WNOHANG)) == 0 && now_ms() - start < ms)
+        usleep(5000);
+    return r;
+}
+
 static long cfr(int in, long long *in_off, int out, long long *out_off, size_t len) {
     return syscall(SYS_copy_file_range, in, in_off, out, out_off, len, 0);
 }
@@ -61,7 +70,8 @@ static void expect_error(int in, int out, int want, const char *what) {
         if (now_ms() - start > DEADLINE_MS) {
             printf("     %s: still blocked after %d ms\n", what, DEADLINE_MS);
             kill(pid, SIGKILL);
-            waitpid(pid, &status, 0);
+            if (wait_bounded(pid, &status, DEADLINE_MS) != pid)
+                printf("     %s: and still there %d ms after SIGKILL\n", what, DEADLINE_MS);
             check(0, what);
             return;
         }
@@ -131,12 +141,13 @@ int main(void) {
     }
     usleep(50000);
     long long start = now_ms();
-    int status;
-    waitpid(pid, &status, 0);
+    int status = 0;
+    pid_t reaped = wait_bounded(pid, &status, DEADLINE_MS);
     long long took = now_ms() - start;
     if (took > EXIT_MS)
-        printf("     exit took %lld ms\n", took);
-    check(WIFEXITED(status) && took <= EXIT_MS, "a thread blocked reading a tty does not hold up its process's exit");
+        printf("     exit took %lld ms%s\n", took, reaped == pid ? "" : ", and has not finished");
+    check(reaped == pid && WIFEXITED(status) && took <= EXIT_MS,
+            "a thread blocked reading a tty does not hold up its process's exit");
 
     unlink(path_a);
     unlink(path_b);
