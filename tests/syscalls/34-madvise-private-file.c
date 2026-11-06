@@ -1,6 +1,8 @@
 // Checks: MADV_DONTNEED on a private file mapping shows the file again, it does not zero it.
 // Expected (Linux, madvise(2) "MADV_DONTNEED"): private file pages, written or not, are
 // refilled from the file on the next access; only private anonymous pages read as zero.
+// That includes a page copied on write after a fork, which once came back zeroed: the copy
+// lost its file.
 // Observed: iSH cleared private file pages in place. Bun single-file executables (the
 // native Claude Code) keep their module sources in the writable data segment and drop
 // most of it this way after startup, so modules loaded later read as NUL bytes
@@ -10,6 +12,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <sys/wait.h>
 
 #define PAGE 4096
 #define BLOB_PAGES 32
@@ -61,6 +64,22 @@ int main(void) {
     }
     check(ok, "private file mapping at offset 4096 reads the file again, written page too");
     check(all(map + 6 * PAGE + PAGE / 2, PAGE / 2, 0), "past the end of the file reads zero");
+
+    // After a fork, the first write to a still-shared page copies it: the copy is private to
+    // the writer and must still read its file back. Both sides write their own copy here,
+    // a file page at file offset 12 KB (not on a 16 KB host page) and a data segment page.
+    sink = map[2 * PAGE] + blob[9 * PAGE];
+    pid_t child = fork();
+    memset(map + 2 * PAGE, 0xcc, PAGE);
+    blob[9 * PAGE] = 0xcc;
+    r = madvise(map + 2 * PAGE, PAGE, MADV_DONTNEED) | madvise(blob + 9 * PAGE, PAGE, MADV_DONTNEED);
+    ok = r == 0 && all(map + 2 * PAGE, PAGE, 4) && all(blob + 9 * PAGE, PAGE, 0x5a);
+    if (child == 0)
+        _exit(ok ? 0 : 1);
+    int status = -1;
+    waitpid(child, &status, 0);
+    check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "a page copied on write in a forked child reads its file again");
+    check(ok, "a page copied on write in the parent after a fork reads its file again");
     munmap(map, 7 * PAGE);
     close(fd);
     unlink(path);

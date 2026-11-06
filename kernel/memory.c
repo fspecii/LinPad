@@ -1146,18 +1146,34 @@ have_entry:
             } else if (entry != NULL && (entry->flags & P_COW)) {
                 cow_copied++;
                 void *data = (char *) entry->data->data + entry->offset;
-                memcpy(copy, data, PAGE_SIZE);
+                // A private file page's copy keeps its file, which MADV_DONTNEED reads it back
+                // from (discard_file_page). The page goes where that file position falls in a
+                // host page, so the file offset of the data still finds it.
+                struct fd *file = (entry->flags & P_ANONYMOUS) ? NULL : entry->data->fd;
+                size_t file_pos = 0, in_host = 0;
+                if (file != NULL) {
+                    file_pos = entry->data->file_offset - entry->data->file_offset % real_page_size + entry->offset;
+                    in_host = file_pos % real_page_size;
+                    fd_retain(file);  // pt_map may release the old data, and with it the fd
+                }
+                memcpy((char *) copy + in_host, data, PAGE_SIZE);
 #if ANON_MMAP_LIMIT_PAGES > 0
                 // pt_map will unmap the old page (decrementing anon_page_count),
                 // so pre-increment for the new CoW copy to keep balance.
                 if (entry->flags & P_ANONYMOUS)
                     atomic_fetch_add(&anon_page_count, 1);
 #endif
-                if (pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW) < 0) {
+                if (pt_map(mem, page, 1, copy, in_host, entry->flags &~ P_COW) < 0) {
 #if ANON_MMAP_LIMIT_PAGES > 0
                     if (entry->flags & P_ANONYMOUS)
                         atomic_fetch_sub(&anon_page_count, 1);
 #endif
+                    if (file != NULL)
+                        fd_close(file);
+                } else if (file != NULL) {
+                    struct data *copied = mem_pt(mem, page)->data;
+                    copied->fd = file;
+                    copied->file_offset = file_pos;
                 }
                 mem_changed(mem);
             } else if (copy != MAP_FAILED) {
