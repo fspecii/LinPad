@@ -504,6 +504,7 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
         return 0;
 
     int err = 0;
+    bool was_full = false;
     struct tty *tty = fd->tty;
     lock(&pids_lock);
     lock(&tty->lock);
@@ -594,6 +595,7 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
 
     if (bufsize > tty->bufsize)
         bufsize = tty->bufsize;
+    was_full = tty->bufsize >= sizeof(tty->buf);
     tty_read_into_buf(tty, buf, bufsize);
     if (tty->bufsize > 0 && tty->buf[0] == '\0' && tty->buf_flag[0]) {
         // remove the eof so the next read can succeed
@@ -601,8 +603,19 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
         tty_read_into_buf(tty, &dummy, 1);
     }
 
-out:
+out: ;
+    // a pty's other side, which writes into this buffer, may be polling for the room just made
+    struct tty *writer = NULL;
+    if (was_full && bufsize > 0 && !tty->hung_up && (tty->driver == &pty_master || tty->driver == &pty_slave))
+        writer = tty->pty.other;
     unlock(&tty->lock);
+    if (writer != NULL) {
+        struct fd *writer_fd;
+        lock(&writer->fds_lock);
+        list_for_each_entry(&writer->fds, writer_fd, tty_other_fds)
+            poll_wakeup(writer_fd, POLL_WRITE);
+        unlock(&writer->fds_lock);
+    }
     return bufsize + bufsize_extra;
 error:
     unlock(&tty->lock);
@@ -624,15 +637,14 @@ static ssize_t tty_write(struct fd *fd, const void *buf, size_t bufsize) {
     // I reviewed real driver and ios driver and they're safe
     unlock(&tty->lock);
 
-    int err = 0;
+    const char *in = buf;
     char *postbuf = NULL;
     size_t postbufsize = bufsize;
     if (oflags & OPOST_) {
         postbuf = malloc(bufsize * 2);
         postbufsize = 0;
-        const char *cbuf = buf;
         for (size_t i = 0; i < bufsize; i++) {
-            char ch = cbuf[i];
+            char ch = in[i];
             if (ch == '\r' && oflags & ONLRET_)
                 continue;
             else if (ch == '\r' && oflags & OCRNL_)
@@ -643,19 +655,45 @@ static ssize_t tty_write(struct fd *fd, const void *buf, size_t bufsize) {
         }
         buf = postbuf;
     }
-    err = tty->driver->ops->write(tty, buf, postbufsize, blocking);
+    int written = tty->driver->ops->write(tty, buf, postbufsize, blocking);
     if (postbuf)
         free(postbuf);
-    if (err < 0)
-        return err;
-    return bufsize;
+    if (written < 0 || !(oflags & OPOST_))
+        return written;
+    // A non-blocking write into a full pty takes only what fits: report that many of the
+    // caller's bytes, a newline that became \r\n once both are in.
+    size_t out = 0, done = 0;
+    for (; done < bufsize; done++) {
+        size_t len = 1;
+        if (in[done] == '\r' && oflags & ONLRET_)
+            len = 0;
+        else if (in[done] == '\n' && oflags & ONLCR_)
+            len = 2;
+        if (out + len > (size_t) written)
+            break;
+        out += len;
+    }
+    return done > 0 || bufsize == 0 ? (ssize_t) done : _EAGAIN;
+}
+
+// A pty side's writes go into the other side's buffer, so it can take more while that has room.
+// Read without the other side's lock: taking it inside tty_poll could deadlock with a poller,
+// like the echo (tty_flush_echo). The other side is still there: with this side's lock held and
+// no hangup seen, a closing master has not got past hanging up the slave.
+static bool pty_has_room(struct tty *tty) {
+    struct tty *other = tty->pty.other;
+    if (other == NULL)
+        return true;
+    return __atomic_load_n(&other->bufsize, __ATOMIC_RELAXED) < sizeof(other->buf);
 }
 
 static int tty_poll(struct fd *fd) {
     struct tty *tty = fd->tty;
     lock(&tty->lock);
     int types = 0;
-    types |= POLL_WRITE; // FIXME now that we have ptys, you can't always write without blocking
+    bool pty = tty->driver == &pty_master || tty->driver == &pty_slave;
+    if (!pty || tty->hung_up || pty_has_room(tty))
+        types |= POLL_WRITE;
     if (tty->hung_up) {
         types |= POLL_READ | POLL_WRITE | POLL_ERR | POLL_HUP;
     } else if (pty_is_half_closed_master(tty)) {
