@@ -68,6 +68,30 @@ dword_t sys_faccessat(fd_t at_f, addr_t path_addr, mode_t_ mode, dword_t flags) 
     return err;
 }
 
+// /proc/self/fd/N, /dev/fd/N and /dev/stdin, stdout, stderr open the file fd N refers to: on
+// Linux they are magic links. Here they were plain symlinks, and a pipe's or socket's target
+// reads "pipe:[...]", so opening one failed with ENOENT (bash's <(...) among others). Files
+// with a real path, ttys included, are left to the normal lookup, which reopens them.
+static struct fd *open_fd_link(const char *path) {
+    int n = -1, pid = -1;
+    char extra;
+    if (strcmp(path, "/dev/stdin") == 0)
+        n = 0;
+    else if (strcmp(path, "/dev/stdout") == 0)
+        n = 1;
+    else if (strcmp(path, "/dev/stderr") == 0)
+        n = 2;
+    else if (sscanf(path, "/dev/fd/%d%c", &n, &extra) != 1 &&
+            sscanf(path, "/proc/self/fd/%d%c", &n, &extra) != 1 &&
+            !(sscanf(path, "/proc/%d/fd/%d%c", &pid, &n, &extra) == 2 && pid == current->tgid))
+        return NULL;
+    struct fd *fd = n >= 0 ? f_get(n) : NULL;
+    if (fd == NULL || S_ISREG(fd->type) || S_ISDIR(fd->type) || S_ISCHR(fd->type) ||
+            S_ISBLK(fd->type) || S_ISLNK(fd->type))
+        return NULL;
+    return fd_retain(fd);
+}
+
 fd_t sys_openat(fd_t at_f, addr_t path_addr, dword_t flags, mode_t_ mode) {
     char path[MAX_PATH];
     if (user_read_string(path_addr, path, sizeof(path)))
@@ -81,7 +105,9 @@ fd_t sys_openat(fd_t at_f, addr_t path_addr, dword_t flags, mode_t_ mode) {
     if (at == NULL) {
         return _EBADF;
     }
-    struct fd *fd = generic_openat(at, path, flags, mode);
+    struct fd *fd = path[0] == '/' ? open_fd_link(path) : NULL;
+    if (fd == NULL)
+        fd = generic_openat(at, path, flags, mode);
     if (IS_ERR(fd)) {
         return PTR_ERR(fd);
     }
