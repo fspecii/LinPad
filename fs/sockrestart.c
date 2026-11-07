@@ -29,23 +29,25 @@ void sockrestart_end_listen(struct fd *sock) {
 
 static struct list listen_tasks = LIST_INITIALIZER(listen_tasks);
 
-void sockrestart_begin_listen_wait(struct fd *sock) {
-    if (sock->ops != &socket_fdops)
-        return;
+void sockrestart_begin_listen_wait(void) {
     lock(&sockrestart_lock);
-    if (current->sockrestart.count == 0)
+    if (current->sockrestart.count++ == 0)
         list_add(&listen_tasks, &current->sockrestart.listen);
-    current->sockrestart.count++;
     unlock(&sockrestart_lock);
 }
 
-void sockrestart_end_listen_wait(struct fd *sock) {
-    if (sock->ops != &socket_fdops)
-        return;
+void sockrestart_end_listen_wait(void) {
     lock(&sockrestart_lock);
-    current->sockrestart.count--;
-    if (current->sockrestart.count == 0)
+    if (current->sockrestart.count > 0 && --current->sockrestart.count == 0)
         list_remove(&current->sockrestart.listen);
+    unlock(&sockrestart_lock);
+}
+
+void sockrestart_task_exit(struct task *task) {
+    lock(&sockrestart_lock);
+    if (task->sockrestart.count > 0)
+        list_remove(&task->sockrestart.listen);
+    task->sockrestart.count = 0;
     unlock(&sockrestart_lock);
 }
 

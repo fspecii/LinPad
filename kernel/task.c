@@ -71,6 +71,7 @@ struct task *task_create_(struct task *parent) {
 
     // Initialize blocking state for deadlock detection.
     task->blocking = false;
+    task->in_syscall = -1;
     {
         struct timespec _ts;
         clock_gettime(CLOCK_MONOTONIC, &_ts);
@@ -128,6 +129,7 @@ static void flush_deferred_frees(void) {
 
 void task_destroy(struct task *task) {
     list_remove(&task->siblings);
+    sockrestart_task_exit(task);
     pid_get(task->pid)->task = NULL;
 
     // Flush old deferred frees first — they've had time to quiesce.

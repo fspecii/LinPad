@@ -216,18 +216,6 @@ static void tty_input_wakeup(struct tty *tty) {
     tty_poll_wakeup(tty, POLL_READ);
 }
 
-static int tty_push_char(struct tty *tty, char ch, bool flag, int blocking) {
-    while (tty->bufsize >= sizeof(tty->buf)) {
-        if (!blocking)
-            return _EAGAIN;
-        if (wait_for(&tty->consumed, &tty->lock, NULL))
-            return _EINTR;
-    }
-    tty->buf[tty->bufsize] = ch;
-    tty->buf_flag[tty->bufsize++] = flag;
-    return 0;
-}
-
 // Echo is collected while tty->lock is held and written after it is released.
 // Writing it right away (pty: into the master, which wakes the master's pollers)
 // held the slave's lock across poll_wakeup: a thread in epoll_wait holding the
@@ -238,6 +226,47 @@ struct echo_buf {
     size_t len, cap;
     char inline_data[256];
 };
+
+// Called with tty->lock held; drops it while writing.
+static void tty_flush_echo(struct tty *tty, struct echo_buf *echo) {
+    if (echo->len == 0)
+        return;
+    unlock(&tty->lock);
+    tty->driver->ops->write(tty, echo->data, echo->len, false);
+    lock(&tty->lock);
+    echo->len = 0;
+}
+
+// The buffer is full: wait until a reader consumes some of it. Readers are woken
+// for what is in it first. Woken only once the whole write was in, a reader in
+// poll, select or epoll_wait (dropbear or a pty.fork() driver reading a TUI's
+// redraw, a TUI reading a paste) saw the data at poll_wait's 1 s re-check at
+// best, per 4 KiB; an EPOLLET waiter or a reader blocked in read() never did,
+// and it and the writer waited for each other forever.
+// Called with tty->lock held, which the wakeup drops.
+static int tty_wait_for_room(struct tty *tty, struct echo_buf *echo, bool blocking) {
+    while (tty->bufsize >= sizeof(tty->buf)) {
+        if (!blocking)
+            return _EAGAIN;
+        // as at the end of tty_input: the echo goes out before readers wake
+        tty_flush_echo(tty, echo);
+        tty_input_wakeup(tty);
+        if (tty->bufsize < sizeof(tty->buf))
+            break;
+        if (wait_for(&tty->consumed, &tty->lock, NULL))
+            return _EINTR;
+    }
+    return 0;
+}
+
+static int tty_push_char(struct tty *tty, char ch, bool flag, struct echo_buf *echo, bool blocking) {
+    int err = tty_wait_for_room(tty, echo, blocking);
+    if (err < 0)
+        return err;
+    tty->buf[tty->bufsize] = ch;
+    tty->buf_flag[tty->bufsize++] = flag;
+    return 0;
+}
 
 static void tty_echo(struct echo_buf *echo, const char *data, size_t size) {
     if (echo->len + size > echo->cap) {
@@ -347,7 +376,7 @@ ssize_t tty_input(struct tty *tty, const char *input, size_t size, bool blocking
                 if (echo)
                     tty_echo(&echo_out, "\r\n", 2);
 canon_wake:
-                err = tty_push_char(tty, ch, /*flag*/true, blocking);
+                err = tty_push_char(tty, ch, /*flag*/true, &echo_out, blocking);
                 if (err < 0) {
                     done_size--;
                     break;
@@ -357,7 +386,7 @@ canon_wake:
             } else {
                 if (!tty_send_input_signal(tty, ch, &queue)) {
 no_special:
-                    err = tty_push_char(tty, ch, /*flag*/false, blocking);
+                    err = tty_push_char(tty, ch, /*flag*/false, &echo_out, blocking);
                     if (err < 0) {
                         done_size--;
                         break;
@@ -378,14 +407,7 @@ no_special:
             done_size++;
             if (tty_send_input_signal(tty, input[i], &queue))
                 continue;
-            while (tty->bufsize >= sizeof(tty->buf)) {
-                err = _EAGAIN;
-                if (!blocking)
-                    break;
-                err = wait_for(&tty->consumed, &tty->lock, NULL);
-                if (err < 0)
-                    break;
-            }
+            err = tty_wait_for_room(tty, &echo_out, blocking);
             if (err < 0) {
                 done_size--;
                 break;
@@ -482,6 +504,7 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
         return 0;
 
     int err = 0;
+    bool was_full = false;
     struct tty *tty = fd->tty;
     lock(&pids_lock);
     lock(&tty->lock);
@@ -572,6 +595,7 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
 
     if (bufsize > tty->bufsize)
         bufsize = tty->bufsize;
+    was_full = tty->bufsize >= sizeof(tty->buf);
     tty_read_into_buf(tty, buf, bufsize);
     if (tty->bufsize > 0 && tty->buf[0] == '\0' && tty->buf_flag[0]) {
         // remove the eof so the next read can succeed
@@ -579,8 +603,25 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
         tty_read_into_buf(tty, &dummy, 1);
     }
 
-out:
+out: ;
+    // a pty's other side, which writes into this buffer, may be polling for the room just made
+    bool wake_writer = was_full && bufsize > 0 && (tty->driver == &pty_master || tty->driver == &pty_slave);
     unlock(&tty->lock);
+    if (wake_writer) {
+        // ttys_lock keeps the other side from being freed by its last close
+        lock(&ttys_lock);
+        lock(&tty->lock);
+        struct tty *writer = tty->hung_up ? NULL : tty->pty.other;
+        unlock(&tty->lock);
+        if (writer != NULL) {
+            struct fd *writer_fd;
+            lock(&writer->fds_lock);
+            list_for_each_entry(&writer->fds, writer_fd, tty_other_fds)
+                poll_wakeup(writer_fd, POLL_WRITE);
+            unlock(&writer->fds_lock);
+        }
+        unlock(&ttys_lock);
+    }
     return bufsize + bufsize_extra;
 error:
     unlock(&tty->lock);
@@ -602,15 +643,14 @@ static ssize_t tty_write(struct fd *fd, const void *buf, size_t bufsize) {
     // I reviewed real driver and ios driver and they're safe
     unlock(&tty->lock);
 
-    int err = 0;
+    const char *in = buf;
     char *postbuf = NULL;
     size_t postbufsize = bufsize;
     if (oflags & OPOST_) {
         postbuf = malloc(bufsize * 2);
         postbufsize = 0;
-        const char *cbuf = buf;
         for (size_t i = 0; i < bufsize; i++) {
-            char ch = cbuf[i];
+            char ch = in[i];
             if (ch == '\r' && oflags & ONLRET_)
                 continue;
             else if (ch == '\r' && oflags & OCRNL_)
@@ -621,19 +661,45 @@ static ssize_t tty_write(struct fd *fd, const void *buf, size_t bufsize) {
         }
         buf = postbuf;
     }
-    err = tty->driver->ops->write(tty, buf, postbufsize, blocking);
+    int written = tty->driver->ops->write(tty, buf, postbufsize, blocking);
     if (postbuf)
         free(postbuf);
-    if (err < 0)
-        return err;
-    return bufsize;
+    if (written < 0 || !(oflags & OPOST_))
+        return written;
+    // A non-blocking write into a full pty takes only what fits: report that many of the
+    // caller's bytes, a newline that became \r\n once both are in.
+    size_t out = 0, done = 0;
+    for (; done < bufsize; done++) {
+        size_t len = 1;
+        if (in[done] == '\r' && oflags & ONLRET_)
+            len = 0;
+        else if (in[done] == '\n' && oflags & ONLCR_)
+            len = 2;
+        if (out + len > (size_t) written)
+            break;
+        out += len;
+    }
+    return done > 0 || bufsize == 0 ? (ssize_t) done : _EAGAIN;
+}
+
+// A pty side's writes go into the other side's buffer, so it can take more while that has room.
+// Read without the other side's lock: taking it inside tty_poll could deadlock with a poller,
+// like the echo (tty_flush_echo). The other side is still there: with this side's lock held and
+// no hangup seen, a closing master has not got past hanging up the slave.
+static bool pty_has_room(struct tty *tty) {
+    struct tty *other = tty->pty.other;
+    if (other == NULL)
+        return true;
+    return __atomic_load_n(&other->bufsize, __ATOMIC_RELAXED) < sizeof(other->buf);
 }
 
 static int tty_poll(struct fd *fd) {
     struct tty *tty = fd->tty;
     lock(&tty->lock);
     int types = 0;
-    types |= POLL_WRITE; // FIXME now that we have ptys, you can't always write without blocking
+    bool pty = tty->driver == &pty_master || tty->driver == &pty_slave;
+    if (!pty || tty->hung_up || pty_has_room(tty))
+        types |= POLL_WRITE;
     if (tty->hung_up) {
         types |= POLL_READ | POLL_WRITE | POLL_ERR | POLL_HUP;
     } else if (pty_is_half_closed_master(tty)) {

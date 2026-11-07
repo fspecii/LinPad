@@ -224,6 +224,8 @@ static inline int sock_flags_from_real(int real) {
 #define SO_REUSEPORT_ 15
 #define SO_PASSCRED_ 16
 #define SO_PEERCRED_ 17
+#define SO_BINDTODEVICE_ 25
+#define SO_BINDTOIFINDEX_ 62
 #define SO_TIMESTAMP_ 29
 #define SO_PROTOCOL_ 38
 #define SO_DOMAIN_ 39
@@ -234,6 +236,7 @@ static inline int sock_flags_from_real(int real) {
 #define IP_HDRINCL_ 3
 #define IP_RETOPTS_ 7
 #define IP_MTU_DISCOVER_ 10
+#define IPV6_MTU_DISCOVER_ 23
 #define IP_RECVTTL_ 12
 #define IP_RECVTOS_ 13
 #define IP_RECVERR_ 11

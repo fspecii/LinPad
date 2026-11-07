@@ -1447,6 +1447,18 @@ dword_t sys_copy_file_range(fd_t in_fd, addr_t in_off_addr, fd_t out_fd,
         return _EINVAL;
     if (!out->ops->write && !out->ops->pwrite)
         return _EINVAL;
+    // Like Linux, only between regular files. Callers (Go's io.Copy) fall back to read and write
+    // for a tty or pipe; read here, it blocked and retried EINTR, so not even SIGKILL ended it.
+    struct statbuf in_stat = {}, out_stat = {};
+    int err = in->mount->fs->fstat(in, &in_stat);
+    if (err >= 0)
+        err = out->mount->fs->fstat(out, &out_stat);
+    if (err < 0)
+        return err;
+    if (S_ISDIR(in_stat.mode) || S_ISDIR(out_stat.mode))
+        return _EISDIR;
+    if (!S_ISREG(in_stat.mode) || !S_ISREG(out_stat.mode))
+        return _EINVAL;
 
     off_t_ in_off = -1, out_off = -1;
     if (in_off_addr != 0) {

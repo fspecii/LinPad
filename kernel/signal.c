@@ -1374,6 +1374,8 @@ int_t sys_rt_sigtimedwait(addr_t set_addr, addr_t info_addr, addr_t timeout_addr
         current->waiting = set;
         int wait_err = wait_for(&current->pause, &current->sighand->lock, timeout_addr == 0 ? NULL : &remaining);
         current->waiting = 0;
+        if (current->exiting)
+            break; // the exit safety valve gave up on this thread: its process may be gone
         if (wait_err == _ETIMEDOUT) {
             sigqueue = dequeue_signal(set);
             if (sigqueue == NULL) {

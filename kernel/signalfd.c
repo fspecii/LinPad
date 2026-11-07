@@ -96,7 +96,7 @@ static ssize_t signalfd_read(struct fd *fd, void *buf, size_t bufsize) {
             unlock(&current->sighand->lock);
             return _EAGAIN;
         }
-        if (task_pending_unblocked(current)) {
+        if (current->exiting || task_pending_unblocked(current)) {
             unlock(&current->sighand->lock);
             return _EINTR;
         }

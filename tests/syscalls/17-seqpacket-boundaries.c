@@ -2,9 +2,11 @@
 // for sockets connected through bind/listen/connect/accept: each send is one
 // record, a short read sets MSG_TRUNC and discards the rest, zero-length
 // records are delivered, MSG_PEEK peeks one whole record, the MSG_TRUNC recv
-// flag returns the real length, and a closed peer reads as EOF.
+// flag returns the real length, and a closed peer reads as EOF, with no
+// address or control data, and polls readable.
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -73,6 +75,23 @@ static void check_pair(const char *what, int a, int b) {
     CHECK(r == 4, "%s: queued record readable after peer close r=%zd", what, r);
     r = recv(b, buf, sizeof(buf), 0);
     CHECK(r == 0, "%s: EOF after peer close r=%zd errno=%d", what, r, errno);
+    // EOF carries no control data. A connected (not socketpair) pair left the
+    // caller's control buffer unset and walked it: ish spun or closed host fds.
+    char control[CMSG_SPACE(sizeof(int) * 4)];
+    memset(control, 0xa5, sizeof(control));
+    // nor an address: the name buffer is not read back as one
+    struct sockaddr_un name;
+    memset(&name, 0xa5, sizeof(name));
+    struct iovec iov = {buf, sizeof(buf)};
+    struct msghdr mh = {.msg_name = &name, .msg_namelen = sizeof(name), .msg_iov = &iov, .msg_iovlen = 1,
+        .msg_control = control, .msg_controllen = sizeof(control)};
+    r = recvmsg(b, &mh, 0);
+    CHECK(r == 0 && mh.msg_controllen == 0 && mh.msg_namelen == 0, "%s: recvmsg at EOF r=%zd errno=%d controllen=%zu namelen=%u",
+            what, r, r < 0 ? errno : 0, (size_t) mh.msg_controllen, (unsigned) mh.msg_namelen);
+    // and EOF stays readable for poll
+    struct pollfd pfd = {.fd = b, .events = POLLIN};
+    r = poll(&pfd, 1, 1000);
+    CHECK(r == 1 && (pfd.revents & POLLIN), "%s: poll at EOF r=%zd revents=%#x", what, r, pfd.revents);
     close(b);
 }
 

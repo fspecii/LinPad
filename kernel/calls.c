@@ -68,6 +68,10 @@ void handle_interrupt(int interrupt) {
             STRACE(" = 0x%x\n", result);
             cpu->eax = result;
         }
+        // a thread the exit safety valve gave up on (do_exit_group) leaves without touching its
+        // process, which may be gone
+        if (current->exiting)
+            do_exit(0);
         if (current->group->doing_group_exit)
             do_exit(current->group->group_exit_code);
 #elif defined(GUEST_ARM64)
@@ -77,6 +81,12 @@ void handle_interrupt(int interrupt) {
         // ARM64: syscall number in x8, args in x0-x5, return in x0
         unsigned syscall_num = cpu->regs[8];
         uint64_t syscall_arg0 = cpu->regs[0];
+        // for /proc/<tid>/syscall and status; a fast path read or write can block too
+        memcpy(current->syscall_args, cpu->regs, sizeof(current->syscall_args));
+        struct timespec since;
+        clock_gettime(CLOCK_MONOTONIC, &since);
+        current->syscall_since_ns = (uint64_t) since.tv_sec * 1000000000ull + since.tv_nsec;
+        atomic_store_explicit(&current->in_syscall, (int) syscall_num, memory_order_release);
 
         // === FAST PATH: Hot syscalls ===
         int fast_result = -1;  // -1 means fast path not taken
@@ -150,6 +160,11 @@ void handle_interrupt(int interrupt) {
                 }
             }
         }
+        atomic_store_explicit(&current->in_syscall, -1, memory_order_relaxed);
+        // a thread the exit safety valve gave up on (do_exit_group) leaves without touching its
+        // process, which may be gone
+        if (current->exiting)
+            do_exit(0);
         {
             unsigned slot = current->recent_syscall_pos++ % 16;
             current->recent_syscalls[slot].nr = syscall_num;

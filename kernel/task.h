@@ -61,6 +61,11 @@ struct task {
     // the crash log (ISH_CRASHLOG=1, kernel/signal.c)
     struct { uint32_t nr; uint64_t arg0; int64_t result; } recent_syscalls[16];
     unsigned recent_syscall_pos;
+    // The syscall this thread is in, or -1, with its arguments and since when
+    // (CLOCK_MONOTONIC ns), for /proc/<tid>/syscall: where a stuck thread waits.
+    _Atomic int in_syscall;
+    uint64_t syscall_args[6];
+    uint64_t syscall_since_ns;
     bool crash_logged;
 
     struct {

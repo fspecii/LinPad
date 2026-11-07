@@ -17,6 +17,8 @@
 
 // From kernel/calls.h - avoid circular include
 extern _Noreturn void do_exit_group(int status);
+// From fs/sock.c
+extern const struct fd_ops socket_fdops;
 
 #if defined(__linux__)
 #include <sys/epoll.h>
@@ -83,7 +85,13 @@ static inline bool poll_fd_is_real(struct poll_fd *pollfd) {
     mode_t_ type = pollfd->fd->type;
     if (S_ISREG(type) || S_ISDIR(type))
         return false;
-    return pollfd->fd->ops->poll == realfs_poll || poll_fd_is_epoll(pollfd);
+    // Sockets poll their host socket too, through sock_poll (realfs_poll plus
+    // a SOCK_SEQPACKET record already collected). Unregistered, their readiness
+    // was only noticed by the 1 s re-check, and an edge-triggered entry, whose
+    // mask only a host event clears, never reported a second time: a Go or
+    // tokio server accepted one connection and its connections stalled.
+    return pollfd->fd->ops->poll == realfs_poll || pollfd->fd->ops == &socket_fdops ||
+        poll_fd_is_epoll(pollfd);
 }
 
 // What to register on the host for a member fd. A nested epoll set is
@@ -95,14 +103,32 @@ static inline int poll_fd_real_types(struct poll_fd *pollfd, int types) {
     return types;
 }
 
-// does not do its own locking
-static struct poll_fd *poll_find_fd(struct poll *poll, struct fd *fd) {
-    struct poll_fd *poll_fd, *tmp;
-    list_for_each_entry_safe(&poll->poll_fds, poll_fd, tmp, fds) {
-        if (poll_fd->fd == fd)
+// The caller holds fd->poll_lock. An fd is in few sets (usually one), while a
+// set can hold thousands of fds: look on the fd's side, so EPOLL_CTL_ADD, MOD
+// and DEL do not scan the whole interest list.
+static struct poll_fd *poll_find_fd(struct poll *poll, struct fd *fd, int fd_no) {
+    struct poll_fd *poll_fd;
+    list_for_each_entry(&fd->poll_fds, poll_fd, polls) {
+        if (poll_fd->poll == poll && poll_fd->fd_no == fd_no)
             return poll_fd;
     }
     return NULL;
+}
+
+// The host descriptor to register a new entry of fd with (see struct poll_fd).
+// The caller holds fd->poll_lock.
+static int poll_fd_host_fd(struct poll *poll, struct fd *fd) {
+    struct poll_fd *other;
+    list_for_each_entry(&fd->poll_fds, other, polls) {
+        if (other->poll == poll && other->real_fd == fd->real_fd)
+            return dup(fd->real_fd);
+    }
+    return fd->real_fd;
+}
+
+static void poll_fd_close_host_fd(struct poll_fd *poll_fd) {
+    if (poll_fd_is_real(poll_fd) && poll_fd->real_fd != poll_fd->fd->real_fd)
+        close(poll_fd->real_fd);
 }
 
 // See comment on pollfd_freelist for context
@@ -113,11 +139,14 @@ static void poll_fd_free(struct poll_fd *poll_fd) {
     list_add(&poll->pollfd_freelist, &poll_fd->fds);
 }
 
-bool poll_has_fd(struct poll *poll, struct fd *fd) {
-    return poll_find_fd(poll, fd) != NULL;
+bool poll_has_fd(struct poll *poll, struct fd *fd, int fd_no) {
+    lock(&fd->poll_lock);
+    bool found = poll_find_fd(poll, fd, fd_no) != NULL;
+    unlock(&fd->poll_lock);
+    return found;
 }
 
-int poll_add_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info info) {
+int poll_add_fd(struct poll *poll, struct fd *fd, int fd_no, int types, union poll_fd_info info) {
     int err;
     lock(&fd->poll_lock);
     lock(&poll->lock);
@@ -134,6 +163,8 @@ int poll_add_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info 
         }
     }
     poll_fd->fd = fd;
+    poll_fd->fd_no = fd_no;
+    poll_fd->real_fd = fd->real_fd;
     poll_fd->poll = poll;
     poll_fd->types = types;
     poll_fd->info = info;
@@ -141,10 +172,13 @@ int poll_add_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info 
     poll_fd->disarmed = false;
 
     if (poll_fd_is_real(poll_fd)) {
-        err = real_poll_update(&poll->real, fd->real_fd, poll_fd_real_types(poll_fd, types), poll_fd);
-        if (err < 0) {
-            free(poll_fd);
+        poll_fd->real_fd = poll_fd_host_fd(poll, fd);
+        if (poll_fd->real_fd < 0 ||
+                real_poll_update(&poll->real, poll_fd->real_fd, poll_fd_real_types(poll_fd, types), poll_fd) < 0) {
             err = errno_map();
+            if (poll_fd->real_fd >= 0)
+                poll_fd_close_host_fd(poll_fd);
+            free(poll_fd);
             goto out;
         }
     }
@@ -159,11 +193,11 @@ out:
     return err;
 }
 
-int poll_del_fd(struct poll *poll, struct fd *fd) {
+int poll_del_fd(struct poll *poll, struct fd *fd, int fd_no) {
     int err;
     lock(&fd->poll_lock);
     lock(&poll->lock);
-    struct poll_fd *poll_fd = poll_find_fd(poll, fd);
+    struct poll_fd *poll_fd = poll_find_fd(poll, fd, fd_no);
     if (poll_fd == NULL) {
         err = _ENOENT;
         goto out;
@@ -171,13 +205,14 @@ int poll_del_fd(struct poll *poll, struct fd *fd) {
 
     // a oneshot entry that fired is already off the host set
     if (poll_fd_is_real(poll_fd) && !poll_fd->disarmed) {
-        err = real_poll_update(&poll->real, fd->real_fd, 0, poll_fd);
+        err = real_poll_update(&poll->real, poll_fd->real_fd, 0, poll_fd);
         if (err < 0) {
             err = errno_map();
             goto out;
         }
     }
 
+    poll_fd_close_host_fd(poll_fd);
     list_remove(&poll_fd->polls);
     list_remove(&poll_fd->fds);
     poll_fd_free(poll_fd);
@@ -189,18 +224,18 @@ out:
     return err;
 }
 
-int poll_mod_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info info) {
+int poll_mod_fd(struct poll *poll, struct fd *fd, int fd_no, int types, union poll_fd_info info) {
     int err;
     lock(&fd->poll_lock);
     lock(&poll->lock);
-    struct poll_fd *poll_fd = poll_find_fd(poll, fd);
+    struct poll_fd *poll_fd = poll_find_fd(poll, fd, fd_no);
     if (poll_fd == NULL) {
         err = _ENOENT;
         goto out;
     }
 
     if (poll_fd_is_real(poll_fd)) {
-        err = real_poll_update(&poll->real, fd->real_fd, poll_fd_real_types(poll_fd, types), poll_fd);
+        err = real_poll_update(&poll->real, poll_fd->real_fd, poll_fd_real_types(poll_fd, types), poll_fd);
         if (err < 0) {
             err = errno_map();
             goto out;
@@ -225,7 +260,8 @@ void poll_cleanup_fd(struct fd *fd) {
     list_for_each_entry_safe(&fd->poll_fds, poll_fd, tmp, polls) {
         lock(&poll_fd->poll->lock);
         if (poll_fd_is_real(poll_fd))
-            real_poll_update(&poll_fd->poll->real, fd->real_fd, 0, poll_fd);
+            real_poll_update(&poll_fd->poll->real, poll_fd->real_fd, 0, poll_fd);
+        poll_fd_close_host_fd(poll_fd);
         list_remove(&poll_fd->polls);
         list_remove(&poll_fd->fds);
         unlock(&poll_fd->poll->lock);
@@ -389,7 +425,7 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
                 if (poll_fd->types & POLL_ONESHOT) {
                     poll_fd->disarmed = true;
                     if (poll_fd_is_real(poll_fd)) {
-                        real_poll_update(&poll_->real, fd->real_fd, 0, NULL);
+                        real_poll_update(&poll_->real, poll_fd->real_fd, 0, NULL);
                     }
                 }
 
@@ -412,10 +448,18 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
             break;
         }
 
-        // wait for a ready notification
+        // wait for a ready notification; a rebuilt listener restarts it.
+        // Registered once for the wait: other threads add and remove fds
+        // while it sleeps, so the set seen afterwards is not this one.
+        bool listen_wait = false;
         list_for_each_entry(&poll_->poll_fds, poll_fd, fds) {
-            sockrestart_begin_listen_wait(poll_fd->fd);
+            if (poll_fd->fd->ops == &socket_fdops) {
+                listen_wait = true;
+                break;
+            }
         }
+        if (listen_wait)
+            sockrestart_begin_listen_wait();
         unlock(&poll_->lock);
         int err;
         int saved_errno;
@@ -442,6 +486,8 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
             saved_errno = errno;  // save immediately before anything clobbers it
         } while (saved_errno == EINTR && sockrestart_should_restart_listen_wait());
         current->blocking = false;
+        if (listen_wait)
+            sockrestart_end_listen_wait();
         // Only update last_unblocked_ns when actual events were received.
         // Timeout returns (err==0) don't count as real progress — the poll_wait
         // loop is just cycling. This prevents the deadlock detector from being
@@ -458,9 +504,6 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
         // fd readiness and signal pending.
         if (err == 0 && wait_timeout == &bounded_timeout) {
             lock(&poll_->lock);
-            list_for_each_entry(&poll_->poll_fds, poll_fd, fds) {
-                sockrestart_end_listen_wait(poll_fd->fd);
-            }
             // Check for group exit so blocking threads unblock promptly
             if (current->group->doing_group_exit) {
                 res = _EINTR;
@@ -477,9 +520,6 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
             continue;
         }
         lock(&poll_->lock);
-        list_for_each_entry(&poll_->poll_fds, poll_fd, fds) {
-            sockrestart_end_listen_wait(poll_fd->fd);
-        }
 
         if (err < 0) {
             errno = saved_errno;
@@ -525,6 +565,7 @@ void poll_destroy(struct poll *poll) {
     struct poll_fd *tmp;
     list_for_each_entry_safe(&poll->poll_fds, poll_fd, tmp, fds) {
         lock(&poll_fd->fd->poll_lock);
+        poll_fd_close_host_fd(poll_fd);
         list_remove(&poll_fd->polls);
         list_remove(&poll_fd->fds);
         unlock(&poll_fd->fd->poll_lock);

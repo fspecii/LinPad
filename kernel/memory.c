@@ -20,6 +20,7 @@
 #include "kernel/task.h"
 #include "kernel/resource.h"
 #include "fs/fd.h"
+#include "fs/real.h"
 
 // increment the change count
 static void mem_changed(struct mem *mem);
@@ -1173,18 +1174,34 @@ have_entry:
             } else if (entry != NULL && (entry->flags & P_COW)) {
                 cow_copied++;
                 void *data = (char *) entry->data->data + entry->offset;
-                memcpy(copy, data, PAGE_SIZE);
+                // A private file page's copy keeps its file, which MADV_DONTNEED reads it back
+                // from (discard_file_page). The page goes where that file position falls in a
+                // host page, so the file offset of the data still finds it.
+                struct fd *file = (entry->flags & P_ANONYMOUS) ? NULL : entry->data->fd;
+                size_t file_pos = 0, in_host = 0;
+                if (file != NULL) {
+                    file_pos = entry->data->file_offset - entry->data->file_offset % real_page_size + entry->offset;
+                    in_host = file_pos % real_page_size;
+                    fd_retain(file);  // pt_map may release the old data, and with it the fd
+                }
+                memcpy((char *) copy + in_host, data, PAGE_SIZE);
 #if ANON_MMAP_LIMIT_PAGES > 0
                 // pt_map will unmap the old page (decrementing anon_page_count),
                 // so pre-increment for the new CoW copy to keep balance.
                 if (entry->flags & P_ANONYMOUS)
                     atomic_fetch_add(&anon_page_count, 1);
 #endif
-                if (pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW) < 0) {
+                if (pt_map(mem, page, 1, copy, in_host, entry->flags &~ P_COW) < 0) {
 #if ANON_MMAP_LIMIT_PAGES > 0
                     if (entry->flags & P_ANONYMOUS)
                         atomic_fetch_sub(&anon_page_count, 1);
 #endif
+                    if (file != NULL)
+                        fd_close(file);
+                } else if (file != NULL) {
+                    struct data *copied = mem_pt(mem, page)->data;
+                    copied->fd = file;
+                    copied->file_offset = file_pos;
                 }
                 mem_changed(mem);
             } else if (copy != MAP_FAILED) {
@@ -1268,7 +1285,35 @@ void mem_coredump(struct mem *mem, const char *file) {
     close(fd);
 }
 
-// madvise(MADV_DONTNEED / MADV_FREE): the pages must read as zero afterwards, and their
+// MADV_DONTNEED on a private file page drops only the private copy: Linux shows the file
+// again, it does not zero the page. Bun single-file executables (Claude Code) keep their
+// module sources in the writable data segment, discard most of it this way after startup,
+// and parse modules from it later. realfs_mmap maps the file from the host page holding
+// the mapping's offset; read the page back from there, zero past the end of the file.
+// Read into a buffer: host is a private mapping of this same file range, and a read()
+// straight into it deadlocks XNU (the copy faults on a page the read holds busy, and the
+// file stays hung until reboot).
+static bool discard_file_page(struct pt_entry *entry, char *host) {
+    struct data *data = entry->data;
+    if (data->fd == NULL || data->fd->ops->mmap != realfs_mmap)
+        return false;
+    off_t pos = (off_t) (data->file_offset - data->file_offset % real_page_size + entry->offset);
+    char buf[PAGE_SIZE];
+    size_t done = 0;
+    while (done < PAGE_SIZE) {
+        ssize_t n = pread(data->fd->real_fd, buf + done, PAGE_SIZE - done, pos + (off_t) done);
+        if (n < 0 && errno == EINTR)
+            continue;
+        if (n <= 0)
+            break;
+        done += (size_t) n;
+    }
+    memset(buf + done, 0, PAGE_SIZE - done);
+    memcpy(host, buf, PAGE_SIZE);
+    return true;
+}
+
+// madvise(MADV_DONTNEED / MADV_FREE): anonymous pages must read as zero afterwards, and their
 // memory should go back to the host. Zeroing them with memset did the opposite: it dirtied
 // every page of the range, including pages the guest never touched, and V8 discards large
 // ranges all the time (VS Code: 5.4 GB footprint).
@@ -1276,8 +1321,9 @@ void mem_coredump(struct mem *mem, const char *file) {
 //    instead of being copied first and then cleared.
 //  - Host pages (16 KB on Apple silicon, four guest pages) whose guest pages are all being
 //    discarded, or no longer use them, are replaced with fresh zero pages, a run at a time.
-//  - What is left (part of a host page still in use, private file mappings) is cleared in
-//    place. Shared mappings are left alone.
+//  - What is left (part of a host page still in use) is cleared in place. Private file
+//    pages are read from the file again instead (discard_file_page). Shared mappings are
+//    left alone.
 // One write lock for the whole range, like munmap: other threads stop once, not per page.
 static void discard_host_run(struct mem *mem, char *host, size_t size, page_t first, pages_t count) {
     if (size == 0)
@@ -1372,7 +1418,8 @@ void mem_discard(struct mem *mem, page_t start, pages_t pages) {
             page++;
             continue;
         }
-        memset(host, 0, PAGE_SIZE);
+        if ((flags & P_ANONYMOUS) || !discard_file_page(entry, host))
+            memset(host, 0, PAGE_SIZE);
         asbestos_invalidate_page(mem->mmu.asbestos, page);
         page++;
     }

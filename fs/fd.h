@@ -78,6 +78,9 @@ struct fd {
             // answers the next connect() that finds it complete with 0, the host with
             // EISCONN; sys_connect gives the Linux answer.
             bool inet_connect_pending;
+            // the host interface the socket is scoped to (SO_BINDTOIFINDEX,
+            // SO_BINDTODEVICE), by index, or 0
+            unsigned bound_ifindex;
             // credentials of the last message sent to this end, recorded at
             // send time so they survive the sender closing (SCM_CREDENTIALS)
             struct ucred_ unix_recv_cred;
@@ -89,6 +92,8 @@ struct fd {
             // host end is a stream carrying records, each a uint32 length then the payload.
             // (A socketpair uses a datagram pair, which keeps boundaries itself.)
             bool seq_framed;
+            // a socketpair's peer has closed: Darwin says so once (ECONNRESET), Linux reads EOF on
+            bool seq_peer_gone;
             lock_t seq_tx_lock; // one record is written at a time
             lock_t seq_rx_lock; // guards the record being read
             uint8_t seq_hdr[sizeof(uint32_t)];

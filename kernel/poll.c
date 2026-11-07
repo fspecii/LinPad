@@ -73,7 +73,7 @@ static dword_t select_common(fd_t nfds, addr_t readfds_addr, addr_t writefds_add
                 poll_destroy(poll);
                 return _EBADF;
             }
-            poll_add_fd(poll, fd, events, (union poll_fd_info) i);
+            poll_add_fd(poll, fd, -1, events, (union poll_fd_info) i);
         }
     }
     STRACE("...\n");
@@ -182,7 +182,7 @@ dword_t sys_poll(addr_t fds, dword_t nfds, int_t timeout) {
             }
         }
 
-        poll_add_fd(poll, files[i], events | POLL_ALWAYS_LISTENING, (union poll_fd_info) (void *) files[i]);
+        poll_add_fd(poll, files[i], -1, events | POLL_ALWAYS_LISTENING, (union poll_fd_info) (void *) files[i]);
     }
 
     for (unsigned i = 0; i < nfds; i++) {

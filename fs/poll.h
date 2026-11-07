@@ -38,6 +38,14 @@ struct poll {
 struct poll_fd {
     // locked by containing struct poll
     struct fd *fd;
+    // The descriptor number epoll added it with, -1 for poll() and select().
+    // Linux keys an epoll entry by file and number: descriptors dup'd from
+    // one file (a terminal's stdin and stdout) are separate entries.
+    int fd_no;
+    // What is registered in the host set: fd->real_fd, or a dup of it when
+    // another entry of this set has fd->real_fd, as the host set takes each
+    // host descriptor once.
+    int real_fd;
     struct list fds;
     int types;
     union poll_fd_info {
@@ -80,10 +88,11 @@ struct poll_event {
     int types;
 };
 struct poll *poll_create(void);
-bool poll_has_fd(struct poll *poll, struct fd *fd);
-int poll_add_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info info);
-int poll_mod_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info info);
-int poll_del_fd(struct poll *poll, struct fd *fd);
+// fd_no: the descriptor number for epoll (see struct poll_fd), -1 otherwise
+bool poll_has_fd(struct poll *poll, struct fd *fd, int fd_no);
+int poll_add_fd(struct poll *poll, struct fd *fd, int fd_no, int types, union poll_fd_info info);
+int poll_mod_fd(struct poll *poll, struct fd *fd, int fd_no, int types, union poll_fd_info info);
+int poll_del_fd(struct poll *poll, struct fd *fd, int fd_no);
 // Indicates that the specified events have been triggered. Each call will
 // generate a new edge-triggered notification.
 // please do not call this while holding any locks you would acquire in your poll operation
