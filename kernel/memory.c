@@ -691,6 +691,34 @@ int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t of
     return 0;
 }
 
+// Move the pages at [from, from + pages) to the hole at [to, to + pages): the same memory at
+// another address (mremap of an anonymous mapping that cannot grow in place).
+int pt_move(struct mem *mem, page_t from, page_t to, pages_t pages) {
+    for (pages_t i = 0; i < pages; i++) {
+        if (mem_pt(mem, from + i) == NULL)
+            continue;
+        struct pt_entry *moved = mem_pt_new(mem, to + i);
+        if (moved == NULL) {
+            pt_unmap_always(mem, to, i);
+            return _ENOMEM;
+        }
+        struct pt_entry *entry = mem_pt(mem, from + i);
+        // counted as a second reference until the old one is unmapped below
+        _Atomic uint32_t *shares = atomic_load(&entry->data->shares);
+        if (shares != NULL && shares != shares_unknown)
+            atomic_fetch_add(&shares[entry->offset >> PAGE_BITS], 1);
+        entry->data->refcount++;
+        moved->data = entry->data;
+        moved->offset = entry->offset;
+        moved->flags = entry->flags;
+#if ANON_MMAP_LIMIT_PAGES > 0
+        if (entry->flags & P_ANONYMOUS)
+            atomic_fetch_add(&anon_page_count, 1);
+#endif
+    }
+    return pt_unmap_always(mem, from, pages);
+}
+
 int pt_unmap(struct mem *mem, page_t start, pages_t pages) {
     for (page_t page = start; page < start + pages; page++)
         if (mem_pt(mem, page) == NULL)

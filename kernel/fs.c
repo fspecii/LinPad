@@ -25,13 +25,24 @@ static void apply_umask(mode_t_ *mode) {
     unlock(&fs->lock);
 }
 
+// Like Linux's in_group_p: the effective gid or one of the supplementary groups.
+bool current_in_group(uid_t_ gid) {
+    if (current->egid == gid)
+        return true;
+    for (unsigned i = 0; i < current->ngroups; i++)
+        if (current->groups[i] == gid)
+            return true;
+    return false;
+}
+
 int access_check(struct statbuf *stat, int check) {
     if (superuser()) return 0;
     if (check == 0) return 0;
-    // Align check with the correct bits in mode
+    // Align check with the correct bits in mode. The group bits apply to the supplementary
+    // groups too: a member of a file's group got only the "other" bits.
     if (current->euid == stat->uid) {
         check <<= 6;
-    } else if (current->egid == stat->gid) {
+    } else if (current_in_group(stat->gid)) {
         check <<= 3;
     }
     // every requested permission must be granted, not just one of them
@@ -68,6 +79,30 @@ dword_t sys_faccessat(fd_t at_f, addr_t path_addr, mode_t_ mode, dword_t flags) 
     return err;
 }
 
+// /proc/self/fd/N, /dev/fd/N and /dev/stdin, stdout, stderr open the file fd N refers to: on
+// Linux they are magic links. Here they were plain symlinks, and a pipe's or socket's target
+// reads "pipe:[...]", so opening one failed with ENOENT (bash's <(...) among others). Files
+// with a real path, ttys included, are left to the normal lookup, which reopens them.
+static struct fd *open_fd_link(const char *path) {
+    int n = -1, pid = -1;
+    char extra;
+    if (strcmp(path, "/dev/stdin") == 0)
+        n = 0;
+    else if (strcmp(path, "/dev/stdout") == 0)
+        n = 1;
+    else if (strcmp(path, "/dev/stderr") == 0)
+        n = 2;
+    else if (sscanf(path, "/dev/fd/%d%c", &n, &extra) != 1 &&
+            sscanf(path, "/proc/self/fd/%d%c", &n, &extra) != 1 &&
+            !(sscanf(path, "/proc/%d/fd/%d%c", &pid, &n, &extra) == 2 && pid == current->tgid))
+        return NULL;
+    struct fd *fd = n >= 0 ? f_get(n) : NULL;
+    if (fd == NULL || S_ISREG(fd->type) || S_ISDIR(fd->type) || S_ISCHR(fd->type) ||
+            S_ISBLK(fd->type) || S_ISLNK(fd->type))
+        return NULL;
+    return fd_retain(fd);
+}
+
 fd_t sys_openat(fd_t at_f, addr_t path_addr, dword_t flags, mode_t_ mode) {
     char path[MAX_PATH];
     if (user_read_string(path_addr, path, sizeof(path)))
@@ -81,7 +116,9 @@ fd_t sys_openat(fd_t at_f, addr_t path_addr, dword_t flags, mode_t_ mode) {
     if (at == NULL) {
         return _EBADF;
     }
-    struct fd *fd = generic_openat(at, path, flags, mode);
+    struct fd *fd = path[0] == '/' ? open_fd_link(path) : NULL;
+    if (fd == NULL)
+        fd = generic_openat(at, path, flags, mode);
     if (IS_ERR(fd)) {
         return PTR_ERR(fd);
     }
@@ -786,6 +823,7 @@ dword_t sys_getcwd(addr_t buf_addr, dword_t size) {
     unlock(&current->fs->lock);
     if (err < 0)
         return err;
+    path_unroot(pwd);
 
     if (strlen(pwd) + 1 > size)
         return _ERANGE;
@@ -1133,6 +1171,36 @@ dword_t sys_fchmodat(fd_t at_f, addr_t path_addr, dword_t mode) {
 
 dword_t sys_chmod(addr_t path_addr, dword_t mode) {
     return sys_fchmodat(AT_FDCWD_, path_addr, mode);
+}
+
+// fchmodat2 (Linux 6.6) is fchmodat with flags: AT_EMPTY_PATH with an empty path changes the
+// at fd itself, and AT_SYMLINK_NOFOLLOW refuses a symlink (EOPNOTSUPP: it has no mode of its
+// own). Alpine's apk tries it first and logged "missing syscall 452".
+dword_t sys_fchmodat2(fd_t at_f, addr_t path_addr, dword_t mode, dword_t flags) {
+    if (flags & ~(AT_SYMLINK_NOFOLLOW_ | AT_EMPTY_PATH_))
+        return _EINVAL;
+    char path[MAX_PATH];
+    if (user_read_string(path_addr, path, sizeof(path)))
+        return _EFAULT;
+    STRACE("fchmodat2(%d, \"%s\", %o, %#x)", at_f, path, mode, flags);
+    struct fd *at = at_fd(at_f);
+    if (at == NULL)
+        return _EBADF;
+    mode &= ~S_IFMT;
+    if ((flags & AT_EMPTY_PATH_) && path[0] == '\0') {
+        if (at_f != AT_FDCWD_)
+            return sys_fchmod(at_f, mode);
+        return generic_setattrat(AT_PWD, ".", make_attr(mode, mode), true);
+    }
+    if (flags & AT_SYMLINK_NOFOLLOW_) {
+        struct statbuf stat;
+        int err = generic_statat(at, path, &stat, false);
+        if (err < 0)
+            return err;
+        if (S_ISLNK(stat.mode))
+            return _EOPNOTSUPP;
+    }
+    return generic_setattrat(at, path, make_attr(mode, mode), true);
 }
 
 dword_t sys_fchown32(fd_t f, uid_t_ owner, uid_t_ group) {

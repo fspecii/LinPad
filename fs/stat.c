@@ -145,7 +145,34 @@ dword_t sys_lstat64(addr_t path_addr, addr_t statbuf_addr) {
     return sys_stat_path(AT_FDCWD_, path_addr, statbuf_addr, false);
 }
 
+static dword_t stat_put(addr_t statbuf_addr, struct statbuf stat) {
+#ifdef GUEST_ARM64
+    struct stat_arm64 arm64stat = stat_convert_arm64(stat);
+    if (user_put(statbuf_addr, arm64stat))
+        return _EFAULT;
+#else
+    struct newstat64 newstat = stat_convert_newstat64(stat);
+    if (user_put(statbuf_addr, newstat))
+        return _EFAULT;
+#endif
+    return 0;
+}
+
 dword_t sys_fstatat64(fd_t at, addr_t path_addr, addr_t statbuf_addr, dword_t flags) {
+    // An empty path with AT_EMPTY_PATH is the at fd itself: glibc 2.33 and later implement
+    // fstat this way, so without it no glibc program could even load its libraries.
+    if (flags & AT_EMPTY_PATH_) {
+        char first;
+        if (user_get(path_addr, first))
+            return _EFAULT;
+        if (first == '\0') {
+            if (at != AT_FDCWD_)
+                return sys_fstat64(at, statbuf_addr);
+            struct statbuf stat = {};
+            int err = generic_statat(AT_PWD, ".", &stat, true);
+            return err < 0 ? err : stat_put(statbuf_addr, stat);
+        }
+    }
     return sys_stat_path(at, path_addr, statbuf_addr, !(flags & AT_SYMLINK_NOFOLLOW_));
 }
 

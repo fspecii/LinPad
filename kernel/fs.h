@@ -69,6 +69,7 @@ ssize_t generic_readlinkat(struct fd *at, const char *path, char *buf, size_t bu
 int generic_mkdirat(struct fd *at, const char *path, mode_t_ mode);
 
 int access_check(struct statbuf *stat, int check);
+bool current_in_group(uid_t_ gid);
 
 struct mount {
     const char *point;

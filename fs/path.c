@@ -174,9 +174,25 @@ static int __path_normalize(const char *at_path, const char *path, char *out, in
                     return _ENAMETOOLONG;
                 // readlink does not null terminate
                 c[res] = '\0';
-                // if we should restart from the root, copy down
-                if (*c == '/')
-                    memmove(out, c, strlen(c) + 1);
+                // An absolute target restarts at the root: the process's own, which chroot
+                // moves. Starting over at / instead made every absolute symlink inside a
+                // chroot point outside it (dpkg could not stat the debs apt linked to).
+                if (*c == '/') {
+                    char root[MAX_PATH] = "";
+                    lock(&current->fs->lock);
+                    int err = current->fs->root != NULL ? generic_getpath(current->fs->root, root) : 0;
+                    unlock(&current->fs->lock);
+                    if (err < 0)
+                        return err;
+                    if (strcmp(root, "/") == 0)
+                        root[0] = '\0';
+                    if (strlen(root) + strlen(c) >= MAX_PATH)
+                        return _ENAMETOOLONG;
+                    char target[MAX_PATH];
+                    strcpy(target, root);
+                    strcat(target, c);
+                    strcpy(out, target);
+                }
                 if (strlen(out) + 1 + strlen(p) >= MAX_PATH)
                     return _ENAMETOOLONG;
                 char *expanded_path = possible_symlink;
@@ -213,6 +229,24 @@ static int __path_normalize(const char *at_path, const char *path, char *out, in
     assert(path_is_normalized(out));
 
     return 0;
+}
+
+// A path as the current process sees it: with its root (chroot) taken off the front. A path
+// outside that root is left alone.
+void path_unroot(char *path) {
+    char root[MAX_PATH];
+    lock(&current->fs->lock);
+    int err = current->fs->root != NULL ? generic_getpath(current->fs->root, root) : -1;
+    unlock(&current->fs->lock);
+    if (err < 0 || strcmp(root, "/") == 0)
+        return;
+    size_t n = strlen(root);
+    if (strncmp(path, root, n) != 0)
+        return;
+    if (path[n] == '\0')
+        strcpy(path, "/");
+    else if (path[n] == '/')
+        memmove(path, path + n, strlen(path + n) + 1);
 }
 
 int path_normalize(struct fd *at, const char *path, char *out, int flags) {

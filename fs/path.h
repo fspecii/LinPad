@@ -24,6 +24,8 @@
 // at is the file descriptor to use as a base to interpret relative paths. If
 // at is AT_PWD, uses current->pwd (with appropriate locking).
 int path_normalize(struct fd *at, const char *path, char *out, int flags);
+// takes the current process's root (chroot) off the front of a path
+void path_unroot(char *path);
 bool path_is_normalized(const char *path);
 
 // Helper function for iterating through a normalized path.

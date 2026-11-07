@@ -360,8 +360,15 @@ int generic_mkdirat(struct fd *at, const char *path_raw, mode_t_ mode) {
         strcpy(full, path);
     struct mount *mount = find_mount_and_trim_path(path);
     err = _EPERM;
-    if (mount->fs->mkdir)
+    if (mount->fs->mkdir) {
         err = mount->fs->mkdir(mount, path, mode);
+    } else {
+        // devpts and proc make no directories, but one that exists, like their mount point, is
+        // EEXIST as on Linux: mkdir -p /dev/pts failed with EPERM
+        struct statbuf stat;
+        if (mount->fs->stat && mount->fs->stat(mount, path, &stat) >= 0)
+            err = _EEXIST;
+    }
     mount_release(mount);
     if (notify && err >= 0)
         fsnotify_create(full, true);

@@ -119,6 +119,10 @@ static addr_t do_mmap(addr_t addr, uint64_t len, dword_t prot, dword_t flags, fd
                 prot, flags, fd_no);
     }
     page_t page;
+    // Without MAP_FIXED the address is only a hint, which Linux rounds down to a page: Dart
+    // passes one in the middle of a page (its own code address) and aborted on EINVAL.
+    if (addr != 0 && PGOFFSET(addr) != 0 && !(flags & MMAP_FIXED))
+        addr -= PGOFFSET(addr);
     if (addr != 0) {
         if (PGOFFSET(addr) != 0)
             return _EINVAL;
@@ -360,10 +364,56 @@ static int mremap_map_file(struct pt_entry *src_entry, page_t start, pages_t pag
     return 0;
 }
 
+// An anonymous mapping, perhaps mapped lazily (pt_map_lazy): the pages touched so far have
+// entries, the rest are covered by a reservation, and a fork left some copy-on-write.
+static addr_t mremap_grow_anon(page_t start, pages_t old_pages, pages_t new_pages, unsigned pt_flags, dword_t flags) {
+    struct mem *mem = current->mem;
+    bool lazy = false;
+    for (page_t page = start; page < start + old_pages; page++) {
+        struct pt_entry *e = mem_pt(mem, page);
+        if (e != NULL ? !(e->flags & P_ANONYMOUS) || (e->flags & P_SHARED) : mem_find_reservation(mem, page) == NULL)
+            return _EFAULT;
+        lazy |= e == NULL;
+    }
+    pt_flags &= ~P_COW;
+    page_t extra_start = start + old_pages;
+    pages_t extra_pages = new_pages - old_pages;
+    if (pt_is_hole(mem, extra_start, extra_pages)) {
+        int err = pt_map_nothing(mem, extra_start, extra_pages, pt_flags);
+        return err < 0 ? (addr_t) err : start << PAGE_BITS;
+    }
+    // Something is in the way: move the mapping, as Linux does with MREMAP_MAYMOVE. apt grows
+    // its package cache this way and gave up with ENOMEM ("NewVersion2" errors).
+    if (!(flags & MREMAP_MAYMOVE_))
+        return _ENOMEM;
+    page_t new_start = pt_find_hole(mem, new_pages);
+    if (new_start == BAD_PAGE)
+        return _ENOMEM;
+    int err = pt_map_nothing(mem, new_start + old_pages, extra_pages, pt_flags);
+    if (err < 0)
+        return err;
+    // pages not touched yet stay lazy at the new address
+    if (lazy && (err = pt_map_lazy(mem, new_start, old_pages, pt_flags)) < 0) {
+        pt_unmap_always(mem, new_start + old_pages, extra_pages);
+        return err;
+    }
+    if ((err = pt_move(mem, start, new_start, old_pages)) < 0) {
+        pt_unmap_always(mem, new_start, new_pages);
+        return err;
+    }
+    return new_start << PAGE_BITS;
+}
+
 static addr_t do_mremap_grow(addr_t addr, pages_t old_pages, pages_t new_pages, dword_t flags) {
     struct pt_entry *entry = mem_pt(current->mem, PAGE(addr));
-    if (entry == NULL)
-        return _EFAULT;
+    if (entry == NULL) {
+        struct mem_reservation *res = mem_find_reservation(current->mem, PAGE(addr));
+        if (res == NULL)
+            return _EFAULT;
+        return mremap_grow_anon(PAGE(addr), old_pages, new_pages, res->flags, flags);
+    }
+    if ((entry->flags & P_ANONYMOUS) && !(entry->flags & P_SHARED))
+        return mremap_grow_anon(PAGE(addr), old_pages, new_pages, entry->flags, flags);
     dword_t pt_flags = entry->flags;
     for (page_t page = PAGE(addr); page < PAGE(addr) + old_pages; page++) {
         struct pt_entry *e = mem_pt(current->mem, page);
@@ -375,6 +425,7 @@ static addr_t do_mremap_grow(addr_t addr, pages_t old_pages, pages_t new_pages, 
     bool in_place = pt_is_hole(current->mem, extra_start, extra_pages);
 
     if (pt_flags & P_ANONYMOUS) {
+        // shared anonymous memory only grows in place
         if (!in_place)
             return _ENOMEM;
         int err = pt_map_nothing(current->mem, extra_start, extra_pages, pt_flags);

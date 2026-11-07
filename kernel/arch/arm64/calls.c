@@ -307,6 +307,8 @@ syscall_t syscall_table[] = {
     [441] = (syscall_t) syscall_silent_stub, // epoll_pwait2 (libuv falls back)
     [442 ... 448] = (syscall_t) syscall_stub, // mount_setattr/quotactl_fd/landlock/memfd_secret/process_mrelease
     [449] = (syscall_t) syscall_stub, // futex_waitv
+    [450 ... 451] = (syscall_t) syscall_stub, // set_mempolicy_home_node, cachestat
+    [452] = (syscall_t) sys_fchmodat2,
 };
 
 #define NUM_SYSCALLS (sizeof(syscall_table) / sizeof(syscall_table[0]))
