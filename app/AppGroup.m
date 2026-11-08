@@ -104,10 +104,8 @@ NSArray<NSString *> *CurrentAppGroups(void) {
 NSURL *ContainerURL(void) {
     NSString *appGroup = CurrentAppGroups().firstObject;
     NSURL *url = appGroup ? [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:appGroup] : nil;
-#if TARGET_OS_SIMULATOR
-    // Ad-hoc simulator builds can't carry the app-group entitlement.
+    // Ad-hoc simulator builds and LiveContainer installs can't carry the app-group entitlement.
     if (url == nil)
         url = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-#endif
     return url;
 }
