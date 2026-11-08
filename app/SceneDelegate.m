@@ -7,12 +7,15 @@
 
 #import "SceneDelegate.h"
 #import "AboutViewController.h"
+#import "AppDelegate.h"
 
 TerminalViewController *currentTerminalViewController = NULL;
 
 @interface SceneDelegate ()
 
 @property NSString *terminalUUID;
+// The scene went away; a session start still waiting for Linux to boot is dropped.
+@property BOOL disconnected;
 
 @end
 
@@ -33,6 +36,23 @@ static Class<ISHDesktopBridge> DesktopBridgeIfEnabled(void) {
         return nil;
     Class<ISHDesktopBridge> desktop = bridge;
     return [desktop isEnabled] ? desktop : nil;
+}
+
+/// Runs block on the main queue once Linux runs (or failed to boot). Fast mode boots it only
+/// after StikDebug has enabled the JIT, after the scene connects.
+static void WhenBooted(void (^block)(void)) {
+    ISHBootPhase phase = AppDelegate.bootPhase;
+    if (phase == ISHBootPhaseRunning || phase == ISHBootPhaseFailed) {
+        block();
+        return;
+    }
+    __block BOOL done = NO;
+    [AppDelegate observeBoot:^(ISHBootPhase phase, double fraction, NSString *title, NSString *detail) {
+        if (done || (phase != ISHBootPhaseRunning && phase != ISHBootPhaseFailed))
+            return;
+        done = YES;
+        dispatch_async(dispatch_get_main_queue(), block);
+    }];
 }
 
 @implementation SceneDelegate
@@ -57,13 +77,24 @@ static Class<ISHDesktopBridge> DesktopBridgeIfEnabled(void) {
     if (![vc isKindOfClass:TerminalViewController.class])
         return;
     vc.sceneSession = session;
-    if (session.stateRestorationActivity == nil) {
-        [vc startNewSession];
-    } else {
-        self.terminalUUID = session.stateRestorationActivity.userInfo[TerminalUUID];
-        [vc reconnectSessionFromTerminalUUID:
-         [[NSUUID alloc] initWithUUIDString:self.terminalUUID]];
-    }
+    NSUserActivity *restored = session.stateRestorationActivity;
+    // Boot observers are never removed, so hold the scene weakly: one that disconnects while
+    // fast mode waits for StikDebug is released, and starts no shell nobody can see.
+    __weak SceneDelegate *weakSelf = self;
+    __weak TerminalViewController *weakTerminal = vc;
+    WhenBooted(^{
+        SceneDelegate *scene = weakSelf;
+        TerminalViewController *terminal = weakTerminal;
+        if (scene == nil || terminal == nil || scene.disconnected)
+            return;
+        if (restored == nil) {
+            [terminal startNewSession];
+        } else {
+            scene.terminalUUID = restored.userInfo[TerminalUUID];
+            [terminal reconnectSessionFromTerminalUUID:
+             [[NSUUID alloc] initWithUUIDString:scene.terminalUUID]];
+        }
+    });
 }
 
 /// linpad:// links go to the desktop, which asks before acting on them.
@@ -89,6 +120,10 @@ static Class<ISHDesktopBridge> DesktopBridgeIfEnabled(void) {
         }
     }
     return activity;
+}
+
+- (void)sceneDidDisconnect:(UIScene *)scene {
+    self.disconnected = YES;
 }
 
 - (void)sceneDidBecomeActive:(UIScene *)scene {

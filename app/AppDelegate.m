@@ -571,6 +571,11 @@ static void RequestFastMode(BOOL afterBoot, void (^done)(BOOL on)) {
 + (void)install;
 @end
 
+/// app/Desktop/ISHBackgroundKeeper.swift
+@protocol ISHBackgroundKeeping <NSObject>
++ (void)observeApplication;
+@end
+
 @implementation AppDelegate
 
 - (int)boot {
@@ -916,11 +921,9 @@ static NSString *TakeFactoryResetRequest(Roots *roots) {
             SetBootState(bootError < 0 ? ISHBootPhaseFailed : ISHBootPhaseRunning, 1, nil, nil);
             RecordBootStat(@"boot_seconds", [NSString stringWithFormat:@"%.2f", CFAbsoluteTimeGetCurrent() - start]);
         };
-        // The classic terminal UI expects a booted kernel when launching finishes.
-        if (DesktopEnabled())
-            [self afterFastMode:boot];
-        else
-            boot();
+        // The classic terminal too: its session starts once the kernel runs (SceneDelegate),
+        // so fast mode can ask StikDebug for the JIT first, as for the desktop.
+        [self afterFastMode:boot];
         return;
     }
 
@@ -1046,6 +1049,12 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     NoteLaunchForCrashLoops();
+
+    // Settings › Background applies with or without the desktop. By name, because this
+    // file is also built into targets without Swift.
+    Class<ISHBackgroundKeeping> keeper = (Class<ISHBackgroundKeeping>) NSClassFromString(@"ISHBackgroundKeeper");
+    if ([keeper respondsToSelector:@selector(observeApplication)])
+        [keeper observeApplication];
 
     // get the network permissions popup to appear on chinese devices
     [[NSURLSession.sharedSession dataTaskWithURL:[NSURL URLWithString:@"http://captive.apple.com"]] resume];
