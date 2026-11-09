@@ -1,9 +1,8 @@
 """Check entitlement packaging without building, signing or publishing a release."""
-import ast
+import json
 import os
 from pathlib import Path
 import plistlib
-import re
 import subprocess
 import tempfile
 import unittest
@@ -41,6 +40,26 @@ class MemoryEntitlementsTests(unittest.TestCase):
 
     def test_sideload_source_declares_requested_permission(self):
         publish = (ROOT / "release/publish.sh").read_text()
-        permissions = re.findall(r'"entitlements": (\[[^\n]+\])', publish)
-        self.assertEqual(len(permissions), 1)
-        self.assertIn(KEY, ast.literal_eval(permissions[0]))
+        start = publish.index('python3 - "$HERE/source.json" "$SOURCE_OUT" "$INFO_PLIST" "$NOTES" <<PY\n')
+        end = publish.index("\nPY\n", start) + len("\nPY\n")
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            (fixture / "docs/screenshots").mkdir(parents=True)
+            (fixture / "source.json").write_text("{}")
+            (fixture / "notes.md").write_text("### Changes\n- Fixture release\n")
+            with (fixture / "Info.plist").open("wb") as source:
+                plistlib.dump({}, source)
+            # Isolate the commit-count input; execute the metadata writer unchanged.
+            subprocess.run(
+                ["bash", "-euc", "git() { printf '1\\n'; }\n" + publish[start:end]],
+                check=True, cwd=fixture,
+                env={**os.environ,
+                     "HERE": directory, "SOURCE_OUT": str(fixture / "generated.json"),
+                     "INFO_PLIST": str(fixture / "Info.plist"), "NOTES": str(fixture / "notes.md"),
+                     "RAW": "https://example.invalid/main", "VERSION": "9.9.9",
+                     "REPO": "example/linpad", "TAG": "v9.9.9", "IPA_NAME": "fixture.ipa",
+                     "IPA_SIZE": "1", "IPA_SHA": "a" * 64, "MIN_OS": "16.0",
+                     "BUNDLE_ID": "com.example.linpad"},
+            )
+            generated = json.loads((fixture / "generated.json").read_text())
+        self.assertIn(KEY, generated["apps"][0]["appPermissions"]["entitlements"])

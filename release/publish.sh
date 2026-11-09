@@ -200,6 +200,7 @@ elif [ "$IPA" != "$DEST_IPA" ]; then
 fi
 SRC_IPA=$IPA; [ -f "$DEST_IPA" ] && SRC_IPA=$DEST_IPA
 if [ -f "$SRC_IPA" ]; then
+    python3 "$HERE/check-ipa-entitlements.py" "$SRC_IPA"
     IPA_SIZE=$(bytes "$SRC_IPA")
     IPA_SHA=$(sha "$SRC_IPA")
     IPA_VERSION=$(unzip -p "$SRC_IPA" 'Payload/*.app/Info.plist' | plutil -extract CFBundleShortVersionString raw -o - - 2>/dev/null || true)
