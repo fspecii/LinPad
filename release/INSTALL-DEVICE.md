@@ -119,8 +119,8 @@ The iPad must be in landscape, with the Logitech keyboard and trackpad attached.
      afterwards.
 9. **Memory.** Turn on Settings › Desktop › Performance overlay (it shows phys_footprint).
    - With Firefox, Thunar and foot open, the simulator measured about 1.5–2 GB.
-   - This build lacks the increased-memory-limit entitlement (see CHECKLIST.md), so
-     jetsam may kill the app around 3 GB on an 8 GB iPad.
+   - Check the effective memory allowance after signing (see section 6). The requested
+     entitlement may not survive every signing route, and jetsam limits vary by device.
    - Note when that happens and what was open.
 
 ## 3b. Native JIT ("fast mode") on the iPad
@@ -240,6 +240,15 @@ through Files:
 
 - The native JIT without StikDebug. Without StikDebug and LocalDevVPN set up, every
   launch uses the gadget engine, and the app says why (Settings › Fast Mode).
-- `com.apple.developer.kernel.increased-memory-limit`. It needs the updated Apple Program
-  License Agreement accepted at developer.apple.com first. Then add it to
-  `app/iSH.entitlements` and rebuild; Xcode refreshes the profile automatically.
+
+## 6. Increased Memory Limit
+
+The app and release IPA request `com.apple.developer.kernel.increased-memory-limit`.
+The signing account must also have a provisioning profile that grants it. Accept any
+pending Apple Program License Agreement for that account, then rebuild with
+`-allowProvisioningUpdates`. Check the final signed app and its embedded profile;
+a request in source or an ad-hoc IPA alone does not prove it survived re-signing.
+
+Extra memory is device-dependent and is not reserved RAM. Check the actual allowance
+with `cat /proc/ish/memory` and keep workloads within the available headroom. The app
+must still work when additional memory is unavailable.

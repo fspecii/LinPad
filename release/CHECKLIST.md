@@ -303,10 +303,11 @@ What was cut to get under 700 MB, and why:
 
 ## Pending
 
-1. **`com.apple.developer.kernel.increased-memory-limit`**: blocked until the account holder
-   accepts Apple's updated Program License Agreement on developer.apple.com.
-   - Then add the key to `app/iSH.entitlements` and rebuild with `-allowProvisioningUpdates`.
-   - Re-check that the profile has the capability.
+1. **Increased Memory Limit provisioning for the release signing account.** The app and
+   release IPA include the request, but the profile must grant it too.
+   - The account holder must accept any pending Apple Program License Agreement.
+   - Rebuild with `-allowProvisioningUpdates` and check the final signed app and profile.
+   - Confirm the effective allowance on a supported device after installation/re-signing.
 2. **JIT on hardware.** It is compiled in and was verified in the simulator (both engines
    boot the desktop). It has not run on a TXM device yet: run INSTALL-DEVICE.md §3b first.
 3. **First test on the iPad**: import time, GPU (Venus on Apple M3), memory under Firefox,
