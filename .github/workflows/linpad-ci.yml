@@ -158,6 +158,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Release tooling tests (native signing)
+        run: python3 -m unittest discover -s release/tests -v
+
       - name: Install build tools
         run: |
           brew install llvm lld meson libarchive coreutils

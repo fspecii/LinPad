@@ -31,7 +31,7 @@ class IpaEntitlementsTests(unittest.TestCase):
         # Only the platform signing reader is a double; archive/guard code is real.
         reader = tools / "xcrun"
         reader.write_text("#!/usr/bin/env python3\nfrom pathlib import Path\nimport sys\n"
-                          "sys.exit(0 if Path(sys.argv[-1]).read_bytes() == b'allow' else 1)\n")
+                          "sys.exit(0 if Path(sys.argv[-1]).read_bytes() == b'allow' else 3)\n")
         reader.chmod(0o755)
         self.env = {**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"]}
 
@@ -60,7 +60,23 @@ class IpaEntitlementsTests(unittest.TestCase):
                 result = subprocess.run(["python3", str(ROOT / "release/check-ipa-entitlements.py"), str(ipa)],
                                         env=self.env, capture_output=True, text=True)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("rebuild the IPA", result.stderr)
+                self.assertIn("invalid main-app executable name" if label == "unsafe-name"
+                              else "File is not a zip file", result.stderr)
+                self.assertNotIn("rebuild the IPA", result.stderr)
+
+    def test_verifier_failures_preserve_diagnostics_without_rebuild_advice(self):
+        ipa = self.fixture / "compliant.ipa"
+        write_ipa(ipa)
+        for status, diagnostic in ((1, "Swift compiler unavailable"), (2, "Security API failure")):
+            with self.subTest(status=status):
+                (self.fixture / "bin/xcrun").write_text(
+                    f"#!/bin/sh\nprintf '%s\\n' '{diagnostic}' >&2\nexit {status}\n")
+                result = subprocess.run(["python3", str(ROOT / "release/check-ipa-entitlements.py"), str(ipa)],
+                                        env=self.env, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(diagnostic, result.stderr)
+                self.assertIn("entitlement verification failed", result.stderr)
+                self.assertNotIn("rebuild the IPA", result.stderr)
 
     def test_explicit_cached_and_missing_ipa_paths_use_the_final_guard(self):
         publish = (ROOT / "release/publish.sh").read_text()
