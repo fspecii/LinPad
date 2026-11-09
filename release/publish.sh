@@ -150,14 +150,16 @@ if [ -z "$IPA" ]; then
         SYMROOT="$BUILD_DIR" IPHONEOS_DEPLOYMENT_TARGET=$MIN_OS ISH_JIT_BUILD=enabled ISH_VIRTGPU=enabled \
         MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
         CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM= build
-    # SideStore and AltStore re-sign with the user's Apple ID and keep these entitlements:
-    # the app group, user fonts, and get-task-allow, which StikDebug needs for the JIT.
+    # Carry the requested entitlements into the IPA for the sideloader to re-sign.
+    # Increased Memory Limit also needs a provisioning profile that grants it.
     mkdir -p "$ENT"
     cat > "$ENT/app.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>com.apple.developer.kernel.increased-memory-limit</key>
+	<true/>
 	<key>com.apple.developer.user-fonts</key>
 	<array><string>app-usage</string></array>
 	<key>com.apple.security.application-groups</key>
@@ -167,7 +169,8 @@ if [ -z "$IPA" ]; then
 </dict>
 </plist>
 PLIST
-    sed -e '/user-fonts/,/<\/array>/d' -e '/get-task-allow/,/<true\/>/d' "$ENT/app.plist" > "$ENT/extension.plist"
+    sed -e '/user-fonts/,/<\/array>/d' -e '/get-task-allow/,/<true\/>/d' \
+        -e '/increased-memory-limit/,/<true\/>/d' "$ENT/app.plist" > "$ENT/extension.plist"
     if [ -z "$DRY" ]; then
         [ -d "$APP" ] || { echo "no app at $APP" >&2; exit 1; }
         find "$APP/Frameworks" -maxdepth 1 \( -name '*.framework' -o -name '*.dylib' \) -exec codesign --force --sign - {} \; 2>/dev/null || true
@@ -389,7 +392,7 @@ app.update({
     "screenshots": {"ipad": ipad_shots},
     "versions": versions,
     "appPermissions": {
-        "entitlements": ["com.apple.developer.user-fonts", "com.apple.security.application-groups", "get-task-allow"],
+        "entitlements": ["com.apple.developer.kernel.increased-memory-limit", "com.apple.developer.user-fonts", "com.apple.security.application-groups", "get-task-allow"],
         "privacy": privacy,
     },
 })
