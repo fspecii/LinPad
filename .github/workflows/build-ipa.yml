@@ -1,0 +1,58 @@
+# Builds an unsigned LinPad IPA from this branch (patches already committed).
+# The Linux image is reused from the official release IPA of ROOTFS_TAG, so keep the
+# branch based on that same tag. Install the IPA with iloader ("Import IPA").
+name: Build IPA
+
+on:
+  push:
+    branches: [a12x-jit-fix]
+  workflow_dispatch:
+
+env:
+  ROOTFS_TAG: v1.5.0
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Submodules (deps/linux is not needed for the app)
+        run: git submodule update --init --depth 1 deps/libapps deps/libarchive
+
+      - name: Install build tools
+        run: |
+          brew install llvm lld meson ninja libarchive pkg-config
+          pip3 install --user --break-system-packages mako || pip3 install --user mako
+          echo "$(brew --prefix lld)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          xcodebuild -version
+
+      - name: Build GPU libraries (iOS only)
+        run: gpu/build-third-party.sh ios
+
+      - name: Build the app (unsigned)
+        run: |
+          xcodebuild -skipMacroValidation -project iSH.xcodeproj -scheme iSH-ARM64 \
+            -configuration Release -destination generic/platform=iOS \
+            SYMROOT="$PWD/build-ios-release" IPHONEOS_DEPLOYMENT_TARGET=16.0 \
+            ISH_JIT_BUILD=enabled CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+      - name: Package the IPA with the official Linux image
+        run: |
+          v="${ROOTFS_TAG#v}"
+          curl -fL -o official.ipa "https://github.com/fspecii/LinPad/releases/download/$ROOTFS_TAG/LinPad-$v.ipa"
+          unzip -q official.ipa 'Payload/*/root.tar.gz' 'Payload/*/root.version' -d official
+          APP="build-ios-release/Release-iphoneos/iSH ARM64.app"
+          cp official/Payload/*/root.tar.gz official/Payload/*/root.version "$APP/"
+          mkdir -p pkg/Payload
+          cp -R "$APP" pkg/Payload/
+          (cd pkg && zip -qry "../LinPad-$v-${GITHUB_SHA::7}.ipa" Payload)
+          ls -la LinPad-*.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LinPad-ipa
+          path: LinPad-*.ipa
+          retention-days: 14
