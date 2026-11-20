@@ -191,6 +191,22 @@ static bool want_named(void) {
     return e && e[0] == '1';
 }
 
+#if TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+// mprotect can drop PROT_EXEC silently instead of failing, so ask the kernel
+// what the region's protection really is before handing it to the JIT.
+static bool jit_region_is_executable(void *addr) {
+    vm_address_t a = (vm_address_t) addr;
+    vm_size_t size = 0;
+    vm_region_basic_info_data_64_t info;
+    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+    mach_port_t object = MACH_PORT_NULL;
+    if (vm_region_64(mach_task_self(), &a, &size, VM_REGION_BASIC_INFO_64,
+                     (vm_region_info_t) &info, &count, &object) != KERN_SUCCESS)
+        return false;
+    return a == (vm_address_t) addr && (info.protection & VM_PROT_EXECUTE);
+}
+#endif
+
 static bool make_rw_alias(void) {
     vm_address_t rw = 0;
     vm_prot_t cur, max;
@@ -247,12 +263,32 @@ bool jit_codemem_init(void) {
             mode = "cs_debugged named chunks";
             goto done_ios;
         }
+        // On pre-TXM iPads (A12X, iPadOS 26) vm_remap strips EXECUTE from the
+        // source's max protection, and mprotect(RX) on it then "succeeds" with
+        // the region left r--: the first translated block faults (SIGBUS).
+        // The remapped copy keeps max rwx, so make the copy the RX view and
+        // keep the original mapping as the RW view.
         void *p = mmap(NULL, arena_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
         if (p == MAP_FAILED)
             return false;
-        arena_rx = p;
-        if (!make_rw_alias() || mprotect(arena_rx, arena_size, PROT_READ | PROT_EXEC) != 0)
+        vm_address_t x = 0;
+        vm_prot_t cur, max;
+        if (vm_remap(mach_task_self(), &x, arena_size, 0, VM_FLAGS_ANYWHERE,
+                     mach_task_self(), (vm_address_t) p, false,
+                     &cur, &max, VM_INHERIT_NONE) != KERN_SUCCESS) {
+            munmap(p, arena_size);
             return false;
+        }
+        if (mprotect((void *) x, arena_size, PROT_READ | PROT_EXEC) != 0 ||
+            !jit_region_is_executable((void *) x)) {
+            munmap((void *) x, arena_size);
+            munmap(p, arena_size);
+            return false;
+        }
+        arena_rw = p;
+        arena_rx = (uint8_t *) x;
+        rw_delta = arena_rw - arena_rx;
+        mode = "cs_debugged dual mapping (rx alias)";
     }
 done_ios:
 #else
